@@ -1,7 +1,7 @@
 use std::io;
 
-use bytes::{Bytes, BytesMut};
 use bytes::BufMut;
+use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::constants::CODEC_MIN_BUFFER;

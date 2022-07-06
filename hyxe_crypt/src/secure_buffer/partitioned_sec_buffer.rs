@@ -1,20 +1,26 @@
 use crate::prelude::SecBuffer;
 use bytes::{BufMut, BytesMut};
-use std::ops::{Range, Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 
 /// N determines the number of partitions in the buffer
 #[derive(Debug)]
 pub struct PartitionedSecBuffer<const N: usize> {
     layout: [u32; N],
-    buffer: SecBuffer
+    buffer: SecBuffer,
 }
 
 impl<const N: usize> PartitionedSecBuffer<N> {
     pub fn new() -> std::io::Result<Self> {
         if N != 0 {
-            Ok(Self { layout: [0; N], buffer: SecBuffer::empty() })
+            Ok(Self {
+                layout: [0; N],
+                buffer: SecBuffer::empty(),
+            })
         } else {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Partitions == 0"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Partitions == 0",
+            ))
         }
     }
 
@@ -30,7 +36,10 @@ impl<const N: usize> PartitionedSecBuffer<N> {
     /// Returns a window to the partition slice
     pub fn partition_window(&mut self, idx: usize) -> std::io::Result<SliceHandle> {
         let range = self.get_range(idx)?;
-        Ok(SliceHandle { ptr: &mut self.buffer, range })
+        Ok(SliceHandle {
+            ptr: &mut self.buffer,
+            range,
+        })
     }
 
     fn get_range(&self, idx: usize) -> std::io::Result<Range<usize>> {
@@ -49,7 +58,10 @@ impl<const N: usize> PartitionedSecBuffer<N> {
 
     fn check_index(&self, idx: usize) -> std::io::Result<()> {
         if idx >= N {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "idx > partitions"))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "idx > partitions",
+            ))
         } else {
             Ok(())
         }
@@ -59,20 +71,29 @@ impl<const N: usize> PartitionedSecBuffer<N> {
         self.check_index(idx)?;
         // make sure current value is unset
         if self.layout[idx] != 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Current index already set"))
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Current index already set",
+            ));
         }
 
         // make sure every index before idx has a nonzero value
         for idx in 0..idx {
             if self.layout[idx] == 0 {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Previously unset partition detected"))
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Previously unset partition detected",
+                ));
             }
         }
 
         // make sure every index after idx has a zero value
         for idx in idx..N {
             if self.layout[idx] != 0 {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Next partitions already set"))
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Next partitions already set",
+                ));
             }
         }
 
@@ -90,7 +111,7 @@ impl<const N: usize> PartitionedSecBuffer<N> {
 
 pub struct SliceHandle<'a> {
     pub(crate) range: Range<usize>,
-    ptr: &'a mut SecBuffer
+    ptr: &'a mut SecBuffer,
 }
 
 impl Deref for SliceHandle<'_> {
@@ -124,7 +145,7 @@ mod tests {
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.partition_window(0).unwrap().fill(1);
-        assert_eq!(buf.into_buffer(), &vec![1,1,1,1,1,1,1,1,1,1])
+        assert_eq!(buf.into_buffer(), &vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
     }
 
     #[test]
@@ -152,7 +173,10 @@ mod tests {
         buf.reserve_partition(1, 3).unwrap();
         buf.partition_window(0).unwrap().fill(1);
         buf.partition_window(1).unwrap().fill(2);
-        assert_eq!(buf.into_buffer(), &vec![1,1,1,1,1,1,1,1,1,1,2,2,2])
+        assert_eq!(
+            buf.into_buffer(),
+            &vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2]
+        )
     }
 
     #[test]
@@ -163,7 +187,10 @@ mod tests {
         buf.reserve_partition(1, 3).unwrap();
         buf.partition_window(1).unwrap().fill(2); // order doesn't matter so long as reserves are set properly
         buf.partition_window(0).unwrap().fill(1);
-        assert_eq!(buf.into_buffer(), &vec![1,1,1,1,1,1,1,1,1,1,2,2,2])
+        assert_eq!(
+            buf.into_buffer(),
+            &vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2]
+        )
     }
 
     #[test]
@@ -185,6 +212,9 @@ mod tests {
         buf.partition_window(0).unwrap().fill(1);
         buf.partition_window(1).unwrap().fill(2);
         buf.partition_window(2).unwrap().fill(3);
-        assert_eq!(buf.into_buffer(), &vec![1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,3,3,3])
+        assert_eq!(
+            buf.into_buffer(),
+            &vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3]
+        )
     }
 }

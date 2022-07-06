@@ -174,10 +174,6 @@ jobs:
             return 'stop'
           result-encoding: string
   cargo_deny_and_coverage:
-    env:
-      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
-      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:

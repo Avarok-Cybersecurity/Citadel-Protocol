@@ -4,16 +4,28 @@ use crate::hdp::packet_processor::peer::peer_cmd_packet;
 
 use super::includes::*;
 use crate::error::NetworkError;
-use std::sync::atomic::Ordering;
-use futures::Future;
 use crate::macros::ContextRequirements;
+use futures::Future;
+use std::sync::atomic::Ordering;
 
-pub trait ProcessorFuture: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements {}
-impl<T: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements> ProcessorFuture for T {}
+pub trait ProcessorFuture:
+    Future<Output = Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements
+{
+}
+impl<T: Future<Output = Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements>
+    ProcessorFuture for T
+{
+}
 
 /// For primary-port packet types. NOT for wave ports
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(implicated_cid=this_implicated_cid, is_server=session.is_server)))]
-pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_raw_packet(
+    this_implicated_cid: Option<u64>,
+    session: &HdpSession,
+    remote_peer: SocketAddr,
+    local_primary_port: u16,
+    packet: BytesMut,
+) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     log::trace!(target: "lusna", "RECV Raw packet: {:?}", &packet.parse().unwrap().0);
@@ -26,75 +38,112 @@ pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpS
     let cmd_aux = header.cmd_aux;
     let header_drill_vers = header.drill_version.get();
 
-    match check_proxy(this_implicated_cid, header.cmd_primary, header.cmd_aux, header.session_cid.get(), target_cid, session, &mut endpoint_cid_info, ReceivePortType::OrderedReliable, packet) {
-        Some(packet) => {
-            match cmd_primary {
-                packet_flags::cmd::primary::DO_REGISTER => {
-                    super::register_packet::process_register(session, packet, remote_peer).await
-                }
-
-                packet_flags::cmd::primary::DO_CONNECT => {
-                    super::connect_packet::process_connect(session, packet, header_drill_vers).await
-                }
-
-                packet_flags::cmd::primary::KEEP_ALIVE => {
-                    super::keep_alive_packet::process_keep_alive(session, packet, header_drill_vers).await
-                }
-
-                packet_flags::cmd::primary::GROUP_PACKET => {
-                    super::primary_group_packet::process_primary_packet(session, cmd_aux, packet, endpoint_cid_info)
-                }
-
-                packet_flags::cmd::primary::DO_DISCONNECT => {
-                    super::disconnect_packet::process_disconnect(session, packet, header_drill_vers)
-                }
-
-                packet_flags::cmd::primary::DO_DRILL_UPDATE => {
-                    super::rekey_packet::process_rekey(session, packet, header_drill_vers, endpoint_cid_info)
-                }
-
-                packet_flags::cmd::primary::DO_DEREGISTER =>  {
-                    super::deregister_packet::process_deregister(session, packet, header_drill_vers).await
-                }
-
-                packet_flags::cmd::primary::DO_PRE_CONNECT => {
-                    super::preconnect_packet::process_preconnect(session, packet, header_drill_vers).await
-                }
-
-                packet_flags::cmd::primary::PEER_CMD => {
-                    peer_cmd_packet::process_peer_cmd(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info).await
-                }
-
-                packet_flags::cmd::primary::FILE => {
-                    super::file_packet::process_file_packet(session, packet, endpoint_cid_info)
-                }
-
-                packet_flags::cmd::primary::HOLE_PUNCH => {
-                    super::hole_punch::process_hole_punch(session, packet, header_drill_vers, endpoint_cid_info)
-                }
-
-                _ => {
-                    warn!(target: "lusna", "The primary port received an invalid packet command. Dropping");
-                    Ok(PrimaryProcessorResult::Void)
-                }
+    match check_proxy(
+        this_implicated_cid,
+        header.cmd_primary,
+        header.cmd_aux,
+        header.session_cid.get(),
+        target_cid,
+        session,
+        &mut endpoint_cid_info,
+        ReceivePortType::OrderedReliable,
+        packet,
+    ) {
+        Some(packet) => match cmd_primary {
+            packet_flags::cmd::primary::DO_REGISTER => {
+                super::register_packet::process_register(session, packet, remote_peer).await
             }
-        }
 
-        None => {
-            Ok(PrimaryProcessorResult::Void)
-        }
+            packet_flags::cmd::primary::DO_CONNECT => {
+                super::connect_packet::process_connect(session, packet, header_drill_vers).await
+            }
+
+            packet_flags::cmd::primary::KEEP_ALIVE => {
+                super::keep_alive_packet::process_keep_alive(session, packet, header_drill_vers)
+                    .await
+            }
+
+            packet_flags::cmd::primary::GROUP_PACKET => {
+                super::primary_group_packet::process_primary_packet(
+                    session,
+                    cmd_aux,
+                    packet,
+                    endpoint_cid_info,
+                )
+            }
+
+            packet_flags::cmd::primary::DO_DISCONNECT => {
+                super::disconnect_packet::process_disconnect(session, packet, header_drill_vers)
+            }
+
+            packet_flags::cmd::primary::DO_DRILL_UPDATE => super::rekey_packet::process_rekey(
+                session,
+                packet,
+                header_drill_vers,
+                endpoint_cid_info,
+            ),
+
+            packet_flags::cmd::primary::DO_DEREGISTER => {
+                super::deregister_packet::process_deregister(session, packet, header_drill_vers)
+                    .await
+            }
+
+            packet_flags::cmd::primary::DO_PRE_CONNECT => {
+                super::preconnect_packet::process_preconnect(session, packet, header_drill_vers)
+                    .await
+            }
+
+            packet_flags::cmd::primary::PEER_CMD => {
+                peer_cmd_packet::process_peer_cmd(
+                    session,
+                    cmd_aux,
+                    packet,
+                    header_drill_vers,
+                    endpoint_cid_info,
+                )
+                .await
+            }
+
+            packet_flags::cmd::primary::FILE => {
+                super::file_packet::process_file_packet(session, packet, endpoint_cid_info)
+            }
+
+            packet_flags::cmd::primary::HOLE_PUNCH => super::hole_punch::process_hole_punch(
+                session,
+                packet,
+                header_drill_vers,
+                endpoint_cid_info,
+            ),
+
+            _ => {
+                warn!(target: "lusna", "The primary port received an invalid packet command. Dropping");
+                Ok(PrimaryProcessorResult::Void)
+            }
+        },
+
+        None => Ok(PrimaryProcessorResult::Void),
     }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum ReceivePortType {
     OrderedReliable,
-    UnorderedUnreliable
+    UnorderedUnreliable,
 }
 
 // returns None if the packet should finish being processed. Inlined for slightly faster TURN proxying
 #[inline]
-pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd_aux: u8, header_session_cid: u64, target_cid: u64, session: &HdpSession, endpoint_cid_info: &mut Option<(u64, u64)>, recv_port_type: ReceivePortType, packet: HdpPacket) -> Option<HdpPacket> {
+pub(crate) fn check_proxy(
+    this_implicated_cid: Option<u64>,
+    cmd_primary: u8,
+    cmd_aux: u8,
+    header_session_cid: u64,
+    target_cid: u64,
+    session: &HdpSession,
+    endpoint_cid_info: &mut Option<(u64, u64)>,
+    recv_port_type: ReceivePortType,
+    packet: HdpPacket,
+) -> Option<HdpPacket> {
     if target_cid != 0 {
         // since target cid is not zero, there are two possibilities:
         // either [A] we are at the hLAN server, in which case the this_implicated_cid != target_cid
@@ -112,28 +161,43 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
                 let mut state_container = inner_mut_state!(session.state_container);
                 state_container.meta_expiry_state.on_event_confirmation();
 
-                if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
+                if let Some(peer_vconn) =
+                    state_container.active_virtual_connections.get(&target_cid)
+                {
                     // Ensure that any p2p conn proxied packets (i.e., TURNed packets) can continue to traverse until any full disconnections occur
-                    peer_vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
+                    peer_vconn
+                        .last_delivered_message_timestamp
+                        .store(Some(Instant::now()), Ordering::SeqCst);
                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy when proxying here
                     match recv_port_type {
                         ReceivePortType::OrderedReliable => {
-
-                            #[cfg(all(feature = "localhost-testing", feature = "localhost-testing-assert-no-proxy"))]
+                            #[cfg(all(
+                                feature = "localhost-testing",
+                                feature = "localhost-testing-assert-no-proxy"
+                            ))]
+                            {
+                                if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET
+                                    && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER
                                 {
-                                    if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER {
-                                        log::error!(target: "lusna", "***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
-                                        std::process::exit(1)
-                                    }
+                                    log::error!(target: "lusna", "***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
+                                    std::process::exit(1)
                                 }
+                            }
 
-                            if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
+                            if let Err(_err) = peer_vconn
+                                .sender
+                                .as_ref()
+                                .unwrap()
+                                .1
+                                .unbounded_send(packet.into_packet())
+                            {
                                 log::warn!(target: "lusna", "Proxy TrySendError to {}", target_cid);
                             }
                         }
 
                         ReceivePortType::UnorderedUnreliable => {
-                            if let Some(udp_sender) = peer_vconn.sender.as_ref().unwrap().0.as_ref() {
+                            if let Some(udp_sender) = peer_vconn.sender.as_ref().unwrap().0.as_ref()
+                            {
                                 if let Err(_err) = udp_sender.unbounded_send(packet.into_packet()) {
                                     log::error!(target: "lusna", "Proxy TrySendError to {}", target_cid);
                                 }

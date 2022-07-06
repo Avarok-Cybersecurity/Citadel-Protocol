@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-pub trait Then<U, F: Fn(Self) -> U> where Self: Sized {
+pub trait Then<U, F: Fn(Self) -> U>
+where
+    Self: Sized,
+{
     fn then(self, fx: F) -> U;
 }
 
@@ -12,11 +15,11 @@ impl<T: Sized, U, F: Fn(T) -> U> Then<U, F> for T {
 }
 
 pub struct IfEq<J> {
-    true_value: Option<J>
+    true_value: Option<J>,
 }
 
 pub struct IfNeq<J> {
-    true_value: Option<J>
+    true_value: Option<J>,
 }
 
 impl<J> IfEq<J> {
@@ -39,7 +42,10 @@ impl<J> IfNeq<J> {
     }
 }
 
-pub trait IfEqConditional<J> where Self: PartialEq {
+pub trait IfEqConditional<J>
+where
+    Self: PartialEq,
+{
     fn if_eq(self, other: Self, value: J) -> IfEq<J>;
     fn if_eq_then(self, other: Self, lambda: impl FnOnce() -> J) -> IfEq<J>;
 }
@@ -51,7 +57,10 @@ pub trait IfTrueConditional<J> {
     fn if_false_then(self, if_false: impl FnOnce() -> J) -> IfEq<J>;
 }
 
-pub trait IfNeqConditional<J> where Self: PartialEq {
+pub trait IfNeqConditional<J>
+where
+    Self: PartialEq,
+{
     fn if_not_eq(self, other: Self, value: J) -> IfNeq<J>;
     fn if_not_eq_then(self, other: Self, lambda: impl FnOnce() -> J) -> IfNeq<J>;
 }
@@ -61,7 +70,9 @@ impl<T: PartialEq, J> IfEqConditional<J> for T {
         if self != other {
             IfEq { true_value: None }
         } else {
-            IfEq { true_value: Some(value) }
+            IfEq {
+                true_value: Some(value),
+            }
         }
     }
 
@@ -69,7 +80,9 @@ impl<T: PartialEq, J> IfEqConditional<J> for T {
         if self != other {
             IfEq { true_value: None }
         } else {
-            IfEq { true_value: Some(lambda()) }
+            IfEq {
+                true_value: Some(lambda()),
+            }
         }
     }
 }
@@ -77,7 +90,9 @@ impl<T: PartialEq, J> IfEqConditional<J> for T {
 impl<T: PartialEq, J> IfNeqConditional<J> for T {
     fn if_not_eq(self, other: Self, value: J) -> IfNeq<J> {
         if self != other {
-            IfNeq { true_value: Some(value) }
+            IfNeq {
+                true_value: Some(value),
+            }
         } else {
             IfNeq { true_value: None }
         }
@@ -85,7 +100,9 @@ impl<T: PartialEq, J> IfNeqConditional<J> for T {
 
     fn if_not_eq_then(self, other: Self, lambda: impl FnOnce() -> J) -> IfNeq<J> {
         if self != other {
-            IfNeq { true_value: Some(lambda()) }
+            IfNeq {
+                true_value: Some(lambda()),
+            }
         } else {
             IfNeq { true_value: None }
         }
@@ -95,15 +112,19 @@ impl<T: PartialEq, J> IfNeqConditional<J> for T {
 impl<J> IfTrueConditional<J> for bool {
     fn if_true(self, if_true: J) -> IfEq<J> {
         if self {
-            IfEq { true_value: Some(if_true) }
+            IfEq {
+                true_value: Some(if_true),
+            }
         } else {
-            IfEq { true_value: None}
+            IfEq { true_value: None }
         }
     }
 
     fn if_true_then(self, if_true: impl FnOnce() -> J) -> IfEq<J> {
         if self {
-            IfEq { true_value: Some((if_true)()) }
+            IfEq {
+                true_value: Some((if_true)()),
+            }
         } else {
             IfEq { true_value: None }
         }
@@ -111,7 +132,9 @@ impl<J> IfTrueConditional<J> for bool {
 
     fn if_false(self, if_false: J) -> IfEq<J> {
         if !self {
-            IfEq { true_value: Some(if_false) }
+            IfEq {
+                true_value: Some(if_false),
+            }
         } else {
             IfEq { true_value: None }
         }
@@ -119,7 +142,9 @@ impl<J> IfTrueConditional<J> for bool {
 
     fn if_false_then(self, if_false: impl FnOnce() -> J) -> IfEq<J> {
         if !self {
-            IfEq { true_value: Some((if_false)()) }
+            IfEq {
+                true_value: Some((if_false)()),
+            }
         } else {
             IfEq { true_value: None }
         }

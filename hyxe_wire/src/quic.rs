@@ -1,17 +1,20 @@
-use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, NewConnection, EndpointConfig};
-use futures::{StreamExt, Future};
+use futures::{Future, StreamExt};
+use quinn::{
+    ClientConfig, Endpoint, EndpointConfig, Incoming, NewConnection, RecvStream, SendStream,
+    ServerConfig,
+};
 
-use quinn::TransportConfig;
-use std::sync::Arc;
-use rustls::{PrivateKey, Certificate};
-use std::time::Duration;
-use std::path::Path;
-use tokio::net::UdpSocket;
-use std::net::SocketAddr;
 use async_trait_with_sync::async_trait;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
 use either::Either;
+use quinn::TransportConfig;
+use rustls::{Certificate, PrivateKey};
+use std::fmt::{Debug, Formatter};
+use std::net::SocketAddr;
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 /// Used in the protocol especially to receive bidirectional connections
 pub struct QuicServer;
@@ -22,22 +25,28 @@ pub struct QuicClient;
 pub struct QuicNode {
     pub endpoint: Endpoint,
     pub listener: Incoming,
-    pub tls_domain_opt: Option<String>
+    pub tls_domain_opt: Option<String>,
 }
 
 #[async_trait]
 pub trait QuicEndpointConnector {
     fn endpoint(&self) -> &Endpoint;
 
-    async fn connect_biconn_with(&self, addr: SocketAddr, tls_domain: &str, cfg: Option<ClientConfig>) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
-        where Self: Sized {
+    async fn connect_biconn_with(
+        &self,
+        addr: SocketAddr,
+        tls_domain: &str,
+        cfg: Option<ClientConfig>,
+    ) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+    where
+        Self: Sized,
+    {
         log::trace!(target: "lusna", "Connecting to {:?}={} | Custom Cfg? {}", tls_domain, addr, cfg.is_some());
         let connecting = if let Some(cfg) = cfg {
             self.endpoint().connect_with(cfg, addr, tls_domain)?
         } else {
             self.endpoint().connect(addr, tls_domain)?
         };
-
 
         let conn = connecting.await?;
         let (mut sink, stream) = conn.connection.open_bi().await?;
@@ -48,20 +57,45 @@ pub trait QuicEndpointConnector {
     }
 
     /// Connects using the pre-stored ClientCfg
-    async fn connect_biconn(&self, addr: SocketAddr, tls_domain: &str) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
-        where Self: Sized {
+    async fn connect_biconn(
+        &self,
+        addr: SocketAddr,
+        tls_domain: &str,
+    ) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+    where
+        Self: Sized,
+    {
         self.connect_biconn_with(addr, tls_domain, None).await
     }
 }
 
 pub trait QuicEndpointListener {
     fn listener(&mut self) -> &mut Incoming;
-    fn next_connection<'a>(&'a mut self) -> Pin<Box<dyn Future<Output=Result<(NewConnection, SendStream, RecvStream), anyhow::Error>> + Send + Sync + 'a>>
-        where Self: Sized + Send + Sync {
+    fn next_connection<'a>(
+        &'a mut self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<(NewConnection, SendStream, RecvStream), anyhow::Error>>
+                + Send
+                + Sync
+                + 'a,
+        >,
+    >
+    where
+        Self: Sized + Send + Sync,
+    {
         Box::pin(async move {
-            let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
+            let connecting = self
+                .listener()
+                .next()
+                .await
+                .ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
             let mut conn = connecting.await?;
-            let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+            let (sink, stream) = conn
+                .bi_streams
+                .next()
+                .await
+                .ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
 
             Ok((conn, sink, stream))
         })
@@ -102,9 +136,16 @@ impl Debug for QuicNode {
 
 impl QuicClient {
     /// - trusted_certs: If None, won't verify certs. NOTE: this implies is Some(&[]) is passed, no verification will work.
-    pub fn new(socket: UdpSocket, client_config: Option<Arc<rustls::ClientConfig>>) -> Result<QuicNode, anyhow::Error> {
+    pub fn new(
+        socket: UdpSocket,
+        client_config: Option<Arc<rustls::ClientConfig>>,
+    ) -> Result<QuicNode, anyhow::Error> {
         let (endpoint, listener) = make_client_endpoint(socket, client_config)?;
-        Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
+        Ok(QuicNode {
+            endpoint,
+            listener,
+            tls_domain_opt: None,
+        })
     }
 
     /// This client will not verify the certificates of outgoing connection
@@ -113,36 +154,57 @@ impl QuicClient {
     }
 
     /// Creates a new client that verifies certificates
-    pub fn new_with_config(socket: UdpSocket, client_config: Arc<rustls::ClientConfig>) -> Result<QuicNode, anyhow::Error> {
+    pub fn new_with_config(
+        socket: UdpSocket,
+        client_config: Arc<rustls::ClientConfig>,
+    ) -> Result<QuicNode, anyhow::Error> {
         Self::new(socket, Some(client_config))
     }
 }
 
 impl QuicServer {
-    pub fn new(socket: UdpSocket, crypt: Option<(Vec<Certificate>, PrivateKey)>) -> Result<QuicNode, anyhow::Error> {
+    pub fn new(
+        socket: UdpSocket,
+        crypt: Option<(Vec<Certificate>, PrivateKey)>,
+    ) -> Result<QuicNode, anyhow::Error> {
         let (endpoint, listener) = make_server_endpoint(socket, crypt)?;
-        Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
+        Ok(QuicNode {
+            endpoint,
+            listener,
+            tls_domain_opt: None,
+        })
     }
 
     pub fn new_self_signed(socket: UdpSocket) -> Result<QuicNode, anyhow::Error> {
         Self::new(socket, None)
     }
 
-    pub fn new_from_pkcs_12_der_path<P: AsRef<Path>>(socket: UdpSocket, path: P, password: &str) -> Result<QuicNode, anyhow::Error> {
+    pub fn new_from_pkcs_12_der_path<P: AsRef<Path>>(
+        socket: UdpSocket,
+        path: P,
+        password: &str,
+    ) -> Result<QuicNode, anyhow::Error> {
         let (chain, pkey) = crate::misc::read_pkcs_12_der_to_quinn_keys(path, password)?;
         Self::new(socket, Some((chain, pkey)))
     }
 
-    pub fn new_from_pkcs_12_der(socket: UdpSocket, der: &[u8], password: &str) -> Result<QuicNode, anyhow::Error> {
+    pub fn new_from_pkcs_12_der(
+        socket: UdpSocket,
+        der: &[u8],
+        password: &str,
+    ) -> Result<QuicNode, anyhow::Error> {
         let (chain, pkey) = crate::misc::pkcs12_to_quinn_keys(der, password)?;
         Self::new(socket, Some((chain, pkey)))
     }
 }
 
-fn make_server_endpoint(socket: UdpSocket, crypt: Option<(Vec<Certificate>, PrivateKey)>) -> Result<(Endpoint, quinn::Incoming), anyhow::Error> {
+fn make_server_endpoint(
+    socket: UdpSocket,
+    crypt: Option<(Vec<Certificate>, PrivateKey)>,
+) -> Result<(Endpoint, quinn::Incoming), anyhow::Error> {
     let mut server_cfg = match crypt {
         Some((certs, key)) => configure_server_with_crypto(certs, key)?,
-        None => configure_server_self_signed()?.0
+        None => configure_server_self_signed()?.0,
     };
 
     load_hole_punch_friendly_quic_transport_config(Either::Left(&mut server_cfg));
@@ -152,14 +214,13 @@ fn make_server_endpoint(socket: UdpSocket, crypt: Option<(Vec<Certificate>, Priv
     Ok((endpoint, incoming))
 }
 
-
 fn make_client_endpoint(
     socket: UdpSocket,
     client_config: Option<Arc<rustls::ClientConfig>>,
 ) -> Result<(Endpoint, Incoming), anyhow::Error> {
     let mut client_cfg = match client_config {
         Some(cfg) => quinn::ClientConfig::new(cfg),
-        None => insecure::configure_client()
+        None => insecure::configure_client(),
     };
 
     let socket = socket.into_std()?; // Quinn handles setting nonblocking to true
@@ -170,21 +231,18 @@ fn make_client_endpoint(
     Ok((endpoint, incoming))
 }
 
-
 /// only one side needs to set this transport config
-fn load_hole_punch_friendly_quic_transport_config<'a>(cfg: Either<&'a mut ServerConfig, &'a mut ClientConfig>) {
+fn load_hole_punch_friendly_quic_transport_config<'a>(
+    cfg: Either<&'a mut ServerConfig, &'a mut ClientConfig>,
+) {
     let mut transport_cfg = TransportConfig::default();
     transport_cfg.keep_alive_interval(Some(Duration::from_millis(8000)));
     transport_cfg.max_concurrent_uni_streams(0u8.into());
 
     match cfg {
-        Either::Left(cfg) => {
-            cfg.transport = Arc::new(transport_cfg)
-        }
+        Either::Left(cfg) => cfg.transport = Arc::new(transport_cfg),
 
-        Either::Right(cfg) => {
-            cfg.transport = Arc::new(transport_cfg)
-        }
+        Either::Right(cfg) => cfg.transport = Arc::new(transport_cfg),
     }
 }
 
@@ -200,18 +258,21 @@ pub fn generate_self_signed_cert() -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> 
     Ok((cert_der, priv_key_der))
 }
 
-
 fn configure_server_self_signed() -> Result<(ServerConfig, Vec<u8>), anyhow::Error> {
     let (cert_der, priv_key) = generate_self_signed_cert()?;
     let priv_key = rustls::PrivateKey(priv_key);
     let cert_chain = vec![rustls::Certificate(cert_der.clone())];
 
-    let server_config = quinn::ServerConfig::with_crypto(Arc::new(secure::server_config(cert_chain, priv_key)?));
+    let server_config =
+        quinn::ServerConfig::with_crypto(Arc::new(secure::server_config(cert_chain, priv_key)?));
 
     Ok((server_config, cert_der))
 }
 
-fn configure_server_with_crypto(cert_chain: Vec<rustls::Certificate>, private_key: rustls::PrivateKey) -> Result<ServerConfig, anyhow::Error> {
+fn configure_server_with_crypto(
+    cert_chain: Vec<rustls::Certificate>,
+    private_key: rustls::PrivateKey,
+) -> Result<ServerConfig, anyhow::Error> {
     let server_crypto = secure::server_config(cert_chain, private_key)?;
     let server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
     Ok(server_config)
@@ -300,10 +361,12 @@ pub mod insecure {
 
 #[cfg(test)]
 mod tests {
+    use crate::quic::{
+        QuicClient, QuicEndpointConnector, QuicEndpointListener, QuicServer, SELF_SIGNED_DOMAIN,
+    };
     use crate::socket_helpers::is_ipv6_enabled;
     use rstest::*;
     use std::net::SocketAddr;
-    use crate::quic::{QuicServer, QuicEndpointListener, QuicClient, QuicEndpointConnector, SELF_SIGNED_DOMAIN};
 
     #[rstest]
     #[case("127.0.0.1:0")]
@@ -314,9 +377,10 @@ mod tests {
         lusna_logging::setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
             log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
-            return Ok(())
+            return Ok(());
         }
-        let mut server = QuicServer::new_self_signed(tokio::net::UdpSocket::bind(addr).await?).unwrap();
+        let mut server =
+            QuicServer::new_self_signed(tokio::net::UdpSocket::bind(addr).await?).unwrap();
         let client_bind_addr = SocketAddr::from((addr.ip(), 0));
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
@@ -336,7 +400,10 @@ mod tests {
 
         let client = async move {
             start_rx.await.unwrap();
-            let client = QuicClient::new_no_verify(tokio::net::UdpSocket::bind(client_bind_addr).await.unwrap()).unwrap();
+            let client = QuicClient::new_no_verify(
+                tokio::net::UdpSocket::bind(client_bind_addr).await.unwrap(),
+            )
+            .unwrap();
             let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;
             log::trace!(target: "lusna", "Client res: {:?}", res);
             let (_conn, mut tx, _rx) = res.unwrap();
@@ -347,5 +414,4 @@ mod tests {
         let (_r0, _r1) = tokio::join!(server, client);
         Ok(())
     }
-
 }

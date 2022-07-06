@@ -1,61 +1,68 @@
 use std::collections::{HashMap, VecDeque};
-use std::fmt::{Display, Formatter, Debug};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
-use serde::{Serialize, Deserialize};
-use hyxe_crypt::stacked_ratchet::constructor::{StackedRatchetConstructor, ConstructorType};
-use crate::hdp::packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
+use crate::hdp::packet_processor::primary_group_packet::{
+    attempt_kem_as_alice_finish, get_resp_target_cid_from_header,
+};
+use hyxe_crypt::stacked_ratchet::constructor::{ConstructorType, StackedRatchetConstructor};
+use serde::{Deserialize, Serialize};
 
-use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
+use crate::hdp::outbound_sender::{unbounded, UnboundedSender};
 use zerocopy::LayoutVerified;
 
 use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupReceiverStatus};
-use netbeam::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
+use netbeam::time_tracker::TimeTracker;
 
-use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS, GROUP_EXPIRE_TIME_MS, MAX_OUTGOING_UNPROCESSED_REQUESTS};
-use crate::hdp::hdp_packet::HdpHeader;
+use crate::constants::{
+    GROUP_EXPIRE_TIME_MS, GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS,
+    MAX_OUTGOING_UNPROCESSED_REQUESTS,
+};
+use crate::error::NetworkError;
+use crate::functional::IfEqConditional;
+use crate::hdp::hdp_node::{NodeRemote, NodeResult, SecrecyMode, Ticket};
 use crate::hdp::hdp_packet::packet_flags;
-use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
-use crate::hdp::packet_processor::includes::{Instant, SocketAddr, HdpSession};
-use crate::hdp::hdp_node::{NodeResult, Ticket, NodeRemote, SecrecyMode};
-use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
+use crate::hdp::hdp_packet::HdpHeader;
+use crate::hdp::hdp_packet_crafter;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::hdp::hdp_packet_crafter::{
+    GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket,
+};
+use crate::hdp::hdp_session::SessionState;
+use crate::hdp::misc::dual_late_init::DualLateInit;
+use crate::hdp::misc::ordered_channel::OrderedChannel;
+use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
+use crate::hdp::packet_processor::includes::{HdpSession, Instant, SocketAddr};
+use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::packet_processor::PrimaryProcessorResult;
+use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
+use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
+use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
+use crate::hdp::peer::peer_layer::{PeerConnectionType, UdpMode};
+use crate::hdp::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHandle};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
 use crate::hdp::state_subcontainers::drill_update_container::RatchetUpdateState;
+use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
+use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use crate::hdp::state_subcontainers::preconnect_state_container::PreConnectState;
 use crate::hdp::state_subcontainers::register_state_container::RegisterState;
-use hyxe_crypt::drill::SecurityLevel;
-use std::sync::atomic::{AtomicBool, Ordering};
-use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
-use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
-use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
-use hyxe_user::backend::utils::*;
-use hyxe_crypt::prelude::SecBuffer;
-use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
-use crate::functional::IfEqConditional;
-use hyxe_crypt::stacked_ratchet::{StackedRatchet, Ratchet};
-use hyxe_user::serialization::SyncIO;
-use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
-use crate::hdp::peer::peer_layer::{PeerConnectionType, UdpMode};
-use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
-use crate::hdp::hdp_session::SessionState;
-use crate::hdp::misc::ordered_channel::OrderedChannel;
-use bytes::Bytes;
-use crate::error::NetworkError;
-use atomic::Atomic;
-use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use either::Either;
-use crate::hdp::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHandle};
 use crate::hdp::time::TransferStats;
-use crate::hdp::hdp_packet_crafter;
-use crate::hdp::misc::dual_late_init::DualLateInit;
-use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
-use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
-use crate::hdp::packet_processor::PrimaryProcessorResult;
+use atomic::Atomic;
+use bytes::Bytes;
+use either::Either;
+use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::endpoint_crypto_container::{KemTransferStatus, PeerSessionCrypto};
+use hyxe_crypt::prelude::SecBuffer;
+use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use hyxe_user::backend::utils::*;
 use hyxe_user::backend::PersistenceHandler;
+use hyxe_user::serialization::SyncIO;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 impl Debug for StateContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -77,7 +84,15 @@ pub struct StateContainerInner {
     pub(super) deregister_state: DeRegisterState,
     pub(super) meta_expiry_state: MetaExpiryState,
     pub(super) network_stats: NetworkStats,
-    pub(super) enqueued_packets: HashMap<u64, VecDeque<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>>,
+    pub(super) enqueued_packets: HashMap<
+        u64,
+        VecDeque<(
+            Ticket,
+            SecureProtocolPacket,
+            VirtualTargetType,
+            SecurityLevel,
+        )>,
+    >,
     pub(super) updates_in_progress: HashMap<u64, Arc<AtomicBool>>,
     pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
@@ -104,21 +119,21 @@ pub struct StateContainerInner {
     pub(super) group_channels: HashMap<MessageGroupKey, UnboundedSender<GroupBroadcastPayload>>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
-    is_server: bool
+    is_server: bool,
 }
 
 /// This helps consolidate unique keys between vconns sending data to this node
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub(crate) struct GroupKey {
     target_cid: u64,
-    group_id: u64
+    group_id: u64,
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub struct FileKey {
     pub target_cid: u64,
     // wave payload get the object id inscribed
-    pub object_id: u32
+    pub object_id: u32,
 }
 
 /// when the GROUP_HEADER comes inbound with virtual file metadata, this should be created alongside
@@ -134,7 +149,7 @@ pub(crate) struct InboundFileTransfer {
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualObjectMetadata,
     pub stream_to_hd: UnboundedSender<Vec<u8>>,
-    pub reception_complete_tx: tokio::sync::oneshot::Sender<()>
+    pub reception_complete_tx: tokio::sync::oneshot::Sender<()>,
 }
 
 #[allow(dead_code)]
@@ -146,18 +161,24 @@ pub(crate) struct OutboundFileTransfer {
     // for alerting the async task to begin creating GroupSenders
     pub start: Option<tokio::sync::oneshot::Sender<bool>>,
     // This sends a shutdown signal to the async cryptscambler
-    pub stop_tx: Option<tokio::sync::oneshot::Sender<()>>
+    pub stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl GroupKey {
     pub fn new(target_cid: u64, group_id: u64) -> Self {
-        Self { target_cid, group_id }
+        Self {
+            target_cid,
+            group_id,
+        }
     }
 }
 
 impl FileKey {
     pub fn new(target_cid: u64, object_id: u32) -> Self {
-        Self { target_cid, object_id }
+        Self {
+            target_cid,
+            object_id,
+        }
     }
 }
 
@@ -170,17 +191,18 @@ pub struct VirtualConnection<R: Ratchet = StackedRatchet> {
     // this is Some for server, None for endpoints
     pub sender: Option<(Option<OutboundUdpSender>, OutboundPrimaryStreamSender)>,
     // this is None for server, Some for endpoints
-    pub endpoint_container: Option<EndpointChannelContainer<R>>
+    pub endpoint_container: Option<EndpointChannelContainer<R>>,
 }
 
 impl VirtualConnection {
     /// If No version is supplied, uses the latest committed version
     pub fn borrow_endpoint_hyper_ratchet(&self, version: Option<u32>) -> Option<&StackedRatchet> {
         let endpoint_container = self.endpoint_container.as_ref()?;
-        endpoint_container.endpoint_crypto.get_hyper_ratchet(version)
+        endpoint_container
+            .endpoint_crypto
+            .get_hyper_ratchet(version)
     }
 }
-
 
 pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
     pub(crate) default_security_settings: SessionSecuritySettings,
@@ -191,7 +213,7 @@ pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     #[allow(dead_code)]
-    pub(crate) peer_socket_addr: SocketAddr
+    pub(crate) peer_socket_addr: SocketAddr,
 }
 
 pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
@@ -201,12 +223,12 @@ pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
     is_active: Arc<AtomicBool>,
     to_primary_stream: OutboundPrimaryStreamSender,
     pub(crate) channel_signal: Option<NodeResult>,
-    pub(crate) peer_session_crypto: PeerSessionCrypto<R>
+    pub(crate) peer_session_crypto: PeerSessionCrypto<R>,
 }
 
 pub(crate) struct UnorderedChannelContainer {
     to_channel: UnboundedSender<SecBuffer>,
-    stopper_tx: tokio::sync::oneshot::Sender<()>
+    stopper_tx: tokio::sync::oneshot::Sender<()>,
 }
 
 impl EndpointChannelContainer {
@@ -220,7 +242,6 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
         self.is_active.store(false, Ordering::SeqCst);
     }
 }
-
 
 /// For determining the nature of a [VirtualConnection]
 #[derive(PartialEq, Copy, Clone, Debug, Serialize, Deserialize)]
@@ -248,7 +269,10 @@ impl VirtualConnectionType {
 
     pub fn from_header(header: &LayoutVerified<&[u8], HdpHeader>) -> Self {
         if header.target_cid.get() != 0 {
-            VirtualTargetType::HyperLANPeerToHyperLANPeer(header.session_cid.get(), header.target_cid.get())
+            VirtualTargetType::HyperLANPeerToHyperLANPeer(
+                header.session_cid.get(),
+                header.target_cid.get(),
+            )
         } else {
             VirtualTargetType::HyperLANPeerToHyperLANServer(header.session_cid.get())
         }
@@ -266,13 +290,13 @@ impl VirtualConnectionType {
                 *target_cid
             }
 
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, target_cid) => {
-                *target_cid
-            }
+            VirtualConnectionType::HyperLANPeerToHyperWANPeer(
+                _implicated_cid,
+                _icid,
+                target_cid,
+            ) => *target_cid,
 
-            VirtualConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, icid) => {
-                *icid
-            }
+            VirtualConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, icid) => *icid,
         }
     }
 
@@ -288,9 +312,11 @@ impl VirtualConnectionType {
                 *implicated_cid
             }
 
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, _icid, _target_cid) => {
-                *implicated_cid
-            }
+            VirtualConnectionType::HyperLANPeerToHyperWANPeer(
+                implicated_cid,
+                _icid,
+                _target_cid,
+            ) => *implicated_cid,
 
             VirtualConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, _icid) => {
                 *implicated_cid
@@ -301,16 +327,20 @@ impl VirtualConnectionType {
     /// panics if self is not the supposed type
     pub fn assert_hyperlan_peer_to_hyperlan_peer(self) -> (u64, u64) {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => (implicated_cid, target_cid),
-            _ => panic!("Invalid branch selection")
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                (implicated_cid, target_cid)
+            }
+            _ => panic!("Invalid branch selection"),
         }
     }
 
     /// panics if self is not the supposed type
     pub fn assert_hyperlan_peer_to_hyperwan_peer(self) -> (u64, u64, u64) {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => (implicated_cid, icid, target_cid),
-            _ => panic!("Invalid branch selection")
+            VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
+                (implicated_cid, icid, target_cid)
+            }
+            _ => panic!("Invalid branch selection"),
         }
     }
 
@@ -318,22 +348,25 @@ impl VirtualConnectionType {
     pub fn assert_hyperlan_peer_to_hyperlan_server(self) -> u64 {
         match self {
             VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => implicated_cid,
-            _ => panic!("Invalid branch selection")
+            _ => panic!("Invalid branch selection"),
         }
     }
 
     /// panics if self is not the supposed type
     pub fn assert_hyperlan_peer_to_hyperwan_server(self) -> (u64, u64) {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, icid) => (implicated_cid, icid),
-            _ => panic!("Invalid branch selection")
+            VirtualConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, icid) => {
+                (implicated_cid, icid)
+            }
+            _ => panic!("Invalid branch selection"),
         }
     }
 
     pub fn is_hyperlan(&self) -> bool {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(..) | VirtualConnectionType::HyperLANPeerToHyperLANServer(..) => true,
-            _ => false
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(..)
+            | VirtualConnectionType::HyperLANPeerToHyperLANServer(..) => true,
+            _ => false,
         }
     }
 
@@ -343,22 +376,26 @@ impl VirtualConnectionType {
 
     pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid) => {
-                Some(PeerConnectionType::HyperLANPeerToHyperLANPeer(*implicated_cid, *peer_cid))
-            }
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid) => Some(
+                PeerConnectionType::HyperLANPeerToHyperLANPeer(*implicated_cid, *peer_cid),
+            ),
 
             VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, peer_cid) => {
-                Some(PeerConnectionType::HyperLANPeerToHyperWANPeer(*implicated_cid, *icid, *peer_cid))
+                Some(PeerConnectionType::HyperLANPeerToHyperWANPeer(
+                    *implicated_cid,
+                    *icid,
+                    *peer_cid,
+                ))
             }
 
-            _ => None
+            _ => None,
         }
     }
 
     pub fn set_target_cid(&mut self, target_cid: u64) {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) |
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(_, _, peer_cid) => {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid)
+            | VirtualConnectionType::HyperLANPeerToHyperWANPeer(_, _, peer_cid) => {
                 *peer_cid = target_cid
             }
 
@@ -375,15 +412,27 @@ impl Display for VirtualConnectionType {
             }
 
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                write!(f, "HyperLAN Peer to HyperLAN Peer ({} -> {})", implicated_cid, target_cid)
+                write!(
+                    f,
+                    "HyperLAN Peer to HyperLAN Peer ({} -> {})",
+                    implicated_cid, target_cid
+                )
             }
 
             VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
-                write!(f, "HyperLAN Peer to HyperWAN Peer ({} -> {} -> {})", implicated_cid, icid, target_cid)
+                write!(
+                    f,
+                    "HyperLAN Peer to HyperWAN Peer ({} -> {} -> {})",
+                    implicated_cid, icid, target_cid
+                )
             }
 
             VirtualConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, icid) => {
-                write!(f, "HyperLAN Peer to HyperWAN Server ({} -> {})", implicated_cid, icid)
+                write!(
+                    f,
+                    "HyperLAN Peer to HyperWAN Server ({} -> {})",
+                    implicated_cid, icid
+                )
             }
         }
     }
@@ -402,7 +451,7 @@ pub(super) struct NetworkStats {
     pub(super) last_keep_alive: Option<i64>,
     pub(super) ping_ns: Option<i64>,
     pub(super) jitter_ns: Option<i64>,
-    pub(super) rtt_ns: Option<i64>
+    pub(super) rtt_ns: Option<i64>,
 }
 
 //define_outer_struct_wrapper!(GroupSender, GroupSenderDevice<HDP_HEADER_BYTE_LEN>);
@@ -420,16 +469,37 @@ pub(crate) struct OutboundTransmitterContainer {
     relative_group_id: u32,
     #[allow(dead_code)]
     ticket: Ticket,
-    pub has_begun: bool
+    pub has_begun: bool,
 }
 
 impl OutboundTransmitterContainer {
-    pub fn new(object_notifier: Option<UnboundedSender<()>>, mut burst_transmitter: GroupTransmitter, group_plaintext_length: usize, parent_object_total_groups: usize, relative_group_id: u32, ticket: Ticket) -> Self {
-        let ratchet_constructor = burst_transmitter.hyper_ratchet_container.base_constructor.take();
+    pub fn new(
+        object_notifier: Option<UnboundedSender<()>>,
+        mut burst_transmitter: GroupTransmitter,
+        group_plaintext_length: usize,
+        parent_object_total_groups: usize,
+        relative_group_id: u32,
+        ticket: Ticket,
+    ) -> Self {
+        let ratchet_constructor = burst_transmitter
+            .hyper_ratchet_container
+            .base_constructor
+            .take();
         let transmission_start_time = Instant::now();
         let has_begun = false;
 
-        Self { ratchet_constructor, has_begun, relative_group_id, ticket, parent_object_total_groups, transmission_start_time, group_plaintext_length, object_notifier, burst_transmitter, waves_in_current_window: 0 }
+        Self {
+            ratchet_constructor,
+            has_begun,
+            relative_group_id,
+            ticket,
+            parent_object_total_groups,
+            transmission_start_time,
+            group_plaintext_length,
+            object_notifier,
+            burst_transmitter,
+            waves_in_current_window: 0,
+        }
     }
 }
 
@@ -449,33 +519,108 @@ pub(crate) struct GroupReceiverContainer {
     max_window_size: usize,
     window_drift: isize,
     waves_in_window_finished: usize,
-    pub object_id: u32
+    pub object_id: u32,
 }
 
 impl GroupReceiverContainer {
-    pub fn new(object_id: u32, receiver: GroupReceiver, virtual_target: VirtualTargetType, security_level: SecurityLevel, ticket: Ticket) -> Self {
-        Self { has_begun: false, object_id, security_level, virtual_target, receiver, ticket, current_window: 0..=0, waves_in_window_finished: 0, last_window_size: 0, window_drift: 0, next_window_size: 1, max_window_size: 0 }
+    pub fn new(
+        object_id: u32,
+        receiver: GroupReceiver,
+        virtual_target: VirtualTargetType,
+        security_level: SecurityLevel,
+        ticket: Ticket,
+    ) -> Self {
+        Self {
+            has_begun: false,
+            object_id,
+            security_level,
+            virtual_target,
+            receiver,
+            ticket,
+            current_window: 0..=0,
+            waves_in_window_finished: 0,
+            last_window_size: 0,
+            window_drift: 0,
+            next_window_size: 1,
+            max_window_size: 0,
+        }
     }
 }
 
 impl StateContainerInner {
     /// Creates a new container
-    pub fn new(kernel_tx: UnboundedSender<NodeResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
-        let inner = Self { outgoing_peer_connect_attempts: Default::default(), file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() };
+    pub fn new(
+        kernel_tx: UnboundedSender<NodeResult>,
+        hdp_server_remote: NodeRemote,
+        keep_alive_timeout_ns: i64,
+        state: Arc<Atomic<SessionState>>,
+        cnac: Option<ClientNetworkAccount>,
+        time_tracker: TimeTracker,
+        session_security_settings: Option<SessionSecuritySettings>,
+        is_server: bool,
+        transfer_stats: TransferStats,
+        udp_mode: UdpMode,
+    ) -> StateContainer {
+        let inner = Self {
+            outgoing_peer_connect_attempts: Default::default(),
+            file_transfer_handles: HashMap::new(),
+            group_channels: Default::default(),
+            udp_mode,
+            transfer_stats,
+            queue_handle: Default::default(),
+            is_server,
+            session_security_settings,
+            time_tracker,
+            cnac,
+            updates_in_progress: HashMap::new(),
+            hole_puncher_pipes: HashMap::new(),
+            tcp_loaded_status: None,
+            enqueued_packets: HashMap::new(),
+            state,
+            c2s_channel_container: None,
+            keep_alive_timeout_ns,
+            hdp_server_remote,
+            meta_expiry_state: Default::default(),
+            pre_connect_state: Default::default(),
+            udp_primary_outbound_tx: None,
+            deregister_state: Default::default(),
+            ratchet_update_state: Default::default(),
+            active_virtual_connections: Default::default(),
+            network_stats: Default::default(),
+            kernel_tx,
+            register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
+            connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(),
+            inbound_groups: HashMap::new(),
+            outbound_transmitters: HashMap::new(),
+            peer_kem_states: HashMap::new(),
+            inbound_files: HashMap::new(),
+            outbound_files: HashMap::new(),
+        };
         inner.into()
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
     /// (thus bypassing the unordered kernel)
-    pub fn forward_data_to_ordered_channel(&mut self, target_cid: u64, group_id: u64, data: SecBuffer) -> bool {
+    pub fn forward_data_to_ordered_channel(
+        &mut self,
+        target_cid: u64,
+        group_id: u64,
+        data: SecBuffer,
+    ) -> bool {
         if target_cid == 0 {
             if let Some(c2s_container) = self.c2s_channel_container.as_mut() {
-                return c2s_container.to_channel.on_packet_received(group_id, data).is_ok()
+                return c2s_container
+                    .to_channel
+                    .on_packet_received(group_id, data)
+                    .is_ok();
             }
         } else {
             if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
                 if let Some(channel) = vconn.endpoint_container.as_mut() {
-                    return channel.to_default_channel.on_packet_received(group_id, data).is_ok()
+                    return channel
+                        .to_default_channel
+                        .on_packet_received(group_id, data)
+                        .is_ok();
                 }
             }
         }
@@ -489,14 +634,14 @@ impl StateContainerInner {
         if target_cid == 0 {
             if let Some(c2s_container) = self.c2s_channel_container.as_ref() {
                 if let Some(unordered_channel) = c2s_container.to_unordered_channel.as_ref() {
-                    return unordered_channel.to_channel.unbounded_send(data).is_ok()
+                    return unordered_channel.to_channel.unbounded_send(data).is_ok();
                 }
             }
         } else {
             if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
                 if let Some(channel) = vconn.endpoint_container.as_ref() {
                     if let Some(unordered_channel) = channel.to_unordered_channel.as_ref() {
-                        return unordered_channel.to_channel.unbounded_send(data).is_ok()
+                        return unordered_channel.to_channel.unbounded_send(data).is_ok();
                     }
                 }
             }
@@ -508,13 +653,31 @@ impl StateContainerInner {
     }
 
     // Requirements: A TCP/reliable ordered conn channel must already be setup in order for the connection to continue
-    pub fn insert_udp_channel(&mut self, target_cid: u64, v_conn: VirtualConnectionType, ticket: Ticket, to_udp_stream: OutboundUdpSender, stopper_tx: tokio::sync::oneshot::Sender<()>) -> Option<UdpChannel> {
+    pub fn insert_udp_channel(
+        &mut self,
+        target_cid: u64,
+        v_conn: VirtualConnectionType,
+        ticket: Ticket,
+        to_udp_stream: OutboundUdpSender,
+        stopper_tx: tokio::sync::oneshot::Sender<()>,
+    ) -> Option<UdpChannel> {
         if target_cid == 0 {
             if let Some(c2s_container) = self.c2s_channel_container.as_mut() {
                 self.udp_primary_outbound_tx = Some(to_udp_stream.clone());
                 let (to_channel, rx) = unbounded();
-                let udp_channel = UdpChannel::new(to_udp_stream, rx, target_cid,v_conn, ticket, c2s_container.is_active.clone(), self.hdp_server_remote.clone());
-                c2s_container.to_unordered_channel = Some(UnorderedChannelContainer { to_channel, stopper_tx });
+                let udp_channel = UdpChannel::new(
+                    to_udp_stream,
+                    rx,
+                    target_cid,
+                    v_conn,
+                    ticket,
+                    c2s_container.is_active.clone(),
+                    self.hdp_server_remote.clone(),
+                );
+                c2s_container.to_unordered_channel = Some(UnorderedChannelContainer {
+                    to_channel,
+                    stopper_tx,
+                });
                 // data can now be forwarded
                 Some(udp_channel)
             } else {
@@ -524,10 +687,23 @@ impl StateContainerInner {
             if let Some(p2p_container) = self.active_virtual_connections.get_mut(&target_cid) {
                 if let Some((sender, _)) = p2p_container.sender.as_mut() {
                     *sender = Some(to_udp_stream.clone());
-                    if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut() {
+                    if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut()
+                    {
                         let (to_channel, rx) = unbounded();
-                        let udp_channel = UdpChannel::new(to_udp_stream, rx, target_cid,v_conn, ticket, p2p_container.is_active.clone(), self.hdp_server_remote.clone());
-                        p2p_endpoint_container.to_unordered_channel = Some(UnorderedChannelContainer { to_channel, stopper_tx });
+                        let udp_channel = UdpChannel::new(
+                            to_udp_stream,
+                            rx,
+                            target_cid,
+                            v_conn,
+                            ticket,
+                            p2p_container.is_active.clone(),
+                            self.hdp_server_remote.clone(),
+                        );
+                        p2p_endpoint_container.to_unordered_channel =
+                            Some(UnorderedChannelContainer {
+                                to_channel,
+                                stopper_tx,
+                            });
                         // data can now be forwarded
                         Some(udp_channel)
                     } else {
@@ -555,7 +731,8 @@ impl StateContainerInner {
         } else {
             if let Some(p2p_container) = self.active_virtual_connections.get_mut(&target_cid) {
                 if let Some((sender, _)) = p2p_container.sender.as_mut() {
-                    if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut() {
+                    if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut()
+                    {
                         if let Some(channel) = p2p_endpoint_container.to_unordered_channel.take() {
                             let _ = channel.stopper_tx.send(());
                         }
@@ -573,7 +750,11 @@ impl StateContainerInner {
 
     /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
     /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
-    pub(crate) fn insert_direct_p2p_connection(&mut self, provisional: DirectP2PRemote, peer_cid: u64) -> Result<(), NetworkError> {
+    pub(crate) fn insert_direct_p2p_connection(
+        &mut self,
+        provisional: DirectP2PRemote,
+        peer_cid: u64,
+    ) -> Result<(), NetworkError> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                 log::trace!(target: "lusna", "UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
@@ -593,15 +774,34 @@ impl StateContainerInner {
     }
 
     #[allow(unused_results)]
-    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, default_security_settings: SessionSecuritySettings, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto, sess: &HdpSession) -> PeerChannel {
+    pub fn insert_new_peer_virtual_connection_as_endpoint(
+        &mut self,
+        peer_socket_addr: SocketAddr,
+        default_security_settings: SessionSecuritySettings,
+        channel_ticket: Ticket,
+        target_cid: u64,
+        connection_type: VirtualConnectionType,
+        endpoint_crypto: PeerSessionCrypto,
+        sess: &HdpSession,
+    ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
 
-        self.updates_in_progress.insert(target_cid, endpoint_crypto.update_in_progress.clone());
+        self.updates_in_progress
+            .insert(target_cid, endpoint_crypto.update_in_progress.clone());
 
         //let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx, tx);
+        let peer_channel = PeerChannel::new(
+            self.hdp_server_remote.clone(),
+            target_cid,
+            connection_type,
+            channel_ticket,
+            default_security_settings.security_level,
+            is_active.clone(),
+            channel_rx,
+            tx,
+        );
         let to_channel = OrderedChannel::new(channel_tx);
         HdpSession::spawn_message_sender_function(sess.clone(), rx);
 
@@ -611,7 +811,7 @@ impl StateContainerInner {
             endpoint_crypto,
             to_default_channel: to_channel,
             to_unordered_channel: None,
-            peer_socket_addr
+            peer_socket_addr,
         });
 
         let vconn = VirtualConnection {
@@ -620,7 +820,7 @@ impl StateContainerInner {
             is_active,
             // this is None for endpoints, as there's no need for this
             sender: None,
-            endpoint_container
+            endpoint_container,
         };
 
         self.active_virtual_connections.insert(target_cid, vconn);
@@ -630,11 +830,27 @@ impl StateContainerInner {
 
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
     #[allow(unused_results)]
-    pub fn init_new_c2s_virtual_connection(&mut self, cnac: &ClientNetworkAccount, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64, session: &HdpSession) -> PeerChannel {
+    pub fn init_new_c2s_virtual_connection(
+        &mut self,
+        cnac: &ClientNetworkAccount,
+        security_level: SecurityLevel,
+        channel_ticket: Ticket,
+        implicated_cid: u64,
+        session: &HdpSession,
+    ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), channel_ticket, security_level, is_active.clone(), channel_rx, tx);
+        let peer_channel = PeerChannel::new(
+            self.hdp_server_remote.clone(),
+            implicated_cid,
+            VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid),
+            channel_ticket,
+            security_level,
+            is_active.clone(),
+            channel_rx,
+            tx,
+        );
         HdpSession::spawn_message_sender_function(session.clone(), rx);
 
         let c2s = C2SChannelContainer {
@@ -643,7 +859,7 @@ impl StateContainerInner {
             is_active,
             to_primary_stream: session.to_primary_stream.clone().unwrap(),
             channel_signal: None,
-            peer_session_crypto: cnac.read().crypt_container.new_session()
+            peer_session_crypto: cnac.read().crypt_container.new_session(),
         };
 
         let updates_in_progress = c2s.peer_session_crypto.update_in_progress.clone();
@@ -667,9 +883,25 @@ impl StateContainerInner {
 
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point
     /// GROUP packets and PEER_CMD::CHANNEL packets bypass the central node's encryption/decryption phase
-    pub fn insert_new_virtual_connection_as_server(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: Option<OutboundUdpSender>, target_tcp_sender: OutboundPrimaryStreamSender) {
-        let val = VirtualConnection { last_delivered_message_timestamp: Arc::new(Atomic::new(None)), endpoint_container: None, sender: Some((target_udp_sender, target_tcp_sender)), connection_type, is_active: Arc::new(AtomicBool::new(true)) };
-        if self.active_virtual_connections.insert(target_cid, val).is_some() {
+    pub fn insert_new_virtual_connection_as_server(
+        &mut self,
+        target_cid: u64,
+        connection_type: VirtualConnectionType,
+        target_udp_sender: Option<OutboundUdpSender>,
+        target_tcp_sender: OutboundPrimaryStreamSender,
+    ) {
+        let val = VirtualConnection {
+            last_delivered_message_timestamp: Arc::new(Atomic::new(None)),
+            endpoint_container: None,
+            sender: Some((target_udp_sender, target_tcp_sender)),
+            connection_type,
+            is_active: Arc::new(AtomicBool::new(true)),
+        };
+        if self
+            .active_virtual_connections
+            .insert(target_cid, val)
+            .is_some()
+        {
             log::warn!(target: "lusna", "Inserted a virtual connection. but overwrote one in the process. Report to developers");
         }
 
@@ -677,7 +909,14 @@ impl StateContainerInner {
     }
 
     pub fn get_peer_session_crypto(&self, peer_cid: u64) -> Option<&PeerSessionCrypto> {
-        Some(&self.active_virtual_connections.get(&peer_cid)?.endpoint_container.as_ref()?.endpoint_crypto)
+        Some(
+            &self
+                .active_virtual_connections
+                .get(&peer_cid)?
+                .endpoint_container
+                .as_ref()?
+                .endpoint_crypto,
+        )
     }
 
     pub fn get_c2s_crypto(&self) -> Option<&PeerSessionCrypto> {
@@ -687,7 +926,11 @@ impl StateContainerInner {
     /// When a keep alive is received, this function gets called. Prior to getting called,
     /// validity must be ensured!
     #[allow(unused_results)]
-    pub fn on_keep_alive_received(&mut self, inbound_packet_timestamp_ns: i64, mut current_timestamp_ns: i64) -> bool {
+    pub fn on_keep_alive_received(
+        &mut self,
+        inbound_packet_timestamp_ns: i64,
+        mut current_timestamp_ns: i64,
+    ) -> bool {
         if self.keep_alive_timeout_ns == 0 {
             return true;
         }
@@ -715,15 +958,21 @@ impl StateContainerInner {
                     true
                 }
             } else {
-                self.network_stats.last_keep_alive.replace(current_timestamp_ns);
+                self.network_stats
+                    .last_keep_alive
+                    .replace(current_timestamp_ns);
                 // We subtract two keep alive intervals, since it pauses that long on each end. We multiply by 1 million to convert ms to ns
                 const PROCESS_TIME_NS: i64 = 2 * KEEP_ALIVE_INTERVAL_MS as i64 * 1_000_000;
-                self.network_stats.rtt_ns.replace(current_timestamp_ns - last_ka - PROCESS_TIME_NS);
+                self.network_stats
+                    .rtt_ns
+                    .replace(current_timestamp_ns - last_ka - PROCESS_TIME_NS);
                 true
             }
         } else {
             // This is the first KA in the series
-            self.network_stats.last_keep_alive.replace(current_timestamp_ns);
+            self.network_stats
+                .last_keep_alive
+                .replace(current_timestamp_ns);
             true
         };
 
@@ -734,16 +983,31 @@ impl StateContainerInner {
     /// Like the other functions in this file, ensure that verification is called before running this
     /// Returns the initial wave window
     #[allow(unused_results)]
-    pub fn on_group_header_received(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, group_receiver_config: GroupReceiverConfig, virtual_target: VirtualTargetType) -> Option<RangeInclusive<u32>> {
+    pub fn on_group_header_received(
+        &mut self,
+        header: &LayoutVerified<&[u8], HdpHeader>,
+        group_receiver_config: GroupReceiverConfig,
+        virtual_target: VirtualTargetType,
+    ) -> Option<RangeInclusive<u32>> {
         let group_id = header.group.get();
         let ticket = header.context_info.get();
         let object_id = header.wave_id.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
         let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id);
         if !self.inbound_groups.contains_key(&inbound_group_key) {
-            let receiver = GroupReceiver::new(group_receiver_config,INDIVIDUAL_WAVE_TIMEOUT_MS, GROUP_TIMEOUT_MS);
+            let receiver = GroupReceiver::new(
+                group_receiver_config,
+                INDIVIDUAL_WAVE_TIMEOUT_MS,
+                GROUP_TIMEOUT_MS,
+            );
             let security_level = SecurityLevel::for_value(header.security_level as usize)?;
-            let mut receiver_container = GroupReceiverContainer::new(object_id, receiver, virtual_target, security_level, ticket.into());
+            let mut receiver_container = GroupReceiverContainer::new(
+                object_id,
+                receiver,
+                virtual_target,
+                security_level,
+                ticket.into(),
+            );
             // check to see if we need to copy the last wave window
             let last_window_size = if object_id != 0 {
                 // copy previous window
@@ -772,7 +1036,8 @@ impl StateContainerInner {
                 receiver_container.current_window.clone()
             };
 
-            self.inbound_groups.insert(inbound_group_key, receiver_container);
+            self.inbound_groups
+                .insert(inbound_group_key, receiver_container);
             Some(wave_window)
         } else {
             log::error!(target: "lusna", "Duplicate group HEADER detected ({})", group_id);
@@ -782,7 +1047,13 @@ impl StateContainerInner {
 
     /// This creates an entry in the inbound_files hashmap
     #[allow(unused_results)]
-    pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata_orig: VirtualObjectMetadata, pers: &PersistenceHandler<R, Fcm>) -> bool {
+    pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(
+        &mut self,
+        header: &LayoutVerified<&[u8], HdpHeader>,
+        virtual_target: VirtualTargetType,
+        metadata_orig: VirtualObjectMetadata,
+        pers: &PersistenceHandler<R, Fcm>,
+    ) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
 
@@ -791,7 +1062,8 @@ impl StateContainerInner {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let pers = pers.clone();
             let metadata = metadata_orig.clone();
-            let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel::<()>();
+            let (reception_complete_tx, success_receiving_rx) =
+                tokio::sync::oneshot::channel::<()>();
             let entry = InboundFileTransfer {
                 last_group_finish_time: Instant::now(),
                 last_group_window_len: 0,
@@ -802,34 +1074,48 @@ impl StateContainerInner {
                 virtual_target,
                 metadata: metadata.clone(),
                 reception_complete_tx,
-                stream_to_hd
+                stream_to_hd,
             };
 
             self.inbound_files.insert(key, entry);
-            let (handle, tx_status) = ObjectTransferHandle::new(header.session_cid.get(), header.target_cid.get(), ObjectTransferOrientation::Receiver);
-            self.file_transfer_handles.insert(key, crate::hdp::outbound_sender::UnboundedSender(tx_status.clone()));
+            let (handle, tx_status) = ObjectTransferHandle::new(
+                header.session_cid.get(),
+                header.target_cid.get(),
+                ObjectTransferOrientation::Receiver,
+            );
+            self.file_transfer_handles.insert(
+                key,
+                crate::hdp::outbound_sender::UnboundedSender(tx_status.clone()),
+            );
             // finally, alert the kernel (receiver)
-            let _ = self.kernel_tx.unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle));
+            let _ = self
+                .kernel_tx
+                .unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle));
 
             let task = async move {
-                match pers.stream_object_to_backend(stream_to_hd_rx,  Arc::new(metadata), tx_status.clone()).await {
+                match pers
+                    .stream_object_to_backend(
+                        stream_to_hd_rx,
+                        Arc::new(metadata),
+                        tx_status.clone(),
+                    )
+                    .await
+                {
                     Ok(()) => {
                         log::trace!(target: "lusna", "Successfully synced file to backend");
                         let status = match success_receiving_rx.await {
-                            Ok(_) => {
-                                ObjectTransferStatus::ReceptionComplete
-                            }
+                            Ok(_) => ObjectTransferStatus::ReceptionComplete,
 
-                            Err(_) => {
-                                ObjectTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
-                            }
+                            Err(_) => ObjectTransferStatus::Fail(format!(
+                                "An unknown error occurred while receiving file"
+                            )),
                         };
 
                         let _ = tx_status.send(status);
-                    },
+                    }
                     Err(err) => {
                         log::error!(target: "lusna", "Unable to sync file to backend: {:?}", err);
-                    },
+                    }
                 }
             };
 
@@ -841,14 +1127,21 @@ impl StateContainerInner {
         }
     }
 
-    pub fn on_file_header_ack_received(&mut self, success: bool, implicated_cid: u64, ticket: Ticket, object_id: u32, v_target: VirtualTargetType) -> Option<()>{
+    pub fn on_file_header_ack_received(
+        &mut self,
+        success: bool,
+        implicated_cid: u64,
+        ticket: Ticket,
+        object_id: u32,
+        v_target: VirtualTargetType,
+    ) -> Option<()> {
         let (key, receiver_cid) = match v_target {
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                 // since the order hasn't flipped yet, get the implicated cid
                 (FileKey::new(implicated_cid, object_id), target_cid)
             }
 
-            VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) =>{
+            VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                 (FileKey::new(implicated_cid, object_id), 0)
             }
 
@@ -863,11 +1156,19 @@ impl StateContainerInner {
             if let Some(file_transfer) = self.outbound_files.get_mut(&key) {
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
-                let (handle, tx) = ObjectTransferHandle::new(implicated_cid, receiver_cid, ObjectTransferOrientation::Sender);
+                let (handle, tx) = ObjectTransferHandle::new(
+                    implicated_cid,
+                    receiver_cid,
+                    ObjectTransferOrientation::Sender,
+                );
                 tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
-                let _ = self.file_transfer_handles.insert(key, crate::hdp::outbound_sender::UnboundedSender(tx));
+                let _ = self
+                    .file_transfer_handles
+                    .insert(key, crate::hdp::outbound_sender::UnboundedSender(tx));
                 // alert the kernel that file transfer has begun
-                self.kernel_tx.unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle)).ok()?;
+                self.kernel_tx
+                    .unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle))
+                    .ok()?;
             } else {
                 log::error!(target: "lusna", "Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
             }
@@ -893,17 +1194,39 @@ impl StateContainerInner {
     /// NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool) -> bool {
+    pub fn on_group_header_ack_received(
+        &mut self,
+        base_session_secrecy_mode: SecrecyMode,
+        peer_cid: u64,
+        target_cid: u64,
+        group_id: u64,
+        next_window: Option<RangeInclusive<u32>>,
+        transfer: KemTransferStatus,
+        fast_msg: bool,
+    ) -> bool {
         let key = GroupKey::new(peer_cid, group_id);
 
-        let constructor = if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
-            outbound_container.ratchet_constructor.take().map(ConstructorType::Default)
+        let constructor = if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key)
+        {
+            outbound_container
+                .ratchet_constructor
+                .take()
+                .map(ConstructorType::Default)
         } else {
             log::warn!(target: "lusna", "Key for outbound transmitter absent");
             return false;
         };
 
-        if attempt_kem_as_alice_finish(base_session_secrecy_mode, peer_cid, target_cid, transfer, self, constructor).is_err() {
+        if attempt_kem_as_alice_finish(
+            base_session_secrecy_mode,
+            peer_cid,
+            target_cid,
+            transfer,
+            self,
+            constructor,
+        )
+        .is_err()
+        {
             return true;
         }
 
@@ -917,35 +1240,81 @@ impl StateContainerInner {
 
         outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
         // file-transfer, or TCP only mode since next_window is none. Use TCP
-        outbound_container.burst_transmitter.transmit_tcp_file_transfer()
+        outbound_container
+            .burst_transmitter
+            .transmit_tcp_file_transfer()
     }
 
-    pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &StackedRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
+    pub fn on_group_payload_received(
+        &mut self,
+        header: &HdpHeader,
+        payload: Bytes,
+        hr: &StackedRatchet,
+    ) -> Result<PrimaryProcessorResult, NetworkError> {
         let target_cid = header.session_cid.get();
         let group_id = header.group.get();
         let group_key = GroupKey::new(target_cid, group_id);
-        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| NetworkError::msg(format!("inbound_groups does not contain key for {:?}", group_key)))?;
+        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
+            NetworkError::msg(format!(
+                "inbound_groups does not contain key for {:?}",
+                group_key
+            ))
+        })?;
         let file_key = FileKey::new(target_cid, grc.object_id);
-        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("inbound_files does not contain key for {:?}", file_key)))?;
-        let file_transfer_handle = self.file_transfer_handles.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("file_transfer_handle does not contain key for {:?}", file_key)))?;
+        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| {
+            NetworkError::msg(format!(
+                "inbound_files does not contain key for {:?}",
+                file_key
+            ))
+        })?;
+        let file_transfer_handle =
+            self.file_transfer_handles
+                .get_mut(&file_key)
+                .ok_or_else(|| {
+                    NetworkError::msg(format!(
+                        "file_transfer_handle does not contain key for {:?}",
+                        file_key
+                    ))
+                })?;
 
-        let src = *payload.get(0).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [0]"))?;
-        let dest = *payload.get(1).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [1]"))?;
+        let src = *payload
+            .get(0)
+            .ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [0]"))?;
+        let dest = *payload
+            .get(1)
+            .ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [1]"))?;
         let ts = self.time_tracker.get_global_time_ns();
 
-        let true_sequence = hyxe_crypt::packet_vector::generate_packet_coordinates_inv(header.wave_id.get(),
-                                                                                       src as u16,
-                                                                                       dest as u16,
-                                                                                       hr.get_scramble_drill()).ok_or_else(|| NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
+        let true_sequence = hyxe_crypt::packet_vector::generate_packet_coordinates_inv(
+            header.wave_id.get(),
+            src as u16,
+            dest as u16,
+            hr.get_scramble_drill(),
+        )
+        .ok_or_else(|| NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
 
         let mut send_wave_ack = false;
         let mut complete = false;
 
-        match grc.receiver.on_packet_received(group_id, true_sequence, header.wave_id.get(), hr,&payload[2..]) {
+        match grc.receiver.on_packet_received(
+            group_id,
+            true_sequence,
+            header.wave_id.get(),
+            hr,
+            &payload[2..],
+        ) {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 log::trace!(target: "lusna", "GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
-                let chunk = self.inbound_groups.remove(&group_key).unwrap().receiver.finalize();
-                file_container.stream_to_hd.unbounded_send(chunk).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                let chunk = self
+                    .inbound_groups
+                    .remove(&group_key)
+                    .unwrap()
+                    .receiver
+                    .finalize();
+                file_container
+                    .stream_to_hd
+                    .unbounded_send(chunk)
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                 send_wave_ack = true;
 
@@ -954,13 +1323,22 @@ impl StateContainerInner {
                     let file_container = self.inbound_files.remove(&file_key).unwrap();
                     // status of reception complete now located where the streaming to HD completes
                     // we need only take the sender and send a signal to prove that we finished correctly here
-                    file_container.reception_complete_tx.send(()).map_err(|_| NetworkError::msg("reception_complete_tx err"))?;
+                    file_container
+                        .reception_complete_tx
+                        .send(())
+                        .map_err(|_| NetworkError::msg("reception_complete_tx err"))?;
                 } else {
                     file_container.last_group_finish_time = Instant::now();
                     // TODO: Compute Mb/s
-                    let status = ObjectTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32);
+                    let status = ObjectTransferStatus::ReceptionTick(
+                        group_id as usize,
+                        file_container.total_groups,
+                        0 as f32,
+                    );
                     // sending the wave ack will complete the group on the initiator side
-                    file_transfer_handle.unbounded_send(status).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    file_transfer_handle
+                        .unbounded_send(status)
+                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 }
             }
 
@@ -983,8 +1361,17 @@ impl StateContainerInner {
         }
 
         if send_wave_ack {
-            let wave_ack = hdp_packet_crafter::group::craft_wave_ack(hr, header.context_info.get() as u32, get_resp_target_cid_from_header(header), header.group.get(), header.wave_id.get(), ts, None, header.security_level.into());
-            return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack))
+            let wave_ack = hdp_packet_crafter::group::craft_wave_ack(
+                hr,
+                header.context_info.get() as u32,
+                get_resp_target_cid_from_header(header),
+                header.group.get(),
+                header.wave_id.get(),
+                ts,
+                None,
+                header.security_level.into(),
+            );
+            return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack));
         }
 
         Ok(PrimaryProcessorResult::Void)
@@ -996,7 +1383,11 @@ impl StateContainerInner {
     /// of the number of waves ACK'ed. Once the number of waves ACK'ed equals the window size, this function
     /// also re-engages the transmitter
     #[allow(unused_results)]
-    pub fn on_wave_ack_received(&mut self, _implicated_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>) -> bool {
+    pub fn on_wave_ack_received(
+        &mut self,
+        _implicated_cid: u64,
+        header: &LayoutVerified<&[u8], HdpHeader>,
+    ) -> bool {
         let object_id = header.context_info.get();
         let group = header.group.get();
         let wave_id = header.wave_id.get();
@@ -1012,8 +1403,13 @@ impl StateContainerInner {
             let relative_group_id = transmitter_container.relative_group_id;
             if transmitter.on_wave_tail_ack_received(wave_id) {
                 // Group is finished. Delete it
-                let elapsed_sec = transmitter_container.transmission_start_time.elapsed().as_secs_f32();
-                let rate_mb_per_s = (transmitter_container.group_plaintext_length as f32 / 1_000_000f32)/elapsed_sec;
+                let elapsed_sec = transmitter_container
+                    .transmission_start_time
+                    .elapsed()
+                    .as_secs_f32();
+                let rate_mb_per_s = (transmitter_container.group_plaintext_length as f32
+                    / 1_000_000f32)
+                    / elapsed_sec;
                 log::trace!(target: "lusna", "Transmitter received final wave ack. Alerting local node to continue transmission of next group");
                 // if there is n=1 waves, then the below must be ran. The other use of object notifier in this function only applies for multiple waves
                 if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
@@ -1025,8 +1421,14 @@ impl StateContainerInner {
                 let file_key = FileKey::new(target_cid, object_id as u32);
 
                 if let Some(tx) = self.file_transfer_handles.get(&file_key) {
-                    let status = if relative_group_id as usize != transmitter_container.parent_object_total_groups - 1 {
-                        ObjectTransferStatus::TransferTick(relative_group_id as usize, transmitter_container.parent_object_total_groups, rate_mb_per_s)
+                    let status = if relative_group_id as usize
+                        != transmitter_container.parent_object_total_groups - 1
+                    {
+                        ObjectTransferStatus::TransferTick(
+                            relative_group_id as usize,
+                            transmitter_container.parent_object_total_groups,
+                            rate_mb_per_s,
+                        )
                     } else {
                         ObjectTransferStatus::TransferComplete
                     };
@@ -1083,22 +1485,40 @@ impl StateContainerInner {
 
     fn get_secrecy_mode(&self, target_cid: u64) -> Option<SecrecyMode> {
         if target_cid != C2S_ENCRYPTION_ONLY {
-            Some(self.active_virtual_connections.get(&target_cid)?.endpoint_container.as_ref()?.default_security_settings.secrecy_mode)
+            Some(
+                self.active_virtual_connections
+                    .get(&target_cid)?
+                    .endpoint_container
+                    .as_ref()?
+                    .default_security_settings
+                    .secrecy_mode,
+            )
         } else {
-            self.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone()
+            self.session_security_settings
+                .as_ref()
+                .map(|r| r.secrecy_mode)
+                .clone()
         }
     }
 
     /// Returns true if a packet was sent, false otherwise. This should only be called when a packet is received
     pub(crate) fn poll_next_enqueued(&mut self, target_cid: u64) -> Result<bool, NetworkError> {
         log::trace!(target: "lusna", "Polling next for {}", target_cid);
-        let secrecy_mode = self.get_secrecy_mode(target_cid).ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
+        let secrecy_mode = self
+            .get_secrecy_mode(target_cid)
+            .ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
         match secrecy_mode {
             SecrecyMode::BestEffort => {}
 
             SecrecyMode::Perfect => {
                 // fetch_nand(false
-                let update_in_progress = self.updates_in_progress.get(&target_cid).map(|r| r.fetch_nand(false, Ordering::SeqCst)).ok_or(NetworkError::InternalError("Update state not loaded in hashmap!"))?;
+                let update_in_progress = self
+                    .updates_in_progress
+                    .get(&target_cid)
+                    .map(|r| r.fetch_nand(false, Ordering::SeqCst))
+                    .ok_or(NetworkError::InternalError(
+                        "Update state not loaded in hashmap!",
+                    ))?;
 
                 // We have to make sure when this is called, it also sets update_in_progress to true to place a lock. We will also need to reinforce this via a force_mode inside the get_next_constructor fn in the crypt container
                 // it's possible in high-stress loads, a new inbound packet triggers update_in_progress to true right after checking below. The fetch_nand w/false helps us achieve this
@@ -1112,7 +1532,15 @@ impl StateContainerInner {
                 // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
                 if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
                     //std::mem::drop(enqueued);
-                    return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
+                    return self
+                        .process_outbound_message(
+                            ticket,
+                            packet,
+                            virtual_target,
+                            security_level,
+                            true,
+                        )
+                        .map(|_| true);
                 } else {
                     log::trace!(target: "lusna", "NO packets enqueued for target {}", target_cid);
                 }
@@ -1122,7 +1550,14 @@ impl StateContainerInner {
         Ok(false)
     }
 
-    fn enqueue_packet(&mut self, target_cid: u64, ticket: Ticket, packet: SecureProtocolPacket, target: VirtualTargetType, security_level: SecurityLevel) {
+    fn enqueue_packet(
+        &mut self,
+        target_cid: u64,
+        ticket: Ticket,
+        packet: SecureProtocolPacket,
+        target: VirtualTargetType,
+        security_level: SecurityLevel,
+    ) {
         self.enqueued_packets
             .entry(target_cid)
             .or_default()
@@ -1130,28 +1565,56 @@ impl StateContainerInner {
     }
 
     fn has_enqueued(&self, target_cid: u64) -> bool {
-        self.enqueued_packets.get(&target_cid).map(|r| r.front().is_some()).unwrap_or(false)
+        self.enqueued_packets
+            .get(&target_cid)
+            .map(|r| r.front().is_some())
+            .unwrap_or(false)
     }
 
-
     #[allow(unused_results)]
-    pub(crate) fn process_outbound_message(&mut self, ticket: Ticket, packet: SecureProtocolPacket, virtual_target: VirtualTargetType, security_level: SecurityLevel, called_from_poll: bool) -> Result<(), NetworkError> {
+    pub(crate) fn process_outbound_message(
+        &mut self,
+        ticket: Ticket,
+        packet: SecureProtocolPacket,
+        virtual_target: VirtualTargetType,
+        security_level: SecurityLevel,
+        called_from_poll: bool,
+    ) -> Result<(), NetworkError> {
         let this = self;
 
         if this.state.load(Ordering::Relaxed) != SessionState::Connected {
-            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}) outbound, but the session is not connected", ticket)))
+            Err(NetworkError::Generic(format!(
+                "Attempted to send data (ticket: {}) outbound, but the session is not connected",
+                ticket
+            )))
         } else {
             // first, make sure that there aren't already packets in the queue (unless we were called from the poll, in which case, we are getting the latest version)
-            let secrecy_mode = this.get_secrecy_mode(virtual_target.get_target_cid()).ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
+            let secrecy_mode = this
+                .get_secrecy_mode(virtual_target.get_target_cid())
+                .ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
 
             let time_tracker = this.time_tracker.clone();
 
             if secrecy_mode == SecrecyMode::Perfect && !called_from_poll {
                 //let mut enqueued = inner_mut!(this.enqueued_packets);
-                if this.has_enqueued(virtual_target.get_target_cid()) || this.updates_in_progress.get(&virtual_target.get_target_cid()).map(|r| r.load(Ordering::SeqCst)).ok_or_else(|| NetworkError::InternalError("Update in progress not loaded for client"))? {
+                if this.has_enqueued(virtual_target.get_target_cid())
+                    || this
+                        .updates_in_progress
+                        .get(&virtual_target.get_target_cid())
+                        .map(|r| r.load(Ordering::SeqCst))
+                        .ok_or_else(|| {
+                            NetworkError::InternalError("Update in progress not loaded for client")
+                        })?
+                {
                     // If there are packets enqueued, it doesn't matter if an update is in progress or not. Queue this packet
                     //log::trace!(target: "lusna", "[ABX] enqueuing packet for {:?}", virtual_target);
-                    this.enqueue_packet(virtual_target.get_target_cid(), ticket, packet, virtual_target, security_level);
+                    this.enqueue_packet(
+                        virtual_target.get_target_cid(),
+                        ticket,
+                        packet,
+                        virtual_target,
+                        security_level,
+                    );
                     return Ok(());
                 }
             }
@@ -1164,22 +1627,37 @@ impl StateContainerInner {
                 VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                    let crypt_container = &mut this.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
-                    let latest_hyper_ratchet = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                    let crypt_container = &mut this
+                        .c2s_channel_container
+                        .as_mut()
+                        .unwrap()
+                        .peer_session_crypto;
+                    let latest_hyper_ratchet =
+                        crypt_container.get_hyper_ratchet(None).cloned().unwrap();
                     latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
                     let constructor = crypt_container.get_next_constructor(called_from_poll);
 
                     let result = match secrecy_mode {
                         SecrecyMode::BestEffort => {
                             let group_id = crypt_container.get_and_increment_group_id();
-                            Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet))
+                            Either::Left((
+                                constructor,
+                                latest_hyper_ratchet.clone(),
+                                group_id,
+                                packet,
+                            ))
                         }
 
                         SecrecyMode::Perfect => {
                             if constructor.is_some() {
                                 // we can perform a kex
                                 let group_id = crypt_container.get_and_increment_group_id();
-                                Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet))
+                                Either::Left((
+                                    constructor,
+                                    latest_hyper_ratchet.clone(),
+                                    group_id,
+                                    packet,
+                                ))
                             } else {
                                 // kex later
                                 Either::Right(packet)
@@ -1188,15 +1666,47 @@ impl StateContainerInner {
                     };
 
                     match result {
-                        Either::Left((alice_constructor, latest_hyper_ratchet, group_id, packet)) => {
+                        Either::Left((
+                            alice_constructor,
+                            latest_hyper_ratchet,
+                            group_id,
+                            packet,
+                        )) => {
                             let to_primary_stream = this.get_primary_stream().cloned().unwrap();
-                            (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, RatchetPacketCrafterContainer::new(latest_hyper_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
+                            (
+                                GroupTransmitter::new_message(
+                                    to_primary_stream,
+                                    OBJECT_SINGLETON,
+                                    RatchetPacketCrafterContainer::new(
+                                        latest_hyper_ratchet,
+                                        alice_constructor,
+                                    ),
+                                    packet,
+                                    security_level,
+                                    group_id,
+                                    ticket,
+                                    time_tracker,
+                                )
+                                .ok_or_else(|| {
+                                    NetworkError::InternalError(
+                                        "Unable to create the outbound transmitter",
+                                    )
+                                })?,
+                                group_id,
+                                implicated_cid,
+                            )
                         }
 
                         Either::Right(packet) => {
                             // store inside hashmap
                             log::trace!(target: "lusna", "[ATC] Enqueuing c2s packet");
-                            this.enqueue_packet(C2S_ENCRYPTION_ONLY, ticket, packet, virtual_target, security_level);
+                            this.enqueue_packet(
+                                C2S_ENCRYPTION_ONLY,
+                                ticket,
+                                packet,
+                                virtual_target,
+                                security_level,
+                            );
                             return Ok(());
                         }
                     }
@@ -1220,22 +1730,76 @@ impl StateContainerInner {
                                 default_primary_stream
                             });
                             //let to_primary_stream_preferred = this.to_primary_stream.clone().unwrap();
-                            let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
+                            let latest_usable_ratchet = endpoint_container
+                                .endpoint_crypto
+                                .get_hyper_ratchet(None)
+                                .unwrap()
+                                .clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
-                            let constructor = endpoint_container.endpoint_crypto.get_next_constructor(called_from_poll);
+                            let constructor = endpoint_container
+                                .endpoint_crypto
+                                .get_next_constructor(called_from_poll);
 
                             match secrecy_mode {
                                 SecrecyMode::BestEffort => {
-                                    let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
-                                    (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                    let group_id = endpoint_container
+                                        .endpoint_crypto
+                                        .get_and_increment_group_id();
+                                    (
+                                        GroupTransmitter::new_message(
+                                            to_primary_stream_preferred,
+                                            OBJECT_SINGLETON,
+                                            RatchetPacketCrafterContainer::new(
+                                                latest_usable_ratchet,
+                                                constructor,
+                                            ),
+                                            packet,
+                                            security_level,
+                                            group_id,
+                                            ticket,
+                                            time_tracker,
+                                        )
+                                        .ok_or_else(
+                                            || {
+                                                NetworkError::InternalError(
+                                                    "Unable to create the outbound transmitter",
+                                                )
+                                            },
+                                        )?,
+                                        group_id,
+                                        target_cid,
+                                    )
                                 }
 
                                 SecrecyMode::Perfect => {
                                     // Note: we can't just add/send here. What if there are packets in the queue? We thus must poll before calling the below function
                                     if constructor.is_some() {
-                                        let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
+                                        let group_id = endpoint_container
+                                            .endpoint_crypto
+                                            .get_and_increment_group_id();
                                         log::trace!(target: "lusna", "[Perfect] will send group {}", group_id);
-                                        (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON,RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                        (
+                                            GroupTransmitter::new_message(
+                                                to_primary_stream_preferred,
+                                                OBJECT_SINGLETON,
+                                                RatchetPacketCrafterContainer::new(
+                                                    latest_usable_ratchet,
+                                                    constructor,
+                                                ),
+                                                packet,
+                                                security_level,
+                                                group_id,
+                                                ticket,
+                                                time_tracker,
+                                            )
+                                            .ok_or_else(|| {
+                                                NetworkError::InternalError(
+                                                    "Unable to create the outbound transmitter",
+                                                )
+                                            })?,
+                                            group_id,
+                                            target_cid,
+                                        )
                                     } else {
                                         //assert!(!called_from_poll);
                                         // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent
@@ -1247,13 +1811,21 @@ impl StateContainerInner {
                                         //std::mem::drop(state_container);
                                         log::trace!(target: "lusna", "[Perfect] will enqueue packet");
                                         //let mut enqueued_packets = inner_mut!(this.enqueued_packets);
-                                        this.enqueue_packet(target_cid, ticket, packet, virtual_target, security_level);
+                                        this.enqueue_packet(
+                                            target_cid,
+                                            ticket,
+                                            packet,
+                                            virtual_target,
+                                            security_level,
+                                        );
                                         return Ok(());
                                     }
                                 }
                             }
                         } else {
-                            return Err(NetworkError::InternalError("Endpoint container not found"));
+                            return Err(NetworkError::InternalError(
+                                "Endpoint container not found",
+                            ));
                         }
                     } else {
                         log::error!(target: "lusna", "Unable to find active vconn for the channel");
@@ -1262,10 +1834,11 @@ impl StateContainerInner {
                 }
 
                 _ => {
-                    return Err(NetworkError::InvalidRequest("HyperWAN functionality not yet implemented"));
+                    return Err(NetworkError::InvalidRequest(
+                        "HyperWAN functionality not yet implemented",
+                    ));
                 }
             };
-
 
             // We manually send the header. The tails get sent automatically
             log::trace!(target: "lusna", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then(|| "Server").unwrap_or("Client"));
@@ -1274,7 +1847,8 @@ impl StateContainerInner {
 
             //this.transfer_stats += TransferStats::new(timestamp, group_len as isize);
 
-            let outbound_container = OutboundTransmitterContainer::new(None, transmitter, group_len, 1, 0, ticket);
+            let outbound_container =
+                OutboundTransmitterContainer::new(None, transmitter, group_len, 1, 0, ticket);
             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
             // NOTE: Ever since using GroupKeys, we use either the implicated_cid (for client -> server conns) or target_cids (for peer conns)
             let key = GroupKey::new(target_cid, group_id);
@@ -1309,7 +1883,12 @@ impl StateContainerInner {
     }
 
     #[allow(unused_results)]
-    pub(crate) fn initiate_drill_update(&mut self, timestamp: i64, virtual_target: VirtualTargetType, ticket: Option<Ticket>) -> Result<(), NetworkError> {
+    pub(crate) fn initiate_drill_update(
+        &mut self,
+        timestamp: i64,
+        virtual_target: VirtualTargetType,
+        ticket: Option<Ticket>,
+    ) -> Result<(), NetworkError> {
         if !self.meta_expiry_state.expired() {
             log::trace!(target: "lusna", "Drill update will be omitted since packets are being sent");
             return Ok(());
@@ -1317,20 +1896,38 @@ impl StateContainerInner {
 
         let session_security_settings = self.session_security_settings.clone().unwrap();
         let security_level = session_security_settings.security_level;
-        let ref default_primary_stream = self.get_primary_stream().cloned().ok_or_else(||NetworkError::InternalError("Primary stream not loaded"))?;
+        let ref default_primary_stream = self
+            .get_primary_stream()
+            .cloned()
+            .ok_or_else(|| NetworkError::InternalError("Primary stream not loaded"))?;
 
         match virtual_target {
             VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
-                let crypt_container = &mut self.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+                let crypt_container = &mut self
+                    .c2s_channel_container
+                    .as_mut()
+                    .unwrap()
+                    .peer_session_crypto;
 
                 match crypt_container.get_next_constructor(false) {
                     Some(alice_constructor) => {
                         let ratchet = crypt_container.get_hyper_ratchet(None).unwrap();
-                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(ratchet, alice_constructor.stage0_alice(), timestamp, C2S_ENCRYPTION_ONLY, security_level);
+                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(
+                            ratchet,
+                            alice_constructor.stage0_alice(),
+                            timestamp,
+                            C2S_ENCRYPTION_ONLY,
+                            security_level,
+                        );
                         self.ratchet_update_state.alice_hyper_ratchet = Some(alice_constructor);
                         let to_primary_stream = self.get_primary_stream().unwrap();
                         let kernel_tx = &self.kernel_tx;
-                        HdpSession::send_to_primary_stream_closure(to_primary_stream, kernel_tx, stage0_packet, ticket)
+                        HdpSession::send_to_primary_stream_closure(
+                            to_primary_stream,
+                            kernel_tx,
+                            stage0_packet,
+                            ticket,
+                        )
                     }
 
                     None => {
@@ -1342,19 +1939,42 @@ impl StateContainerInner {
 
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
                 const MISSING: NetworkError = NetworkError::InvalidRequest("Peer not connected");
-                let endpoint_container = &mut self.active_virtual_connections.get_mut(&peer_cid).ok_or(MISSING)?.endpoint_container.as_mut().ok_or(MISSING)?;
+                let endpoint_container = &mut self
+                    .active_virtual_connections
+                    .get_mut(&peer_cid)
+                    .ok_or(MISSING)?
+                    .endpoint_container
+                    .as_mut()
+                    .ok_or(MISSING)?;
                 let crypt = &mut endpoint_container.endpoint_crypto;
                 let alice_constructor = crypt.get_next_constructor(false);
-                let latest_hyper_ratchet = crypt.get_hyper_ratchet(None).cloned().ok_or(NetworkError::InternalError("Ratchet not loaded"))?;
+                let latest_hyper_ratchet = crypt
+                    .get_hyper_ratchet(None)
+                    .cloned()
+                    .ok_or(NetworkError::InternalError("Ratchet not loaded"))?;
 
                 match alice_constructor {
                     Some(alice_constructor) => {
-                        let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| default_primary_stream);
-                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&latest_hyper_ratchet, alice_constructor.stage0_alice(), timestamp, peer_cid, security_level);
+                        let to_primary_stream_preferred = endpoint_container
+                            .get_direct_p2p_primary_stream()
+                            .unwrap_or_else(|| default_primary_stream);
+                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(
+                            &latest_hyper_ratchet,
+                            alice_constructor.stage0_alice(),
+                            timestamp,
+                            peer_cid,
+                            security_level,
+                        );
 
-                        to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                        to_primary_stream_preferred
+                            .unbounded_send(stage0_packet)
+                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                        if let Some(_) = self.ratchet_update_state.p2p_updates.insert(peer_cid, alice_constructor) {
+                        if let Some(_) = self
+                            .ratchet_update_state
+                            .p2p_updates
+                            .insert(peer_cid, alice_constructor)
+                        {
                             log::error!(target: "lusna", "Overwrote pre-existing peer kem. Report to developers");
                         }
 
@@ -1369,62 +1989,103 @@ impl StateContainerInner {
                 }
             }
 
-            _ => {
-                Err(NetworkError::InternalError("HyperWAN Not implemented"))
-            }
+            _ => Err(NetworkError::InternalError("HyperWAN Not implemented")),
         }
     }
 
-    pub(crate) fn process_outbound_broadcast_command(&self, ticket: Ticket, command: &GroupBroadcast) -> Result<(), NetworkError> {
+    pub(crate) fn process_outbound_broadcast_command(
+        &self,
+        ticket: Ticket,
+        command: &GroupBroadcast,
+    ) -> Result<(), NetworkError> {
         if self.state.load(Ordering::Relaxed) != SessionState::Connected {
             log::warn!(target: "lusna", "Unable to execute group command since session is not connected");
-            return Ok(())
+            return Ok(());
         }
 
-        let hyper_ratchet = self.get_c2s_crypto().ok_or_else(|| NetworkError::InternalError("C2s not loaded"))?
-            .get_hyper_ratchet(None).unwrap();
-        let security_level = self.session_security_settings.map(|r| r.security_level).clone().unwrap();
+        let hyper_ratchet = self
+            .get_c2s_crypto()
+            .ok_or_else(|| NetworkError::InternalError("C2s not loaded"))?
+            .get_hyper_ratchet(None)
+            .unwrap();
+        let security_level = self
+            .session_security_settings
+            .map(|r| r.security_level)
+            .clone()
+            .unwrap();
         let to_primary_stream = self.get_primary_stream().unwrap();
 
         let timestamp = self.time_tracker.get_global_time_ns();
         let packet = match command {
-            GroupBroadcast::Create(..) |
-            GroupBroadcast::End(_) |
-            GroupBroadcast::Kick(..) |
-            GroupBroadcast::Message(..) |
-            GroupBroadcast::Add(..) |
-            GroupBroadcast::AcceptMembership(_) |
-            GroupBroadcast::RequestJoin(..) |
-            GroupBroadcast::LeaveRoom(_) => {
-                hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
+            GroupBroadcast::Create(..)
+            | GroupBroadcast::End(_)
+            | GroupBroadcast::Kick(..)
+            | GroupBroadcast::Message(..)
+            | GroupBroadcast::Add(..)
+            | GroupBroadcast::AcceptMembership(_)
+            | GroupBroadcast::RequestJoin(..)
+            | GroupBroadcast::LeaveRoom(_) => {
+                hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                    hyper_ratchet,
+                    command,
+                    ticket,
+                    C2S_ENCRYPTION_ONLY,
+                    timestamp,
+                    security_level,
+                )
             }
 
             n => {
-                return Err(NetworkError::Generic(format!("{:?} is not a valid group broadcast request", &n)));
+                return Err(NetworkError::Generic(format!(
+                    "{:?} is not a valid group broadcast request",
+                    &n
+                )));
             }
         };
 
-        to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
+        to_primary_stream
+            .unbounded_send(packet)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    pub(crate) fn setup_group_channel_endpoints(&mut self, key: MessageGroupKey, ticket: Ticket, session: &HdpSession) -> Result<GroupChannel, NetworkError> {
+    pub(crate) fn setup_group_channel_endpoints(
+        &mut self,
+        key: MessageGroupKey,
+        ticket: Ticket,
+        session: &HdpSession,
+    ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
-        let implicated_cid = self.cnac.as_ref().map(|r| r.get_cid()).ok_or_else(|| NetworkError::InternalError("CNAC not loaded"))?;
+        let implicated_cid = self
+            .cnac
+            .as_ref()
+            .map(|r| r.get_cid())
+            .ok_or_else(|| NetworkError::InternalError("CNAC not loaded"))?;
 
         if self.group_channels.contains_key(&key) {
-            return Err(NetworkError::InternalError("Group channel already exists locally"))
+            return Err(NetworkError::InternalError(
+                "Group channel already exists locally",
+            ));
         }
 
         let _ = self.group_channels.insert(key, tx);
 
-        let (to_session_tx, to_session_rx) = crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
+        let (to_session_tx, to_session_rx) =
+            crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
 
         HdpSession::spawn_message_sender_function(session.clone(), to_session_rx);
 
-        Ok(GroupChannel::new(to_session_tx, key, ticket, implicated_cid, rx))
+        Ok(GroupChannel::new(
+            to_session_tx,
+            key,
+            ticket,
+            implicated_cid,
+            rx,
+        ))
     }
 
     fn get_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
-        self.c2s_channel_container.as_ref().map(|r| &r.to_primary_stream)
+        self.c2s_channel_container
+            .as_ref()
+            .map(|r| &r.to_primary_stream)
     }
 }

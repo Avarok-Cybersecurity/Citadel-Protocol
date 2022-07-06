@@ -1,8 +1,8 @@
-use crate::drill::{PORT_RANGE, BYTES_PER_3D_ARRAY};
+use crate::drill::{BYTES_PER_3D_ARRAY, PORT_RANGE};
+use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use std::fmt::Formatter;
 use std::os::raw::c_void;
-use rand::prelude::SliceRandom;
 
 /// Default Error type for this crate
 pub enum CryptError<T = String> {
@@ -15,32 +15,41 @@ pub enum CryptError<T = String> {
     /// Out of bounds
     OutOfBoundsError,
     /// This occurs if the byte-valued security level desired does not correspond to an actual [SecurityLevel]
-    BadSecuritySetting
+    BadSecuritySetting,
 }
 
 impl<T> CryptError<T> {
     /// Use for converting to different types
-    pub fn into_string(self) -> String where T: Into<String> {
+    pub fn into_string(self) -> String
+    where
+        T: Into<String>,
+    {
         match self {
             CryptError::Encrypt(s) => s.into(),
             CryptError::Decrypt(s) => s.into(),
             CryptError::DrillUpdateError(s) => s.into(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception".to_string(),
-            CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string()
+            CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string(),
         }
     }
 
-    pub fn to_string(&self) -> String where T: AsRef<str> {
+    pub fn to_string(&self) -> String
+    where
+        T: AsRef<str>,
+    {
         self.as_str().to_string()
     }
 
-    pub fn as_str(&self) -> &str where T: AsRef<str> {
+    pub fn as_str(&self) -> &str
+    where
+        T: AsRef<str>,
+    {
         match self {
             CryptError::Encrypt(s) => s.as_ref(),
             CryptError::Decrypt(s) => s.as_ref(),
             CryptError::DrillUpdateError(s) => s.as_ref(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception",
-            CryptError::BadSecuritySetting => "[CryptError] Bad security setting"
+            CryptError::BadSecuritySetting => "[CryptError] Bad security setting",
         }
     }
 }
@@ -80,14 +89,12 @@ pub fn bytes_to_3d_array<T: AsRef<[u8]>>(input: T) -> [u8; BYTES_PER_3D_ARRAY] {
     debug_assert_eq!(input.len(), BYTES_PER_3D_ARRAY);
 
     let mut ret = [0u8; BYTES_PER_3D_ARRAY];
-     ret.iter_mut().zip(input.iter())
-         .for_each(|(out, val)| {
-             *out = *val;
-         });
+    ret.iter_mut().zip(input.iter()).for_each(|(out, val)| {
+        *out = *val;
+    });
 
     ret
 }
-
 
 #[cfg(not(target_os = "windows"))]
 #[allow(unused_results)]
@@ -96,9 +103,9 @@ pub fn bytes_to_3d_array<T: AsRef<[u8]>>(input: T) -> [u8; BYTES_PER_3D_ARRAY] {
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
     libc::mlock(ptr as *const c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
-        libc::madvise(ptr as *mut c_void, len, libc::MADV_NOCORE);
+    libc::madvise(ptr as *mut c_void, len, libc::MADV_NOCORE);
     #[cfg(target_os = "linux")]
-        libc::madvise(ptr as *mut c_void, len, libc::MADV_DONTDUMP);
+    libc::madvise(ptr as *mut c_void, len, libc::MADV_DONTDUMP);
 }
 
 #[cfg(target_os = "windows")]
@@ -116,9 +123,9 @@ pub unsafe fn mlock(ptr: *const u8, len: usize) {
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
     libc::munlock(ptr as *const c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
-        libc::madvise(ptr as *mut c_void, len, libc::MADV_CORE);
+    libc::madvise(ptr as *mut c_void, len, libc::MADV_CORE);
     #[cfg(target_os = "linux")]
-        libc::madvise(ptr as *mut c_void, len, libc::MADV_DODUMP);
+    libc::madvise(ptr as *mut c_void, len, libc::MADV_DODUMP);
 }
 
 #[cfg(target_os = "windows")]

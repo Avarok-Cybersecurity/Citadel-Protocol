@@ -2,7 +2,7 @@ use std::io;
 
 use byteorder::{NetworkEndian, WriteBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
-use zerocopy::{AsBytes, FromBytes, I64, LayoutVerified, U32, U64, Unaligned, U128};
+use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, I64, U128, U32, U64};
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use std::net::SocketAddr;
@@ -90,11 +90,11 @@ pub(crate) mod packet_flags {
             }
 
             /*
-                Unlike all other primary commands, peer commands are more poll-like than process-oriented. That is,
-                instead of requiring a stateful measure to proceed between stages, these peer commands are meant to
-                poll the central servers fast. These commands all require that the session to the HyperLAN server
-                is connected
-             */
+               Unlike all other primary commands, peer commands are more poll-like than process-oriented. That is,
+               instead of requiring a stateful measure to proceed between stages, these peer commands are meant to
+               poll the central servers fast. These commands all require that the session to the HyperLAN server
+               is connected
+            */
 
             pub(crate) mod peer_cmd {
                 // A signal that has the command details in its payload
@@ -165,7 +165,7 @@ pub struct HdpHeader {
     /// Before a packet is sent outbound, the local time is placed into the packet header
     pub timestamp: I64<NetworkEndian>,
     /// The target_cid (0 if hyperLAN server)
-    pub target_cid: U64<NetworkEndian>
+    pub target_cid: U64<NetworkEndian>,
 }
 
 impl AsRef<[u8]> for HdpHeader {
@@ -199,13 +199,25 @@ impl HdpHeader {
         writer.write_u8(self.cmd_aux).unwrap();
         writer.write_u8(self.algorithm).unwrap();
         writer.write_u8(self.security_level).unwrap();
-        writer.write_u128::<NetworkEndian>(self.context_info.get()).unwrap();
+        writer
+            .write_u128::<NetworkEndian>(self.context_info.get())
+            .unwrap();
         writer.write_u64::<NetworkEndian>(self.group.get()).unwrap();
-        writer.write_u32::<NetworkEndian>(self.wave_id.get()).unwrap();
-        writer.write_u64::<NetworkEndian>(self.session_cid.get()).unwrap();
-        writer.write_u32::<NetworkEndian>(self.drill_version.get()).unwrap();
-        writer.write_i64::<NetworkEndian>(self.timestamp.get()).unwrap();
-        writer.write_u64::<NetworkEndian>(self.target_cid.get()).unwrap();
+        writer
+            .write_u32::<NetworkEndian>(self.wave_id.get())
+            .unwrap();
+        writer
+            .write_u64::<NetworkEndian>(self.session_cid.get())
+            .unwrap();
+        writer
+            .write_u32::<NetworkEndian>(self.drill_version.get())
+            .unwrap();
+        writer
+            .write_i64::<NetworkEndian>(self.timestamp.get())
+            .unwrap();
+        writer
+            .write_u64::<NetworkEndian>(self.target_cid.get())
+            .unwrap();
     }
 
     /// Creates a packet from self
@@ -232,16 +244,20 @@ impl HdpHeader {
 }
 
 /// The HdpPacket structure
-pub struct HdpPacket<B: HdpBuffer= BytesMut> {
+pub struct HdpPacket<B: HdpBuffer = BytesMut> {
     packet: B,
     remote_peer: SocketAddr,
-    local_port: u16
+    local_port: u16,
 }
 
 impl<B: HdpBuffer> HdpPacket<B> {
     /// When a packet comes inbound, this should be used to wrap the packet
     pub fn new_recv(packet: B, remote_peer: SocketAddr, local_port: u16) -> Self {
-        Self { packet, remote_peer, local_port }
+        Self {
+            packet,
+            remote_peer,
+            local_port,
+        }
     }
 
     /// Parses the zerocopy header

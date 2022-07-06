@@ -1,18 +1,18 @@
-use tokio::sync::mpsc::{Sender, Receiver};
-use std::fmt::{Debug, Formatter};
 use futures::Stream;
+use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Clone)]
 pub struct CallbackChannel<T, R> {
-    inner: CallbackChannelInner<T, R>
+    inner: CallbackChannelInner<T, R>,
 }
 
 pub enum CallbackError<T> {
     SendError(T),
     RecvError,
-    InternalError(&'static str)
+    InternalError(&'static str),
 }
 
 impl<T> Debug for CallbackError<T> {
@@ -35,7 +35,7 @@ impl<T> Debug for CallbackError<T> {
 
 #[derive(Clone)]
 struct CallbackChannelInner<T, R> {
-    to_channel: Sender<CallbackChannelPayload<T, R>>
+    to_channel: Sender<CallbackChannelPayload<T, R>>,
 }
 
 pub type CallbackChannelPayload<T, R> = (T, Option<tokio::sync::oneshot::Sender<R>>);
@@ -43,22 +43,37 @@ pub type CallbackChannelPayload<T, R> = (T, Option<tokio::sync::oneshot::Sender<
 impl<T, R> CallbackChannel<T, R> {
     pub fn new(buffer: usize) -> (Self, CallbackReceiver<T, R>) {
         let (to_channel, from_channel) = tokio::sync::mpsc::channel(buffer);
-        (Self { inner: CallbackChannelInner { to_channel } }, CallbackReceiver { inner: from_channel })
+        (
+            Self {
+                inner: CallbackChannelInner { to_channel },
+            },
+            CallbackReceiver {
+                inner: from_channel,
+            },
+        )
     }
 
     pub async fn send(&self, payload: T) -> Result<R, CallbackError<T>> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.inner.to_channel.send((payload, Some(tx))).await.map_err(|err| CallbackError::SendError(err.0.0))?;
+        self.inner
+            .to_channel
+            .send((payload, Some(tx)))
+            .await
+            .map_err(|err| CallbackError::SendError(err.0 .0))?;
         Ok(rx.await.map_err(|_| CallbackError::RecvError)?)
     }
 
     pub async fn send_no_callback(&self, payload: T) -> Result<(), CallbackError<T>> {
-        self.inner.to_channel.send((payload, None)).await.map_err(|err| CallbackError::SendError(err.0.0))
+        self.inner
+            .to_channel
+            .send((payload, None))
+            .await
+            .map_err(|err| CallbackError::SendError(err.0 .0))
     }
 }
 
 pub struct CallbackReceiver<T, R> {
-    inner: Receiver<CallbackChannelPayload<T, R>>
+    inner: Receiver<CallbackChannelPayload<T, R>>,
 }
 
 impl<T, R> Stream for CallbackReceiver<T, R> {

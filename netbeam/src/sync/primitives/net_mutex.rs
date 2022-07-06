@@ -5,14 +5,14 @@ use std::task::{Context, Poll};
 
 use futures::Future;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::NetObject;
-use crate::sync::RelativeNodeType;
 use crate::sync::subscription::Subscribable;
 use crate::sync::subscription::SubscriptionBiStream;
+use crate::sync::RelativeNodeType;
 use crate::time_tracker::TimeTracker;
 
 pub(crate) type InnerChannel<S> = <S as Subscribable>::SubscriptionType;
@@ -25,7 +25,7 @@ pub struct NetMutex<T: NetObject, S: Subscribable + 'static> {
     // contains the background_to_active_rx
     shared_state: Arc<Mutex<InnerState<T>>>,
     stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    bg_stop_signaller: Sender<()>
+    bg_stop_signaller: Sender<()>,
 }
 
 struct LocalLockHolder<T>(Option<OwnedLocalLock<T>>, bool);
@@ -66,13 +66,21 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let (active_to_bg_tx, active_to_bg_rx) = tokio::sync::mpsc::channel::<()>(1);
 
-        let this = Self { app: Arc::new(conn), shared_state: Arc::new(Mutex::new((t, active_to_bg_tx.clone()))), stop_tx: Some(stop_tx), bg_stop_signaller: active_to_bg_tx };
+        let this = Self {
+            app: Arc::new(conn),
+            shared_state: Arc::new(Mutex::new((t, active_to_bg_tx.clone()))),
+            stop_tx: Some(stop_tx),
+            bg_stop_signaller: active_to_bg_tx,
+        };
 
         let shared_state = this.shared_state.clone();
         let channel = this.app.clone();
 
         tokio::task::spawn(async move {
-            if let Err(err) = passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx).await {
+            if let Err(err) =
+                passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
+                    .await
+            {
                 log::error!(target: "lusna", "[NetMutex] Err: {:?}", err.to_string());
             }
 
@@ -83,8 +91,12 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
     }
 
     pub fn new<'a>(app: &'a S, value: Option<T>) -> NetMutexLoader<'a, T, S>
-        where T: 'a {
-        NetMutexLoader::<T, S> { future: Box::pin(sync_establish_init(app, value, Self::new_internal)) }
+    where
+        T: 'a,
+    {
+        NetMutexLoader::<T, S> {
+            future: Box::pin(sync_establish_init(app, value, Self::new_internal)),
+        }
     }
 
     /// Returns a future which resolves once the lock can be established with the network
@@ -104,16 +116,14 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetMutex<T, S> {
         let _ = stop_tx.send(());
 
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move {
-                conn.send_serialized(UpdatePacket::Halt).await
-            });
+            rt.spawn(async move { conn.send_serialized(UpdatePacket::Halt).await });
         }
     }
 }
 
 pub struct NetMutexGuard<T: NetObject + 'static, S: Subscribable + 'static> {
     conn: Arc<InnerChannel<S>>,
-    guard: Option<LocalLockHolder<T>>
+    guard: Option<LocalLockHolder<T>>,
 }
 
 impl<T: NetObject, S: Subscribable> Deref for NetMutexGuard<T, S> {
@@ -145,7 +155,7 @@ impl<T: NetObject + 'static, S: Subscribable> Drop for NetMutexGuard<T, S> {
 }
 
 pub struct NetMutexLoader<'a, T: NetObject, S: Subscribable + 'static> {
-    future: Pin<Box<dyn Future<Output=Result<NetMutex<T, S>, anyhow::Error>> + Send + 'a>>
+    future: Pin<Box<dyn Future<Output = Result<NetMutex<T, S>, anyhow::Error>> + Send + 'a>>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Future for NetMutexLoader<'_, T, S> {
@@ -156,56 +166,62 @@ impl<T: NetObject, S: Subscribable + 'static> Future for NetMutexLoader<'_, T, S
     }
 }
 
-
 #[derive(Serialize, Deserialize)]
 enum LoaderPacket<T> {
     Syn(Option<T>),
-    SynAck
+    SynAck,
 }
 
-pub(crate) async fn sync_establish_init<T: NetObject, S: Subscribable + 'static, Fx, F, O>(app: &S, local_value: Option<T>, fx: Fx) -> Result<O, anyhow::Error>
-    where
-        Fx: FnOnce(InnerChannel<S>, T) -> F,
-        F: Future<Output=Result<O, anyhow::Error>> {
+pub(crate) async fn sync_establish_init<T: NetObject, S: Subscribable + 'static, Fx, F, O>(
+    app: &S,
+    local_value: Option<T>,
+    fx: Fx,
+) -> Result<O, anyhow::Error>
+where
+    Fx: FnOnce(InnerChannel<S>, T) -> F,
+    F: Future<Output = Result<O, anyhow::Error>>,
+{
     let conn = app.initiate_subscription().await?;
-    conn.send_serialized(LoaderPacket::Syn(local_value.clone())).await?;
+    conn.send_serialized(LoaderPacket::Syn(local_value.clone()))
+        .await?;
     let packet = conn.recv_serialized::<LoaderPacket<T>>().await?;
     // one side gets the value, while the other already has it
     match packet {
-        LoaderPacket::Syn(remote_value) => {
-            match (remote_value, local_value) {
-                (Some(remote_value), None) => {
-                    conn.send_serialized(LoaderPacket::<T>::SynAck).await?;
-                    let _ = conn.recv_serialized::<LoaderPacket<T>>().await?;
-                    (fx)(conn.into(), remote_value).await
-                }
-
-                (None, Some(local_value)) => {
-                    let _ = conn.recv_serialized::<LoaderPacket<T>>().await?;
-                    conn.send_serialized(LoaderPacket::<T>::SynAck).await?;
-                    (fx)(conn.into(), local_value).await
-                }
-
-                _ => {
-                    Err(anyhow::Error::msg("Only one node may set the initial Mutex value"))
-                }
+        LoaderPacket::Syn(remote_value) => match (remote_value, local_value) {
+            (Some(remote_value), None) => {
+                conn.send_serialized(LoaderPacket::<T>::SynAck).await?;
+                let _ = conn.recv_serialized::<LoaderPacket<T>>().await?;
+                (fx)(conn.into(), remote_value).await
             }
-        }
 
-        _ => {
-            Err(anyhow::Error::msg("Invalid initial NetMutex packet"))
-        }
+            (None, Some(local_value)) => {
+                let _ = conn.recv_serialized::<LoaderPacket<T>>().await?;
+                conn.send_serialized(LoaderPacket::<T>::SynAck).await?;
+                (fx)(conn.into(), local_value).await
+            }
+
+            _ => Err(anyhow::Error::msg(
+                "Only one node may set the initial Mutex value",
+            )),
+        },
+
+        _ => Err(anyhow::Error::msg("Invalid initial NetMutex packet")),
     }
 }
 
 /// Releases the lock with the adjacent endpoint, updating the value too for the adjacent node
 struct NetMutexGuardDropCode {
-    future: Pin<Box<dyn Future<Output=Result<(), anyhow::Error>> + Send>>
+    future: Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send>>,
 }
 
 impl NetMutexGuardDropCode {
-    fn new<T: NetObject + 'static, S: Subscribable + 'static>(conn: Arc<InnerChannel<S>>, guard: LocalLockHolder<T>) -> Self {
-        Self { future: Box::pin(net_mutex_drop_code::<T, S>(conn, guard)) }
+    fn new<T: NetObject + 'static, S: Subscribable + 'static>(
+        conn: Arc<InnerChannel<S>>,
+        guard: LocalLockHolder<T>,
+    ) -> Self {
+        Self {
+            future: Box::pin(net_mutex_drop_code::<T, S>(conn, guard)),
+        }
     }
 }
 
@@ -217,9 +233,15 @@ impl Future for NetMutexGuardDropCode {
     }
 }
 
-async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(conn: Arc<InnerChannel<S>>, lock: LocalLockHolder<T>) -> Result<(), anyhow::Error> {
+async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(
+    conn: Arc<InnerChannel<S>>,
+    lock: LocalLockHolder<T>,
+) -> Result<(), anyhow::Error> {
     log::trace!(target: "lusna", "[NetMutex] Drop code initialized for {:?}...", conn.node_type());
-    conn.send_serialized(UpdatePacket::Released(bincode2::serialize(&lock.deref().0)?)).await?;
+    conn.send_serialized(UpdatePacket::Released(bincode2::serialize(
+        &lock.deref().0,
+    )?))
+    .await?;
 
     let mut adjacent_trying_to_acquire = false;
 
@@ -234,7 +256,7 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(conn: Arc<
                     return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
                 }
 
-                return Ok(())
+                return Ok(());
             }
 
             UpdatePacket::TryAcquire(_) => {
@@ -242,16 +264,14 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(conn: Arc<
                 // once the release is confirmed, we will yield the lock back to remote
             }
 
-            _ => {
-
-            }
+            _ => {}
         }
     }
 }
 
 /// Releases the lock with the adjacent endpoint, updating the value too for the adjacent node
 pub struct NetMutexGuardAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-    future: Pin<Box<dyn Future<Output=Result<NetMutexGuard<T, S>, anyhow::Error>> + Send + 'a>>
+    future: Pin<Box<dyn Future<Output = Result<NetMutexGuard<T, S>, anyhow::Error>> + Send + 'a>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -260,12 +280,14 @@ enum UpdatePacket {
     Released(Vec<u8>),
     LockAcquired,
     Halt,
-    ReleasedVerified
+    ReleasedVerified,
 }
 
 impl<'a, T: NetObject, S: Subscribable> NetMutexGuardAcquirer<'a, T, S> {
     fn new(mutex: &'a NetMutex<T, S>) -> Self {
-        Self { future: Box::pin(net_mutex_guard_acquirer(mutex)) }
+        Self {
+            future: Box::pin(net_mutex_guard_acquirer(mutex)),
+        }
     }
 }
 
@@ -277,23 +299,27 @@ impl<T: NetObject + 'static, S: Subscribable + 'static> Future for NetMutexGuard
     }
 }
 
-async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex: &NetMutex<T, S>) -> Result<NetMutexGuard<T, S>, anyhow::Error> {
+async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
+    mutex: &NetMutex<T, S>,
+) -> Result<NetMutexGuard<T, S>, anyhow::Error> {
     // first step is always to acquire the local lock. If local has a NetMutexGuard, then it will hold an owned lock until it drops, ensuring no local process can progress past this point
     // until after the lock is dropped. Further, the lock ensures the drop process is complete and that both nodes have a symmetric value
     log::trace!(target: "lusna", "Attempting to acquire lock for {:?}", mutex.node_type());
     // first, ensure background isn't already awaiting for a packet
     mutex.bg_stop_signaller.send(()).await?;
-    let mut owned_local_lock = LocalLockHolder(Some(mutex.shared_state.clone().lock_owned().await), false);
+    let mut owned_local_lock =
+        LocalLockHolder(Some(mutex.shared_state.clone().lock_owned().await), false);
     log::trace!(target: "lusna", "{:?} acquired local lock", mutex.node_type());
-
 
     let conn = &mutex.app;
 
     let local_request_time = TimeTracker::new().get_global_time_ns();
-    conn.send_serialized(UpdatePacket::TryAcquire(local_request_time)).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
+    conn.send_serialized(UpdatePacket::TryAcquire(local_request_time))
+        .await
+        .map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
     loop {
-        let (value,  _bg_alerter) = &mut **owned_local_lock.deref_mut();
+        let (value, _bg_alerter) = &mut **owned_local_lock.deref_mut();
 
         let packet = conn.recv_serialized().await?;
         log::trace!(target: "lusna", "{:?}/active-channel || obtained packet {:?}", mutex.node_type(), &packet);
@@ -307,7 +333,10 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
                 // now, send a LockAcquired packet
                 conn.send_serialized(UpdatePacket::LockAcquired).await?;
                 conn.send_serialized(UpdatePacket::ReleasedVerified).await?;
-                return Ok(NetMutexGuard { conn: mutex.app.clone(), guard: Some(owned_local_lock) })
+                return Ok(NetMutexGuard {
+                    conn: mutex.app.clone(),
+                    guard: Some(owned_local_lock),
+                });
             }
 
             UpdatePacket::LockAcquired => {
@@ -325,13 +354,16 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
                 } else {
                     // we requested before the remote node; tell the remote node we took the value
                     conn.send_serialized(UpdatePacket::LockAcquired).await?;
-                    return Ok(NetMutexGuard { conn: mutex.app.clone(), guard: Some(owned_local_lock) })
+                    return Ok(NetMutexGuard {
+                        conn: mutex.app.clone(),
+                        guard: Some(owned_local_lock),
+                    });
                 }
             }
 
             UpdatePacket::Halt => {
                 // the adjacent node dropped their NetMutex. The program is done
-                return Err(anyhow::Error::msg("The adjacent node dropped the Mutex"))
+                return Err(anyhow::Error::msg("The adjacent node dropped the Mutex"));
             }
 
             UpdatePacket::ReleasedVerified => {
@@ -343,8 +375,15 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
 }
 
 // the local lock will be dropped after this function, allowing local calls to acquire the lock once again
-async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<InnerChannel<S>>, mut lock: LocalLockHolder<T>) -> Result<LocalLockHolder<T>, anyhow::Error> {
-    channel.send_serialized(UpdatePacket::Released(bincode2::serialize(&lock.deref().0).unwrap())).await?;
+async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
+    channel: &Arc<InnerChannel<S>>,
+    mut lock: LocalLockHolder<T>,
+) -> Result<LocalLockHolder<T>, anyhow::Error> {
+    channel
+        .send_serialized(UpdatePacket::Released(
+            bincode2::serialize(&lock.deref().0).unwrap(),
+        ))
+        .await?;
 
     loop {
         let next_packet = channel.recv_serialized().await?;
@@ -352,13 +391,13 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
             UpdatePacket::Released(new_value) => {
                 lock.deref_mut().0 = bincode2::deserialize(&new_value)?;
                 channel.send_serialized(UpdatePacket::LockAcquired).await?;
-                channel.send_serialized(UpdatePacket::ReleasedVerified).await?;
-                return Ok(lock)
+                channel
+                    .send_serialized(UpdatePacket::ReleasedVerified)
+                    .await?;
+                return Ok(lock);
             }
 
-            UpdatePacket::Halt => {
-                return Err(anyhow::Error::msg("Halted from background"))
-            }
+            UpdatePacket::Halt => return Err(anyhow::Error::msg("Halted from background")),
 
             UpdatePacket::LockAcquired | UpdatePacket::ReleasedVerified => {
                 // this is received after sending the Released packet. We do nothing here
@@ -372,7 +411,12 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
 }
 
 /// - background_to_active_tx: only gets sent if the other end is listening
-async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(channel: Arc<InnerChannel<S>>, shared_state: Arc<Mutex<InnerState<T>>>, stop_rx: tokio::sync::oneshot::Receiver<()>, mut active_to_background_rx: Receiver<()>) -> Result<(), anyhow::Error> {
+async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
+    channel: Arc<InnerChannel<S>>,
+    shared_state: Arc<Mutex<InnerState<T>>>,
+    stop_rx: tokio::sync::oneshot::Receiver<()>,
+    mut active_to_background_rx: Receiver<()>,
+) -> Result<(), anyhow::Error> {
     let background_task = async move {
         // first, check to see if the other end is listening
         'outer_loop: loop {
@@ -393,10 +437,13 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
                             // we hold the lock locally, preventing local from sending any packets outbound from the active channel since the adjacent node is actively seeking to
                             // establish a lock
                             // we set "true" to the local lock holder to imply that the drop code won't alert the background (b/c we already are in BG)
-                            yield_lock::<S, T>(&channel, LocalLockHolder(Some(lock), true)).await?; // return on error
+                            yield_lock::<S, T>(&channel, LocalLockHolder(Some(lock), true)).await?;
+                            // return on error
                         }
 
-                        UpdatePacket::Released(..)  | UpdatePacket::ReleasedVerified | UpdatePacket::LockAcquired => {
+                        UpdatePacket::Released(..)
+                        | UpdatePacket::ReleasedVerified
+                        | UpdatePacket::LockAcquired => {
                             unreachable!("RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
                         }
 
@@ -408,7 +455,10 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
 
                 Err(_) => {
                     // wait until the lock drops
-                    active_to_background_rx.recv().await.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
+                    active_to_background_rx
+                        .recv()
+                        .await
+                        .ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
                 }
             }
         }
@@ -422,10 +472,10 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use rstest::rstest;
     use crate::sync::test_utils::create_streams_with_addrs_and_lag;
+    use rstest::rstest;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
 
     #[rstest]
     #[case(0, 1000)]
@@ -490,6 +540,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        r0.unwrap();r1.unwrap();
+        r0.unwrap();
+        r1.unwrap();
     }
 }

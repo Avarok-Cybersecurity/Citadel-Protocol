@@ -4,18 +4,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use tokio::sync::{OwnedMutexGuard, Mutex};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
-use crate::sync::primitives::net_mutex::{InnerChannel, sync_establish_init};
+use crate::sync::primitives::net_mutex::{sync_establish_init, InnerChannel};
 use crate::sync::primitives::net_rwlock::read::{acquire_read, RwLockReadAcquirer};
 use crate::sync::primitives::net_rwlock::write::{acquire_write, RwLockWriteAcquirer};
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
-use crate::time_tracker::TimeTracker;
-use serde::{Serialize, Deserialize};
 use crate::sync::subscription::SubscriptionBiStream;
+use crate::time_tracker::TimeTracker;
+use serde::{Deserialize, Serialize};
 
 type InnerState<T> = (T, Sender<()>);
 type OwnedLocalReadLock<T> = Arc<OwnedMutexGuard<InnerState<T>>>;
@@ -30,23 +30,40 @@ pub struct NetRwLock<T: NetObject, S: Subscribable + 'static> {
     stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
     // Used to cheaply clone read locks locally. There is no equivalent WriteLock version, since only one can exist
     local_active_read_lock: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>,
-    active_to_bg_signalled: Sender<()>
+    active_to_bg_signalled: Sender<()>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
-    pub async fn new_internal(channel: InnerChannel<S>, initial_value: T) -> Result<Self, anyhow::Error> {
+    pub async fn new_internal(
+        channel: InnerChannel<S>,
+        initial_value: T,
+    ) -> Result<Self, anyhow::Error> {
         // create a channel to listen here for incoming messages and alter the local state as needed
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let (active_to_bg_tx, active_to_bg_rx) = tokio::sync::mpsc::channel(1);
 
-        let this = Self { shared: Arc::new(Mutex::new((initial_value, active_to_bg_tx.clone()))), channel: Arc::new(channel), stop_tx: Some(stop_tx), local_active_read_lock: Arc::new(parking_lot::RwLock::new(None)), active_to_bg_signalled: active_to_bg_tx };
+        let this = Self {
+            shared: Arc::new(Mutex::new((initial_value, active_to_bg_tx.clone()))),
+            channel: Arc::new(channel),
+            stop_tx: Some(stop_tx),
+            local_active_read_lock: Arc::new(parking_lot::RwLock::new(None)),
+            active_to_bg_signalled: active_to_bg_tx,
+        };
 
         let shared_state = this.shared.clone();
         let local_read_lock = this.local_active_read_lock.clone();
         let channel = this.channel.clone();
 
         tokio::task::spawn(async move {
-            if let Err(err) = passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx, local_read_lock).await {
+            if let Err(err) = passive_background_handler::<S, T>(
+                channel,
+                shared_state,
+                stop_rx,
+                active_to_bg_rx,
+                local_read_lock,
+            )
+            .await
+            {
                 log::error!(target: "lusna", "[NetRwLock] Err: {:?}", err.to_string());
             }
 
@@ -57,19 +74,29 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
     }
 
     pub fn new(conn: &S, t: Option<T>) -> NetRwLockLoader<T, S> {
-        NetRwLockLoader { future: Box::pin(sync_establish_init(conn, t, Self::new_internal)) }
+        NetRwLockLoader {
+            future: Box::pin(sync_establish_init(conn, t, Self::new_internal)),
+        }
     }
 
     pub fn read(&self) -> RwLockReadAcquirer<T, S> {
-        RwLockReadAcquirer { future: Box::pin(acquire_read(self)) }
+        RwLockReadAcquirer {
+            future: Box::pin(acquire_read(self)),
+        }
     }
 
     pub fn write(&self) -> RwLockWriteAcquirer<T, S> {
-        RwLockWriteAcquirer { future: Box::pin(acquire_write(self)) }
+        RwLockWriteAcquirer {
+            future: Box::pin(acquire_write(self)),
+        }
     }
 
     pub fn active_local_reads(&self) -> usize {
-        self.local_active_read_lock.read().as_ref().map(|r| Arc::strong_count(r) - 1).unwrap_or(0)
+        self.local_active_read_lock
+            .read()
+            .as_ref()
+            .map(|r| Arc::strong_count(r) - 1)
+            .unwrap_or(0)
     }
 }
 
@@ -81,15 +108,13 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLock<T, S> {
         let _ = stop_tx.send(());
 
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move {
-                conn.send_serialized(UpdatePacket::Halt).await
-            });
+            rt.spawn(async move { conn.send_serialized(UpdatePacket::Halt).await });
         }
     }
 }
 
 pub struct NetRwLockLoader<'a, T: NetObject, S: Subscribable + 'static> {
-    future: Pin<Box<dyn Future<Output=Result<NetRwLock<T, S>, anyhow::Error>> + Send + 'a>>
+    future: Pin<Box<dyn Future<Output = Result<NetRwLock<T, S>, anyhow::Error>> + Send + 'a>>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Future for NetRwLockLoader<'_, T, S> {
@@ -108,23 +133,26 @@ pub(crate) mod read {
 
     use futures::Future;
 
-    use crate::sync::primitives::net_rwlock::{NetRwLock, OwnedLocalReadLock, LocalLockHolder, acquire_lock, LockType};
-    use crate::sync::primitives::NetObject;
-    use crate::sync::subscription::Subscribable;
     use crate::sync::primitives::net_mutex::InnerChannel;
     use crate::sync::primitives::net_rwlock::drop::NetRwLockEitherGuardDropCode;
+    use crate::sync::primitives::net_rwlock::{
+        acquire_lock, LocalLockHolder, LockType, NetRwLock, OwnedLocalReadLock,
+    };
+    use crate::sync::primitives::NetObject;
+    use crate::sync::subscription::Subscribable;
     use crate::sync::subscription::SubscriptionBiStream;
 
     pub struct RwLockReadAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-        pub(crate) future: Pin<Box<dyn Future<Output=Result<NetRwLockReadGuard<T, S>, anyhow::Error>> + Send + 'a>>
+        pub(crate) future: Pin<
+            Box<dyn Future<Output = Result<NetRwLockReadGuard<T, S>, anyhow::Error>> + Send + 'a>,
+        >,
     }
 
     pub struct NetRwLockReadGuard<T: NetObject + 'static, S: Subscribable + 'static> {
         inner: Option<LocalLockHolder<T>>,
         conn: Arc<InnerChannel<S>>,
-        shared_store: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>
+        shared_store: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>,
     }
-
 
     impl<T: NetObject, S: Subscribable + 'static> Future for RwLockReadAcquirer<'_, T, S> {
         type Output = Result<NetRwLockReadGuard<T, S>, anyhow::Error>;
@@ -134,24 +162,34 @@ pub(crate) mod read {
         }
     }
 
-    pub(super) async fn acquire_read<T: NetObject + 'static, S: Subscribable + 'static>(rwlock: &NetRwLock<T, S>) -> Result<NetRwLockReadGuard<T, S>, anyhow::Error> {
-
+    pub(super) async fn acquire_read<T: NetObject + 'static, S: Subscribable + 'static>(
+        rwlock: &NetRwLock<T, S>,
+    ) -> Result<NetRwLockReadGuard<T, S>, anyhow::Error> {
         log::trace!(target: "lusna", "Running acquire_read for {:?}", rwlock.channel.node_type());
         {
             let pre_loaded = rwlock.local_active_read_lock.read();
             log::trace!(target: "lusna", "Running acquire_read for {:?} | pre_loaded ? {}", rwlock.channel.node_type(), pre_loaded.is_some());
             // if there is more than one strong reference, we can return early
-            if pre_loaded.as_ref().map(|r| Arc::strong_count(r) > 1).unwrap_or(false) {
+            if pre_loaded
+                .as_ref()
+                .map(|r| Arc::strong_count(r) > 1)
+                .unwrap_or(false)
+            {
                 return Ok(NetRwLockReadGuard {
                     inner: Some(LocalLockHolder::Read(pre_loaded.clone(), false)),
                     conn: rwlock.channel.clone(),
-                    shared_store: rwlock.local_active_read_lock.clone()
-                })
+                    shared_store: rwlock.local_active_read_lock.clone(),
+                });
             }
         }
 
         // no read locks exist currently. Acquire a local shared read lock
-        acquire_lock(LockType::Read, rwlock, |inner| NetRwLockReadGuard { inner: Some(inner), conn: rwlock.channel.clone(), shared_store: rwlock.local_active_read_lock.clone() }).await
+        acquire_lock(LockType::Read, rwlock, |inner| NetRwLockReadGuard {
+            inner: Some(inner),
+            conn: rwlock.channel.clone(),
+            shared_store: rwlock.local_active_read_lock.clone(),
+        })
+        .await
     }
 
     impl<T: NetObject, S: Subscribable> Deref for NetRwLockReadGuard<T, S> {
@@ -188,21 +226,22 @@ pub(crate) mod write {
 
     use futures::Future;
 
-    use crate::sync::primitives::net_rwlock::{NetRwLock, LocalLockHolder, acquire_lock, LockType};
+    use crate::sync::primitives::net_mutex::InnerChannel;
+    use crate::sync::primitives::net_rwlock::drop::NetRwLockEitherGuardDropCode;
+    use crate::sync::primitives::net_rwlock::{acquire_lock, LocalLockHolder, LockType, NetRwLock};
     use crate::sync::primitives::NetObject;
     use crate::sync::subscription::Subscribable;
-    use crate::sync::primitives::net_rwlock::drop::NetRwLockEitherGuardDropCode;
-    use crate::sync::primitives::net_mutex::InnerChannel;
 
     pub struct RwLockWriteAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-        pub(crate) future: Pin<Box<dyn Future<Output=Result<NetRwLockWriteGuard<T, S>, anyhow::Error>> + Send + 'a>>
+        pub(crate) future: Pin<
+            Box<dyn Future<Output = Result<NetRwLockWriteGuard<T, S>, anyhow::Error>> + Send + 'a>,
+        >,
     }
 
     pub struct NetRwLockWriteGuard<T: NetObject + 'static, S: Subscribable + 'static> {
         inner: Option<LocalLockHolder<T>>,
-        conn: Arc<InnerChannel<S>>
+        conn: Arc<InnerChannel<S>>,
     }
-
 
     impl<T: NetObject, S: Subscribable> Future for RwLockWriteAcquirer<'_, T, S> {
         type Output = Result<NetRwLockWriteGuard<T, S>, anyhow::Error>;
@@ -212,8 +251,14 @@ pub(crate) mod write {
         }
     }
 
-    pub(super) async fn acquire_write<T: NetObject + 'static, S: Subscribable + 'static>(rwlock: &NetRwLock<T, S>) -> Result<NetRwLockWriteGuard<T, S>, anyhow::Error> {
-        acquire_lock(LockType::Write, rwlock, |inner| NetRwLockWriteGuard { inner: Some(inner), conn: rwlock.channel.clone() }).await
+    pub(super) async fn acquire_write<T: NetObject + 'static, S: Subscribable + 'static>(
+        rwlock: &NetRwLock<T, S>,
+    ) -> Result<NetRwLockWriteGuard<T, S>, anyhow::Error> {
+        acquire_lock(LockType::Write, rwlock, |inner| NetRwLockWriteGuard {
+            inner: Some(inner),
+            conn: rwlock.channel.clone(),
+        })
+        .await
     }
 
     impl<T: NetObject, S: Subscribable> Deref for NetRwLockWriteGuard<T, S> {
@@ -242,27 +287,32 @@ pub(crate) mod write {
 }
 
 mod drop {
-    use std::pin::Pin;
-    use std::future::Future;
+    use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
+    use crate::sync::primitives::net_rwlock::LocalLockHolder;
+    use crate::sync::primitives::net_rwlock::{yield_lock, InnerChannel, LockType, UpdatePacket};
     use crate::sync::primitives::NetObject;
     use crate::sync::subscription::Subscribable;
-    use std::sync::Arc;
-    use crate::sync::primitives::net_rwlock::{InnerChannel, UpdatePacket, yield_lock, LockType};
-    use crate::sync::primitives::net_rwlock::LocalLockHolder;
-    use std::task::{Context, Poll};
     use crate::sync::subscription::SubscriptionBiStream;
-    use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
+    use std::future::Future;
     use std::ops::Deref;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::task::{Context, Poll};
 
     /// Releases the lock with the adjacent endpoint, updating the value too for the adjacent node if a write lock was dropped
     /// This should only be called for the final guard type
     pub(super) struct NetRwLockEitherGuardDropCode {
-        future: Pin<Box<dyn Future<Output=Result<(), anyhow::Error>> + Send>>
+        future: Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send>>,
     }
 
     impl NetRwLockEitherGuardDropCode {
-        pub(super) fn new<T: NetObject + 'static, S: Subscribable + 'static>(conn: Arc<InnerChannel<S>>, guard: LocalLockHolder<T>) -> Self {
-            Self { future: Box::pin(net_rwlock_guard_drop_code::<T, S>(conn, guard)) }
+        pub(super) fn new<T: NetObject + 'static, S: Subscribable + 'static>(
+            conn: Arc<InnerChannel<S>>,
+            guard: LocalLockHolder<T>,
+        ) -> Self {
+            Self {
+                future: Box::pin(net_rwlock_guard_drop_code::<T, S>(conn, guard)),
+            }
         }
     }
 
@@ -274,7 +324,10 @@ mod drop {
         }
     }
 
-    async fn net_rwlock_guard_drop_code<T: NetObject, S: Subscribable + 'static>(conn: Arc<InnerChannel<S>>, lock: LocalLockHolder<T>) -> Result<(), anyhow::Error> {
+    async fn net_rwlock_guard_drop_code<T: NetObject, S: Subscribable + 'static>(
+        conn: Arc<InnerChannel<S>>,
+        lock: LocalLockHolder<T>,
+    ) -> Result<(), anyhow::Error> {
         log::trace!(target: "lusna", "[NetRwLock] Drop code initialized for {:?}...", conn.node_type());
         match &lock {
             LocalLockHolder::Read(..) => {
@@ -282,7 +335,10 @@ mod drop {
             }
 
             LocalLockHolder::Write(_guard, ..) => {
-                conn.send_serialized(UpdatePacket::ReleasedWrite(bincode2::serialize(&lock.deref())?)).await?;
+                conn.send_serialized(UpdatePacket::ReleasedWrite(bincode2::serialize(
+                    &lock.deref(),
+                )?))
+                .await?;
             }
         }
 
@@ -301,7 +357,8 @@ mod drop {
                     match &lock {
                         LocalLockHolder::Read(..) => {
                             log::trace!(target: "lusna", "Yield:: Releasing Read lock");
-                            conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read)).await?;
+                            conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
+                                .await?;
                             //return Ok(());
                         }
 
@@ -326,7 +383,7 @@ mod drop {
                         return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
                     }
 
-                    return Ok(())
+                    return Ok(());
                 }
 
                 UpdatePacket::TryAcquire(_, lock_type) => {
@@ -349,17 +406,18 @@ enum UpdatePacket {
     ReleasedRead,
     LockAcquired(LockType),
     Halt,
-    ReleasedVerified(LockType)
+    ReleasedVerified(LockType),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 enum LockType {
-    Read, Write
+    Read,
+    Write,
 }
 
 enum LocalLockHolder<T> {
     Write(Option<OwnedLocalWriteLock<T>>, bool),
-    Read(Option<OwnedLocalReadLock<T>>, bool)
+    Read(Option<OwnedLocalReadLock<T>>, bool),
 }
 
 impl<T> Deref for LocalLockHolder<T> {
@@ -368,7 +426,7 @@ impl<T> Deref for LocalLockHolder<T> {
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Write(val, _) => &val.as_ref().unwrap().0,
-            Self::Read(val, _) => &val.as_ref().unwrap().0
+            Self::Read(val, _) => &val.as_ref().unwrap().0,
         }
     }
 }
@@ -376,21 +434,21 @@ impl<T> Deref for LocalLockHolder<T> {
 impl<T> LocalLockHolder<T> {
     fn is_from_background(&self) -> bool {
         match self {
-            Self::Write(_, from_bg) | Self::Read(_, from_bg) => *from_bg
+            Self::Write(_, from_bg) | Self::Read(_, from_bg) => *from_bg,
         }
     }
 
     fn free_lock_and_get_sender(&mut self) -> Sender<()> {
         match self {
             Self::Read(r, _) => r.take().unwrap().1.clone(),
-            Self::Write(w, _) => w.take().unwrap().1.clone()
+            Self::Write(w, _) => w.take().unwrap().1.clone(),
         }
     }
 
     fn lock_type(&self) -> LockType {
         match self {
             Self::Write(..) => LockType::Write,
-            Self::Read(..) => LockType::Read
+            Self::Read(..) => LockType::Read,
         }
     }
 
@@ -428,7 +486,7 @@ impl<T> LocalLockHolder<T> {
     fn arc_strong_count(&self) -> Option<usize> {
         match self {
             Self::Read(val, ..) => Some(Arc::strong_count(val.as_ref().unwrap())),
-            Self::Write(..) => None
+            Self::Write(..) => None,
         }
     }
 
@@ -467,14 +525,21 @@ impl<T> Drop for LocalLockHolder<T> {
 }
 
 // the local lock will be dropped after this function, allowing local calls to acquire the lock once again
-async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<InnerChannel<S>>, mut lock: LocalLockHolder<T>) -> Result<LocalLockHolder<T>, anyhow::Error> {
+async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
+    channel: &Arc<InnerChannel<S>>,
+    mut lock: LocalLockHolder<T>,
+) -> Result<LocalLockHolder<T>, anyhow::Error> {
     match &lock {
         LocalLockHolder::Read(..) => {
             channel.send_serialized(UpdatePacket::ReleasedRead).await?;
         }
 
         LocalLockHolder::Write(val, _) => {
-            channel.send_serialized(UpdatePacket::ReleasedWrite(bincode2::serialize(&val.as_ref().unwrap().0).unwrap())).await?;
+            channel
+                .send_serialized(UpdatePacket::ReleasedWrite(
+                    bincode2::serialize(&val.as_ref().unwrap().0).unwrap(),
+                ))
+                .await?;
         }
     }
 
@@ -482,38 +547,36 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
         let next_packet = channel.recv_serialized().await?;
         log::trace!(target: "lusna", "Yield::RECV | {:?} received {:?}", channel.node_type(), &next_packet);
         match next_packet {
-            UpdatePacket::ReleasedWrite(new_value) => {
-                match &mut lock {
-                    LocalLockHolder::Write(val, _) => {
-                        log::trace!(target: "lusna", "Yield:: Releasing Write lock");
-                        val.as_mut().unwrap().0 = bincode2::deserialize(&new_value)?;
-                        channel.send_serialized(UpdatePacket::ReleasedVerified(LockType::Write)).await?;
-                        return Ok(lock)
-                    }
-
-                    _ => {
-                        log::warn!(target: "lusna", "{:?} | Invalid read/write packet. Expected a write, but local has a read", channel.node_type())
-                    }
+            UpdatePacket::ReleasedWrite(new_value) => match &mut lock {
+                LocalLockHolder::Write(val, _) => {
+                    log::trace!(target: "lusna", "Yield:: Releasing Write lock");
+                    val.as_mut().unwrap().0 = bincode2::deserialize(&new_value)?;
+                    channel
+                        .send_serialized(UpdatePacket::ReleasedVerified(LockType::Write))
+                        .await?;
+                    return Ok(lock);
                 }
-            }
 
-            UpdatePacket::ReleasedRead => {
-                match &lock {
-                    LocalLockHolder::Read(..) => {
-                        log::trace!(target: "lusna", "Yield:: Releasing Read lock");
-                        channel.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read)).await?;
-                        return Ok(lock);
-                    }
-
-                    _ => {
-                        log::warn!(target: "lusna", "Invalid read/write packet. Expected a read, but local has a write")
-                    }
+                _ => {
+                    log::warn!(target: "lusna", "{:?} | Invalid read/write packet. Expected a write, but local has a read", channel.node_type())
                 }
-            }
+            },
 
-            UpdatePacket::Halt => {
-                return Err(anyhow::Error::msg("Halted from background"))
-            }
+            UpdatePacket::ReleasedRead => match &lock {
+                LocalLockHolder::Read(..) => {
+                    log::trace!(target: "lusna", "Yield:: Releasing Read lock");
+                    channel
+                        .send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
+                        .await?;
+                    return Ok(lock);
+                }
+
+                _ => {
+                    log::warn!(target: "lusna", "Invalid read/write packet. Expected a read, but local has a write")
+                }
+            },
+
+            UpdatePacket::Halt => return Err(anyhow::Error::msg("Halted from background")),
 
             UpdatePacket::LockAcquired(_) => {
                 // this is received after sending the Released packet. We do nothing here
@@ -527,7 +590,13 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
 }
 
 /// - background_to_active_tx: only gets sent if the other end is listening
-async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(channel: Arc<InnerChannel<S>>, shared_state: Arc<Mutex<InnerState<T>>>, stop_rx: tokio::sync::oneshot::Receiver<()>, mut active_to_background_rx: Receiver<()>, read_lock_local: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>) -> Result<(), anyhow::Error> {
+async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
+    channel: Arc<InnerChannel<S>>,
+    shared_state: Arc<Mutex<InnerState<T>>>,
+    stop_rx: tokio::sync::oneshot::Receiver<()>,
+    mut active_to_background_rx: Receiver<()>,
+    read_lock_local: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>,
+) -> Result<(), anyhow::Error> {
     let background_task = async move {
         'outer_loop: loop {
             // since this the background handler for the rwlock handler, we need to make one exception here compared to the flow of the normal mutex background handler.
@@ -554,9 +623,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
                                     LocalLockHolder::Read(lock, true)
                                 }
 
-                                LockType::Write => {
-                                    LocalLockHolder::Write(Some(lock), true)
-                                }
+                                LockType::Write => LocalLockHolder::Write(Some(lock), true),
                             };
 
                             // we hold the lock locally, preventing local from sending any packets outbound from the active channel since the adjacent node is actively seeking to
@@ -566,14 +633,19 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
                             let lock_holder = yield_lock::<S, T>(&channel, lock_holder).await?; // return on error
 
                             // we must also manually free the read lock IF needs be
-                            if lock_type == LockType::Read && lock_holder.arc_strong_count().unwrap() == 2 {
+                            if lock_type == LockType::Read
+                                && lock_holder.arc_strong_count().unwrap() == 2
+                            {
                                 // this implies local did NOT try to get a read lock from the read lock already present here. We can clear local;
                                 *read_lock_local.write() = None;
                                 std::mem::drop(lock_holder); // now, there are zero locks local
                             }
                         }
 
-                        UpdatePacket::ReleasedRead | UpdatePacket::ReleasedWrite(..) | UpdatePacket::ReleasedVerified(..) | UpdatePacket::LockAcquired(..) => {
+                        UpdatePacket::ReleasedRead
+                        | UpdatePacket::ReleasedWrite(..)
+                        | UpdatePacket::ReleasedVerified(..)
+                        | UpdatePacket::LockAcquired(..) => {
                             log::warn!(target: "lusna", "RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
                         }
 
@@ -585,7 +657,10 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
 
                 Err(_) => {
                     // wait until the lock drops
-                    active_to_background_rx.recv().await.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
+                    active_to_background_rx
+                        .recv()
+                        .await
+                        .ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
                 }
             }
         }
@@ -597,8 +672,14 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
     }
 }
 
-async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: LockType, rwlock: &NetRwLock<T, S>, fx: F) -> Result<R, anyhow::Error>
-    where F: Fn(LocalLockHolder<T>) -> R {
+async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(
+    lock_type: LockType,
+    rwlock: &NetRwLock<T, S>,
+    fx: F,
+) -> Result<R, anyhow::Error>
+where
+    F: Fn(LocalLockHolder<T>) -> R,
+{
     log::trace!(target: "lusna", "Attempting to acquire lock for {:?}", rwlock.channel.node_type());
     // first, ensure background isn't already awaiting for a packet
     rwlock.active_to_bg_signalled.send(()).await?;
@@ -606,16 +687,17 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
 
     let mut owned_local_lock = match lock_type {
         LockType::Read => LocalLockHolder::Read(Some(Arc::new(lock)), false),
-        LockType::Write => LocalLockHolder::Write(Some(lock), false)
+        LockType::Write => LocalLockHolder::Write(Some(lock), false),
     };
 
     log::trace!(target: "lusna", "{:?} acquired local lock", rwlock.channel.node_type());
 
-
     let conn = &rwlock.channel;
 
     let local_request_time = TimeTracker::new().get_global_time_ns();
-    conn.send_serialized(UpdatePacket::TryAcquire(local_request_time, lock_type)).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
+    conn.send_serialized(UpdatePacket::TryAcquire(local_request_time, lock_type))
+        .await
+        .map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
     loop {
         let packet = conn.recv_serialized().await?;
@@ -632,27 +714,31 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
                     }
 
                     LocalLockHolder::Read(lock_orig, _) => {
-                        let mut lock = Arc::try_unwrap(lock_orig.take().unwrap()).map_err(|_err| anyhow::Error::msg("Unable to unwrap Arc"))?;
+                        let mut lock = Arc::try_unwrap(lock_orig.take().unwrap())
+                            .map_err(|_err| anyhow::Error::msg("Unable to unwrap Arc"))?;
                         lock.0 = new_data;
                         *lock_orig = Some(Arc::new(lock));
                     }
                 }
 
                 // now, send a LockAcquired packet
-                conn.send_serialized(UpdatePacket::ReleasedVerified(lock_type)).await?;
-                conn.send_serialized(UpdatePacket::LockAcquired(lock_type)).await?;
+                conn.send_serialized(UpdatePacket::ReleasedVerified(lock_type))
+                    .await?;
+                conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
+                    .await?;
 
                 if owned_local_lock.lock_type() == LockType::Read {
-                    *rwlock.local_active_read_lock.write() = Some(owned_local_lock.assert_read().clone())
+                    *rwlock.local_active_read_lock.write() =
+                        Some(owned_local_lock.assert_read().clone())
                 }
 
-                return Ok((fx)(owned_local_lock))
+                return Ok((fx)(owned_local_lock));
             }
 
             UpdatePacket::ReleasedRead => {
                 match &owned_local_lock {
-                    LocalLockHolder::Write( .. ) => {
-                       // log::warn!(target: "lusna", "Invalid packet release received. Received ReleasedRead, but local lock is write");
+                    LocalLockHolder::Write(..) => {
+                        // log::warn!(target: "lusna", "Invalid packet release received. Received ReleasedRead, but local lock is write");
                         //continue 'outer_loop;
                     }
 
@@ -660,14 +746,17 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
                 }
 
                 // now, send a LockAcquired packet
-                conn.send_serialized(UpdatePacket::ReleasedVerified(lock_type)).await?;
-                conn.send_serialized(UpdatePacket::LockAcquired(lock_type)).await?;
+                conn.send_serialized(UpdatePacket::ReleasedVerified(lock_type))
+                    .await?;
+                conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
+                    .await?;
 
                 if owned_local_lock.lock_type() == LockType::Read {
-                    *rwlock.local_active_read_lock.write() = Some(owned_local_lock.assert_read().clone())
+                    *rwlock.local_active_read_lock.write() =
+                        Some(owned_local_lock.assert_read().clone())
                 }
 
-                return Ok((fx)(owned_local_lock))
+                return Ok((fx)(owned_local_lock));
             }
 
             UpdatePacket::LockAcquired(_lock_type) => {
@@ -686,10 +775,11 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
                     conn.send_serialized(UpdatePacket::ReleasedRead).await?;
 
                     if owned_local_lock.lock_type() == LockType::Read {
-                        *rwlock.local_active_read_lock.write() = Some(owned_local_lock.assert_read().clone())
+                        *rwlock.local_active_read_lock.write() =
+                            Some(owned_local_lock.assert_read().clone())
                     }
 
-                    return Ok((fx)(owned_local_lock))
+                    return Ok((fx)(owned_local_lock));
                 }
 
                 if remote_request_time <= local_request_time {
@@ -724,7 +814,8 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
                         if lock_type == LockType::Write {
                             // this will prevent local from acquiring any reads
                             owned_local_lock.assert_write_and_downgrade();
-                            *rwlock.local_active_read_lock.write() = Some(owned_local_lock.assert_read().clone()); // now, there are two in existence
+                            *rwlock.local_active_read_lock.write() =
+                                Some(owned_local_lock.assert_read().clone()); // now, there are two in existence
                             assert_eq!(owned_local_lock.arc_strong_count().unwrap(), 2);
                         }
 
@@ -738,19 +829,21 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
                     }
                 } else {
                     // we requested before the remote node; tell the remote node we took the value
-                    conn.send_serialized(UpdatePacket::LockAcquired(lock_type)).await?;
+                    conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
+                        .await?;
 
                     if owned_local_lock.lock_type() == LockType::Read {
-                        *rwlock.local_active_read_lock.write() = Some(owned_local_lock.assert_read().clone())
+                        *rwlock.local_active_read_lock.write() =
+                            Some(owned_local_lock.assert_read().clone())
                     }
 
-                    return Ok((fx)(owned_local_lock))
+                    return Ok((fx)(owned_local_lock));
                 }
             }
 
             UpdatePacket::Halt => {
                 // the adjacent node dropped their NetRwLock. The program is done
-                return Err(anyhow::Error::msg("The adjacent node dropped the Mutex"))
+                return Err(anyhow::Error::msg("The adjacent node dropped the Mutex"));
             }
 
             UpdatePacket::ReleasedVerified(..) => {
@@ -762,8 +855,8 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
 
     use crate::sync::test_utils::create_streams;
 
@@ -828,7 +921,8 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        r0.unwrap();r1.unwrap();
+        r0.unwrap();
+        r1.unwrap();
     }
 
     #[tokio::test]
@@ -901,7 +995,8 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        r0.unwrap();r1.unwrap();
+        r0.unwrap();
+        r1.unwrap();
     }
 
     #[tokio::test]
@@ -951,7 +1046,8 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        r0.unwrap();r1.unwrap();
+        r0.unwrap();
+        r1.unwrap();
     }
 
     #[tokio::test]
@@ -1022,7 +1118,8 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        r0.unwrap();r1.unwrap();
+        r0.unwrap();
+        r1.unwrap();
     }
 
     #[tokio::test]
@@ -1100,6 +1197,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        r0.unwrap();r1.unwrap();
+        r0.unwrap();
+        r1.unwrap();
     }
 }

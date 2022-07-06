@@ -1,23 +1,23 @@
-use std::sync::Arc;
+use futures::Stream;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::mpsc::{Sender, Receiver};
 use std::fmt::{Debug, Formatter};
-use futures::Stream;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Clone)]
 pub struct TrackedCallbackChannel<T, R> {
-    inner: Arc<TrackedCallbackChannelInner<T, R>>
+    inner: Arc<TrackedCallbackChannelInner<T, R>>,
 }
 
 pub enum TrackedCallbackError<T> {
     SendError(T),
     RecvError,
-    InternalError(&'static str)
+    InternalError(&'static str),
 }
 
 const NO_RESPONSE: u64 = 0;
@@ -43,18 +43,22 @@ impl<T> Debug for TrackedCallbackError<T> {
 struct TrackedCallbackChannelInner<T, R> {
     map: Mutex<HashMap<u64, tokio::sync::oneshot::Sender<R>>>,
     to_channel: Sender<TrackedCallbackChannelPayload<T, R>>,
-    id: AtomicU64
+    id: AtomicU64,
 }
 
 pub struct TrackedCallbackChannelPayload<T, R> {
     id: u64,
     pub payload: T,
-    _pd: PhantomData<R>
+    _pd: PhantomData<R>,
 }
 
 impl<T, R> TrackedCallbackChannelPayload<T, R> {
     pub fn new(&self, payload: R) -> TrackedCallbackChannelPayload<R, T> {
-        TrackedCallbackChannelPayload { id: self.id, payload, _pd: Default::default() }
+        TrackedCallbackChannelPayload {
+            id: self.id,
+            payload,
+            _pd: Default::default(),
+        }
     }
 
     pub fn expects_response(&self) -> bool {
@@ -65,7 +69,18 @@ impl<T, R> TrackedCallbackChannelPayload<T, R> {
 impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
     pub fn new(buffer: usize) -> (Self, CallbackReceiver<T, R>) {
         let (to_channel, from_channel) = tokio::sync::mpsc::channel(buffer);
-        (Self { inner: Arc::new(TrackedCallbackChannelInner { to_channel, map: Mutex::new(Default::default()), id: AtomicU64::new(1) }) }, CallbackReceiver { inner: from_channel })
+        (
+            Self {
+                inner: Arc::new(TrackedCallbackChannelInner {
+                    to_channel,
+                    map: Mutex::new(Default::default()),
+                    id: AtomicU64::new(1),
+                }),
+            },
+            CallbackReceiver {
+                inner: from_channel,
+            },
+        )
     }
 
     pub async fn send(&self, payload: T) -> Result<R, TrackedCallbackError<T>> {
@@ -76,26 +91,50 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
             (rx, next_value)
         };
 
-        self.inner.to_channel.send(TrackedCallbackChannelPayload { id, payload, _pd: Default::default() }).await.map_err(|err| TrackedCallbackError::SendError(err.0.payload))?;
+        self.inner
+            .to_channel
+            .send(TrackedCallbackChannelPayload {
+                id,
+                payload,
+                _pd: Default::default(),
+            })
+            .await
+            .map_err(|err| TrackedCallbackError::SendError(err.0.payload))?;
 
         Ok(rx.await.map_err(|_| TrackedCallbackError::RecvError)?)
     }
 
     pub async fn send_no_callback(&self, payload: T) -> Result<(), TrackedCallbackError<T>> {
-        self.inner.to_channel.send(TrackedCallbackChannelPayload { id: NO_RESPONSE, payload, _pd: Default::default() }).await.map_err(|err| TrackedCallbackError::SendError(err.0.payload))
+        self.inner
+            .to_channel
+            .send(TrackedCallbackChannelPayload {
+                id: NO_RESPONSE,
+                payload,
+                _pd: Default::default(),
+            })
+            .await
+            .map_err(|err| TrackedCallbackError::SendError(err.0.payload))
     }
 
-    pub async fn reply(&self, payload: TrackedCallbackChannelPayload<R, T>) -> Result<(), TrackedCallbackError<R>> {
-        let sender = {
-            self.inner.map.lock().remove(&payload.id).ok_or(TrackedCallbackError::InternalError("Mapping does not exist for id"))?
-        };
+    pub async fn reply(
+        &self,
+        payload: TrackedCallbackChannelPayload<R, T>,
+    ) -> Result<(), TrackedCallbackError<R>> {
+        let sender =
+            {
+                self.inner.map.lock().remove(&payload.id).ok_or(
+                    TrackedCallbackError::InternalError("Mapping does not exist for id"),
+                )?
+            };
 
-        sender.send(payload.payload).map_err(|err| TrackedCallbackError::SendError(err))
+        sender
+            .send(payload.payload)
+            .map_err(|err| TrackedCallbackError::SendError(err))
     }
 }
 
 pub struct CallbackReceiver<T, R> {
-    inner: Receiver<TrackedCallbackChannelPayload<T, R>>
+    inner: Receiver<TrackedCallbackChannelPayload<T, R>>,
 }
 
 impl<T, R> Stream for CallbackReceiver<T, R> {
@@ -108,8 +147,8 @@ impl<T, R> Stream for CallbackReceiver<T, R> {
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
     use crate::sync::tracked_callback_channel::TrackedCallbackChannel;
+    use futures::StreamExt;
 
     #[tokio::test]
     async fn main() {

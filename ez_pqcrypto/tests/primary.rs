@@ -4,21 +4,35 @@ mod tests {
     use rand::prelude::ThreadRng;
     use rand::RngCore;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use ez_pqcrypto::bytes_in_place::EzBuffer;
-    use ez_pqcrypto::replay_attack_container::HISTORY_LEN;
-    use ez_pqcrypto::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm, KEM_ALGORITHM_COUNT};
     use enum_primitive::FromPrimitive;
-    use std::iter::FromIterator;
-    use std::convert::TryFrom;
+    use ez_pqcrypto::algorithm_dictionary::{
+        EncryptionAlgorithm, KemAlgorithm, KEM_ALGORITHM_COUNT,
+    };
+    use ez_pqcrypto::bytes_in_place::EzBuffer;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
+    use ez_pqcrypto::replay_attack_container::HISTORY_LEN;
+    use ez_pqcrypto::PostQuantumContainer;
     use lusna_logging::setup_log;
+    use std::convert::TryFrom;
+    use std::iter::FromIterator;
 
-    fn gen(kem_algorithm: KemAlgorithm, encryption_algorithm: EncryptionAlgorithm) -> (PostQuantumContainer, PostQuantumContainer) {
+    fn gen(
+        kem_algorithm: KemAlgorithm,
+        encryption_algorithm: EncryptionAlgorithm,
+    ) -> (PostQuantumContainer, PostQuantumContainer) {
         log::trace!(target: "lusna", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm))).unwrap();
-        let bob_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_container.get_public_key()).unwrap();
-        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
+            kem_algorithm + encryption_algorithm,
+        )))
+        .unwrap();
+        let bob_container = PostQuantumContainer::new_bob(
+            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
+            alice_container.get_public_key(),
+        )
+        .unwrap();
+        alice_container
+            .alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap())
+            .unwrap();
         (alice_container, bob_container)
     }
 
@@ -28,23 +42,37 @@ mod tests {
         run(0, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap()
     }
 
-    fn run(algorithm: u8, encryption_algorithm: EncryptionAlgorithm) -> Result<(), Box<dyn std::error::Error>> {
+    fn run(
+        algorithm: u8,
+        encryption_algorithm: EncryptionAlgorithm,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
         log::trace!(target: "lusna", "Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
-        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm))).unwrap();
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
+            kem_algorithm + encryption_algorithm,
+        )))
+        .unwrap();
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
         let alice_public_key = alice_container.get_public_key();
         //
         // Then, Bob gets the public key. To process it, he must create a PostQuantumContainer for himself
-        let bob_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_public_key)?;
-        let eve_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_public_key)?;
+        let bob_container = PostQuantumContainer::new_bob(
+            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
+            alice_public_key,
+        )?;
+        let eve_container = PostQuantumContainer::new_bob(
+            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
+            alice_public_key,
+        )?;
         // Internally, this computes the CipherText. The next step is to send this CipherText back over to alice
         let bob_ciphertext = bob_container.get_ciphertext().unwrap();
         let _eve_ciphertext = eve_container.get_ciphertext().unwrap();
         //
         // Next, alice received Bob's ciphertext. She must now run an update on her internal data in order to get the shared secret
-        alice_container.alice_on_receive_ciphertext(bob_ciphertext).unwrap();
+        alice_container
+            .alice_on_receive_ciphertext(bob_ciphertext)
+            .unwrap();
 
         let alice_ss = alice_container.get_shared_secret().unwrap();
         let bob_ss = bob_container.get_shared_secret().unwrap();
@@ -84,11 +112,15 @@ mod tests {
 
         log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
         let nonce = Vec::from_iter(0..nonce_len as u8);
-        alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
+        alice_container
+            .protect_packet_in_place(HEADER_LEN, &mut buf, &nonce)
+            .unwrap();
 
         log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
         let mut header = buf.split_to(HEADER_LEN);
-        bob_container.validate_packet_in_place(&header, &mut buf, &nonce).unwrap();
+        bob_container
+            .validate_packet_in_place(&header, &mut buf, &nonce)
+            .unwrap();
         header.unsplit(buf);
         let buf = header;
 
@@ -117,8 +149,12 @@ mod tests {
 
             log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
             let nonce = vec![0; 12];
-            alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
-            alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
+            alice_container
+                .protect_packet_in_place(HEADER_LEN, &mut buf, &nonce)
+                .unwrap();
+            alice_container
+                .protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce)
+                .unwrap();
 
             // pretend someone grabs the header + ciphertext
             let mut intercepted_packet = buf.clone();
@@ -130,18 +166,26 @@ mod tests {
             // to simulate out-of order delivery, protect a new packet in place and validate that one
             log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf2.len(), &buf2[..]);
             let header2 = buf2.split_to(HEADER_LEN);
-            assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_ok());
+            assert!(bob_container
+                .validate_packet_in_place(&header2, &mut buf2, &nonce)
+                .is_ok());
             // now do them in order
 
             let mut header = buf.split_to(HEADER_LEN);
-            bob_container.validate_packet_in_place(&header, &mut buf, &nonce).unwrap();
+            bob_container
+                .validate_packet_in_place(&header, &mut buf, &nonce)
+                .unwrap();
             // since we are using in-place decryption, the first attempt will corrupt the payload, thus invalidating the packet's
             // decryption operation, even though it may correct. As such, this proves it is NECESSARY that packets
             // arrive IN-ORDER!!
-            assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_err());
+            assert!(bob_container
+                .validate_packet_in_place(&header2, &mut buf2, &nonce)
+                .is_err());
             // now, let's see what happens when we try validating the intercepted packet (replay attack)
             let intercepted_header = intercepted_packet.split_to(HEADER_LEN);
-            assert!(bob_container.validate_packet_in_place(&intercepted_header, &mut intercepted_packet, &nonce).is_err());
+            assert!(bob_container
+                .validate_packet_in_place(&intercepted_header, &mut intercepted_packet, &nonce)
+                .is_err());
             // Therefore: packets MUST be in order, and repeat attempts will invalidate the decryption attempt, as desired
             header.unsplit(buf);
             let buf = header;
@@ -149,7 +193,9 @@ mod tests {
             log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
         }
         let header = zeroth.split_to(HEADER_LEN);
-        assert!(bob_container.validate_packet_in_place(header, &mut zeroth, zeroth_nonce).is_err());
+        assert!(bob_container
+            .validate_packet_in_place(header, &mut zeroth, zeroth_nonce)
+            .is_err());
     }
 
     #[test]
@@ -167,17 +213,25 @@ mod tests {
         let mut packet0 = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
         let nonce = Vec::from_iter(0..nonce_len as u8);
         // encrypt the packet, but don't verify it
-        alice_container.protect_packet_in_place(HEADER_LEN, &mut packet0, &nonce).unwrap();
+        alice_container
+            .protect_packet_in_place(HEADER_LEN, &mut packet0, &nonce)
+            .unwrap();
         // In theory, in unordered mode, we don't have to verify packet0 before HISTORY_LEN+1 packets
-        for _y in 0..HISTORY_LEN+10 {
+        for _y in 0..HISTORY_LEN + 10 {
             let mut packet_n = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
-            alice_container.protect_packet_in_place(HEADER_LEN, &mut packet_n, &nonce).unwrap();
+            alice_container
+                .protect_packet_in_place(HEADER_LEN, &mut packet_n, &nonce)
+                .unwrap();
             let header = packet_n.split_to(HEADER_LEN);
-            bob_container.validate_packet_in_place(&header, &mut packet_n, &nonce).unwrap();
+            bob_container
+                .validate_packet_in_place(&header, &mut packet_n, &nonce)
+                .unwrap();
         }
 
         let header = packet0.split_to(HEADER_LEN);
-        assert!(alice_container.validate_packet_in_place(&header, &mut packet0, &nonce).is_err());
+        assert!(alice_container
+            .validate_packet_in_place(&header, &mut packet0, &nonce)
+            .is_err());
     }
 
     /*
@@ -211,7 +265,10 @@ mod tests {
 
     #[test]
     fn parse() {
-        assert_eq!(KemAlgorithm::Kyber1024_90s, KemAlgorithm::try_from(5).unwrap());
+        assert_eq!(
+            KemAlgorithm::Kyber1024_90s,
+            KemAlgorithm::try_from(5).unwrap()
+        );
     }
 
     #[test]

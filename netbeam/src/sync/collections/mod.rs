@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use anyhow::Error;
-use std::hash::Hash;
 use crate::sync::collections::net_abstract_collection::NetAbstractCollection;
+use anyhow::Error;
+use std::collections::HashMap;
+use std::hash::Hash;
 
 pub mod net_abstract_collection;
 
@@ -20,7 +20,7 @@ pub trait AbstractCollection<K, V>: Default {
 impl<V> AbstractCollection<usize, V> for Vec<V> {
     fn insert(&mut self, k: usize, v: V) -> Result<Option<V>, anyhow::Error> {
         if k > self.len() {
-            return Err(anyhow::Error::msg("index > len"))
+            return Err(anyhow::Error::msg("index > len"));
         }
 
         Vec::insert(self, k, v);

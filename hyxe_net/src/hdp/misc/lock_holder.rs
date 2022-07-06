@@ -3,16 +3,23 @@ use std::marker::PhantomData;
 
 pub struct LockHolder<'a, T: 'a> {
     inner: Option<T>,
-    _pd: PhantomData<&'a ()>
+    _pd: PhantomData<&'a ()>,
 }
 
 impl<'a, T: 'a> LockHolder<'a, T> {
     pub fn new(inner: Option<T>) -> Self {
-        Self { inner, _pd: Default::default() }
+        Self {
+            inner,
+            _pd: Default::default(),
+        }
     }
 
     /// Accesses the inner value. If not available, will get the inner value through `or_else`
-    pub fn access_or_else<J>(&self, or_else: impl FnOnce() -> T, accessor: impl for<'z> FnOnce(&'z T) -> J) -> J {
+    pub fn access_or_else<J>(
+        &self,
+        or_else: impl FnOnce() -> T,
+        accessor: impl for<'z> FnOnce(&'z T) -> J,
+    ) -> J {
         if let Some(ref t) = self.inner {
             accessor(t)
         } else {
@@ -21,7 +28,11 @@ impl<'a, T: 'a> LockHolder<'a, T> {
     }
 
     /// Accesses the inner value. If not available, will get the inner value through `or_else`
-    pub fn access_mut_or_else<J>(&mut self, or_else: impl FnOnce() -> T, accessor: impl for<'z> FnOnce(&'z mut T) -> J) -> J {
+    pub fn access_mut_or_else<J>(
+        &mut self,
+        or_else: impl FnOnce() -> T,
+        accessor: impl for<'z> FnOnce(&'z mut T) -> J,
+    ) -> J {
         if let Some(ref mut t) = self.inner {
             accessor(t)
         } else {
@@ -30,7 +41,11 @@ impl<'a, T: 'a> LockHolder<'a, T> {
     }
 
     /// Accesses the inner value. If not available, will get the inner value through `or_else`
-    pub fn access_consume_or_else<J>(self, or_else: impl FnOnce() -> T, accessor: impl FnOnce(T) -> J) -> J {
+    pub fn access_consume_or_else<J>(
+        self,
+        or_else: impl FnOnce() -> T,
+        accessor: impl FnOnce(T) -> J,
+    ) -> J {
         if let Some(t) = self.inner {
             accessor(t)
         } else {
@@ -39,7 +54,12 @@ impl<'a, T: 'a> LockHolder<'a, T> {
     }
 
     /// Accesses the inner value. If not available, will get the inner value through `or_else`
-    pub fn maybe_access_consume_or_else<J>(self, condition: bool, or_else: impl FnOnce() -> T, accessor: impl FnOnce(Option<T>) -> J) -> J {
+    pub fn maybe_access_consume_or_else<J>(
+        self,
+        condition: bool,
+        or_else: impl FnOnce() -> T,
+        accessor: impl FnOnce(Option<T>) -> J,
+    ) -> J {
         if condition {
             if let Some(t) = self.inner {
                 accessor(Some(t))
@@ -77,9 +97,9 @@ mod test {
     use crate::hdp::misc::lock_holder::LockHolder;
     use parking_lot::{Mutex, MutexGuard};
     /*
-        fn accessor(t: &u8) -> u8 {
-            t.wrapping_add(1)
-        }*/
+    fn accessor(t: &u8) -> u8 {
+        t.wrapping_add(1)
+    }*/
 
     fn accessor2(t: &mut u8) -> u8 {
         t.wrapping_add(2)
@@ -95,7 +115,10 @@ mod test {
         assert_eq!(container2.access_or_else(accessor, || 0), 1);*/
         let mutex = Mutex::new(150u8);
         let mut container3 = LockHolder::<MutexGuard<u8>>::new(None);
-        assert_eq!(container3.access_mut_or_else(|| mutex.lock(), |r| accessor2(r)), 152);
+        assert_eq!(
+            container3.access_mut_or_else(|| mutex.lock(), |r| accessor2(r)),
+            152
+        );
 
         let mutex = Mutex::new(150u8);
 

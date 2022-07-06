@@ -1,11 +1,14 @@
-use crate::prelude::{NodeRequest, NetworkError, UdpMode, SessionSecuritySettings, ConnectMode, ProposedCredentials, Remote, PeerSignal, UserIdentifier, PeerConnectionType};
+use crate::prelude::{
+    ConnectMode, NetworkError, NodeRequest, PeerConnectionType, PeerSignal, ProposedCredentials,
+    Remote, SessionSecuritySettings, UdpMode, UserIdentifier,
+};
 use hyxe_net::auth::AuthenticationRequest;
-use std::time::Duration;
 use std::net::ToSocketAddrs;
+use std::time::Duration;
 
 /// Convenience for building registration requests to *allow* future connection requests to a server
 pub struct RegistrationBuilder {
-    registration_security_settings: Option<SessionSecuritySettings>
+    registration_security_settings: Option<SessionSecuritySettings>,
 }
 
 impl RegistrationBuilder {
@@ -21,17 +24,31 @@ impl RegistrationBuilder {
     ///
     /// Example: if [`SecurityLevel::Medium`] is used for registration, then, only [`SecurityLevel::Low`]
     /// or [`SecurityLevel::Medium`] may be used during the connection phase.
-    pub fn registration_security_settings(mut self, security_settings: SessionSecuritySettings) -> Self {
+    pub fn registration_security_settings(
+        mut self,
+        security_settings: SessionSecuritySettings,
+    ) -> Self {
         self.registration_security_settings = Some(security_settings);
         self
     }
 
-    pub fn build<T: ToSocketAddrs>(self, server_addr: T, proposed_credentials: ProposedCredentials) -> Result<NodeRequest, NetworkError> {
+    pub fn build<T: ToSocketAddrs>(
+        self,
+        server_addr: T,
+        proposed_credentials: ProposedCredentials,
+    ) -> Result<NodeRequest, NetworkError> {
         self.validate()?;
-        let addr = server_addr.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?
-            .next().ok_or(NetworkError::InvalidRequest("No addresses found"))?;
+        let addr = server_addr
+            .to_socket_addrs()
+            .map_err(|err| NetworkError::Generic(err.to_string()))?
+            .next()
+            .ok_or(NetworkError::InvalidRequest("No addresses found"))?;
         let sess_security_settings = self.registration_security_settings.unwrap_or_default();
-        Ok(NodeRequest::RegisterToHypernode(addr, proposed_credentials, sess_security_settings))
+        Ok(NodeRequest::RegisterToHypernode(
+            addr,
+            proposed_credentials,
+            sess_security_settings,
+        ))
     }
 
     fn validate(&self) -> Result<(), NetworkError> {
@@ -39,14 +56,13 @@ impl RegistrationBuilder {
     }
 }
 
-
 #[derive(Default, Clone, Debug)]
 /// Convenience for building connection requests to servers to whom one is already registered to
 pub struct ConnectionBuilder {
     udp_mode: Option<UdpMode>,
     session_security_settings: Option<SessionSecuritySettings>,
     connect_mode: Option<ConnectMode>,
-    keep_alive_interval_secs: Option<u64>
+    keep_alive_interval_secs: Option<u64>,
 }
 
 impl ConnectionBuilder {
@@ -88,7 +104,11 @@ impl ConnectionBuilder {
     /// Given the authentication request, crates the final request used to begin connecting to the server.
     /// Note: the returned request does nothing by itself; it must be submitted via the [`NodeRemote`] in
     /// order to have an affect
-    pub async fn build(self, authentication_request: AuthenticationRequest, remote: &mut impl Remote) -> Result<NodeRequest, NetworkError> {
+    pub async fn build(
+        self,
+        authentication_request: AuthenticationRequest,
+        remote: &mut impl Remote,
+    ) -> Result<NodeRequest, NetworkError> {
         let udp_mode = self.udp_mode.unwrap_or_default();
         let sess_sec_settings = self.session_security_settings.unwrap_or_default();
         let connect_mode = self.connect_mode.unwrap_or_default();
@@ -96,9 +116,14 @@ impl ConnectionBuilder {
 
         if let AuthenticationRequest::Credentialed { id, .. } = &authentication_request {
             // validate that the security level is valid
-            let cnac = remote.account_manager().find_cnac_by_identifier(id.clone()).await
+            let cnac = remote
+                .account_manager()
+                .find_cnac_by_identifier(id.clone())
+                .await
                 .map_err(|err| NetworkError::Generic(err.into_string()))?
-                .ok_or_else(|| NetworkError::Generic(format!("User {:?} does not exist locally", id)))?;
+                .ok_or_else(|| {
+                    NetworkError::Generic(format!("User {:?} does not exist locally", id))
+                })?;
 
             cnac.get_static_auxiliary_hyper_ratchet()
                 .verify_level(Some(sess_sec_settings.security_level))
@@ -106,7 +131,13 @@ impl ConnectionBuilder {
                 .map_err(|_| NetworkError::InvalidRequest("The security level is too high"))?;
         }
 
-        Ok(NodeRequest::ConnectToHypernode(authentication_request, connect_mode, udp_mode, ka, sess_sec_settings))
+        Ok(NodeRequest::ConnectToHypernode(
+            authentication_request,
+            connect_mode,
+            udp_mode,
+            ka,
+            sess_sec_settings,
+        ))
     }
 }
 
@@ -114,20 +145,32 @@ impl ConnectionBuilder {
 pub struct PeerRegistrationBuilder;
 
 impl PeerRegistrationBuilder {
-    pub async fn build(self, local_user: impl Into<UserIdentifier>, peer: impl Into<UserIdentifier>, remote: &mut impl Remote) -> Result<NodeRequest, NetworkError> {
+    pub async fn build(
+        self,
+        local_user: impl Into<UserIdentifier>,
+        peer: impl Into<UserIdentifier>,
+        remote: &mut impl Remote,
+    ) -> Result<NodeRequest, NetworkError> {
         let local_user = local_user.into();
-        let local_user = remote.account_manager().find_cnac_by_identifier(local_user.clone()).await
+        let local_user = remote
+            .account_manager()
+            .find_cnac_by_identifier(local_user.clone())
+            .await
             .map_err(|err| NetworkError::Generic(err.into_string()))?
-            .ok_or_else(|| NetworkError::Generic(format!("User {:?} does not exist locally", local_user)))?;
+            .ok_or_else(|| {
+                NetworkError::Generic(format!("User {:?} does not exist locally", local_user))
+            })?;
         let local_username = local_user.get_username();
 
         let (remote_cid, username_opt) = match peer.into() {
             UserIdentifier::ID(peer_cid) => (peer_cid, None),
-            UserIdentifier::Username(uname) => (0, Some(uname))
+            UserIdentifier::Username(uname) => (0, Some(uname)),
         };
 
-        let peer_conn = PeerConnectionType::HyperLANPeerToHyperLANPeer(local_user.get_cid(), remote_cid);
-        let peer_signal = PeerSignal::PostRegister(peer_conn, local_username, username_opt, None, None);
+        let peer_conn =
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(local_user.get_cid(), remote_cid);
+        let peer_signal =
+            PeerSignal::PostRegister(peer_conn, local_username, username_opt, None, None);
 
         Ok(NodeRequest::PeerCommand(local_user.get_cid(), peer_signal))
     }
@@ -135,27 +178,45 @@ impl PeerRegistrationBuilder {
 
 pub struct PeerConnectionBuilder {
     session_security_settings: Option<SessionSecuritySettings>,
-    udp_mode: Option<UdpMode>
+    udp_mode: Option<UdpMode>,
 }
 
 impl PeerConnectionBuilder {
-
-    pub async fn build(self, local_user: impl Into<UserIdentifier>, peer: impl Into<UserIdentifier>, remote: &mut impl Remote) -> Result<NodeRequest, NetworkError> {
+    pub async fn build(
+        self,
+        local_user: impl Into<UserIdentifier>,
+        peer: impl Into<UserIdentifier>,
+        remote: &mut impl Remote,
+    ) -> Result<NodeRequest, NetworkError> {
         let local_user = local_user.into();
         let peer = peer.into();
         let sess_security_settings = self.session_security_settings.unwrap_or_default();
         let udp_mode = self.udp_mode.unwrap_or_default();
 
-        let local_cid = remote.account_manager().find_local_user_information(local_user.clone()).await
+        let local_cid = remote
+            .account_manager()
+            .find_local_user_information(local_user.clone())
+            .await
             .map_err(|err| NetworkError::Generic(err.into_string()))?
-            .ok_or_else(|| NetworkError::Generic(format!("User {:?} does not exist locally", local_user)))?;
+            .ok_or_else(|| {
+                NetworkError::Generic(format!("User {:?} does not exist locally", local_user))
+            })?;
 
-        let (peer_cid, _) = remote.account_manager().find_target_information(local_user.clone(), peer.clone()).await
+        let (peer_cid, _) = remote
+            .account_manager()
+            .find_target_information(local_user.clone(), peer.clone())
+            .await
             .map_err(|err| NetworkError::Generic(err.into_string()))?
-            .ok_or_else(|| NetworkError::Generic(format!("Peer {:?} is not registered to {:?} locally", local_user, peer)))?;
+            .ok_or_else(|| {
+                NetworkError::Generic(format!(
+                    "Peer {:?} is not registered to {:?} locally",
+                    local_user, peer
+                ))
+            })?;
 
         let peer_conn = PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid);
-        let peer_signal = PeerSignal::PostConnect(peer_conn, None, None, sess_security_settings, udp_mode);
+        let peer_signal =
+            PeerSignal::PostConnect(peer_conn, None, None, sess_security_settings, udp_mode);
 
         Ok(NodeRequest::PeerCommand(local_cid, peer_signal))
     }

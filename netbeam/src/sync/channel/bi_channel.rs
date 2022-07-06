@@ -1,14 +1,14 @@
+use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
-use futures::{Stream, Future, TryFutureExt, StreamExt};
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
 use crate::sync::subscription::SubscriptionBiStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use futures::{Future, Stream, StreamExt, TryFutureExt};
+use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 pub(crate) type InnerChannel<S> = <S as Subscribable>::SubscriptionType;
 
@@ -16,20 +16,22 @@ pub(crate) type InnerChannel<S> = <S as Subscribable>::SubscriptionType;
 enum ChannelPacket<T> {
     Packet(T),
     Halt,
-    HaltVerified
+    HaltVerified,
 }
 
 /// Allows two-way communication. The base abstraction for other types of channels
 pub struct Channel<T: NetObject, S: Subscribable + 'static> {
     recv: ChannelRecvHalf<T, S>,
-    send: ChannelSendHalf<T, S>
+    send: ChannelSendHalf<T, S>,
 }
 
 pub struct ChannelRecvHalf<T: NetObject, S: Subscribable + 'static> {
     // Wrap a mutex around the stream to make Sync
-    receiver: parking_lot::Mutex<Pin<Box<dyn Stream<Item=Result<ChannelPacket<T>, anyhow::Error>> + Send>>>,
+    receiver: parking_lot::Mutex<
+        Pin<Box<dyn Stream<Item = Result<ChannelPacket<T>, anyhow::Error>> + Send>>,
+    >,
     recv_halt: Arc<AtomicBool>,
-    tx: Option<Arc<InnerChannel<S>>>
+    tx: Option<Arc<InnerChannel<S>>>,
 }
 
 //impl<T: NetObject, S: Subscribable + 'static> Unpin for ChannelRecvHalf<T, S> {}
@@ -37,7 +39,7 @@ pub struct ChannelRecvHalf<T: NetObject, S: Subscribable + 'static> {
 pub struct ChannelSendHalf<T: NetObject, S: Subscribable + 'static> {
     recv_halt: Arc<AtomicBool>,
     tx: Option<Arc<InnerChannel<S>>>,
-    _pd: PhantomData<T>
+    _pd: PhantomData<T>,
 }
 
 /*
@@ -49,9 +51,14 @@ pub enum ChannelError<T> {
 impl<T: NetObject, S: Subscribable + 'static> ChannelSendHalf<T, S> {
     pub async fn send_item(&self, t: T) -> Result<(), anyhow::Error> {
         if self.recv_halt.load(Ordering::Relaxed) {
-            Err(anyhow::Error::msg("Receiving end not receiving any new values"))
+            Err(anyhow::Error::msg(
+                "Receiving end not receiving any new values",
+            ))
         } else {
-            Ok(self.get_chan().send_serialized(ChannelPacket::Packet(t)).await?)
+            Ok(self
+                .get_chan()
+                .send_serialized(ChannelPacket::Packet(t))
+                .await?)
         }
     }
 
@@ -66,11 +73,12 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
         Some(self.process_packet(packet))
     }
 
-    fn process_packet(&mut self, packet: Result<ChannelPacket<T>, anyhow::Error>) -> Result<T, anyhow::Error> {
+    fn process_packet(
+        &mut self,
+        packet: Result<ChannelPacket<T>, anyhow::Error>,
+    ) -> Result<T, anyhow::Error> {
         match packet? {
-            ChannelPacket::Packet(res) => {
-                Ok(res)
-            }
+            ChannelPacket::Packet(res) => Ok(res),
 
             _ => {
                 self.recv_halt.store(true, Ordering::Relaxed);
@@ -83,7 +91,10 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
 impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
     pub fn new(conn: &S) -> ChannelLoader<T, S> {
         ChannelLoader {
-            inner: Box::pin(conn.initiate_subscription().and_then(|r| futures::future::ok(Channel::new_internal(r.into()))))
+            inner: Box::pin(
+                conn.initiate_subscription()
+                    .and_then(|r| futures::future::ok(Channel::new_internal(r.into()))),
+            ),
         }
     }
 
@@ -117,14 +128,14 @@ impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
             recv: ChannelRecvHalf {
                 receiver: parking_lot::Mutex::new(Box::pin(stream)),
                 recv_halt: recv_halt.clone(),
-                tx: Some(chan.clone())
+                tx: Some(chan.clone()),
             },
 
             send: ChannelSendHalf {
                 recv_halt,
                 tx: Some(chan),
-                _pd: Default::default()
-            }
+                _pd: Default::default(),
+            },
         }
     }
 
@@ -146,11 +157,13 @@ impl<T: NetObject, S: Subscribable + 'static> Stream for ChannelRecvHalf<T, S> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self {
-            receiver, recv_halt, ..
+            receiver,
+            recv_halt,
+            ..
         } = &mut *self;
 
         if recv_halt.load(Ordering::Relaxed) {
-            return Poll::Ready(None)
+            return Poll::Ready(None);
         }
 
         let mut lock = receiver.lock();
@@ -162,10 +175,10 @@ impl<T: NetObject, S: Subscribable + 'static> Stream for ChannelRecvHalf<T, S> {
 
                 match self.process_packet(Ok(res)) {
                     Ok(res) => Poll::Ready(Some(res)),
-                    _ => Poll::Ready(None)
+                    _ => Poll::Ready(None),
                 }
-            },
-            Some(Err(_)) => Poll::Ready(None)
+            }
+            Some(Err(_)) => Poll::Ready(None),
         }
     }
 }
@@ -205,7 +218,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
 }
 
 pub struct ChannelLoader<'a, T: NetObject, S: Subscribable + 'static> {
-    inner: Pin<Box<dyn Future<Output=Result<Channel<T, S>, anyhow::Error>> + Send + 'a>>
+    inner: Pin<Box<dyn Future<Output = Result<Channel<T, S>, anyhow::Error>> + Send + 'a>>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Future for ChannelLoader<'_, T, S> {
