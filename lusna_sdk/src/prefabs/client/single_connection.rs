@@ -265,7 +265,7 @@ mod tests {
     async fn single_connection_registered() {
         let _ = lusna_logging::setup_log();
 
-        let ref client_success = AtomicBool::new(false);
+        let client_success = &AtomicBool::new(false);
         let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
@@ -307,7 +307,7 @@ mod tests {
             std::env::set_var("debug_cause_timeout", "ON");
         }
 
-        let ref client_success = AtomicBool::new(false);
+        let client_success = &AtomicBool::new(false);
         let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();

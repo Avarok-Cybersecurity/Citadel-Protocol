@@ -25,9 +25,7 @@ pub async fn peer_register(
                 .get_username_by_cid(this_cid)
                 .await
                 .map_err(|err| NetworkError::Generic(err.into_string()))?
-                .ok_or_else(|| {
-                    NetworkError::InternalError("Unable to find local username implied by signal")
-                })?;
+                .ok_or(NetworkError::InvalidRequest("Unable to find local username implied by signal"))?;
             PeerResponse::Accept(Some(username))
         } else {
             PeerResponse::Decline
@@ -115,5 +113,5 @@ pub async fn group_invite(
 }
 
 fn get_ticket(ticket: Option<Ticket>) -> Result<Ticket, NetworkError> {
-    ticket.ok_or_else(|| NetworkError::InvalidPacket("This event was improperly formed"))
+    ticket.ok_or(NetworkError::InvalidPacket("This event was improperly formed"))
 }
