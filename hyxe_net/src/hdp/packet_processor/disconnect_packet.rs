@@ -1,19 +1,24 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
+use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 
 /// Stage 0: Alice sends Bob a DO_DISCONNECT request packet
 /// Stage 1: Bob sends Alice an FINAL, whereafter Alice may disconnect
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_disconnect(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
+pub fn process_disconnect(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         log::error!(target: "lusna", "disconnect packet received, but session state is not connected. Dropping");
         return Ok(PrimaryProcessorResult::Void);
     }
 
-    let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
+    let hr = {
+        let state_container = inner_state!(session.state_container);
+        return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [disconnect]")
+    };
+
     let (header, payload, _, _) = packet.decompose();
-    let (header, _, hyper_ratchet) = return_if_none!(validation::aead::validate(cnac, &header, payload), "Unable to validate");
+    let (header, _, hyper_ratchet) = return_if_none!(validation::aead::validate(hr, &header, payload), "Unable to validate");
     let ticket = header.context_info.get().into();
     let timestamp = session.time_tracker.get_global_time_ns();
     let security_level = header.security_level.into();

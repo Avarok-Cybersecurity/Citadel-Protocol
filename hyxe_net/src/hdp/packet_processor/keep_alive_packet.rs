@@ -1,13 +1,15 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
+use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
+use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[allow(unused_results, unused_must_use)]
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub async fn process_keep_alive(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_keep_alive(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session.clone();
-
+    // TODO: keep alives for p2p conns
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         log::warn!(target: "lusna", "Keep alive received, but session not connected. Dropping packet");
         return Ok(PrimaryProcessorResult::Void);
@@ -16,18 +18,20 @@ pub async fn process_keep_alive(session: &HdpSession, packet: HdpPacket) -> Resu
     let task = async move {
         let ref session = session;
 
-        let (header, payload, _, _) = packet.decompose();
-        let ref cnac = {
+        let hr = {
             let state_container = inner_state!(session.state_container);
-            return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded")
+            return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [KA]")
         };
 
-        if let Some((header,_payload, _hyper_ratchet)) = validation::keep_alive::validate_keep_alive(cnac, &header, payload) {
+        let (header, payload, _, _) = packet.decompose();
+
+        if let Some((header,_payload, _hyper_ratchet)) = validation::aead::validate(hr, &header, payload) {
             let current_timestamp_ns = session.time_tracker.get_global_time_ns();
             let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
             let security_level = header.security_level.into();
 
             let task = {
+                let accessor = EndpointCryptoAccessor::C2S(session.state_container.clone());
                 // if the KA came in on time, then we pass. If it did not come-in on time, BUT, the meta expiry container is unexpired (meaning packets are coming in), then, pass
                 let mut state_container = inner_mut_state!(session.state_container);
                 if state_container.on_keep_alive_received(header.timestamp.get(), current_timestamp_ns) || !state_container.meta_expiry_state.expired() {
@@ -39,11 +43,9 @@ pub async fn process_keep_alive(session: &HdpSession, packet: HdpPacket) -> Resu
                     // immediately, otherwise other packets will fail, invalidating the session
                     async move {
                         tokio::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS)).await;
-                        cnac.borrow_hyper_ratchet(None, |ratchet_opt| {
-                            ratchet_opt.ok_or_else(|| NetworkError::InternalError("KA Ratchet not found")).and_then(|hyper_ratchet| {
-                                let next_ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, current_timestamp_ns + DELTA_NS, security_level);
-                                to_primary_stream.unbounded_send(next_ka).map_err(|err| NetworkError::Generic(err.to_string()))
-                            })
+                        accessor.borrow_hr(None, |hr, _| {
+                            let next_ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, current_timestamp_ns + DELTA_NS, security_level);
+                            to_primary_stream.unbounded_send(next_ka).map_err(|err| NetworkError::Generic(err.to_string()))
                         })?;
 
                         Ok(PrimaryProcessorResult::Void)

@@ -18,11 +18,7 @@ lazy_static::lazy_static! {
     static ref INIT: () = oqs::init();
 }
 
-#[cfg(not(feature = "unordered"))]
-pub type AntiReplayAttackContainer = crate::replay_attack_container::ordered::AntiReplayAttackContainer;
-
-#[cfg(feature = "unordered")]
-pub type AntiReplayAttackContainer = crate::replay_attack_container::unordered::AntiReplayAttackContainer;
+pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
     pub use oqs::Error;

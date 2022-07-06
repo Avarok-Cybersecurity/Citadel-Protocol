@@ -34,11 +34,11 @@ pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpS
                 }
 
                 packet_flags::cmd::primary::DO_CONNECT => {
-                    super::connect_packet::process_connect(session, packet).await
+                    super::connect_packet::process_connect(session, packet, header_drill_vers).await
                 }
 
                 packet_flags::cmd::primary::KEEP_ALIVE => {
-                    super::keep_alive_packet::process_keep_alive(session, packet).await
+                    super::keep_alive_packet::process_keep_alive(session, packet, header_drill_vers).await
                 }
 
                 packet_flags::cmd::primary::GROUP_PACKET => {
@@ -46,7 +46,7 @@ pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpS
                 }
 
                 packet_flags::cmd::primary::DO_DISCONNECT => {
-                    super::disconnect_packet::process_disconnect(session, packet)
+                    super::disconnect_packet::process_disconnect(session, packet, header_drill_vers)
                 }
 
                 packet_flags::cmd::primary::DO_DRILL_UPDATE => {
@@ -54,11 +54,11 @@ pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpS
                 }
 
                 packet_flags::cmd::primary::DO_DEREGISTER =>  {
-                    super::deregister_packet::process_deregister(session, packet).await
+                    super::deregister_packet::process_deregister(session, packet, header_drill_vers).await
                 }
 
                 packet_flags::cmd::primary::DO_PRE_CONNECT => {
-                    super::preconnect_packet::process_preconnect(session, packet).await
+                    super::preconnect_packet::process_preconnect(session, packet, header_drill_vers).await
                 }
 
                 packet_flags::cmd::primary::PEER_CMD => {
