@@ -78,7 +78,7 @@ jobs:
       - uses: actions-rs/cargo@v1.0.3
         with:
           command: doc
-          args: --package lusna_sdk --features webrtc --no-deps
+          args: --package lusna_sdk --features=webrtc,multi-threaded --no-deps
 
       - name: Deploy documentation
         if: success()

@@ -811,7 +811,7 @@ impl PostQuantumKem {
             .to_owned();
 
         if let Some(secret_key) = self.secret_key.as_ref() {
-            let shared_secret = kem_alg.decapsulate(secret_key, &ciphertext)?.to_owned();
+            let shared_secret = kem_alg.decapsulate(secret_key, &ciphertext)?;
             self.ciphertext = Some(ciphertext);
             self.shared_secret = Some(shared_secret);
             Ok(())
