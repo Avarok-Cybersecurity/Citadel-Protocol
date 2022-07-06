@@ -36,6 +36,7 @@ pub mod utils;
 
 /// Used when constructing the account manager
 #[derive(Clone, Debug)]
+#[allow(variant_size_differences)]
 pub enum BackendType {
     /// No true synchronization will occur; data is lost between program
     /// executions. Ideal for WASM environments that don't have filesystem

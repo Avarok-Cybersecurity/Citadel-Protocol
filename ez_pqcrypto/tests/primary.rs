@@ -6,7 +6,7 @@ mod tests {
 
     use ez_pqcrypto::PostQuantumContainer;
     use ez_pqcrypto::bytes_in_place::EzBuffer;
-    use ez_pqcrypto::replay_attack_container::unordered::HISTORY_LEN;
+    use ez_pqcrypto::replay_attack_container::HISTORY_LEN;
     use ez_pqcrypto::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm, KEM_ALGORITHM_COUNT};
     use enum_primitive::FromPrimitive;
     use std::iter::FromIterator;
