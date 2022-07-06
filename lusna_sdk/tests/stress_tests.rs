@@ -245,8 +245,8 @@ mod tests {
     ) {
         let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
-        let ref client0_success = AtomicBool::new(false);
-        let ref client1_success = AtomicBool::new(false);
+        let client0_success = &AtomicBool::new(false);
+        let client1_success = &AtomicBool::new(false);
 
         let (server, server_addr) = server_info();
 

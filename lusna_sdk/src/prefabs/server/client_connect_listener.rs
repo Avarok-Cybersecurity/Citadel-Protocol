@@ -58,7 +58,7 @@ where
                     inner: self.node_remote.clone().unwrap(),
                     conn_type,
                 };
-                (&self.on_channel_received)(
+                (self.on_channel_received)(
                     ConnectSuccess {
                         channel,
                         udp_channel_rx,
