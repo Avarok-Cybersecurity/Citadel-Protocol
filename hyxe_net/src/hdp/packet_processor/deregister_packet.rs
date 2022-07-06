@@ -1,5 +1,5 @@
 use super::includes::*;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
 use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
@@ -61,7 +61,7 @@ pub async fn process_deregister(session_ref: &HdpSession, packet: HdpPacket, hea
     to_concurrent_processor!(task)
 }
 
-async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSession, hyper_ratchet: &HyperRatchet, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSession, hyper_ratchet: &StackedRatchet, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let (acc_mgr, ticket) = {
         let state_container = inner_state!(session.state_container);

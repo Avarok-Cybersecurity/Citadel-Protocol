@@ -3,8 +3,8 @@ use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey};
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
 use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
-use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet, RatchetType};
-use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
+use hyxe_crypt::stacked_ratchet::{StackedRatchet, Ratchet, RatchetType};
+use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::error::NetworkError;
@@ -52,9 +52,9 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
-    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
+    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info), "Unable to get proper StackedRatchet [PGP]");
     let security_level = header.security_level.into();
-    //log::trace!(target: "lusna", "[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+    //log::trace!(target: "lusna", "[Peer StackedRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
             log::trace!(target: "lusna", "RECV GROUP PAYLOAD {:?}", header);
@@ -314,14 +314,14 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
 }
 
 #[inline]
-pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, state_container: &dyn ExpectedInnerTarget<StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
+pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, state_container: &dyn ExpectedInnerTarget<StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<StackedRatchet> {
     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
         // In the case that a packet is proxied back to the source, the adjacent endpoint inscribes this node's cid
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
         // since we use the original implicated CID
         if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            //log::trace!(target: "lusna", "[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
+            //log::trace!(target: "lusna", "[Peer StackedRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
             vconn.borrow_endpoint_hyper_ratchet(Some(header_drill_vers)).cloned()
         } else {
             log::warn!(target: "lusna", "Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
@@ -370,12 +370,12 @@ pub fn get_resp_target_cid_from_header(header: &HdpHeader) -> u64 {
 
 #[allow(unused)]
 pub enum ToolsetUpdate<'a> {
-    E2E { crypt: &'a mut PeerSessionCrypto<HyperRatchet>, local_cid: u64 },
+    E2E { crypt: &'a mut PeerSessionCrypto<StackedRatchet>, local_cid: u64 },
     FCM { fcm_crypt_container: &'a mut PeerSessionCrypto<ThinRatchet>, peer_cid: u64, local_cid: u64 },
 }
 
 impl ToolsetUpdate<'_> {
-    pub(crate) fn update(&mut self, constructor: ConstructorType<HyperRatchet, ThinRatchet>, local_is_alice: bool) -> Result<KemTransferStatus, ()> {
+    pub(crate) fn update(&mut self, constructor: ConstructorType<StackedRatchet, ThinRatchet>, local_is_alice: bool) -> Result<KemTransferStatus, ()> {
         match self {
             ToolsetUpdate::E2E { crypt, local_cid } => {
                 let constructor = constructor.assume_default().ok_or(())?;
@@ -415,7 +415,7 @@ impl ToolsetUpdate<'_> {
     }
 
     /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
-    pub(crate) fn unlock(&mut self, requires_locked_by_alice: bool) -> Option<(RatchetType<HyperRatchet, ThinRatchet>, Option<bool>)> {
+    pub(crate) fn unlock(&mut self, requires_locked_by_alice: bool) -> Option<(RatchetType<StackedRatchet, ThinRatchet>, Option<bool>)> {
         match self {
             ToolsetUpdate::E2E { crypt, .. } => {
                 let lock_src = crypt.lock_set_by_alice.clone();
@@ -436,7 +436,7 @@ impl ToolsetUpdate<'_> {
         }
     }
 
-    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<HyperRatchet, ThinRatchet>> {
+    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<StackedRatchet, ThinRatchet>> {
         match self {
             ToolsetUpdate::E2E { crypt, .. } => {
                 crypt.get_hyper_ratchet(None).map(|r| RatchetType::Default(r.clone()))
@@ -458,7 +458,7 @@ pub(crate) fn attempt_kem_as_alice_finish(base_session_secrecy_mode: SecrecyMode
                                           target_cid: u64,
                                           transfer: KemTransferStatus,
                                           state_container: &mut StateContainerInner,
-                                          constructor: Option<ConstructorType<HyperRatchet, ThinRatchet>>) -> Result<Option<RatchetType<HyperRatchet, ThinRatchet>>, ()> {
+                                          constructor: Option<ConstructorType<StackedRatchet, ThinRatchet>>) -> Result<Option<RatchetType<StackedRatchet, ThinRatchet>>, ()> {
 
     let (mut toolset_update_method, secrecy_mode) = if target_cid != C2S_ENCRYPTION_ONLY {
         let endpoint_container = state_container.active_virtual_connections.get_mut(&peer_cid).ok_or(())?.endpoint_container.as_mut().ok_or(())?;
@@ -541,7 +541,7 @@ pub(crate) fn attempt_kem_as_alice_finish(base_session_secrecy_mode: SecrecyMode
 }
 
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
-pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, state_container: &mut StateContainerInner, hr: &HyperRatchet) -> Option<KemTransferStatus> {
+pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, state_container: &mut StateContainerInner, hr: &StackedRatchet) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
         let update = if resp_target_cid != C2S_ENCRYPTION_ONLY {
             let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
@@ -557,7 +557,7 @@ pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&
     }
 }
 
-pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transfer: AliceToBobTransferType<'_>, hr: &HyperRatchet) -> Option<KemTransferStatus> {
+pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transfer: AliceToBobTransferType<'_>, hr: &StackedRatchet) -> Option<KemTransferStatus> {
     let cid = update_method.get_local_cid();
     let new_version = transfer.get_declared_new_version();
     //let (crypto_params, session_security_level) = transfer.get_security_opts();
@@ -567,7 +567,7 @@ pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transf
         let constructor = EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
         Some(update_method.update(ConstructorType::Fcm(constructor), false).ok()?)
     } else {
-        let constructor = EndpointRatchetConstructor::<HyperRatchet>::new_bob(cid, new_version, opts, transfer)?;
+        let constructor = EndpointRatchetConstructor::<StackedRatchet>::new_bob(cid, new_version, opts, transfer)?;
         Some(update_method.update(ConstructorType::Default(constructor), false).ok()?)
     }
 }

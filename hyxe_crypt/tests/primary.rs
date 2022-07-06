@@ -5,7 +5,7 @@ mod tests {
     use hyxe_crypt::toolset::{Toolset, MAX_HYPER_RATCHETS_IN_MEMORY, UpdateStatus};
     use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use bytes::{BufMut, BytesMut};
-    use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
+    use hyxe_crypt::stacked_ratchet::{StackedRatchet, Ratchet};
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
@@ -84,7 +84,7 @@ mod tests {
     /*
     #[test]
     fn onion_packets() {
-        onion_packet::<HyperRatchet>();
+        onion_packet::<StackedRatchet>();
         #[cfg(feature = "fcm")]
             onion_packet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
     }
@@ -178,8 +178,8 @@ mod tests {
         lusna_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
-                let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
-                let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
+                let _ = hyper_ratchet::<StackedRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+                let _ = hyper_ratchet::<StackedRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
             }
         }
     }
@@ -199,7 +199,7 @@ mod tests {
     fn security_levels() {
         lusna_logging::setup_log();
         for sec in 0..SecurityLevel::DIVINE.value() {
-            let ratchet = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+            let ratchet = hyper_ratchet::<StackedRatchet, _>(KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
             for x in 0..sec {
                 assert!(ratchet.verify_level(Some(x.into())).is_ok())
             }
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn toolsets() {
-        toolset::<HyperRatchet>();
+        toolset::<StackedRatchet>();
         #[cfg(feature = "fcm")]
         toolset::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn toolset_wrapping_vers_all() {
-        toolset_wrapping_vers::<HyperRatchet>();
+        toolset_wrapping_vers::<StackedRatchet>();
         #[cfg(feature = "fcm")]
             toolset_wrapping_vers::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn scrambler_transmission_all() {
-        scrambler_transmission::<HyperRatchet>();
+        scrambler_transmission::<StackedRatchet>();
         #[cfg(feature = "fcm")]
             scrambler_transmission::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn simulate_packet_loss_all() {
-        simulate_packet_loss::<HyperRatchet>();
+        simulate_packet_loss::<StackedRatchet>();
         #[cfg(feature = "fcm")]
             simulate_packet_loss::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
@@ -492,17 +492,17 @@ mod tests {
         use std::time::Instant;
         use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
 
-        use hyxe_crypt::hyper_ratchet::HyperRatchet;
-        use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
+        use hyxe_crypt::stacked_ratchet::StackedRatchet;
+        use hyxe_crypt::stacked_ratchet::constructor::{StackedRatchetConstructor, BobToAliceTransferType};
         use hyxe_crypt::prelude::algorithm_dictionary::{CryptoParameters, KemAlgorithm, EncryptionAlgorithm};
         use hyxe_crypt::prelude::{ConstructorOpts, PacketVector, Drill};
         use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
         lusna_logging::setup_log();
-        fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
+        fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (StackedRatchet, StackedRatchet) {
             let opts = algo.into();
-            let mut alice_base = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(opts), 1), 0, 0, None).unwrap();
-            let bob_base = HyperRatchetConstructor::new_bob(0, drill_vers, ConstructorOpts::new_vec_init(Some(opts), 1), alice_base.stage0_alice()).unwrap();
+            let mut alice_base = StackedRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(opts), 1), 0, 0, None).unwrap();
+            let bob_base = StackedRatchetConstructor::new_bob(0, drill_vers, ConstructorOpts::new_vec_init(Some(opts), 1), alice_base.stage0_alice()).unwrap();
             alice_base.stage1_alice(&BobToAliceTransferType::Default(bob_base.stage0_bob().unwrap())).unwrap();
 
             (alice_base.finish().unwrap(), bob_base.finish().unwrap())

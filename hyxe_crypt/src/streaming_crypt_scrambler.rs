@@ -11,7 +11,7 @@ use crate::packet_vector::PacketVector;
 
 use std::task::Poll;
 use tokio_stream::{Stream,StreamExt};
-use crate::hyper_ratchet::HyperRatchet;
+use crate::stacked_ratchet::StackedRatchet;
 use tokio::task::{JoinHandle, JoinError};
 use crate::misc::CryptError;
 use futures::Future;
@@ -48,7 +48,7 @@ impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Se
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const N: usize>(source: S, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), CryptError> {
+pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const N: usize>(source: S, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: StackedRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), CryptError> {
     let file_len = source.length().map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
@@ -110,7 +110,7 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(group_send
 #[allow(dead_code)]
 struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     reader: BufReader<R>,
-    hyper_ratchet: HyperRatchet,
+    hyper_ratchet: StackedRatchet,
     security_level: SecurityLevel,
     file_len: usize,
     read_cursor: usize,

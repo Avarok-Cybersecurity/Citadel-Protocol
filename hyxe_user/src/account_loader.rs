@@ -3,7 +3,7 @@ use crate::client_account::ClientNetworkAccountInner;
 use crate::prelude::ClientNetworkAccount;
 use std::collections::HashMap;
 use crate::directory_store::*;
-use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::stacked_ratchet::Ratchet;
 use crate::misc::AccountError;
 
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac incase improper shutdown)

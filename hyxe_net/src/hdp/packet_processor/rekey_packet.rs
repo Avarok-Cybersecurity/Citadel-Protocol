@@ -1,8 +1,8 @@
 use super::includes::*;
 use crate::hdp::packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
-use hyxe_crypt::hyper_ratchet::RatchetType;
+use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
+use hyxe_crypt::stacked_ratchet::RatchetType;
 use crate::hdp::hdp_node::SecrecyMode;
 use std::ops::Deref;
 use crate::error::NetworkError;

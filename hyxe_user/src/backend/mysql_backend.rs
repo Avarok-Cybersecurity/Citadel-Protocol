@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use crate::backend::{BackendConnection, BackendType};
 use crate::misc::{AccountError, MAX_USERNAME_LENGTH, CNACMetadata};
 use sqlx::{Arguments, Row, AnyPool, Executor};
-use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
+use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::ops::DerefMut;
 use sqlx::any::{AnyArguments, AnyRow, AnyQueryResult, AnyPoolOptions};
@@ -21,7 +21,7 @@ use crate::backend::utils::ObjectTransferStatus;
 use std::sync::Arc;
 
 /// A container for handling db conns
-pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     url: String,
     conn: Option<AnyPool>,
     variant: SqlVariant,

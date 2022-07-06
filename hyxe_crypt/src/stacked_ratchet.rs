@@ -1,7 +1,7 @@
 use crate::drill::{Drill, SecurityLevel, get_approx_serialized_drill_len};
 use ez_pqcrypto::PostQuantumContainer;
 use std::sync::Arc;
-use crate::hyper_ratchet::constructor::HyperRatchetConstructor;
+use crate::stacked_ratchet::constructor::StackedRatchetConstructor;
 use std::convert::TryFrom;
 use bytes::BytesMut;
 use crate::misc::CryptError;
@@ -17,8 +17,8 @@ use sha3::Digest;
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
 /// the entire file
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct HyperRatchet {
-    pub(crate) inner: Arc<HyperRatchetInner>
+pub struct StackedRatchet {
+    pub(crate) inner: Arc<StackedRatchetInner>
 }
 
 /// For allowing registration inside the toolset
@@ -47,7 +47,7 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
 }
 
 /// For returning a variable hyper ratchet from a function
-pub enum RatchetType<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     Default(R),
     Fcm(Fcm)
 }
@@ -108,8 +108,8 @@ impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
     }
 }
 
-impl Ratchet for HyperRatchet {
-    type Constructor = HyperRatchetConstructor;
+impl Ratchet for StackedRatchet {
+    type Constructor = StackedRatchetConstructor;
 
     fn get_cid(&self) -> u64 {
         self.get_cid()
@@ -182,7 +182,7 @@ pub const fn get_approx_bytes_per_hyper_ratchet() -> usize {
         (2 * get_approx_serialized_drill_len())
 }
 
-impl HyperRatchet {
+impl StackedRatchet {
     /// Determines if either the PQC's anti-replay attack containers have been engaged
     pub fn has_verified_packets(&self) -> bool {
         let max = self.inner.message.inner.len();
@@ -351,7 +351,7 @@ impl HyperRatchet {
         &self.inner.scramble.drill
     }
 
-    /// Returns the [HyperRatchet]'s version
+    /// Returns the [StackedRatchet]'s version
     pub fn version(&self) -> u32 {
         self.inner.message.inner[0].drill.version
     }
@@ -369,7 +369,7 @@ impl HyperRatchet {
 
 #[derive(Serialize, Deserialize, Debug)]
 ///
-pub struct HyperRatchetInner {
+pub struct StackedRatchetInner {
     pub(crate) message: MessageRatchet,
     pub(crate) scramble: ScrambleRatchet,
     pub(crate) default_security_level: SecurityLevel
@@ -394,18 +394,18 @@ pub(crate) struct ScrambleRatchet {
     pub(crate) pqc: PostQuantumContainer
 }
 
-impl From<HyperRatchetInner> for HyperRatchet {
-    fn from(inner: HyperRatchetInner) -> Self {
+impl From<StackedRatchetInner> for StackedRatchet {
+    fn from(inner: StackedRatchetInner) -> Self {
         Self { inner: Arc::new(inner) }
     }
 }
 
-/// For constructing the HyperRatchet during KEM stage
+/// For constructing the StackedRatchet during KEM stage
 pub mod constructor {
     use crate::drill::{Drill, SecurityLevel};
     use ez_pqcrypto::PostQuantumContainer;
     use serde::{Serialize, Deserialize};
-    use crate::hyper_ratchet::{HyperRatchet, Ratchet};
+    use crate::stacked_ratchet::{StackedRatchet, Ratchet};
     use std::convert::TryFrom;
     use bytes::BytesMut;
     use bytes::BufMut;
@@ -418,7 +418,7 @@ pub mod constructor {
 
     /// Used during the key exchange process
     #[derive(Serialize, Deserialize)]
-    pub struct HyperRatchetConstructor {
+    pub struct StackedRatchetConstructor {
         pub(super) message: MessageRatchetConstructor,
         pub(super) scramble: ScrambleRatchetConstructor,
         nonce_message: ArrayVec<u8, LARGEST_NONCE_LEN>,
@@ -431,7 +431,7 @@ pub mod constructor {
 
     /// For differentiating between two types when inputting into function parameters
     #[derive(Serialize, Deserialize)]
-    pub enum ConstructorType<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+    pub enum ConstructorType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
         Default(R::Constructor),
         Fcm(Fcm::Constructor)
     }
@@ -535,15 +535,15 @@ pub mod constructor {
         }
     }
 
-    impl EndpointRatchetConstructor<HyperRatchet> for HyperRatchetConstructor {
+    impl EndpointRatchetConstructor<StackedRatchet> for StackedRatchetConstructor {
         fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
-            HyperRatchetConstructor::new_alice(opts, cid, new_version, security_level)
+            StackedRatchetConstructor::new_alice(opts, cid, new_version, security_level)
         }
 
         fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
             match transfer {
                 AliceToBobTransferType::Default(transfer) => {
-                    HyperRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer)
+                    StackedRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer)
                 }
 
                 _ => {
@@ -569,11 +569,11 @@ pub mod constructor {
             self.update_version(version)
         }
 
-        fn finish_with_custom_cid(self, cid: u64) -> Option<HyperRatchet> {
+        fn finish_with_custom_cid(self, cid: u64) -> Option<StackedRatchet> {
             self.finish_with_custom_cid(cid)
         }
 
-        fn finish(self) -> Option<HyperRatchet> {
+        fn finish(self) -> Option<StackedRatchet> {
             self.finish()
         }
     }
@@ -679,7 +679,7 @@ pub mod constructor {
         }
     }
 
-    impl HyperRatchetConstructor {
+    impl StackedRatchetConstructor {
         /// Called during the initialization stage
         pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
             let security_level = security_level.unwrap_or(SecurityLevel::LOW);
@@ -825,9 +825,9 @@ pub mod constructor {
             }
         }
 
-        /// Upgrades the construction into the HyperRatchet
-        pub fn finish(self) -> Option<HyperRatchet> {
-            HyperRatchet::try_from(self).ok()
+        /// Upgrades the construction into the StackedRatchet
+        pub fn finish(self) -> Option<StackedRatchet> {
+            StackedRatchet::try_from(self).ok()
         }
 
         /// Updates the internal version
@@ -845,7 +845,7 @@ pub mod constructor {
         /// Sometimes, replacing the CID is useful such as during peer KEM exhcange wherein
         /// the CIDs between both parties are different. If a version is supplied, the version
         /// will be updated
-        pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<HyperRatchet> {
+        pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<StackedRatchet> {
             for container in self.message.inner.iter_mut() {
                 container.drill.as_mut()?.cid = cid;
             }
@@ -875,11 +875,11 @@ pub mod constructor {
 
 }
 
-impl TryFrom<HyperRatchetConstructor> for HyperRatchet {
+impl TryFrom<StackedRatchetConstructor> for StackedRatchet {
     type Error = ();
 
-    fn try_from(value: HyperRatchetConstructor) -> Result<Self, Self::Error> {
-        let HyperRatchetConstructor { message, scramble, .. } = value;
+    fn try_from(value: StackedRatchetConstructor) -> Result<Self, Self::Error> {
+        let StackedRatchetConstructor { message, scramble, .. } = value;
         let default_security_level = SecurityLevel::for_value(message.inner.len() - 1).ok_or(())?;
         // make sure the shared secret is loaded
         let _ = scramble.pqc.get_shared_secret().map_err(|_| ())?;
@@ -909,6 +909,6 @@ impl TryFrom<HyperRatchetConstructor> for HyperRatchet {
             pqc: scramble.pqc
         };
 
-        Ok(HyperRatchet::from(HyperRatchetInner { message, scramble, default_security_level }))
+        Ok(StackedRatchet::from(StackedRatchetInner { message, scramble, default_security_level }))
     }
 }
