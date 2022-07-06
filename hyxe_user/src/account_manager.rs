@@ -1,9 +1,9 @@
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::prelude::{UserIdentifier, ConnectionInfo};
 use crate::misc::AccountError;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use crate::backend::{BackendType, PersistenceHandler};
-use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::stacked_ratchet::Ratchet;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use hyxe_crypt::argon::argon_container::{ArgonSettings, ArgonDefaultServerSettings};
 use crate::external_services::{ServicesHandler, ServicesConfig};
@@ -14,7 +14,7 @@ use crate::backend::memory::MemoryBackend;
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
 #[derive(Clone)]
-pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
     node_argon_settings: ArgonSettings,

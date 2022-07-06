@@ -1,4 +1,4 @@
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_wire::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use hyxe_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use netbeam::sync::RelativeNodeType;
@@ -112,13 +112,14 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
             packet_flags::cmd::aux::do_preconnect::SYN_ACK => {
                 log::trace!(target: "lusna", "RECV STAGE SYN_ACK PRE_CONNECT PACKET");
                 let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "SESS Cnac not loaded");
+                let implicated_cid = header.session_cid.get();
 
                 let (stream, new_hyper_ratchet) = {
                     let mut state_container = inner_mut_state!(session.state_container);
                     if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                         // cnac should already be loaded locally
                         let alice_constructor = return_if_none!(state_container.pre_connect_state.constructor.take(), "Alice constructor not loaded");
-
+                        let implicated_cid = header.session_cid.get();
                         if let Some((new_hyper_ratchet, nat_type, _server_udp_port_opt)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
                             // The toolset, at this point, has already been updated. The CNAC can be used to
                             //let ref drill = cnac.get_drill_blocking(None)?;
@@ -138,7 +139,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
 
                             // another check. If we are already using a QUIC connection for the primary stream, we don't need to hole-punch.
                             if let Some(quic_conn) = inner_mut!(session.primary_stream_quic_conn).take() {
-                                return send_success_as_initiator(Some(get_quic_udp_interface(quic_conn, session.local_bind_addr)), &new_hyper_ratchet, session, security_level, header.session_cid.get(), &mut *state_container);
+                                return send_success_as_initiator(Some(get_quic_udp_interface(quic_conn, session.local_bind_addr)), &new_hyper_ratchet, session, security_level, implicated_cid, &mut *state_container);
                             }
 
                             let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
@@ -165,12 +166,12 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
                 match res {
                     Ok(ret) => {
                         log::trace!(target: "lusna", "Initiator finished NAT traversal ...");
-                        send_success_as_initiator(Some(get_raw_udp_interface(ret)), &new_hyper_ratchet, session, security_level, header.session_cid.get(), &mut *inner_mut_state!(session.state_container))
+                        send_success_as_initiator(Some(get_raw_udp_interface(ret)), &new_hyper_ratchet, session, security_level, implicated_cid, &mut *inner_mut_state!(session.state_container))
                     }
 
                     Err(err) => {
                         log::warn!(target: "lusna", "Hole punch attempt failed {:?}", err.to_string());
-                        send_success_as_initiator(None, &new_hyper_ratchet, session, security_level, header.session_cid.get(), &mut *inner_mut_state!(session.state_container))
+                        send_success_as_initiator(None, &new_hyper_ratchet, session, security_level, implicated_cid, &mut *inner_mut_state!(session.state_container))
                     }
                 }
             }
@@ -178,13 +179,12 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
             packet_flags::cmd::aux::do_preconnect::STAGE0 => {
                 log::trace!(target: "lusna", "RECV STAGE 0 PRE_CONNECT PACKET");
 
-                // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
-                let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
-                let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), state_container), "HR version not found");
-
-                let stream = {
-
+                let implicated_cid = header.session_cid.get();
+                let (hyper_ratchet, stream) = {
                     let mut state_container = inner_mut_state!(session.state_container);
+                    // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
+                    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), &state_container, None), "HR version not found");
+
                     if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                         if let Some(_) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
 
@@ -208,7 +208,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
                             let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
 
                             let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
-                            stream
+                            (hyper_ratchet, stream)
                         } else {
                             log::error!(target: "lusna", "Unable to validate stage 0 packet");
                             return Ok(PrimaryProcessorResult::Void)
@@ -226,7 +226,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
 
                 match res {
                     Ok(ret) => {
-                        handle_success_as_receiver(Some(get_raw_udp_interface(ret)), session, header.session_cid.get(), &mut *inner_mut_state!(session.state_container))
+                        handle_success_as_receiver(Some(get_raw_udp_interface(ret)), session, implicated_cid, &mut *inner_mut_state!(session.state_container))
                     }
 
                     Err(err) => {
@@ -255,7 +255,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
                 let hr =  return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [preconnect0]");
                 let ref cnac = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
                 let tcp_only = header.algorithm == payload_identifiers::do_preconnect::TCP_ONLY;
-                let (header, packet) = packet.decompose();
+                let (header, packet, ..) = packet.decompose();
                 if let Some((header, _, hyper_ratchet)) = validation::aead::validate(hr, &header, packet) {
                     state_container.pre_connect_state.success = true;
                     if !success {
@@ -300,7 +300,6 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
                 log::trace!(target: "lusna", "RECV STAGE BEGIN_CONNECT PRE CONNECT PACKET");
                 let mut state_container = inner_mut_state!(session.state_container);
                 let hr = return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [preconnect1]");
-                let ref cnac = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
 
                 if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SUCCESS {
                     let (header, payload, _, _) = packet.decompose();
@@ -337,7 +336,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, he
     to_concurrent_processor!(task)
 }
 
-fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+fn begin_connect_process(session: &HdpSession, hyper_ratchet: &StackedRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     // at this point, the session keys have already been re-established. We just need to begin the login stage
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
@@ -356,7 +355,7 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator(udp_splittable: Option<UdpSplittableTypes>, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, implicated_cid: u64, state_container: &mut StateContainerInner) -> Result<PrimaryProcessorResult, NetworkError> {
+fn send_success_as_initiator(udp_splittable: Option<UdpSplittableTypes>, hyper_ratchet: &StackedRatchet, session: &HdpSession, security_level: SecurityLevel, implicated_cid: u64, state_container: &mut StateContainerInner) -> Result<PrimaryProcessorResult, NetworkError> {
     let _ = handle_success_as_receiver(udp_splittable, session, implicated_cid, state_container)?;
 
     let success_packet = hdp_packet_crafter::pre_connect::craft_stage_final(hyper_ratchet, true, false, session.time_tracker.get_global_time_ns(),  security_level);
@@ -378,7 +377,7 @@ fn handle_success_as_receiver(udp_splittable: Option<UdpSplittableTypes>, sessio
     Ok(PrimaryProcessorResult::Void)
 }
 
-pub(crate) fn generate_hole_punch_crypt_container(hyper_ratchet: HyperRatchet, security_level: SecurityLevel, target_cid: u64) -> EncryptedConfigContainer {
+pub(crate) fn generate_hole_punch_crypt_container(hyper_ratchet: StackedRatchet, security_level: SecurityLevel, target_cid: u64) -> EncryptedConfigContainer {
     let hyper_ratchet_cloned = hyper_ratchet.clone();
     EncryptedConfigContainer::new(move |plaintext| {
         hdp_packet_crafter::hole_punch::generate_packet(&hyper_ratchet, plaintext, security_level, target_cid)

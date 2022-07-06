@@ -2,10 +2,10 @@
 mod tests {
 
     use hyxe_user::account_manager::AccountManager;
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::stacked_ratchet::StackedRatchet;
     use std::str::FromStr;
     use hyxe_user::client_account::ClientNetworkAccount;
-    use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
+    use hyxe_crypt::stacked_ratchet::constructor::{BobToAliceTransferType, StackedRatchetConstructor};
     use hyxe_user::backend::{BackendType, PersistenceHandler};
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
     use ez_pqcrypto::algorithm_dictionary::KemAlgorithm;
@@ -748,10 +748,10 @@ mod tests {
         server_pers.delete_cnac_by_cid(client_cid).await.unwrap();
     }
 
-    fn gen(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (HyperRatchet, HyperRatchet) {
+    fn gen(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(Some(KemAlgorithm::Lightsaber + EncryptionAlgorithm::AES_GCM_256_SIV), 1);
-        let mut alice = HyperRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
-        let bob = HyperRatchetConstructor::new_bob(cid,version, opts,alice.stage0_alice()).unwrap();
+        let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
+        let bob = StackedRatchetConstructor::new_bob(cid,version, opts,alice.stage0_alice()).unwrap();
         alice.stage1_alice(&BobToAliceTransferType::Default(bob.stage0_bob().unwrap())).unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid { bob.finish_with_custom_cid(cid).unwrap() } else { bob.finish().unwrap() };
         (alice.finish().unwrap(), bob)

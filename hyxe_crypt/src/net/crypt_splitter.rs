@@ -13,7 +13,7 @@ use crate::packet_vector::{generate_packet_coordinates_inv, generate_packet_vect
 use crate::prelude::{CryptError, SecurityLevel};
 use rayon::prelude::*;
 use rayon::iter::IndexedParallelIterator;
-use crate::hyper_ratchet::{HyperRatchet, Ratchet};
+use crate::stacked_ratchet::{StackedRatchet, Ratchet};
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -695,7 +695,7 @@ impl<const N: usize> GroupSenderDevice<N> {
     }
 
     /// This node is the sender, Alice. Bob timed out for a certain wave, and now is requesting a set of packets
-    pub fn on_do_wave_retransmission_received(&self, hyper_ratchet: &HyperRatchet, wave_id: u32, payload: &[u8]) -> Option<Vec<PacketCoordinate>> {
+    pub fn on_do_wave_retransmission_received(&self, hyper_ratchet: &StackedRatchet, wave_id: u32, payload: &[u8]) -> Option<Vec<PacketCoordinate>> {
         // use the scramble ordering
         let scramble_drill = hyper_ratchet.get_scramble_drill();
 

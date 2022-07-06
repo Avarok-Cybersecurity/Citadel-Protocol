@@ -1,7 +1,7 @@
 use parking_lot::RwLock;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::collections::HashMap;
-use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::stacked_ratchet::Ratchet;
 use crate::backend::BackendConnection;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;

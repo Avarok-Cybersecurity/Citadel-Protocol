@@ -13,7 +13,7 @@ use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet
 pub async fn process_connect(sess_ref: &HdpSession, packet: HdpPacket, header_drill_vers: u32) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref.clone();
 
-    let hr = {
+    let (hr, cnac) = {
         let state_container = inner_state!(session.state_container);
         if !session.is_provisional() && state_container.connect_state.last_stage != packet_flags::cmd::aux::do_connect::SUCCESS {
             log::error!(target: "lusna", "Connect packet received, but the system is not in a provisional state. Dropping");
@@ -25,12 +25,14 @@ pub async fn process_connect(sess_ref: &HdpSession, packet: HdpPacket, header_dr
             return Ok(PrimaryProcessorResult::Void);
         }
 
-        return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [connect]")
+        let hr = return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [connect]");
+        let cnac = return_if_none!(state_container.cnac.clone(), "CNAC missing");
+        (hr, cnac)
     };
 
     let (header, payload, _, _) = packet.decompose();
 
-    let (header, payload, hyper_ratchet) = return_if_none!(validation::aead::validate(&hr, &header, payload), "Unable to validate connect packet");
+    let (header, payload, hyper_ratchet) = return_if_none!(validation::aead::validate(hr, &header, payload), "Unable to validate connect packet");
     let header = header.clone();
     let security_level = header.security_level.into();
 

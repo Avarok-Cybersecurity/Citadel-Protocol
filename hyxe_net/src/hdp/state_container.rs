@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
+use hyxe_crypt::stacked_ratchet::constructor::{StackedRatchetConstructor, ConstructorType};
 use crate::hdp::packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
@@ -35,7 +35,7 @@ use hyxe_user::backend::utils::*;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
-use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
+use hyxe_crypt::stacked_ratchet::{StackedRatchet, Ratchet};
 use hyxe_user::serialization::SyncIO;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, UdpMode};
@@ -162,7 +162,7 @@ impl FileKey {
 }
 
 /// For keeping track of connections
-pub struct VirtualConnection<R: Ratchet = HyperRatchet> {
+pub struct VirtualConnection<R: Ratchet = StackedRatchet> {
     /// For determining the type of connection
     pub connection_type: VirtualConnectionType,
     pub last_delivered_message_timestamp: Arc<Atomic<Option<Instant>>>,
@@ -175,14 +175,14 @@ pub struct VirtualConnection<R: Ratchet = HyperRatchet> {
 
 impl VirtualConnection {
     /// If No version is supplied, uses the latest committed version
-    pub fn borrow_endpoint_hyper_ratchet(&self, version: Option<u32>) -> Option<&HyperRatchet> {
+    pub fn borrow_endpoint_hyper_ratchet(&self, version: Option<u32>) -> Option<&StackedRatchet> {
         let endpoint_container = self.endpoint_container.as_ref()?;
         endpoint_container.endpoint_crypto.get_hyper_ratchet(version)
     }
 }
 
 
-pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
+pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
     pub(crate) default_security_settings: SessionSecuritySettings,
     // this is only loaded if STUN-like NAT-traversal works
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
@@ -194,7 +194,7 @@ pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     pub(crate) peer_socket_addr: SocketAddr
 }
 
-pub struct C2SChannelContainer<R: Ratchet = HyperRatchet> {
+pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
     to_channel: OrderedChannel,
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
@@ -408,7 +408,7 @@ pub(super) struct NetworkStats {
 //define_outer_struct_wrapper!(GroupSender, GroupSenderDevice<HDP_HEADER_BYTE_LEN>);
 
 pub(crate) struct OutboundTransmitterContainer {
-    ratchet_constructor: Option<HyperRatchetConstructor>,
+    ratchet_constructor: Option<StackedRatchetConstructor>,
     pub(crate) burst_transmitter: GroupTransmitter,
     // in the case of file transfers, it is desirable to wake-up the async task
     // that enqueues the next group
@@ -920,7 +920,7 @@ impl StateContainerInner {
         outbound_container.burst_transmitter.transmit_tcp_file_transfer()
     }
 
-    pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
+    pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &StackedRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
         let target_cid = header.session_cid.get();
         let group_id = header.group.get();
         let group_key = GroupKey::new(target_cid, group_id);

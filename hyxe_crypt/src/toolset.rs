@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::misc::CryptError;
 use std::ops::RangeInclusive;
-use crate::hyper_ratchet::{Ratchet, HyperRatchet};
+use crate::stacked_ratchet::{Ratchet, StackedRatchet};
 
 /// Returns the max number of drill that can be stored in memory
 #[cfg(debug_assertions)]
@@ -156,7 +156,7 @@ impl<R: Ratchet> Toolset<R> {
         }
     }
 
-    /// Returns the number of HyperRatchets internally
+    /// Returns the number of StackedRatchets internally
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -247,9 +247,9 @@ impl<R: Ratchet> Toolset<R> {
 
 /// Makes replacing/synchronizing toolsets easier
 /// input: (static_aux_ratchet, f(0))
-pub type StaticAuxRatchet = HyperRatchet;
-impl From<(StaticAuxRatchet, HyperRatchet)> for Toolset<HyperRatchet> {
-    fn from(drill: (StaticAuxRatchet, HyperRatchet)) -> Self {
+pub type StaticAuxRatchet = StackedRatchet;
+impl From<(StaticAuxRatchet, StackedRatchet)> for Toolset<StackedRatchet> {
+    fn from(drill: (StaticAuxRatchet, StackedRatchet)) -> Self {
         let most_recent_hyper_ratchet_version = drill.1.version();
         let oldest_hyper_ratchet_version = most_recent_hyper_ratchet_version; // for init, just like in the normal constructor
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);

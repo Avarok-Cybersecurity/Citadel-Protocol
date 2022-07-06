@@ -1,11 +1,11 @@
 use crate::hdp::hdp_node::Ticket;
 use crate::hdp::packet_processor::includes::Instant;
 use hyxe_wire::hypernode_type::NodeType;
-use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use tokio::sync::oneshot::{Sender, Receiver, channel};
 use crate::hdp::peer::channel::UdpChannel;
 use tokio::net::UdpSocket;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
 /// For keeping track of the pre-connect state
 pub struct PreConnectState {
@@ -13,13 +13,13 @@ pub struct PreConnectState {
     #[allow(dead_code)]
     pub(crate) adjacent_node_type: Option<NodeType>,
     // This drill should be turned .into() the next toolset once the other side updated
-    pub(crate) constructor: Option<HyperRatchetConstructor>,
+    pub(crate) constructor: Option<StackedRatchetConstructor>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
     pub(crate) success: bool,
     pub(crate) unused_local_udp_socket: Option<UdpSocket>,
-    pub(crate) generated_ratchet: Option<HyperRatchet>
+    pub(crate) generated_ratchet: Option<StackedRatchet>
 }
 
 impl PreConnectState {

@@ -28,8 +28,8 @@ pub(crate) mod group {
 
     use crate::hdp::state_container::VirtualTargetType;
     use serde::{Serialize, Deserialize};
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
+    use hyxe_crypt::stacked_ratchet::StackedRatchet;
+    use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use hyxe_user::serialization::SyncIO;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
@@ -37,7 +37,7 @@ pub(crate) mod group {
     use hyxe_crypt::prelude::SecBuffer;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
+    pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &StackedRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
         hyper_ratchet.validate_message_packet_in_place_split(Some(security_level), header, &mut payload).ok()?;
         Some(payload.freeze())
     }
@@ -98,8 +98,8 @@ pub(crate) mod do_register {
     use zerocopy::LayoutVerified;
 
     use crate::hdp::hdp_packet::HdpHeader;
-    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
+    use hyxe_crypt::stacked_ratchet::StackedRatchet;
     use bytes::BytesMut;
     use hyxe_user::serialization::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_register::{DoRegisterStage2Packet, DoRegisterStage0};
@@ -110,7 +110,7 @@ pub(crate) mod do_register {
     }
 
     /// Returns the decrypted username, password, and full name
-    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr) -> Option<(DoRegisterStage2Packet, ConnectionInfo)> {
+    pub(crate) fn validate_stage2(hyper_ratchet: &StackedRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr) -> Option<(DoRegisterStage2Packet, ConnectionInfo)> {
         let (_, plaintext_bytes) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
         let packet = DoRegisterStage2Packet::deserialize_from_vector(&plaintext_bytes[..]).ok()?;
 
@@ -120,7 +120,7 @@ pub(crate) mod do_register {
     }
 
     /// Returns the decrypted Toolset text, as well as the welcome message
-    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr) -> Option<(Vec<u8>, ConnectionInfo)> {
+    pub(crate) fn validate_success(hyper_ratchet: &StackedRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr) -> Option<(Vec<u8>, ConnectionInfo)> {
         let (_, payload) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
         let adjacent_addr = ConnectionInfo { addr: remote_addr };
         Some((payload.to_vec(), adjacent_addr))
@@ -135,7 +135,7 @@ pub(crate) mod do_register {
 
 pub(crate) mod do_drill_update {
 
-    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
+    use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use crate::hdp::hdp_packet_crafter::do_drill_update::{TruncatePacket, Stage1UpdatePacket, TruncateAckPacket};
     use hyxe_user::serialization::SyncIO;
 
@@ -161,10 +161,9 @@ pub(crate) mod pre_connect {
     use hyxe_wire::hypernode_type::NodeType;
     use hyxe_user::client_account::ClientNetworkAccount;
 
-    use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::hdp::hdp_packet::{packet_sizes, HdpPacket};
-    use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
-    use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
+    use crate::hdp::hdp_packet::HdpPacket;
+    use hyxe_crypt::stacked_ratchet::{StackedRatchet, Ratchet};
+    use hyxe_crypt::stacked_ratchet::constructor::{StackedRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
     use crate::hdp::hdp_packet_crafter::pre_connect::{SynPacket, PreConnectStage0};
     use hyxe_user::serialization::SyncIO;
     use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
@@ -175,9 +174,8 @@ pub(crate) mod pre_connect {
     use crate::hdp::peer::peer_layer::UdpMode;
     use hyxe_wire::nat_identification::NatType;
     use crate::hdp::packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
-    use crate::hdp::hdp_session::HdpSession;
 
-    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, HyperRatchet), NetworkError> {
+    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, StackedRatchet), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -206,7 +204,7 @@ pub(crate) mod pre_connect {
         let _ = static_auxiliary_ratchet.verify_level(Some(transfer.session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
         let opts = static_auxiliary_ratchet.get_next_constructor_opts().into_iter().take((transfer.session_security_settings.security_level.value() + 1) as usize).collect();
         //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
-        let bob_constructor = HyperRatchetConstructor::new_bob(header.session_cid.get(), 0, opts, transfer.transfer).ok_or(NetworkError::InternalError("Unable to create bob container"))?;
+        let bob_constructor = StackedRatchetConstructor::new_bob(header.session_cid.get(), 0, opts, transfer.transfer).ok_or(NetworkError::InternalError("Unable to create bob container"))?;
         let transfer = bob_constructor.stage0_bob().ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
         let new_hyper_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError("Unable to finish bob constructor"))?;
         let _ = new_hyper_ratchet.verify_level(transfer.security_level.into()).map_err(|err| NetworkError::Generic(err.into_string()))?;
@@ -219,7 +217,7 @@ pub(crate) mod pre_connect {
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)
     /// This returns Ok(true) if the system was already synchronized, or Ok(false) if the system needed to synchronize toolsets
-    pub fn validate_syn_ack(cnac: &ClientNetworkAccount, mut alice_constructor: HyperRatchetConstructor, packet: HdpPacket) -> Option<(HyperRatchet, NatType, Option<u16>)> {
+    pub fn validate_syn_ack(cnac: &ClientNetworkAccount, mut alice_constructor: StackedRatchetConstructor, packet: HdpPacket) -> Option<(StackedRatchet, NatType, Option<u16>)> {
         let static_auxiliary_ratchet = cnac.get_static_auxiliary_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
         let (_, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)?;
@@ -238,7 +236,7 @@ pub(crate) mod pre_connect {
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point
     // because we want to make sure the client passes the challenge
-    pub fn validate_stage0(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<NodeType> {
+    pub fn validate_stage0(hyper_ratchet: &StackedRatchet, packet: HdpPacket) -> Option<NodeType> {
         let (header, payload, _, _) = packet.decompose();
         let (_header, payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
         let packet = PreConnectStage0::deserialize_from_vector(&payload).ok()?;
@@ -282,13 +280,11 @@ pub(crate) mod aead {
     use bytes::{Bytes, BytesMut};
     use zerocopy::LayoutVerified;
 
-    use hyxe_user::client_account::ClientNetworkAccount;
-
     use crate::hdp::hdp_packet::HdpHeader;
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM or chacha-poly
-    pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(proper_hr: HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
+    pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(proper_hr: StackedRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, StackedRatchet)> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         proper_hr.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload).ok()?;
@@ -296,7 +292,7 @@ pub(crate) mod aead {
     }
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, BytesMut)> {
+    pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &StackedRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, BytesMut)> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         if let Err(err) = hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload) {
