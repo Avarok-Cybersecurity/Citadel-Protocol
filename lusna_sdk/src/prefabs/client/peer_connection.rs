@@ -43,16 +43,13 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
 }
 
 /// Allows easy aggregation of [`UserIdentifier`]'s
+#[derive(Default)]
 pub struct PeerIDAggregator {
     inner: Vec<UserIdentifier>,
 }
 
 impl PeerIDAggregator {
-    pub fn new() -> Self {
-        Self { inner: vec![] }
-    }
-
-    pub fn add<T: Into<UserIdentifier>>(mut self, peer: T) -> Self {
+    pub fn with_id<T: Into<UserIdentifier>>(mut self, peer: T) -> Self {
         self.inner.push(peer.into());
         self
     }
@@ -178,7 +175,7 @@ mod tests {
             std::env::set_var("debug_cause_timeout", "ON");
         }
 
-        let ref client_success = AtomicUsize::new(0);
+        let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -249,7 +246,7 @@ mod tests {
         let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
-        let ref client_success = AtomicUsize::new(0);
+        let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();

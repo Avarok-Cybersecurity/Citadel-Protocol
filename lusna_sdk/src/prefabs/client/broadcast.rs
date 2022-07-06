@@ -303,7 +303,7 @@ mod tests {
         let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
-        let ref client_success = AtomicUsize::new(0);
+        let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();

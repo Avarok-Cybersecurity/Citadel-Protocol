@@ -319,23 +319,19 @@ pub trait ProtocolRemoteExt: Remote {
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
-            match map_errors(status)? {
-                NodeResult::PeerEvent(
-                    PeerSignal::GetRegisteredPeers(
-                        _,
-                        Some(PeerResponse::RegisteredCids(cids, is_onlines)),
-                        _,
-                    ),
+            if let NodeResult::PeerEvent(
+                PeerSignal::GetRegisteredPeers(
                     _,
-                ) => {
-                    return Ok(cids
-                        .into_iter()
-                        .zip(is_onlines.into_iter())
-                        .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
-                        .collect())
-                }
-
-                _ => {}
+                    Some(PeerResponse::RegisteredCids(cids, is_onlines)),
+                    _,
+                ),
+                _,
+            ) = map_errors(status)? {
+                return Ok(cids
+                    .into_iter()
+                    .zip(is_onlines.into_iter())
+                    .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
+                    .collect())
             }
         }
 
@@ -359,19 +355,12 @@ pub trait ProtocolRemoteExt: Remote {
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
-            match map_errors(status)? {
-                NodeResult::PeerEvent(
-                    PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))),
-                    _,
-                ) => {
-                    return Ok(cids
-                        .into_iter()
-                        .zip(is_onlines.into_iter())
-                        .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
-                        .collect())
-                }
-
-                _ => {}
+            if let NodeResult::PeerEvent(PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))), _) = map_errors(status)? {
+                return Ok(cids
+                    .into_iter()
+                    .zip(is_onlines.into_iter())
+                    .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
+                    .collect())
             }
         }
 
@@ -537,17 +526,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .await?;
 
         while let Some(status) = stream.next().await {
-            match map_errors(status)? {
-                NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp)), _) => {
-                    match resp {
-                        PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
-                        PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
-                        PeerResponse::Timeout => return Ok(PeerRegisterStatus::Failed { reason: Some("Timeout on register request. Peer did not accept in time. Try again later".to_string()) }),
-                        _ => {}
-                    }
+            if let NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp)), _) = map_errors(status)? {
+                match resp {
+                    PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
+                    PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
+                    PeerResponse::Timeout => return Ok(PeerRegisterStatus::Failed { reason: Some("Timeout on register request. Peer did not accept in time. Try again later".to_string()) }),
+                    _ => {}
                 }
-
-                _ => {}
             }
         }
 
