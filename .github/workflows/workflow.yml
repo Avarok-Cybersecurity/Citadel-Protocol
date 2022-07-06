@@ -118,7 +118,7 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  valgrind_and_checks:
+  valgrind_and_release_check:
     name: valgrind secmem
     runs-on: ubuntu-latest
     steps:
@@ -144,6 +144,25 @@ jobs:
 #      # Run with valgrind
 #      - name: Run valgrind pq_kems
 #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
+      - uses: actions/github-script@v6
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
+  features_check:
+    name: Check features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - name: Install features checker
+        run: cargo install cargo-all-features
+      - name: Check all feature combinations
+        run: cargo check-all-features --package lusna_sdk
       - uses: actions/github-script@v6
         if: failure()
         with:
