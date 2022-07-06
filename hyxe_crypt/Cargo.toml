@@ -13,10 +13,8 @@ exclude = [
 ]
 
 [features]
-default = ["single-threaded", "filesystem"]
+default = ["filesystem"]
 filesystem = []
-single-threaded = ["ez_pqcrypto/unordered"]
-multi-threaded = ["ez_pqcrypto/unordered"]
 
 [dependencies]
 async-trait = "0.1.24"

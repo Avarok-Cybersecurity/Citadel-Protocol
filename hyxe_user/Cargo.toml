@@ -10,11 +10,9 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
 redis = ["redis-base", "mobc"]
-default = ["single-threaded", "filesystem"]
+default = ["filesystem"]
 sql = ["sqlx", "base64"]
 filesystem = ["hyxe_crypt/filesystem", "tokio-util", "tokio-stream"]
-multi-threaded = ["hyxe_crypt/multi-threaded"]
-single-threaded = ["hyxe_crypt/single-threaded"]
 
 # whenever an accountmanager is created, all accounts are purged when localhost-testing is enabled
 localhost-testing = []

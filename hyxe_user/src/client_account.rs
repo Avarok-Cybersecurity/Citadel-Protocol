@@ -8,9 +8,7 @@ use crate::prelude::ConnectionInfo;
 use std::fmt::Formatter;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use hyxe_crypt::hyper_ratchet::Ratchet;
-use hyxe_crypt::toolset::UpdateStatus;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use std::ops::RangeInclusive;
 
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
@@ -19,7 +17,7 @@ use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::external_services::rtdb::RtdbClientConfig;
 use crate::auth::DeclaredAuthenticationMode;
 use std::marker::PhantomData;
-use hyxe_crypt::prelude::{SecBuffer, Toolset, CryptError};
+use hyxe_crypt::prelude::{SecBuffer, Toolset};
 use crate::serialization::SyncIO;
 
 
@@ -111,21 +109,13 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         log::trace!(target: "lusna", "Creating CNAC w/valid cid: {:?}", valid_cid);
         // TODO: move this to validation in hyxe_net (or this may be redunant)
         check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
-        log::trace!(target: "lusna", "A - {}", valid_cid);
         let creation_date = get_present_formatted_timestamp();
-        log::trace!(target: "lusna", "B - {}", valid_cid);
         let crypt_container = PeerSessionCrypto::<R>::new(Toolset::<R>::new(valid_cid, base_hyper_ratchet), is_personal);
-        log::trace!(target: "lusna", "C - {}", valid_cid);
         let mutuals = MultiMap::new();
-        log::trace!(target: "lusna", "D - {}", valid_cid);
         let byte_map = HashMap::default();
-        log::trace!(target: "lusna", "E - {}", valid_cid);
         let client_rtdb_config = None;
-        log::trace!(target: "lusna", "F - {}", valid_cid);
         let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, crypt_container, byte_map, _pd: Default::default() };
-        log::trace!(target: "lusna", "G - {}", valid_cid);
         let this = Self::from(inner);
-        log::trace!(target: "lusna", "H - {}", valid_cid);
         Ok(this)
     }
 
@@ -192,46 +182,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         };
 
         ProposedCredentials::new_connect(full_name, username, password_raw, settings).await
-    }
-
-    /// If no version is supplied, the latest drill will be retrieved
-    pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<R> {
-        let read = self.read();
-        read.crypt_container.get_hyper_ratchet(version).cloned()
-    }
-
-    /// Whereas get_drill allows the caller to store the drill, thus controlling how long it stays in memory,
-    /// this function only gets a borrow to a drill, thus saving a clone. If the drill is not found, then
-    /// None will be passed into the supplied function.
-    ///
-    /// F should be a nonblocking function!
-    pub fn borrow_hyper_ratchet<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: FnOnce(Option<&R>) -> Y {
-        let read = self.read();
-        f(read.crypt_container.get_hyper_ratchet(version))
-    }
-
-    /// Captures by reference instead of just by value
-    pub fn borrow_hyper_ratchet_fn<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: Fn(Option<&R>) -> Y {
-        let read = self.read();
-        f(read.crypt_container.get_hyper_ratchet(version))
-    }
-
-    /// Returns the versions available in the hyper ratchet
-    pub fn get_hyper_ratchet_versions(&self) -> RangeInclusive<u32> {
-        let read = self.read();
-        read.crypt_container.toolset.get_oldest_hyper_ratchet_version()..=read.crypt_container.toolset.get_most_recent_hyper_ratchet_version()
-    }
-
-    /// Updates the internal toolset
-    pub fn register_new_hyper_ratchet(&self, new_hyper_ratchet: R) -> Result<UpdateStatus, CryptError<String>> {
-        let mut write = self.write();
-        write.crypt_container.toolset.update_from(new_hyper_ratchet).ok_or(CryptError::Decrypt("Unable to update toolset".to_string()))
-    }
-
-    /// Removes the oldest hyper ratchet version. Explicit specification required to monitor consistency in the network
-    pub fn deregister_oldest_hyper_ratchet(&self, version: u32) -> Result<(), CryptError<String>> {
-        let mut write = self.write();
-        write.crypt_container.deregister_oldest_hyper_ratchet(version)
     }
 
     /// Replaces the internal toolset. This should ONLY be called (if absolutely necessary) during the PRE_CONNECT stage
@@ -337,7 +287,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
             peers.iter().map(|peer| hyperlan_peers.iter().any(|hyperlan_peer| hyperlan_peer.cid == *peer)).collect()
         } else {
-            log::warn!(target: "lusna", "Attempted to check hyperlan list, but it non-exists");
+            log::warn!(target: "lusna", "Attempted to check hyperlan list, but it does not exists");
             peers.iter().map(|_| false).collect()
         }
     }

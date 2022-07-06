@@ -19,20 +19,6 @@ pub(crate) mod do_connect {
     }
 }
 
-pub(crate) mod keep_alive {
-    use bytes::{Bytes, BytesMut};
-    use zerocopy::LayoutVerified;
-
-    use hyxe_user::prelude::ClientNetworkAccount;
-
-    use crate::hdp::hdp_packet::HdpHeader;
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
-
-    pub(crate) fn validate_keep_alive<'a, 'b: 'a>(cnac: &ClientNetworkAccount, header: &'b Bytes, payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
-        super::aead::validate(cnac,header, payload)
-    }
-}
-
 pub(crate) mod group {
     use std::ops::RangeInclusive;
 
@@ -189,6 +175,7 @@ pub(crate) mod pre_connect {
     use crate::hdp::peer::peer_layer::UdpMode;
     use hyxe_wire::nat_identification::NatType;
     use crate::hdp::packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
+    use crate::hdp::hdp_session::HdpSession;
 
     pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, HyperRatchet), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
@@ -257,27 +244,6 @@ pub(crate) mod pre_connect {
         let packet = PreConnectStage0::deserialize_from_vector(&payload).ok()?;
         Some(packet.node_type)
     }
-
-    /// if the payload contains ports, it is expected that those ports are reflective of the ports reserved from the UPnP process.
-    /// This returns the drill, the upnp ports, and TCP_ONLY mode
-    pub fn validate_final(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<HyperRatchet> {
-        let (header, payload, _, _) = packet.decompose();
-        let (_, _payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
-
-        Some(hyper_ratchet)
-    }
-
-    pub fn validate_begin_connect(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<HyperRatchet> {
-        let (header, payload, _, _) = packet.decompose();
-        let (_,payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
-
-        if payload.len() != packet_sizes::do_preconnect::STAGE_SUCCESS_ACK - HDP_HEADER_BYTE_LEN {
-            log::error!(target: "lusna", "Bad payload len");
-            return None;
-        }
-
-        Some(hyper_ratchet)
-    }
 }
 
 pub(crate) mod file {
@@ -322,12 +288,11 @@ pub(crate) mod aead {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM or chacha-poly
-    pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(cnac: &ClientNetworkAccount, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
+    pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(proper_hr: HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        let hyper_ratchet = cnac.get_hyper_ratchet(Some(header.drill_version.get()))?;
-        hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload).ok()?;
-        Some((header, payload.freeze(), hyper_ratchet))
+        proper_hr.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload).ok()?;
+        Some((header, payload.freeze(), proper_hr))
     }
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM

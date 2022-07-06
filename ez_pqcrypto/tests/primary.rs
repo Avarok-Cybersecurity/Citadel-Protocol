@@ -96,59 +96,6 @@ mod tests {
     }
 
     #[test]
-    // this will work in ordered mode, but panic in unordered
-    #[cfg(not(feature = "unordered"))]
-    fn in_place_out_of_order() {
-        const HEADER_LEN: usize = 50;
-        const TOTAL_LEN: usize = HEADER_LEN + 150;
-
-        let kem_algorithm = KemAlgorithm::Firesaber;
-        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
-        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
-
-        for y in 0..1 {
-            log::trace!(target: "lusna", "At {}", y);
-            let mut buf = BytesMut::with_capacity(TOTAL_LEN);
-            for x in 0..TOTAL_LEN {
-                buf.put_u8(x as u8);
-            }
-
-            let mut buf2 = buf.clone();
-
-            log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
-            let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
-            alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
-            alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
-
-            // pretend someone grabs the header + ciphertext
-            let mut intercepted_packet = buf.clone();
-
-            // to simulate out-of order delivery, protect a new packet in place and validate that one
-            log::trace!(target: "lusna", "[ {} ] {:?}", buf2.len(), &buf2[..]);
-            let header2 = buf2.split_to(HEADER_LEN);
-            assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_err());
-            // now do them in order
-
-            let mut header = buf.split_to(HEADER_LEN);
-            bob_container.validate_packet_in_place(&header, &mut buf, &nonce).unwrap();
-            // since we are using in-place decryption, the first attempt will corrupt the payload, thus invalidating the packet's
-            // decryption operation, even though it may correct. As such, this proves it is NECESSARY that packets
-            // arrive IN-ORDER!!
-            assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_err());
-            // now, let's see what happens when we try validating the intercepted packet (replay attack)
-            let intercepted_header = intercepted_packet.split_to(HEADER_LEN);
-            assert!(bob_container.validate_packet_in_place(&intercepted_header, &mut intercepted_packet, &nonce).is_err());
-            // Therefore: packets MUST be in order, and repeat attempts will invalidate the decryption attempt, as desired
-            header.unsplit(buf);
-            let buf = header;
-
-            log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
-        }
-    }
-
-    #[test]
-    // this will work in ordered mode, but panic in unordered
-    #[cfg(feature = "unordered")]
     fn in_place_out_of_order_for_unordered_mode() {
         setup_log();
         const HEADER_LEN: usize = 50;
@@ -206,7 +153,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "unordered")]
     fn unordered_mode() {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;

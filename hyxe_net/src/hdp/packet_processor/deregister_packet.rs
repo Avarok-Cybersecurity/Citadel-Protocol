@@ -2,10 +2,11 @@ use super::includes::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
+use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub async fn process_deregister(session_ref: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_deregister(session_ref: &HdpSession, packet: HdpPacket, header_drill_vers: u32) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
 
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
@@ -15,13 +16,16 @@ pub async fn process_deregister(session_ref: &HdpSession, packet: HdpPacket) -> 
 
     let task = async move {
         let ref session = session;
+        let hr = {
+            let state_container = inner_state!(session.state_container);
+            return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, None), "Could not get proper HR [deregister]")
+        };
 
         let timestamp = session.time_tracker.get_global_time_ns();
-        let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
-        let implicated_cid = cnac.get_cid();
         let (header, payload, _, _) = packet.decompose();
-        let (header, _payload, hyper_ratchet) = return_if_none!(validation::aead::validate(cnac, &header, payload), "Unable to validate dereg packet");
+        let (header, _payload, hyper_ratchet) = return_if_none!(validation::aead::validate(hr, &header, payload), "Unable to validate dereg packet");
         let ref header = header;
+        let implicated_cid = header.session_cid.get();
         let security_level = header.security_level.into();
 
         match header.cmd_aux {

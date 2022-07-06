@@ -37,6 +37,7 @@ use crate::auth::AuthenticationRequest;
 use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
 use hyxe_wire::exports::tokio_rustls::rustls;
+use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -599,16 +600,12 @@ impl HdpSessionManager {
         if let Some(sess) = this.sessions.get(&target_cid) {
             let ref sess = sess.1;
             if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
-                if let Some(cnac) = inner_state!(sess.state_container).cnac.as_ref() {
-                    return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-                        if let Some(hyper_ratchet) = hyper_ratchet_opt {
-                            let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
-                            to_primary_stream.unbounded_send(packet).is_ok()
-                        } else {
-                            false
-                        }
-                    });
-                }
+                let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
+                accessor.borrow_hr(None, |hr, _| {
+                    let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
+                    to_primary_stream.unbounded_send(packet)
+                        .map_err(|err| NetworkError::msg(err.to_string()))?
+                }).is_ok()
             }
         }
 
@@ -635,23 +632,12 @@ impl HdpSessionManager {
             let ref sess = peer_sess.1;
             let to_primary = sess.to_primary_stream.as_ref().unwrap();
 
-            let mut state_container = inner_mut_state!(sess.state_container);
-            let peer_cnac = state_container.cnac.clone().ok_or_else(||String::from("Peer CNAC does not exist"))?;
-
             if state_container.active_virtual_connections.remove(&implicated_cid).is_some() {
-                let packet_opt = peer_cnac.borrow_hyper_ratchet(None, |peer_latest_hyper_ratchet_opt| {
-                    if let Some(peer_latest_hyper_ratchet) = peer_latest_hyper_ratchet_opt {
-                        Some(on_internal_disconnect(peer_latest_hyper_ratchet))
-                    } else {
-                        None
-                    }
-                });
-
-                if let Some(packet) = packet_opt {
-                    to_primary.unbounded_send(packet).map_err(|err| err.to_string())
-                } else {
-                    Err("Unable to obtain peer drill".to_string())
-                }
+                let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
+                accessor.borrow_hr(None, |hr, _| {
+                    let packet = on_internal_disconnect(peer_latest_hyper_ratchet);
+                    to_primary.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))?
+                }).map_err(|err| err.into_string())
             } else {
                 Ok(())
             }
@@ -664,17 +650,12 @@ impl HdpSessionManager {
         let lock = inner!(self);
         let (_, sess_ref) = lock.sessions.get(&target_cid).ok_or_else(|| format!("Target cid {} does not exist (route err)", target_cid))?;
         let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-        let ref peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC not loaded"))?;
-
-        peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-            if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
-                log::trace!(target: "lusna", "Routing packet through primary stream -> {}", target_cid);
-                let packet = packet(peer_latest_hyper_ratchet);
-                peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
-            } else {
-                Err(format!("Unable to acquire peer drill for {}", target_cid))
-            }
-        })
+        let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
+        accessor.borrow_hr(None, |hr, _| {
+            log::trace!(target: "lusna", "Routing packet through primary stream -> {}", target_cid);
+            let packet = packet(hr);
+            peer_sender.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))?
+        }).map_err(|err| err.into_string())
     }
 
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
@@ -804,16 +785,12 @@ impl HdpSessionManager {
 
                 let ref sess_ref = target_sess.1;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                let peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC does not exist"))?;
+                let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
 
-                peer_cnac.borrow_hyper_ratchet(None, |peer_latest_hyper_ratchet_opt| {
-                    if let Some(peer_latest_hyper_ratchet) = peer_latest_hyper_ratchet_opt {
-                        let packet = packet(peer_latest_hyper_ratchet);
-                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
-                    } else {
-                        Err(format!("Unable to acquire peer drill for {}", target_cid))
-                    }
-                })?;
+                accessor.borrow_hr(None, |hr, _| {
+                    let packet = packet(peer_latest_hyper_ratchet);
+                    peer_sender.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))?
+                }).map_err(|err| err.into_string())?;
 
                 Ok((post_send)(&sess_ref, tracked_posting))
             } else {
@@ -840,15 +817,11 @@ impl HdpSessionManagerInner {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let ref peer_sess = peer_sess.1;
             let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
-            let peer_cnac = inner_state!(peer_sess.state_container).cnac.clone().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
+            let accessor = EndpointCryptoAccessor::C2S(peer_sess.state_container.clone());
 
-            peer_cnac.borrow_hyper_ratchet(None, |latest_peer_hr_opt| {
-                if let Some(peer_latest_hr) = latest_peer_hr_opt {
-                    let packet = packet(peer_latest_hr);
-                    peer_sender.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
-                } else {
-                    Err(NetworkError::InternalError("Peer drill absent"))
-                }
+            accessor.borrow_hr(None, |hr, _| {
+                let packet = packet(peer_hr);
+                peer_sender.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))?
             })
         } else {
             Err(NetworkError::Generic(format!("unable to find peer sess {}", target_cid)))

@@ -63,10 +63,7 @@ impl Debug for StateContainer {
     }
 }
 
-#[derive(Clone)]
-pub struct StateContainer {
-    pub(crate) inner: Arc<parking_lot::RwLock<StateContainerInner>>
-}
+define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
 /// For keeping track of the stages
 pub struct StateContainerInner {
@@ -465,7 +462,7 @@ impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<NodeResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
         let inner = Self { outgoing_peer_connect_attempts: Default::default(), file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() };
-        StateContainer { inner: Arc::new(parking_lot::RwLock::new(inner)) }
+        inner.into()
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
@@ -681,6 +678,10 @@ impl StateContainerInner {
 
     pub fn get_peer_session_crypto(&self, peer_cid: u64) -> Option<&PeerSessionCrypto> {
         Some(&self.active_virtual_connections.get(&peer_cid)?.endpoint_container.as_ref()?.endpoint_crypto)
+    }
+
+    pub fn get_c2s_crypto(&self) -> Option<&PeerSessionCrypto> {
+        Some(&self.c2s_channel_container.as_ref()?.peer_session_crypto)
     }
 
     /// When a keep alive is received, this function gets called. Prior to getting called,
@@ -1380,32 +1381,30 @@ impl StateContainerInner {
             return Ok(())
         }
 
-        let cnac = self.cnac.as_ref().unwrap();
+        let hyper_ratchet = self.get_c2s_crypto().ok_or_else(|| NetworkError::InternalError("C2s not loaded"))?
+            .get_hyper_ratchet(None).unwrap();
         let security_level = self.session_security_settings.map(|r| r.security_level).clone().unwrap();
         let to_primary_stream = self.get_primary_stream().unwrap();
 
-        cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-            let hyper_ratchet = hyper_ratchet_opt.ok_or(NetworkError::InternalError("Hyper ratchet missing"))?;
-            let timestamp = self.time_tracker.get_global_time_ns();
-            let packet = match command {
-                GroupBroadcast::Create(..) |
-                GroupBroadcast::End(_) |
-                GroupBroadcast::Kick(..) |
-                GroupBroadcast::Message(..) |
-                GroupBroadcast::Add(..) |
-                GroupBroadcast::AcceptMembership(_) |
-                GroupBroadcast::RequestJoin(..) |
-                GroupBroadcast::LeaveRoom(_) => {
-                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
-                }
+        let timestamp = self.time_tracker.get_global_time_ns();
+        let packet = match command {
+            GroupBroadcast::Create(..) |
+            GroupBroadcast::End(_) |
+            GroupBroadcast::Kick(..) |
+            GroupBroadcast::Message(..) |
+            GroupBroadcast::Add(..) |
+            GroupBroadcast::AcceptMembership(_) |
+            GroupBroadcast::RequestJoin(..) |
+            GroupBroadcast::LeaveRoom(_) => {
+                hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
+            }
 
-                n => {
-                    return Err(NetworkError::Generic(format!("{:?} is not a valid group broadcast request", &n)));
-                }
-            };
+            n => {
+                return Err(NetworkError::Generic(format!("{:?} is not a valid group broadcast request", &n)));
+            }
+        };
 
-            to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
-        })
+        to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     pub(crate) fn setup_group_channel_endpoints(&mut self, key: MessageGroupKey, ticket: Ticket, session: &HdpSession) -> Result<GroupChannel, NetworkError> {
@@ -1418,7 +1417,11 @@ impl StateContainerInner {
 
         let _ = self.group_channels.insert(key, tx);
 
-        Ok(GroupChannel::new(session.state_container.clone(), key, ticket, implicated_cid, rx))
+        let (to_session_tx, to_session_rx) = crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
+
+        HdpSession::spawn_message_sender_function(session.clone(), to_session_rx);
+
+        Ok(GroupChannel::new(to_session_tx, key, ticket, implicated_cid, rx))
     }
 
     fn get_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
