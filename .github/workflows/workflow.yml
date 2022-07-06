@@ -141,6 +141,7 @@ jobs:
       - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis
       - run: cargo fmt --check
+      - run: cargo install --locked cargo-deny && cargo deny check all
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
@@ -176,11 +177,11 @@ jobs:
             return 'stop'
           result-encoding: string
   cargo_deny_and_coverage:
+    name: codecov
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo install --locked cargo-deny && cargo deny check all
       - uses: shogo82148/actions-setup-mysql@v1
         with:
           mysql-version: '8.0'
