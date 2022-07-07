@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha05
       - uses: shogo82148/actions-setup-mysql@v1
         with:
           mysql-version: '8.0'
