@@ -119,7 +119,7 @@ jobs:
             return 'stop'
           result-encoding: string
   misc_checks:
-    name: Miscellaneous checks
+    name: miscellaneous checks
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
