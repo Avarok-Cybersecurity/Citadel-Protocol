@@ -19,7 +19,7 @@ rustflags = [
   "-C",
   "target-cpu=sandybridge",
   "-C",
-  "target-feature=+aes,+sse2,+sse4.1,+ssse3,avx,avx2"
+  "target-feature=+aes,+sse2,+sse4.1,+ssse3,+avx,+avx2"
 ]
 
 [target.x86_64-pc-windows-gnu]
@@ -27,7 +27,7 @@ rustflags = [
   "-C",
   "target-cpu=sandybridge",
   "-C",
-  "target-feature=+aes,+sse2,+sse4.1,+ssse3,avx,avx2"
+  "target-feature=+aes,+sse2,+sse4.1,+ssse3,+avx,+avx2"
 ]
 
 [target.x86_64-unknown-linux-gnu]
@@ -35,7 +35,7 @@ rustflags = [
   "-C",
   "target-cpu=sandybridge",
   "-C",
-  "target-feature=+aes,+sse2,+sse4.1,+ssse3,avx,avx2"
+  "target-feature=+aes,+sse2,+sse4.1,+ssse3,+avx,+avx2"
 ]
 
 [target.x86_64-unknown-linux-musl]
@@ -43,7 +43,7 @@ rustflags = [
   "-C",
   "target-cpu=sandybridge",
   "-C",
-  "target-feature=+aes,+sse2,+sse4.1,+ssse3,avx,avx2"
+  "target-feature=+aes,+sse2,+sse4.1,+ssse3,+avx,+avx2"
 ]
 
 [target.aarch64-apple-darwin]
@@ -57,5 +57,5 @@ rustflags = [
 #ar = "x86_64-apple-darwin14-ar" // " "
 rustflags = [
   "-C",
-  "target-feature=+aes,+sse2,+sse4.1,+ssse3,avx,avx2"
+  "target-feature=+aes,+sse2,+sse4.1,+ssse3,+avx,+avx2"
 ]
