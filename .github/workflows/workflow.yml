@@ -188,17 +188,8 @@ jobs:
         with:
           mysql-version: '8.0'
           root-password: 'password'
-      - name: Setup Postgres database (1)
-        uses: Daniel-Marynicz/postgresql-action@master
-        with:
-          postgres_image_tag: latest
-          app_user: nologik
-          app_user_password: password
-          app_db: hyxewave hyxewave2
       - name: Add mysql databases
         run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
-      - name: Augment connection size for psql
-        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
       - name: Add sqlite databases
         run: touch /Users/runner/hyxewave.db && touch /Users/runner/hyxewave2.db
       - name: Start Redis
@@ -208,8 +199,9 @@ jobs:
           redis-port: 6379
       - name: Run llvm-cov nextest
         env:
-          SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --lcov --output-path lcov.info --ignore-filename-regex mysql_backend,redis_backend
+          TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,sqlite://file:/Users/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+          TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,sqlite://file:/Users/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
+        run: cargo llvm-cov nextest --features=filesystem,redis,sql,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --lcov --output-path lcov.info
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
