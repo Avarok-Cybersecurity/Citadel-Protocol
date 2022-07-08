@@ -1,38 +1,51 @@
-use std::pin::Pin;
-use futures::Future;
-use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
-use std::task::{Context, Poll};
 use crate::nat_identification::NatType;
-use std::time::Duration;
+use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
-use netbeam::sync::subscription::Subscribable;
-use netbeam::sync::network_endpoint::NetworkEndpoint;
-use tokio::net::UdpSocket;
-use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
+use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::subscription::Subscribable;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 pub struct UdpHolePuncher<'a> {
-    driver: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>
+    driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(5000);
 
 impl<'a> UdpHolePuncher<'a> {
-    pub fn new(conn: &'a NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Self {
+    pub fn new(
+        conn: &'a NetworkEndpoint,
+        encrypted_config_container: EncryptedConfigContainer,
+    ) -> Self {
         Self::new_timeout(conn, encrypted_config_container, DEFAULT_TIMEOUT)
     }
 
-    pub fn new_timeout(conn: &'a NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
-        Self { driver: Box::pin(async move {
-            // for debugging purposes
-            if std::env::var("debug_cause_timeout").unwrap_or_default() != "ON" {
-                tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
-            } else {
-                log::warn!(target: "lusna", "DEBUG_CAUSE_TIMEOUT enabled");
-                tokio::time::timeout(Duration::from_millis(1), driver(conn, encrypted_config_container)).await?
-            }
-        })}
+    pub fn new_timeout(
+        conn: &'a NetworkEndpoint,
+        encrypted_config_container: EncryptedConfigContainer,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            driver: Box::pin(async move {
+                // for debugging purposes
+                if std::env::var("debug_cause_timeout").unwrap_or_default() != "ON" {
+                    tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
+                } else {
+                    log::warn!(target: "lusna", "DEBUG_CAUSE_TIMEOUT enabled");
+                    tokio::time::timeout(
+                        Duration::from_millis(1),
+                        driver(conn, encrypted_config_container),
+                    )
+                    .await?
+                }
+            }),
+        }
     }
 }
 
@@ -44,11 +57,19 @@ impl Future for UdpHolePuncher<'_> {
     }
 }
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
-async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+#[cfg_attr(
+    feature = "localhost-testing",
+    tracing::instrument(target = "lusna", skip_all, ret, err(Debug))
+)]
+async fn driver(
+    conn: &NetworkEndpoint,
+    encrypted_config_container: EncryptedConfigContainer,
+) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // create stream
     let stream = &(conn.initiate_subscription().await?);
-    let local_nat_type = &(NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?);
+    let local_nat_type = &(NatType::identify()
+        .await
+        .map_err(|err| anyhow::Error::msg(err.to_string()))?);
 
     stream.send_serialized(local_nat_type).await?;
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
@@ -63,9 +84,20 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
 
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
-    let hole_punch_config = HolePunchConfig::new(local_nat_type, peer_nat_type, local_initial_socket, peer_internal_bind_port)?;
+    let hole_punch_config = HolePunchConfig::new(
+        local_nat_type,
+        peer_nat_type,
+        local_initial_socket,
+        peer_internal_bind_port,
+    )?;
     log::trace!(target: "lusna", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
-    let res = DualStackUdpHolePuncher::new(conn.node_type(), encrypted_config_container, hole_punch_config, conn)?.await;
+    let res = DualStackUdpHolePuncher::new(
+        conn.node_type(),
+        encrypted_config_container,
+        hole_punch_config,
+        conn,
+    )?
+    .await;
     res
 }
 
@@ -76,7 +108,10 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
 /// Suppose A binds to ipv6 addr, and B binds to ipv4 addr, then B cannot send packets to
 /// A. Only A can send to B via ipv4-mapped-v6 addrs. In order for B to send packets back to A,
 /// B will need the ipv4 address of A.
-pub fn get_optimal_bind_socket(local_nat_info: &NatType, peer_nat_info: &NatType) -> Result<UdpSocket, anyhow::Error> {
+pub fn get_optimal_bind_socket(
+    local_nat_info: &NatType,
+    peer_nat_info: &NatType,
+) -> Result<UdpSocket, anyhow::Error> {
     let mut local_has_an_external_ipv6_addr = false;
     let mut peer_has_an_external_ipv6_addr = false;
 
@@ -97,7 +132,11 @@ pub fn get_optimal_bind_socket(local_nat_info: &NatType, peer_nat_info: &NatType
 
     // only bind to ipv6 if v6 is enabled locally, and, there both nodes have an external ipv6 addr,
     // AND, the peer allows ipv6, then go with ipv6
-    if local_allows_ipv6 && local_has_an_external_ipv6_addr && peer_has_an_external_ipv6_addr && peer_allows_ipv6 {
+    if local_allows_ipv6
+        && local_has_an_external_ipv6_addr
+        && peer_has_an_external_ipv6_addr
+        && peer_allows_ipv6
+    {
         // bind to IN_ADDR6_ANY. Allows both conns from loopback and public internet
         crate::socket_helpers::get_udp_socket("[::]:0")
     } else {
@@ -107,11 +146,17 @@ pub fn get_optimal_bind_socket(local_nat_info: &NatType, peer_nat_info: &NatType
 }
 
 pub trait EndpointHolePunchExt {
-    fn begin_udp_hole_punch(&self, encrypted_config_container: EncryptedConfigContainer) -> UdpHolePuncher;
+    fn begin_udp_hole_punch(
+        &self,
+        encrypted_config_container: EncryptedConfigContainer,
+    ) -> UdpHolePuncher;
 }
 
 impl EndpointHolePunchExt for NetworkEndpoint {
-    fn begin_udp_hole_punch(&self, encrypted_config_container: EncryptedConfigContainer) -> UdpHolePuncher {
+    fn begin_udp_hole_punch(
+        &self,
+        encrypted_config_container: EncryptedConfigContainer,
+    ) -> UdpHolePuncher {
         UdpHolePuncher::new(self, encrypted_config_container)
     }
 }
@@ -153,14 +198,20 @@ mod tests {
         let dummy_bytes = b"Hello, world!";
 
         log::trace!(target: "lusna", "A");
-        res0.socket.send_to(dummy_bytes as &[u8], res0.addr.send_address).await.unwrap();
+        res0.socket
+            .send_to(dummy_bytes as &[u8], res0.addr.send_address)
+            .await
+            .unwrap();
         log::trace!(target: "lusna", "B");
         let buf = &mut [0u8; 4096];
         let (len, _addr) = res1.socket.recv_from(buf).await.unwrap();
         //assert_eq!(res1.addr.receive_address, addr);
         log::trace!(target: "lusna", "C");
         assert_ne!(len, 0);
-        res1.socket.send_to(dummy_bytes, res1.addr.send_address).await.unwrap();
+        res1.socket
+            .send_to(dummy_bytes, res1.addr.send_address)
+            .await
+            .unwrap();
         let (len, _addr) = res0.socket.recv_from(buf).await.unwrap();
         assert_ne!(len, 0);
         //assert_eq!(res0.addr.receive_address, addr);

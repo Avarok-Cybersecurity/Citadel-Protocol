@@ -1,7 +1,7 @@
-use tokio::net::{UdpSocket, TcpStream, TcpListener};
-use std::net::{SocketAddr, IpAddr, SocketAddrV6};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
-use socket2::{Domain, Type, Protocol, Socket, SockAddr};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 /// Given an ip bind addr, finds an open socket at that ip addr
 pub fn get_unused_udp_socket_at_bind_ip(bind_addr: IpAddr) -> std::io::Result<UdpSocket> {
@@ -11,7 +11,11 @@ pub fn get_unused_udp_socket_at_bind_ip(bind_addr: IpAddr) -> std::io::Result<Ud
 }
 
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
-    Ok(socket2::Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?)
+    Ok(socket2::Socket::new(
+        domain,
+        Type::DGRAM,
+        Some(Protocol::UDP),
+    )?)
 }
 
 fn get_tcp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
@@ -23,9 +27,9 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
         socket.set_reuse_address(true)?;
 
         #[cfg(all(unix, not(any(target_os = "solaris", target_os = "illumos"))))]
-            {
-                socket.set_reuse_port(true)?;
-            }
+        {
+            socket.set_reuse_port(true)?;
+        }
     }
 
     socket.set_nonblocking(true)?;
@@ -44,52 +48,93 @@ fn setup_bind(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(), anyh
     Ok(())
 }
 
-
-async fn setup_connect(connect_addr: SocketAddr, socket: Socket, timeout: Duration, reuse: bool) -> Result<TcpStream, anyhow::Error> {
+async fn setup_connect(
+    connect_addr: SocketAddr,
+    socket: Socket,
+    timeout: Duration,
+    reuse: bool,
+) -> Result<TcpStream, anyhow::Error> {
     setup_base_socket(connect_addr, &socket, reuse)?;
     let socket = tokio::net::TcpSocket::from_std_stream(socket.into());
     Ok(tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
 }
 
-fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(addr: T, reuse: bool) -> Result<UdpSocket, anyhow::Error> {
-    let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("Bad socket addr"))?;
+fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
+    addr: T,
+    reuse: bool,
+) -> Result<UdpSocket, anyhow::Error> {
+    let addr: SocketAddr = addr
+        .to_socket_addrs()?
+        .next()
+        .ok_or(anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "lusna", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
-    let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
     let socket = get_udp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
 
     Ok(tokio::net::UdpSocket::from_std(socket.into())?)
 }
 
-fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(addr: T, reuse: bool) -> Result<TcpListener, anyhow::Error> {
-    let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("Bad socket addr"))?;
+fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
+    addr: T,
+    reuse: bool,
+) -> Result<TcpListener, anyhow::Error> {
+    let addr: SocketAddr = addr
+        .to_socket_addrs()?
+        .next()
+        .ok_or(anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "lusna", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
-    let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
     let socket = get_tcp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
 
     Ok(tokio::net::TcpSocket::from_std_stream(socket.into()).listen(1024)?)
 }
 
-async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(addr: T, timeout: Duration, reuse: bool) -> Result<TcpStream, anyhow::Error> {
-    let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("Bad socket addr"))?;
+async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
+    addr: T,
+    timeout: Duration,
+    reuse: bool,
+) -> Result<TcpStream, anyhow::Error> {
+    let addr: SocketAddr = addr
+        .to_socket_addrs()?
+        .next()
+        .ok_or(anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "lusna", "[Socket helper] Getting TCP connect (reuse={}) socket @ {:?} ...", reuse, &addr);
     //return Ok(tokio::net::TcpStream::connect(addr).await?)
-    let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
     let socket = get_tcp_socket_builder(domain)?;
     setup_connect(addr, socket, timeout, true).await
 }
 
-
-pub fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
+pub fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(
+    addr: T,
+) -> Result<UdpSocket, anyhow::Error> {
     get_udp_socket_inner(addr, true)
 }
 
-pub fn get_reuse_tcp_listener<T: std::net::ToSocketAddrs>(addr: T) -> Result<TcpListener, anyhow::Error> {
+pub fn get_reuse_tcp_listener<T: std::net::ToSocketAddrs>(
+    addr: T,
+) -> Result<TcpListener, anyhow::Error> {
     get_tcp_listener_inner(addr, true)
 }
 
-pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(addr: T, timeout: Duration) -> Result<TcpStream, anyhow::Error> {
+pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
+    addr: T,
+    timeout: Duration,
+) -> Result<TcpStream, anyhow::Error> {
     get_tcp_stream_inner(addr, timeout, true).await
 }
 
@@ -102,15 +147,20 @@ pub fn get_tcp_listener<T: std::net::ToSocketAddrs>(addr: T) -> Result<TcpListen
     get_tcp_listener_inner(addr, false)
 }
 
-pub async fn get_tcp_stream<T: std::net::ToSocketAddrs>(addr: T, timeout: Duration) -> Result<TcpStream, anyhow::Error> {
+pub async fn get_tcp_stream<T: std::net::ToSocketAddrs>(
+    addr: T,
+    timeout: Duration,
+) -> Result<TcpStream, anyhow::Error> {
     get_tcp_stream_inner(addr, timeout, false).await
 }
 
 #[allow(dead_code)]
 async fn asyncify<F, O>(fx: F) -> Result<O, anyhow::Error>
-    where F: FnOnce() -> O,
-            F: Send + 'static,
-            O: Send + 'static {
+where
+    F: FnOnce() -> O,
+    F: Send + 'static,
+    O: Send + 'static,
+{
     Ok(tokio::task::spawn_blocking(fx).await?)
 }
 
@@ -134,11 +184,13 @@ pub fn ensure_ipv6(x: SocketAddr) -> SocketAddrV6 {
 
 #[cfg(test)]
 mod tests {
-    use crate::socket_helpers::{get_tcp_listener, get_tcp_stream, get_udp_socket, is_ipv6_enabled};
-    use std::time::Duration;
-    use tokio::io::{AsyncWriteExt, AsyncReadExt};
+    use crate::socket_helpers::{
+        get_tcp_listener, get_tcp_stream, get_udp_socket, is_ipv6_enabled,
+    };
     use rstest::*;
     use std::net::SocketAddr;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const TIMEOUT: Duration = Duration::from_millis(2000);
 
@@ -151,7 +203,7 @@ mod tests {
         lusna_logging::setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
             log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
-            return Ok(())
+            return Ok(());
         }
         let server = get_tcp_listener(addr).unwrap();
         let addr = server.local_addr().unwrap();
@@ -183,7 +235,7 @@ mod tests {
         lusna_logging::setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
             log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
-            return Ok(())
+            return Ok(());
         }
         let server = get_udp_socket(addr).unwrap();
         let addr = server.local_addr().unwrap();
@@ -198,7 +250,11 @@ mod tests {
             Ok(()) as Result<(), anyhow::Error>
         });
 
-        let client_bind_addr = if addr.is_ipv6() { "[::1]:0" } else { "127.0.0.1:0" };
+        let client_bind_addr = if addr.is_ipv6() {
+            "[::1]:0"
+        } else {
+            "127.0.0.1:0"
+        };
 
         let client = tokio::spawn(async move {
             let client = get_udp_socket(client_bind_addr)?;

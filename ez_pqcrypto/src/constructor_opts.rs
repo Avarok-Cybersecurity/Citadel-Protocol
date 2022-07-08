@@ -1,26 +1,40 @@
 use crate::prelude::algorithm_dictionary::CryptoParameters;
-use serde::{Serialize, Deserialize};
-
+use serde::{Deserialize, Serialize};
 
 /// WARNING! `previous_shared_secret` should never leave a node; it should only be extracted from the previous PQC when bob is constructing his PQC
 #[derive(Clone, Default)]
 pub struct ConstructorOpts {
     pub cryptography: Option<CryptoParameters>,
-    pub chain: Option<RecursiveChain>
+    pub chain: Option<RecursiveChain>,
 }
 
 impl ConstructorOpts {
     pub fn new_init(cryptography: Option<impl Into<CryptoParameters>>) -> Self {
-        Self { cryptography: cryptography.map(|r| r.into()), chain: None }
+        Self {
+            cryptography: cryptography.map(|r| r.into()),
+            chain: None,
+        }
     }
 
-    pub fn new_vec_init(cryptography: Option<impl Into<CryptoParameters>>, count: usize) -> Vec<Self> {
+    pub fn new_vec_init(
+        cryptography: Option<impl Into<CryptoParameters>>,
+        count: usize,
+    ) -> Vec<Self> {
         let settings = cryptography.map(|r| r.into()).unwrap_or_default();
-        (0..count).into_iter().map(|_| Self::new_init(Some(settings))).collect()
+        (0..count)
+            .into_iter()
+            .map(|_| Self::new_init(Some(settings)))
+            .collect()
     }
 
-    pub fn new_from_previous(cryptography: Option<impl Into<CryptoParameters>>, previous_shared_secret: RecursiveChain) -> Self {
-        Self { cryptography: cryptography.map(|r| r.into()), chain: Some(previous_shared_secret) }
+    pub fn new_from_previous(
+        cryptography: Option<impl Into<CryptoParameters>>,
+        previous_shared_secret: RecursiveChain,
+    ) -> Self {
+        Self {
+            cryptography: cryptography.map(|r| r.into()),
+            chain: Some(previous_shared_secret),
+        }
     }
 }
 
@@ -29,11 +43,16 @@ pub struct RecursiveChain {
     pub chain: [u8; 32],
     pub alice: [u8; 32],
     pub bob: [u8; 32],
-    pub(crate) first: bool
+    pub(crate) first: bool,
 }
 
 impl RecursiveChain {
-    pub fn new<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(chain: T, alice: R, bob: V, first: bool) -> Option<Self> {
+    pub fn new<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
+        chain: T,
+        alice: R,
+        bob: V,
+        first: bool,
+    ) -> Option<Self> {
         let chain = chain.as_ref();
         let alice = alice.as_ref();
         let bob = bob.as_ref();
@@ -57,7 +76,12 @@ impl RecursiveChain {
                 bob_ret[idx] = *val;
             }
 
-            Some(Self { chain: chain_ret, alice: alice_ret, bob: bob_ret, first })
+            Some(Self {
+                chain: chain_ret,
+                alice: alice_ret,
+                bob: bob_ret,
+                first,
+            })
         }
     }
 }

@@ -1,37 +1,40 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
-    use uuid::Uuid;
-    use lusna_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use lusna_sdk::prelude::*;
-    use hyxe_net::prelude::{NetworkError, SecureProtocolPacket, SecBuffer, SessionSecuritySettingsBuilder, UdpMode, SecrecyMode, KemAlgorithm, EncryptionAlgorithm};
-    use rstest::rstest;
-    use tokio::sync::Barrier;
-    use std::sync::Arc;
-    use serde::{Serialize, Deserialize};
-    use rand::prelude::ThreadRng;
-    use rand::Rng;
+    use futures::prelude::stream::FuturesUnordered;
     use futures::{StreamExt, TryStreamExt};
     use hyxe_net::prelude::SyncIO;
-    use std::net::SocketAddr;
-    use lusna_sdk::prefabs::ClientServerRemote;
-    use std::str::FromStr;
-    use lusna_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
-    use std::future::Future;
-    use std::time::Duration;
-    use lusna_sdk::prefabs::client::PrefabFunctions;
+    use hyxe_net::prelude::{
+        EncryptionAlgorithm, KemAlgorithm, NetworkError, SecBuffer, SecrecyMode,
+        SecureProtocolPacket, SessionSecuritySettingsBuilder, UdpMode,
+    };
+    use lusna_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use lusna_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
-    use futures::prelude::stream::FuturesUnordered;
-    use lusna_sdk::prefabs::client::broadcast::{GroupInitRequestType, BroadcastKernel};
-    use std::collections::HashMap;
+    use lusna_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use lusna_sdk::prefabs::client::PrefabFunctions;
+    use lusna_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
+    use lusna_sdk::prefabs::ClientServerRemote;
+    use lusna_sdk::prelude::*;
     use lusna_sdk::test_common::server_info;
+    use rand::prelude::ThreadRng;
+    use rand::Rng;
+    use rstest::rstest;
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
+    use std::future::Future;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Barrier;
+    use uuid::Uuid;
 
     const MESSAGE_LEN: usize = 2000;
 
     #[derive(Serialize, Deserialize)]
     pub struct MessageTransfer {
         pub idx: u64,
-        pub rand: Vec<u8>
+        pub rand: Vec<u8>,
     }
 
     impl MessageTransfer {
@@ -45,7 +48,7 @@ mod tests {
             rand.into()
         }
 
-        fn create_rand(idx: u64)-> Vec<u8> {
+        fn create_rand(idx: u64) -> Vec<u8> {
             let mut rng = ThreadRng::default();
             let mut rand = vec![0u8; MESSAGE_LEN];
             rng.fill(rand.as_mut_slice());
@@ -57,17 +60,27 @@ mod tests {
         }
     }
 
-    pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(on_channel_received: F) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
-        where
-            F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
-            Fut: Future<Output=Result<(), NetworkError>> + Send + Sync {
+    pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
+        on_channel_received: F,
+    ) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
+    where
+        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
+    {
         let port = lusna_sdk::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        let server = lusna_sdk::test_common::server_test_node(bind_addr, Box::new(ClientConnectListenerKernel::new(on_channel_received)) as Box<dyn NetKernel>);
+        let server = lusna_sdk::test_common::server_test_node(
+            bind_addr,
+            Box::new(ClientConnectListenerKernel::new(on_channel_received)) as Box<dyn NetKernel>,
+        );
         (server, bind_addr)
     }
 
-    async fn handle_send_receive_e2e(barrier: Arc<Barrier>, channel: PeerChannel, count: usize) -> Result<(), NetworkError> {
+    async fn handle_send_receive_e2e(
+        barrier: Arc<Barrier>,
+        channel: PeerChannel,
+        count: usize,
+    ) -> Result<(), NetworkError> {
         let (tx, rx) = channel.split();
 
         for idx in 0..count {
@@ -91,12 +104,18 @@ mod tests {
         Ok(())
     }
 
-    async fn handle_send_receive_group(barrier: Arc<Barrier>, channel: GroupChannel, count: usize, total_peers: usize) -> Result<(), NetworkError> {
+    async fn handle_send_receive_group(
+        barrier: Arc<Barrier>,
+        channel: GroupChannel,
+        count: usize,
+        total_peers: usize,
+    ) -> Result<(), NetworkError> {
         let _ = barrier.wait().await;
         let (tx, mut rx) = channel.split();
 
         for idx in 0..count {
-            tx.send_message(MessageTransfer::create_secbuffer(idx as u64)).await?;
+            tx.send_message(MessageTransfer::create_secbuffer(idx as u64))
+                .await?;
         }
 
         let mut counter = HashMap::new();
@@ -111,14 +130,13 @@ mod tests {
                     //assert_eq!(msg.idx, *cur_idx as u64);
                     assert_eq!(msg.rand.len(), MESSAGE_LEN);
                     *cur_idx += 1;
-                    if counter.values().all(|r| *r == count)  && counter.len() == total_peers - 1 {
+                    if counter.values().all(|r| *r == count) && counter.len() == total_peers - 1 {
                         break;
                     }
                 }
 
                 GroupBroadcastPayload::Event { payload } => {
                     if let GroupBroadcast::MessageResponse(..) = &payload {
-
                     } else {
                         panic!("Received invalid message type: {:?}", payload);
                     }
@@ -138,21 +156,28 @@ mod tests {
     }
 
     fn get_barrier() -> Arc<Barrier> {
-        lusna_sdk::test_common::TEST_BARRIER.lock().clone().unwrap().inner
+        lusna_sdk::test_common::TEST_BARRIER
+            .lock()
+            .clone()
+            .unwrap()
+            .inner
     }
 
     #[rstest]
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor="multi_thread")]
-    async fn stress_test_c2s_messaging(#[case] message_count: usize,
-                                       #[case] secrecy_mode: SecrecyMode,
-                                       #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768_90s)]
-                                       kem: KemAlgorithm,
-                                       #[values(EncryptionAlgorithm::AES_GCM_256_SIV, EncryptionAlgorithm::Xchacha20Poly_1305)]
-                                       enx: EncryptionAlgorithm) {
-
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stress_test_c2s_messaging(
+        #[case] message_count: usize,
+        #[case] secrecy_mode: SecrecyMode,
+        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768_90s)] kem: KemAlgorithm,
+        #[values(
+            EncryptionAlgorithm::AES_GCM_256_SIV,
+            EncryptionAlgorithm::Xchacha20Poly_1305
+        )]
+        enx: EncryptionAlgorithm,
+    ) {
         let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -174,22 +199,29 @@ mod tests {
             .with_crypto_params(kem + enx)
             .build();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, UdpMode::Enabled,session_security,move |connection, remote| async move {
-            log::trace!(target: "lusna", "*** CLIENT RECV CHANNEL ***");
-            handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
-            log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
-            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-            remote.shutdown_kernel().await
-        });
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+            uuid,
+            server_addr,
+            UdpMode::Enabled,
+            session_security,
+            move |connection, remote| async move {
+                log::trace!(target: "lusna", "*** CLIENT RECV CHANNEL ***");
+                handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
+                log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+        );
 
         let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = tokio::spawn(server);
 
         let joined = futures::future::try_join(server, client);
 
-        let (res0, res1) = tokio::time::timeout(Duration::from_secs(120),joined).await.unwrap().unwrap();
-        let _ = res0.unwrap();
-        let _ = res1.unwrap();
+        let (_res0, _res1) = joined
+            .await
+            .unwrap();
+
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
     }
@@ -198,18 +230,21 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor="multi_thread")]
-    async fn stress_test_p2p_messaging(#[case] message_count: usize,
-                                       #[case] secrecy_mode: SecrecyMode,
-                                       #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768_90s)]
-                                       kem: KemAlgorithm,
-                                       #[values(EncryptionAlgorithm::AES_GCM_256_SIV, EncryptionAlgorithm::Xchacha20Poly_1305)]
-                                       enx: EncryptionAlgorithm) {
-
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stress_test_p2p_messaging(
+        #[case] message_count: usize,
+        #[case] secrecy_mode: SecrecyMode,
+        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768_90s)] kem: KemAlgorithm,
+        #[values(
+            EncryptionAlgorithm::AES_GCM_256_SIV,
+            EncryptionAlgorithm::Xchacha20Poly_1305
+        )]
+        enx: EncryptionAlgorithm,
+    ) {
         let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
-        let ref client0_success = AtomicBool::new(false);
-        let ref client1_success = AtomicBool::new(false);
+        let client0_success = &AtomicBool::new(false);
+        let client1_success = &AtomicBool::new(false);
 
         let (server, server_addr) = server_info();
 
@@ -222,19 +257,43 @@ mod tests {
 
         // TODO: SinglePeerConnectionKernel
         // to not hold up all conns
-        let client_kernel0 = PeerConnectionKernel::new_passwordless(uuid0, server_addr, vec![uuid1.into()],UdpMode::Enabled,session_security,move |mut connection, remote| async move {
-            handle_send_receive_e2e(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
-            log::trace!(target: "lusna", "***CLIENT0 TEST SUCCESS***");
-            client0_success.store(true, Ordering::Relaxed);
-            remote.shutdown_kernel().await
-        });
+        let client_kernel0 = PeerConnectionKernel::new_passwordless(
+            uuid0,
+            server_addr,
+            vec![uuid1.into()],
+            UdpMode::Enabled,
+            session_security,
+            move |mut connection, remote| async move {
+                handle_send_receive_e2e(
+                    get_barrier(),
+                    connection.recv().await.unwrap()?.channel,
+                    message_count,
+                )
+                .await?;
+                log::trace!(target: "lusna", "***CLIENT0 TEST SUCCESS***");
+                client0_success.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+        );
 
-        let client_kernel1 = PeerConnectionKernel::new_passwordless(uuid1, server_addr, vec![uuid0.into()], UdpMode::Enabled,session_security,move |mut connection, remote| async move {
-            handle_send_receive_e2e(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
-            log::trace!(target: "lusna", "***CLIENT1 TEST SUCCESS***");
-            client1_success.store(true, Ordering::Relaxed);
-            remote.shutdown_kernel().await
-        });
+        let client_kernel1 = PeerConnectionKernel::new_passwordless(
+            uuid1,
+            server_addr,
+            vec![uuid0.into()],
+            UdpMode::Enabled,
+            session_security,
+            move |mut connection, remote| async move {
+                handle_send_receive_e2e(
+                    get_barrier(),
+                    connection.recv().await.unwrap()?.channel,
+                    message_count,
+                )
+                .await?;
+                log::trace!(target: "lusna", "***CLIENT1 TEST SUCCESS***");
+                client1_success.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+        );
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
@@ -247,7 +306,9 @@ mod tests {
             }
         };
 
-        let _ = tokio::time::timeout(Duration::from_secs(120),task).await.unwrap().unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(120), task)
+            .await
+            .unwrap();
 
         assert!(client0_success.load(Ordering::Relaxed));
         assert!(client1_success.load(Ordering::Relaxed));
@@ -256,7 +317,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor="multi_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(peer_count);
@@ -266,7 +327,10 @@ mod tests {
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
-        let total_peers = (0..peer_count).into_iter().map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
+        let total_peers = (0..peer_count)
+            .into_iter()
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
         let group_id = Uuid::new_v4();
 
         for idx in 0..peer_count {
@@ -275,42 +339,49 @@ mod tests {
 
             let request = if idx == 0 {
                 // invite list is empty since we will expect the users to post_register to us before attempting to join
-                GroupInitRequestType::Create { local_user: UserIdentifier::from(uuid), invite_list: vec![], group_id, accept_registrations: true }
+                GroupInitRequestType::Create {
+                    local_user: UserIdentifier::from(uuid),
+                    invite_list: vec![],
+                    group_id,
+                    accept_registrations: true,
+                }
             } else {
                 GroupInitRequestType::Join {
                     local_user: UserIdentifier::from(uuid),
                     owner,
                     group_id,
-                    do_peer_register: true
+                    do_peer_register: true,
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
-                log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
-                // wait for every group member to connect to ensure all receive all messages
-                handle_send_receive_group(get_barrier(), channel, message_count, peer_count).await?;
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
-                remote.shutdown_kernel().await
-            });
+            let client_kernel = BroadcastKernel::new_passwordless_defaults(
+                uuid,
+                server_addr,
+                request,
+                move |channel, remote| async move {
+                    log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                    // wait for every group member to connect to ensure all receive all messages
+                    handle_send_receive_group(get_barrier(), channel, message_count, peer_count)
+                        .await?;
+                    let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                    remote.shutdown_kernel().await
+                },
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
-            let task = async move {
-                client.await.map(|_| ())
-            };
+            let task = async move { client.await.map(|_| ()) };
 
             client_kernels.push(task);
         }
 
-        let clients = Box::pin(async move {
-            client_kernels.try_collect::<()>().await.map(|_| ())
-        });
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
 
         let res = futures::future::try_select(server, clients).await;
         if let Err(err) = &res {
             match err {
                 futures::future::Either::Left(left) => {
                     log::warn!(target: "lusna", "ERR-left: {:?}", &left.0);
-                },
+                }
 
                 futures::future::Either::Right(right) => {
                     log::warn!(target: "lusna", "ERR-right: {:?}", &right.0);

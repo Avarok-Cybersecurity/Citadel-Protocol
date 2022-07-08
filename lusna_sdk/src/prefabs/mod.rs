@@ -1,9 +1,9 @@
 use hyxe_net::prelude::*;
 
-/// Kernels for servers
-pub mod server;
 /// Kernels for clients
 pub mod client;
+/// Kernels for servers
+pub mod server;
 use crate::prelude::user_ids::TargetLockedRemote;
 
 /// A limited version of the [`NodeRemote`] designed to only allow shutdown calls to the protocol
@@ -11,7 +11,7 @@ use crate::prelude::user_ids::TargetLockedRemote;
 #[derive(Clone)]
 pub struct ClientServerRemote {
     pub(crate) inner: NodeRemote,
-    conn_type: VirtualTargetType
+    conn_type: VirtualTargetType,
 }
 
 impl TargetLockedRemote for ClientServerRemote {

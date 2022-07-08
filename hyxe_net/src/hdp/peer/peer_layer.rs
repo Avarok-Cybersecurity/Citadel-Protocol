@@ -1,27 +1,29 @@
-use std::collections::HashMap;
-use hyxe_user::backend::utils::VirtualObjectMetadata;
-use crate::hdp::hdp_node::Ticket;
-use tokio::time::error::Error;
-use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use crate::error::NetworkError;
-use std::pin::Pin;
-use futures::task::{Context, Poll};
-use tokio::time::Duration;
-use futures::Stream;
-use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
-use std::fmt::{Display, Formatter};
-use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer, MessageGroupOptions, GroupType};
-use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
-use serde::{Serialize, Deserialize};
-use hyxe_user::serialization::SyncIO;
-use crate::macros::SyncContextRequirements;
-use itertools::Itertools;
-use futures::task::AtomicWaker;
+use crate::hdp::hdp_node::Ticket;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::peer::message_group::{
+    GroupType, MessageGroup, MessageGroupKey, MessageGroupOptions, MessageGroupPeer,
+};
+use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use crate::hdp::state_container::VirtualConnectionType;
+use crate::macros::SyncContextRequirements;
+use futures::task::AtomicWaker;
+use futures::task::{Context, Poll};
+use futures::Stream;
+use hyxe_user::backend::utils::VirtualObjectMetadata;
 use hyxe_user::backend::PersistenceHandler;
-use uuid::Uuid;
+use hyxe_user::serialization::SyncIO;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+use std::pin::Pin;
 use std::sync::Arc;
+use tokio::time::error::Error;
+use tokio::time::Duration;
+use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
+use uuid::Uuid;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -33,13 +35,13 @@ pub struct HyperNodePeerLayerInner {
     pub(crate) persistence_handler: PersistenceHandler,
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
     waker: Arc<AtomicWaker>,
-    inner: Arc<parking_lot::RwLock<SharedInner>>
+    inner: Arc<parking_lot::RwLock<SharedInner>>,
 }
 
 #[derive(Default)]
 struct SharedInner {
     observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
-    delay_queue: DelayQueue<(u64, Ticket)>
+    delay_queue: DelayQueue<(u64, Ticket)>,
 }
 
 // message group byte map key layout:
@@ -50,12 +52,12 @@ const MAILBOX: &'static str = "mailbox";
 #[derive(Clone)]
 pub struct HyperNodePeerLayer {
     pub(crate) inner: std::sync::Arc<tokio::sync::RwLock<HyperNodePeerLayerInner>>,
-    waker: std::sync::Arc<AtomicWaker>
+    waker: std::sync::Arc<AtomicWaker>,
 }
 
 pub struct HyperNodePeerLayerExecutor {
     inner: Arc<parking_lot::RwLock<SharedInner>>,
-    waker: Arc<AtomicWaker>
+    waker: Arc<AtomicWaker>,
 }
 
 /// We don't use an "on_success" here because it would be structurally redundant. On success, the target node should
@@ -63,20 +65,32 @@ pub struct HyperNodePeerLayerExecutor {
 pub struct TrackedPosting {
     pub(crate) signal: PeerSignal,
     pub(crate) key: delay_queue::Key,
-    pub(crate) on_timeout: Box<dyn PeerLayerTimeoutFunction>
+    pub(crate) on_timeout: Box<dyn PeerLayerTimeoutFunction>,
 }
 
 impl TrackedPosting {
-    pub fn new(signal: PeerSignal, key: delay_queue::Key, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) -> Self {
-        Self { signal, key, on_timeout: Box::new(on_timeout) }
+    pub fn new(
+        signal: PeerSignal,
+        key: delay_queue::Key,
+        on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements,
+    ) -> Self {
+        Self {
+            signal,
+            key,
+            on_timeout: Box::new(on_timeout),
+        }
     }
 }
-
 
 impl HyperNodePeerLayer {
     pub fn new(persistence_handler: PersistenceHandler) -> HyperNodePeerLayer {
         let waker = std::sync::Arc::new(AtomicWaker::new());
-        let inner = HyperNodePeerLayerInner { waker: waker.clone(), inner: Arc::new(parking_lot::RwLock::new(Default::default())), persistence_handler, message_groups: HashMap::new() };
+        let inner = HyperNodePeerLayerInner {
+            waker: waker.clone(),
+            inner: Arc::new(parking_lot::RwLock::new(Default::default())),
+            persistence_handler,
+            message_groups: HashMap::new(),
+        };
         let inner = std::sync::Arc::new(tokio::sync::RwLock::new(inner));
 
         Self { inner, waker }
@@ -85,7 +99,7 @@ impl HyperNodePeerLayer {
     pub async fn create_executor(&self) -> HyperNodePeerLayerExecutor {
         HyperNodePeerLayerExecutor {
             waker: self.waker.clone(),
-            inner: self.inner.read().await.inner.clone()
+            inner: self.inner.read().await.inner.clone(),
         }
     }
 
@@ -115,7 +129,13 @@ impl HyperNodePeerLayer {
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
         if items.len() != 0 {
             log::trace!(target: "lusna", "Returning enqueued mailbox items for {}", cid);
-            Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.into_string()))?)))
+            Ok(Some(MailboxTransfer::from(
+                items
+                    .into_values()
+                    .map(PeerSignal::deserialize_from_owned_vector)
+                    .try_collect::<PeerSignal, Vec<PeerSignal>, _>()
+                    .map_err(|err| NetworkError::Generic(err.into_string()))?,
+            )))
         } else {
             Ok(None)
         }
@@ -131,30 +151,51 @@ impl HyperNodePeerLayer {
             this.persistence_handler.clone()
         };
 
-        let _ = pers.remove_byte_map_values_by_key(implicated_cid, 0, MAILBOX).await?;
+        let _ = pers
+            .remove_byte_map_values_by_key(implicated_cid, 0, MAILBOX)
+            .await?;
         Ok(())
     }
 
     /// Creates a new [MessageGroup]. Returns the key upon completion
     #[allow(unused_results)]
-    pub async fn create_new_message_group(&self, implicated_cid: u64, initial_peers: &Vec<u64>, options: MessageGroupOptions) -> Option<MessageGroupKey> {
+    pub async fn create_new_message_group(
+        &self,
+        implicated_cid: u64,
+        initial_peers: &Vec<u64>,
+        options: MessageGroupOptions,
+    ) -> Option<MessageGroupKey> {
         let mut this = self.inner.write().await;
         let map = this.message_groups.get_mut(&implicated_cid)?;
         let mgid = options.id;
         if map.len() <= u8::MAX as usize {
             if !map.contains_key(&mgid) {
-                let mut message_group = MessageGroup { concurrent_peers: HashMap::new(), pending_peers: HashMap::with_capacity(initial_peers.len()), options };
+                let mut message_group = MessageGroup {
+                    concurrent_peers: HashMap::new(),
+                    pending_peers: HashMap::with_capacity(initial_peers.len()),
+                    options,
+                };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
                 for peer_cid in initial_peers {
                     let peer_cid = *peer_cid;
-                    message_group.pending_peers.insert(peer_cid, MessageGroupPeer { peer_cid });
+                    message_group
+                        .pending_peers
+                        .insert(peer_cid, MessageGroupPeer { peer_cid });
                 }
 
                 // add the implicated_cid to the concurrent peers
-                message_group.concurrent_peers.insert(implicated_cid, MessageGroupPeer { peer_cid: implicated_cid });
+                message_group.concurrent_peers.insert(
+                    implicated_cid,
+                    MessageGroupPeer {
+                        peer_cid: implicated_cid,
+                    },
+                );
 
                 map.insert(mgid, message_group);
-                Some(MessageGroupKey {cid: implicated_cid, mgid})
+                Some(MessageGroupKey {
+                    cid: implicated_cid,
+                    mgid,
+                })
             } else {
                 None
             }
@@ -194,7 +235,7 @@ impl HyperNodePeerLayer {
             if let Some(entry) = map.get_mut(&key.mgid) {
                 if let Some(peer) = entry.pending_peers.remove(&peer_cid) {
                     entry.concurrent_peers.insert(peer_cid, peer);
-                    return true
+                    return true;
                 }
             }
         }
@@ -217,7 +258,11 @@ impl HyperNodePeerLayer {
         let this = self.inner.read().await;
         let map = this.message_groups.get(&key.cid)?;
         let message_group = map.get(&key.mgid)?;
-        let peers = message_group.concurrent_peers.keys().cloned().collect::<Vec<u64>>();
+        let peers = message_group
+            .concurrent_peers
+            .keys()
+            .cloned()
+            .collect::<Vec<u64>>();
         if peers.is_empty() {
             None
         } else {
@@ -226,28 +271,41 @@ impl HyperNodePeerLayer {
     }
 
     /// Removes the provided peers from the group. Returns a set of peers that were removed successfully, as well as the remaining peers
-    pub async fn remove_peers_from_message_group(&self, key: MessageGroupKey, mut peers: Vec<u64>) -> Result<(Vec<u64>, Vec<u64>), ()> {
+    pub async fn remove_peers_from_message_group(
+        &self,
+        key: MessageGroupKey,
+        mut peers: Vec<u64>,
+    ) -> Result<(Vec<u64>, Vec<u64>), ()> {
         let mut this = self.inner.write().await;
         let map = this.message_groups.get_mut(&key.cid).ok_or(())?;
         let message_group = map.get_mut(&key.mgid).ok_or(())?;
         //let mut peers_removed = Vec::new();
         // Keep all the peers that were not removed. I.e., if the remove operation returns None
         // then that peer wasn't removed and hence should stay in the vec
-        peers.retain(|peer| {
-            message_group.concurrent_peers.remove(peer).is_some()
-        });
+        peers.retain(|peer| message_group.concurrent_peers.remove(peer).is_some());
 
-        let peers_remaining = message_group.concurrent_peers.keys().cloned().collect::<Vec<u64>>();
+        let peers_remaining = message_group
+            .concurrent_peers
+            .keys()
+            .cloned()
+            .collect::<Vec<u64>>();
         let peers_successfully_removed = peers;
 
         Ok((peers_successfully_removed, peers_remaining))
     }
 
     pub async fn list_message_groups_for(&self, cid: u64) -> Option<Vec<MessageGroupKey>> {
-        Some(self.inner.read().await.message_groups.get(&cid)?.keys()
-            .copied()
-            .map(|mgid| MessageGroupKey { cid, mgid })
-            .collect())
+        Some(
+            self.inner
+                .read()
+                .await
+                .message_groups
+                .get(&cid)?
+                .keys()
+                .copied()
+                .map(|mgid| MessageGroupKey { cid, mgid })
+                .collect(),
+        )
     }
 
     /// returns true if auto-accepted, false if requires the owner to accept
@@ -256,7 +314,9 @@ impl HyperNodePeerLayer {
         let mut write = self.inner.write().await;
         let group = write.message_groups.get_mut(&key.cid)?.get_mut(&key.mgid)?;
         if group.options.group_type == GroupType::Public {
-            let _ = group.concurrent_peers.insert(peer_cid, MessageGroupPeer { peer_cid });
+            let _ = group
+                .concurrent_peers
+                .insert(peer_cid, MessageGroupPeer { peer_cid });
             Some(true)
         } else {
             Some(false)
@@ -267,18 +327,30 @@ impl HyperNodePeerLayer {
     /// `add_queue_if_non_existing`: Creates an event queue if non-existing (useful if target not connected yet)
     /// `target_cid`: Should be the destination
     #[allow(unused_results)]
-    pub async fn try_add_mailbox(pers: &PersistenceHandler, target_cid: u64, signal: PeerSignal) -> Result<(), NetworkError> {
-        let serialized = signal.serialize_to_vector().map_err(|err| NetworkError::Generic(err.into_string()))?;
+    pub async fn try_add_mailbox(
+        pers: &PersistenceHandler,
+        target_cid: u64,
+        signal: PeerSignal,
+    ) -> Result<(), NetworkError> {
+        let serialized = signal
+            .serialize_to_vector()
+            .map_err(|err| NetworkError::Generic(err.into_string()))?;
         let sub_key = Uuid::new_v4().to_string();
 
-        let _ = pers.store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized).await?;
+        let _ = pers
+            .store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized)
+            .await?;
         Ok(())
     }
 
     /// Removes a [TrackedPosting] from the internal queue, and returns the signal
     #[allow(unused_results)]
     #[allow(dead_code)]
-    pub async fn remove_tracked_posting(&self, implicated_cid: u64, ticket: Ticket) -> Option<PeerSignal> {
+    pub async fn remove_tracked_posting(
+        &self,
+        implicated_cid: u64,
+        ticket: Ticket,
+    ) -> Option<PeerSignal> {
         let mut this = self.inner.write().await;
         this.remove_tracked_posting_inner(implicated_cid, ticket)
     }
@@ -309,7 +381,11 @@ impl HyperNodePeerLayerExecutor {
 impl HyperNodePeerLayerInner {
     /// Determines if `peer_cid` is already attempting to register to `implicated_cid`
     /// Returns the target's ticket for their corresponding request
-    pub fn check_simultaneous_register(&mut self, implicated_cid: u64, peer_cid: u64) -> Option<Ticket> {
+    pub fn check_simultaneous_register(
+        &mut self,
+        implicated_cid: u64,
+        peer_cid: u64,
+    ) -> Option<Ticket> {
         let this = self.inner.read();
         log::trace!(target: "lusna", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
         let peer_map = this.observed_postings.get(&peer_cid)?;
@@ -332,7 +408,11 @@ impl HyperNodePeerLayerInner {
 
     /// Determines if `peer_cid` is already attempting to connect to `implicated_cid`
     /// Returns the target's ticket and signal for their corresponding request
-    pub fn check_simultaneous_connect(&mut self, implicated_cid: u64, peer_cid: u64) -> Option<Ticket> {
+    pub fn check_simultaneous_connect(
+        &mut self,
+        implicated_cid: u64,
+        peer_cid: u64,
+    ) -> Option<Ticket> {
         let this = self.inner.read();
         log::trace!(target: "lusna", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
         let peer_map = this.observed_postings.get(&peer_cid)?;
@@ -357,10 +437,16 @@ impl HyperNodePeerLayerInner {
     /// NOTE: the ticket MUST be unique per session, otherwise unexpired items may disappear unnecessarily! If the ticket ID's are provided
     /// by the HyperLAN client's side, this should work out
     #[allow(unused_results)]
-    pub async fn insert_tracked_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) {
+    pub async fn insert_tracked_posting(
+        &self,
+        implicated_cid: u64,
+        timeout: Duration,
+        ticket: Ticket,
+        signal: PeerSignal,
+        on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements,
+    ) {
         let mut this = self.inner.write();
-        let delay_key = this.delay_queue
-            .insert((implicated_cid, ticket), timeout);
+        let delay_key = this.delay_queue.insert((implicated_cid, ticket), timeout);
         log::trace!(target: "lusna", "Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
 
         if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
@@ -374,7 +460,11 @@ impl HyperNodePeerLayerInner {
         }
     }
 
-    pub fn remove_tracked_posting_inner(&mut self, implicated_cid: u64, ticket: Ticket) -> Option<PeerSignal> {
+    pub fn remove_tracked_posting_inner(
+        &mut self,
+        implicated_cid: u64,
+        ticket: Ticket,
+    ) -> Option<PeerSignal> {
         log::trace!(target: "lusna", "Removing tracked posting for {} (ticket: {})", implicated_cid, ticket);
         let mut this = self.inner.write();
         if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
@@ -405,9 +495,7 @@ impl Stream for HyperNodePeerLayerExecutor {
                 Poll::Pending
             }
 
-            Err(_) => {
-                Poll::Ready(None)
-            }
+            Err(_) => Poll::Ready(None),
         }
     }
 }
@@ -418,7 +506,9 @@ impl futures::Future for HyperNodePeerLayerExecutor {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match futures::ready!(self.poll_next(cx)) {
             Some(_) => Poll::Pending,
-            None => Poll::Ready(Err(NetworkError::InternalError("Queue handler signalled shutdown")))
+            None => Poll::Ready(Err(NetworkError::InternalError(
+                "Queue handler signalled shutdown",
+            ))),
         }
     }
 }
@@ -427,11 +517,23 @@ impl futures::Future for HyperNodePeerLayerExecutor {
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
     // implicated_cid, icid (0 if hyperlan), target_cid (0 if all), use fcm
-    PostRegister(PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>),
+    PostRegister(
+        PeerConnectionType,
+        Username,
+        Option<Username>,
+        Option<Ticket>,
+        Option<PeerResponse>,
+    ),
     // implicated_cid, icid, target_cid
     Deregister(PeerConnectionType),
     // implicated_cid, icid, target_cid, udp enabled
-    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SessionSecuritySettings, UdpMode),
+    PostConnect(
+        PeerConnectionType,
+        Option<Ticket>,
+        Option<PeerResponse>,
+        SessionSecuritySettings,
+        UdpMode,
+    ),
     // implicated_cid, icid, target cid
     Disconnect(PeerConnectionType, Option<PeerResponse>),
     DisconnectUDP(VirtualConnectionType),
@@ -457,7 +559,8 @@ pub enum PeerSignal {
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
 pub enum UdpMode {
-    Enabled, Disabled
+    Enabled,
+    Disabled,
 }
 
 impl Default for UdpMode {
@@ -470,7 +573,7 @@ impl Default for UdpMode {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ChannelPacket {
     // payload
-    Message(Vec<u8>)
+    Message(Vec<u8>),
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
@@ -478,35 +581,51 @@ pub enum PeerConnectionType {
     // implicated_cid, target_cid
     HyperLANPeerToHyperLANPeer(u64, u64),
     // implicated_cid, icid, target_cid
-    HyperLANPeerToHyperWANPeer(u64, u64, u64)
+    HyperLANPeerToHyperWANPeer(u64, u64, u64),
 }
 
 impl PeerConnectionType {
     pub fn get_original_implicated_cid(&self) -> u64 {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => *implicated_cid,
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, _icid, _target_cid) => *implicated_cid
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
+                *implicated_cid
+            }
+            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, _icid, _target_cid) => {
+                *implicated_cid
+            }
         }
     }
 
     pub fn get_original_target_cid(&self) -> u64 {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, target_cid) => *target_cid,
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, target_cid) => *target_cid
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, target_cid) => {
+                *target_cid
+            }
+            PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, target_cid) => {
+                *target_cid
+            }
         }
     }
 
     pub fn reverse(&self) -> PeerConnectionType {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => PeerConnectionType::HyperLANPeerToHyperLANPeer(*target_cid, *implicated_cid),
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => PeerConnectionType::HyperLANPeerToHyperWANPeer(*target_cid, *icid, *implicated_cid)
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                PeerConnectionType::HyperLANPeerToHyperLANPeer(*target_cid, *implicated_cid)
+            }
+            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
+                PeerConnectionType::HyperLANPeerToHyperWANPeer(*target_cid, *icid, *implicated_cid)
+            }
         }
     }
 
     pub fn as_virtual_connection(self) -> VirtualConnectionType {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid),
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid)
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid)
+            }
+            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
+                VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid)
+            }
         }
     }
 }
@@ -514,8 +633,12 @@ impl PeerConnectionType {
 impl Display for PeerConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => write!(f, "hLAN {} <-> {}", implicated_cid, target_cid),
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => write!(f, "hWAN {} <-> {} <-> {}", implicated_cid, icid, target_cid)
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                write!(f, "hLAN {} <-> {}", implicated_cid, target_cid)
+            }
+            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
+                write!(f, "hWAN {} <-> {} <-> {}", implicated_cid, icid, target_cid)
+            }
         }
     }
 }
@@ -525,14 +648,18 @@ pub enum HypernodeConnectionType {
     // implicated_cid
     HyperLANPeerToHyperLANServer(u64),
     // implicated_cid, icid
-    HyperLANPeerToHyperWANServer(u64, u64)
+    HyperLANPeerToHyperWANServer(u64, u64),
 }
 
 impl HypernodeConnectionType {
     pub fn get_implicated_cid(&self) -> u64 {
         match self {
-            HypernodeConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => *implicated_cid,
-            HypernodeConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, _) => *implicated_cid
+            HypernodeConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                *implicated_cid
+            }
+            HypernodeConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, _) => {
+                *implicated_cid
+            }
         }
     }
 }
@@ -549,7 +676,7 @@ pub enum PeerResponse {
     None,
     ServerReceivedRequest,
     Timeout,
-    RegisteredCids(Vec<u64>, Vec<bool>)
+    RegisteredCids(Vec<u64>, Vec<bool>),
 }
 
 impl PeerResponse {
@@ -569,7 +696,7 @@ impl Into<Vec<u8>> for PeerSignal {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MailboxTransfer {
-    Signals(Vec<PeerSignal>)
+    Signals(Vec<PeerSignal>),
 }
 
 impl From<Vec<PeerSignal>> for MailboxTransfer {

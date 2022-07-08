@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 
 use crate::misc::CryptError;
+use crate::stacked_ratchet::{Ratchet, StackedRatchet};
 use std::ops::RangeInclusive;
-use crate::hyper_ratchet::{Ratchet, HyperRatchet};
 
 /// Returns the max number of drill that can be stored in memory
 #[cfg(debug_assertions)]
@@ -23,7 +23,7 @@ pub struct Toolset<R: Ratchet> {
     pub cid: u64,
     most_recent_hyper_ratchet_version: u32,
     oldest_hyper_ratchet_version: u32,
-    #[serde(bound="")]
+    #[serde(bound = "")]
     map: VecDeque<R>,
     /// The static auxiliary drill was made to cover a unique situation that is consequence of dropping-off the back of the VecDeque upon upgrade:
     /// As the back gets dropped, any data encrypted using that version now becomes undecipherable forever. The solution to this is having a static drill, but this
@@ -32,8 +32,8 @@ pub struct Toolset<R: Ratchet> {
     /// with a complex file path, any possible hacker wouldn't necessarily be able to correlate the HyxeFile with the correct CID unless additional work was done.
     /// Local filesystems should be encrypted anyways (otherwise voids warranty), but, having the HyxeFile layer is really just a "weak" layer of protection
     /// designed to derail any currently existing or historical viruses that may look for conventional means of breaking-through data
-    #[serde(bound="")]
-    static_auxiliary_hyper_ratchet: R
+    #[serde(bound = "")]
+    static_auxiliary_hyper_ratchet: R,
 }
 
 // This clone should only be called in the middle of a session
@@ -44,7 +44,7 @@ impl<R: Ratchet> Clone for Toolset<R> {
             most_recent_hyper_ratchet_version: self.most_recent_hyper_ratchet_version,
             oldest_hyper_ratchet_version: self.oldest_hyper_ratchet_version,
             map: self.map.clone(),
-            static_auxiliary_hyper_ratchet: self.static_auxiliary_hyper_ratchet.clone()
+            static_auxiliary_hyper_ratchet: self.static_auxiliary_hyper_ratchet.clone(),
         }
     }
 }
@@ -55,7 +55,7 @@ pub enum UpdateStatus {
     Committed { new_version: u32 },
     // The maximum number of acceptable HR's have been stored in memory, but will not be removed until both endpoints can agree
     // to removing the version
-    CommittedNeedsSynchronization { new_version: u32, old_version: u32 }
+    CommittedNeedsSynchronization { new_version: u32, old_version: u32 },
 }
 
 impl<R: Ratchet> Toolset<R> {
@@ -64,14 +64,31 @@ impl<R: Ratchet> Toolset<R> {
     pub fn new(cid: u64, hyper_ratchet: R) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
-        Toolset { cid, most_recent_hyper_ratchet_version: 0, oldest_hyper_ratchet_version: 0, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
+        Toolset {
+            cid,
+            most_recent_hyper_ratchet_version: 0,
+            oldest_hyper_ratchet_version: 0,
+            map,
+            static_auxiliary_hyper_ratchet: hyper_ratchet,
+        }
     }
 
     #[cfg(debug_assertions)]
-    pub fn new_debug(cid: u64, hyper_ratchet: R, most_recent_hyper_ratchet_version: u32, oldest_hyper_ratchet_version: u32) -> Self {
+    pub fn new_debug(
+        cid: u64,
+        hyper_ratchet: R,
+        most_recent_hyper_ratchet_version: u32,
+        oldest_hyper_ratchet_version: u32,
+    ) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
-        Toolset { cid, most_recent_hyper_ratchet_version, oldest_hyper_ratchet_version, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
+        Toolset {
+            cid,
+            most_recent_hyper_ratchet_version,
+            oldest_hyper_ratchet_version,
+            map,
+            static_auxiliary_hyper_ratchet: hyper_ratchet,
+        }
     }
 
     /// Updates from an inbound DrillUpdateObject. Returns the new Drill
@@ -90,7 +107,8 @@ impl<R: Ratchet> Toolset<R> {
 
         let update_status = self.append_hyper_ratchet(new_hyper_ratchet);
         let cur_version = match &update_status {
-            UpdateStatus::Committed { new_version } | UpdateStatus::CommittedNeedsSynchronization { new_version, .. } => *new_version
+            UpdateStatus::Committed { new_version }
+            | UpdateStatus::CommittedNeedsSynchronization { new_version, .. } => *new_version,
         };
 
         self.most_recent_hyper_ratchet_version = cur_version;
@@ -115,7 +133,6 @@ impl<R: Ratchet> Toolset<R> {
         }
     }*/
 
-
     #[allow(unused_results)]
     ///Replacing drills is not allowed, and is why this subroutine returns an error when a collision is detected
     ///
@@ -128,7 +145,10 @@ impl<R: Ratchet> Toolset<R> {
         if self.map.len() > MAX_HYPER_RATCHETS_IN_MEMORY {
             let old_version = self.get_oldest_hyper_ratchet_version();
             log::trace!(target: "lusna", "[Toolset Update] Needs Truncation. Old version: {}", old_version);
-            UpdateStatus::CommittedNeedsSynchronization { new_version, old_version }
+            UpdateStatus::CommittedNeedsSynchronization {
+                new_version,
+                old_version,
+            }
         } else {
             UpdateStatus::Committed { new_version }
         }
@@ -142,12 +162,17 @@ impl<R: Ratchet> Toolset<R> {
     #[allow(unused_results)]
     pub fn deregister_oldest_hyper_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
         if self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY {
-            return Err(CryptError::DrillUpdateError("Cannot call for deregistration unless the map len is maxed out".to_string()))
+            return Err(CryptError::DrillUpdateError(
+                "Cannot call for deregistration unless the map len is maxed out".to_string(),
+            ));
         }
 
         let oldest = self.get_oldest_hyper_ratchet_version();
         if oldest != version {
-            Err(CryptError::DrillUpdateError(format!("Unable to deregister. Provided version: {}, expected version: {}", version, oldest)))
+            Err(CryptError::DrillUpdateError(format!(
+                "Unable to deregister. Provided version: {}, expected version: {}",
+                version, oldest
+            )))
         } else {
             self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;
             self.oldest_hyper_ratchet_version = self.oldest_hyper_ratchet_version.wrapping_add(1);
@@ -156,7 +181,7 @@ impl<R: Ratchet> Toolset<R> {
         }
     }
 
-    /// Returns the number of HyperRatchets internally
+    /// Returns the number of StackedRatchets internally
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -235,7 +260,8 @@ impl<R: Ratchet> Toolset<R> {
 
     /// Deserializes from a slice of bytes
     pub fn deserialize_from_bytes<T: AsRef<[u8]>>(input: T) -> Result<Self, CryptError<String>> {
-        bincode2::deserialize(input.as_ref()).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+        bincode2::deserialize(input.as_ref())
+            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))
     }
 
     /// Resets the internal state to the default, if necessary. At the beginning of each session, this should be called
@@ -247,9 +273,9 @@ impl<R: Ratchet> Toolset<R> {
 
 /// Makes replacing/synchronizing toolsets easier
 /// input: (static_aux_ratchet, f(0))
-pub type StaticAuxRatchet = HyperRatchet;
-impl From<(StaticAuxRatchet, HyperRatchet)> for Toolset<HyperRatchet> {
-    fn from(drill: (StaticAuxRatchet, HyperRatchet)) -> Self {
+pub type StaticAuxRatchet = StackedRatchet;
+impl From<(StaticAuxRatchet, StackedRatchet)> for Toolset<StackedRatchet> {
+    fn from(drill: (StaticAuxRatchet, StackedRatchet)) -> Self {
         let most_recent_hyper_ratchet_version = drill.1.version();
         let oldest_hyper_ratchet_version = most_recent_hyper_ratchet_version; // for init, just like in the normal constructor
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
@@ -259,7 +285,7 @@ impl From<(StaticAuxRatchet, HyperRatchet)> for Toolset<HyperRatchet> {
             oldest_hyper_ratchet_version,
             most_recent_hyper_ratchet_version,
             map,
-            static_auxiliary_hyper_ratchet: drill.0
+            static_auxiliary_hyper_ratchet: drill.0,
         }
     }
 }

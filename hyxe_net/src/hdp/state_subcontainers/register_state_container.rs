@@ -1,17 +1,17 @@
 use tokio::time::Instant;
 
 use crate::hdp::hdp_packet::packet_flags;
-use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_register::*
 #[derive(Default)]
 pub struct RegisterState {
     pub(crate) last_stage: u8,
-    pub(crate) constructor: Option<HyperRatchetConstructor>,
-    pub(crate) created_hyper_ratchet: Option<HyperRatchet>,
+    pub(crate) constructor: Option<StackedRatchetConstructor>,
+    pub(crate) created_hyper_ratchet: Option<StackedRatchet>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) passwordless: Option<bool>
+    pub(crate) passwordless: Option<bool>,
 }
 
 impl RegisterState {
@@ -30,6 +30,9 @@ impl RegisterState {
 
 impl From<u8> for RegisterState {
     fn from(stage: u8) -> Self {
-        Self { last_stage: stage, ..Default::default() }
+        Self {
+            last_stage: stage,
+            ..Default::default()
+        }
     }
 }

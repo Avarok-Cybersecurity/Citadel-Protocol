@@ -1,9 +1,9 @@
-use std::error::Error;
-use std::fmt::{Display, Debug};
-use std::fmt::Formatter;
-use tokio::sync::mpsc::error::SendError;
-use hyxe_user::misc::AccountError;
 use hyxe_crypt::misc::CryptError;
+use hyxe_user::misc::AccountError;
+use std::error::Error;
+use std::fmt::Formatter;
+use std::fmt::{Debug, Display};
+use tokio::sync::mpsc::error::SendError;
 
 /// The basic error type for this crate
 pub enum NetworkError {
@@ -22,7 +22,7 @@ pub enum NetworkError {
     /// For a converted error
     Generic(String),
     ///
-    ProperShutdown
+    ProperShutdown,
 }
 
 impl Error for NetworkError {}
@@ -36,13 +36,9 @@ impl Debug for NetworkError {
 impl NetworkError {
     fn to_msg(&self) -> String {
         match self {
-            NetworkError::SocketError(err) => {
-                err.to_string()
-            }
+            NetworkError::SocketError(err) => err.to_string(),
 
-            NetworkError::Generic(err) => {
-                err.to_string()
-            }
+            NetworkError::Generic(err) => err.to_string(),
             NetworkError::Timeout(val) => {
                 format!("Timeout at {}", val)
             }
@@ -66,13 +62,9 @@ impl NetworkError {
 
     pub fn into_string(self) -> String {
         match self {
-            NetworkError::SocketError(err) => {
-                err
-            }
+            NetworkError::SocketError(err) => err,
 
-            NetworkError::Generic(err) => {
-                err
-            }
+            NetworkError::Generic(err) => err,
             NetworkError::Timeout(val) => {
                 format!("Timeout at {}", val)
             }
