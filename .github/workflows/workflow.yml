@@ -11,7 +11,7 @@ env:
   RUST_BACKTRACE: full
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
-  RUST_LOG: "warn"
+  RUST_LOG: "lusna=warn"
 
 jobs:
   core_libs:
@@ -104,7 +104,7 @@ jobs:
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Single-threaded testing
-        run: cargo test --package lusna_sdk --features=single-threaded,localhost-testing -- --test-threads=1
+        run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package lusna_sdk --features=multi-threaded,localhost-testing -- --test-threads=1
@@ -118,8 +118,8 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  valgrind_and_checks:
-    name: valgrind secmem
+  misc_checks:
+    name: miscellaneous
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
@@ -139,6 +139,7 @@ jobs:
       - name: Run valgrind secmem_string
         run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis,multi-threaded
+      - run: cargo install --locked cargo-deny && cargo deny check all
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
@@ -154,47 +155,43 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  cargo_deny_and_coverage:
-    env:
-      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
-      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-    runs-on: ubuntu-latest
+#  features_check:
+#    name: check features
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+#      - name: Install features checker
+#        run: cargo install cargo-all-features
+#      - name: Check all feature combinations
+#        run: cargo check-all-features --package lusna_sdk
+#      - uses: actions/github-script@v6
+#        if: failure()
+#        with:
+#          script: |
+#            const { owner, repo } = context.repo
+#            console.log('Cancelling ...');
+#            const run_id = "${{ github.run_id }}";
+#            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+#            return 'stop'
+#          result-encoding: string
+  coverage:
+    runs-on: macos-latest
     timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo install --locked cargo-deny && cargo deny check all
-      - uses: shogo82148/actions-setup-mysql@v1
-        with:
-          mysql-version: '8.0'
-          root-password: 'password'
-      - name: Setup Postgres database (1)
-        uses: Daniel-Marynicz/postgresql-action@master
-        with:
-          postgres_image_tag: latest
-          app_user: nologik
-          app_user_password: password
-          app_db: hyxewave hyxewave2
-      - name: Add mysql databases
-        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
-      - name: Augment connection size for psql
-        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
-      - name: Add sqlite databases
-        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
-      - name: Start Redis
-        uses: supercharge/redis-github-action@1.4.0
-        with:
-          redis-version: 4
-          redis-port: 6379
-      - name: Clean workspace
-        run: cargo clean
-      - name: Install Tarpaulin
-        run: cargo install cargo-tarpaulin
-      - name: Run cargo-tarpaulin
-        run: 'RUST_LOG=lusna=trace cargo tarpaulin --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=redis,sql,localhost-testing,multi-threaded -- --test-threads=1 --skip argon_autotuner'
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        run: rustup toolchain install stable --component llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: taiki-e/install-action@nextest
+      - name: Run llvm-cov nextest
+        env:
+          SKIP_EXT_BACKENDS: "true"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path lcov.info
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cobertura.xml
+          files: lcov.info
       - uses: actions/github-script@v6
         if: failure()
         with:

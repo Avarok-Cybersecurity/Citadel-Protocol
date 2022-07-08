@@ -17,7 +17,9 @@ fn main() {
 
     let retrieved = basic.into_buffer();
     let serde = bincode2::serialize(&retrieved).unwrap();
-    let retrieved = bincode2::deserialize::<SecString>(&serde).unwrap().into_buffer();
+    let retrieved = bincode2::deserialize::<SecString>(&serde)
+        .unwrap()
+        .into_buffer();
     // at this point, basic should have dropped, but the memory should not have been zeroed out
     assert_eq!(retrieved, "hey");
 }

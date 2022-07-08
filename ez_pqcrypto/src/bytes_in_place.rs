@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use aes_gcm_siv::aead::{Buffer, Error};
-use bytes::{BytesMut, BufMut};
+use bytes::{BufMut, BytesMut};
 
 pub struct InPlaceBuffer<'a, T> {
     inner: &'a mut T,
@@ -48,7 +48,7 @@ impl<T: EzBuffer> AsRef<[u8]> for InPlaceBuffer<'_, T> {
 
 pub struct InPlaceByteSliceMut<'a> {
     pub(crate) inner: &'a mut [u8],
-    truncated_len: usize
+    truncated_len: usize,
 }
 
 impl InPlaceByteSliceMut<'_> {
@@ -59,7 +59,10 @@ impl InPlaceByteSliceMut<'_> {
 
 impl<'a> From<&'a mut [u8]> for InPlaceByteSliceMut<'a> {
     fn from(inner: &'a mut [u8]) -> Self {
-        Self { inner, truncated_len: 0 }
+        Self {
+            inner,
+            truncated_len: 0,
+        }
     }
 }
 

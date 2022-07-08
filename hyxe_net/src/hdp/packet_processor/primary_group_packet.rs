@@ -1,19 +1,21 @@
 use super::includes::*;
-use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey};
 use crate::constants::GROUP_EXPIRE_TIME_MS;
-use crate::hdp::session_queue_handler::QueueWorkerResult;
-use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
-use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet, RatchetType};
-use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
-use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
-use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::error::NetworkError;
-use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
-use crate::hdp::hdp_node::SecrecyMode;
 use crate::functional::IfTrueConditional;
-use std::ops::Deref;
-use crate::inner_arg::ExpectedInnerTarget;
+use crate::hdp::hdp_node::SecrecyMode;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::hdp::peer::peer_layer::UdpMode;
+use crate::hdp::session_queue_handler::QueueWorkerResult;
+use crate::hdp::state_container::{FileKey, GroupKey, StateContainerInner};
+use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
+use crate::inner_arg::ExpectedInnerTarget;
+use hyxe_crypt::endpoint_crypto_container::{
+    EndpointRatchetConstructor, KemTransferStatus, PeerSessionCrypto,
+};
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
+use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
+use hyxe_crypt::stacked_ratchet::{Ratchet, RatchetType, StackedRatchet};
+use std::ops::Deref;
 use std::sync::atomic::Ordering;
 
 /// This will handle an inbound primary group packet
@@ -25,7 +27,12 @@ use std::sync::atomic::Ordering;
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
+pub fn process_primary_packet(
+    session_ref: &HdpSession,
+    cmd_aux: u8,
+    packet: HdpPacket,
+    proxy_cid_info: Option<(u64, u64)>,
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
 
     let HdpSessionInner {
@@ -51,15 +58,25 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
     let udp_mode = state_container.udp_mode;
     // get the proper pqc
     let header_bytes = &header[..];
-    let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
-    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
+    let header = return_if_none!(
+        LayoutVerified::new(header_bytes),
+        "Unable to load header [PGP]"
+    ) as LayoutVerified<&[u8], HdpHeader>;
+    let hyper_ratchet = return_if_none!(
+        get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info),
+        "Unable to get proper StackedRatchet [PGP]"
+    );
     let security_level = header.security_level.into();
-    //log::trace!(target: "lusna", "[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+    //log::trace!(target: "lusna", "[Peer StackedRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
             log::trace!(target: "lusna", "RECV GROUP PAYLOAD {:?}", header);
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
-            match state_container.on_group_payload_received(&*header, payload.freeze(), &hyper_ratchet) {
+            match state_container.on_group_payload_received(
+                &*header,
+                payload.freeze(),
+                &hyper_ratchet,
+            ) {
                 Ok(res) => {
                     state_container.meta_expiry_state.on_event_confirmation();
                     Ok(res)
@@ -82,7 +99,10 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                             log::trace!(target: "lusna", "RECV GROUP HEADER");
                             let is_message = header.algorithm == 1;
                             if is_message {
-                                let (plaintext, transfer) = return_if_none!(validation::group::validate_message(&mut payload), "Bad message packet");
+                                let (plaintext, transfer) = return_if_none!(
+                                    validation::group::validate_message(&mut payload),
+                                    "Bad message packet"
+                                );
                                 log::trace!(target: "lusna", "Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
                                 // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
                                 // so that the sending side can be notified of a successful send
@@ -93,25 +113,59 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                 // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
 
                                 // now, update the keys (if applicable)
-                                let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut *state_container, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
+                                let transfer = return_if_none!(
+                                    attempt_kem_as_bob(
+                                        resp_target_cid,
+                                        &header,
+                                        transfer.map(AliceToBobTransferType::Default),
+                                        &mut *state_container,
+                                        &hyper_ratchet
+                                    ),
+                                    "Unable to attempt_kem_as_bob [PGP]"
+                                );
 
-                                let target_cid = if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                                    original_implicated_cid
-                                } else {
-                                    0
-                                };
+                                let target_cid =
+                                    if let Some((original_implicated_cid, _original_target_cid)) =
+                                        proxy_cid_info
+                                    {
+                                        original_implicated_cid
+                                    } else {
+                                        0
+                                    };
 
-                                if !state_container.forward_data_to_ordered_channel(target_cid, header.group.get(), plaintext) {
+                                if !state_container.forward_data_to_ordered_channel(
+                                    target_cid,
+                                    header.group.get(),
+                                    plaintext,
+                                ) {
                                     log::error!(target: "lusna", "Unable to forward data to channel (peer: {})", target_cid);
                                     return Ok(PrimaryProcessorResult::Void);
                                 }
 
-                                let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
+                                let group_header_ack =
+                                    hdp_packet_crafter::group::craft_group_header_ack(
+                                        &hyper_ratchet,
+                                        object_id,
+                                        header.group.get(),
+                                        resp_target_cid,
+                                        ticket,
+                                        None,
+                                        true,
+                                        timestamp,
+                                        transfer,
+                                        security_level,
+                                    );
                                 Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                             } else {
-                                let group_header = return_if_none!(validation::group::validate_header(&mut payload), "Bad non-message group header");
+                                let group_header = return_if_none!(
+                                    validation::group::validate_header(&mut payload),
+                                    "Bad non-message group header"
+                                );
                                 match group_header {
-                                    GroupHeader::Standard(group_receiver_config, virtual_target) => {
+                                    GroupHeader::Standard(
+                                        group_receiver_config,
+                                        virtual_target,
+                                    ) => {
                                         // First, check to make sure the virtual target can accept
                                         let object_id = header.wave_id.get();
                                         let ticket = header.context_info.get().into();
@@ -120,10 +174,18 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                         //let target_cid_header = header.target_cid.get();
                                         // for HyperLAN conns, this is true
 
-                                        let resp_target_cid = return_if_none!(get_resp_target_cid(&virtual_target), "Unable to get resp_target_cid [PGP]");
+                                        let resp_target_cid = return_if_none!(
+                                            get_resp_target_cid(&virtual_target),
+                                            "Unable to get resp_target_cid [PGP]"
+                                        );
 
                                         // the below will return None if not ready to accept
-                                        let initial_wave_window = state_container.on_group_header_received(&header, group_receiver_config, virtual_target);
+                                        let initial_wave_window = state_container
+                                            .on_group_header_received(
+                                                &header,
+                                                group_receiver_config,
+                                                virtual_target,
+                                            );
                                         if initial_wave_window.is_some() {
                                             // register group timeout device
                                             //std::mem::drop(state_container);
@@ -171,7 +233,19 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                             });
                                         }
 
-                                        let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, KemTransferStatus::Empty, security_level);
+                                        let group_header_ack =
+                                            hdp_packet_crafter::group::craft_group_header_ack(
+                                                &hyper_ratchet,
+                                                object_id,
+                                                header.group.get(),
+                                                resp_target_cid,
+                                                ticket,
+                                                initial_wave_window,
+                                                false,
+                                                timestamp,
+                                                KemTransferStatus::Empty,
+                                                security_level,
+                                            );
                                         Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                                     }
                                 }
@@ -181,7 +255,11 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                         packet_flags::cmd::aux::group::GROUP_HEADER_ACK => {
                             log::trace!(target: "lusna", "RECV GROUP HEADER ACK");
                             match validation::group::validate_header_ack(&payload) {
-                                Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
+                                Some(GroupHeaderAck::ReadyToReceive {
+                                    initial_window,
+                                    transfer,
+                                    fast_msg,
+                                }) => {
                                     // we need to begin sending the data
                                     // valid and ready to accept!
                                     let initial_wave_window = if udp_mode == UdpMode::Disabled {
@@ -199,15 +277,37 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                     let needs_truncate = transfer.requires_truncation();
 
                                     let transfer_occured = transfer.has_some();
-                                    let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
+                                    let secrecy_mode = return_if_none!(
+                                        state_container
+                                            .session_security_settings
+                                            .as_ref()
+                                            .map(|r| r.secrecy_mode)
+                                            .clone(),
+                                        "Unable to get secrecy mode [PGP]"
+                                    );
 
                                     if resp_target_cid != C2S_ENCRYPTION_ONLY {
                                         // If there is a pending disconnect, we need to make sure the session gets dropped until after all packets get processed
-                                        let vconn = return_if_none!(state_container.active_virtual_connections.get(&resp_target_cid), "Vconn not loaded");
-                                        vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
+                                        let vconn = return_if_none!(
+                                            state_container
+                                                .active_virtual_connections
+                                                .get(&resp_target_cid),
+                                            "Vconn not loaded"
+                                        );
+                                        vconn
+                                            .last_delivered_message_timestamp
+                                            .store(Some(Instant::now()), Ordering::SeqCst);
                                     }
 
-                                    if state_container.on_group_header_ack_received(secrecy_mode, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg) {
+                                    if state_container.on_group_header_ack_received(
+                                        secrecy_mode,
+                                        peer_cid,
+                                        target_cid,
+                                        group_id,
+                                        initial_wave_window,
+                                        transfer,
+                                        fast_msg,
+                                    ) {
                                         //std::mem::drop(state_container);
                                         log::trace!(target: "lusna", "[Toolset Update] Needs truncation? {:?}", &needs_truncate);
 
@@ -215,10 +315,22 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                         // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
                                         // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
                                         if transfer_occured {
-                                            let target_cid = if target_cid != C2S_ENCRYPTION_ONLY { peer_cid } else { C2S_ENCRYPTION_ONLY };
-                                            let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&hyper_ratchet, needs_truncate, target_cid, timestamp, security_level);
+                                            let target_cid = if target_cid != C2S_ENCRYPTION_ONLY {
+                                                peer_cid
+                                            } else {
+                                                C2S_ENCRYPTION_ONLY
+                                            };
+                                            let truncate_packet =
+                                                hdp_packet_crafter::do_drill_update::craft_truncate(
+                                                    &hyper_ratchet,
+                                                    needs_truncate,
+                                                    target_cid,
+                                                    timestamp,
+                                                    security_level,
+                                                );
                                             log::trace!(target: "lusna", "About to send TRUNCATE packet to MAYBE remove v {:?} | HR v {} | HR CID {}", needs_truncate, hyper_ratchet.version(), hyper_ratchet.get_cid());
-                                            session.send_to_primary_stream(None, truncate_packet)?;
+                                            session
+                                                .send_to_primary_stream(None, truncate_packet)?;
                                         }
 
                                         //std::mem::drop(state_container);
@@ -226,15 +338,20 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                         // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
                                         if secrecy_mode == SecrecyMode::Perfect {
                                             log::trace!(target: "lusna", "Polling next in pgp");
-                                            let _ = state_container.poll_next_enqueued(resp_target_cid)?;
+                                            let _ = state_container
+                                                .poll_next_enqueued(resp_target_cid)?;
                                         }
 
                                         Ok(PrimaryProcessorResult::Void)
                                     } else {
                                         if udp_mode == UdpMode::Disabled {
-                                            Ok(PrimaryProcessorResult::EndSession("TCP sockets disconnected"))
+                                            Ok(PrimaryProcessorResult::EndSession(
+                                                "TCP sockets disconnected",
+                                            ))
                                         } else {
-                                            Ok(PrimaryProcessorResult::EndSession("UDP sockets disconnected"))
+                                            Ok(PrimaryProcessorResult::EndSession(
+                                                "UDP sockets disconnected",
+                                            ))
                                         }
                                     }
                                 }
@@ -245,7 +362,8 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                     //let mut state_container = session.state_container.borrow_mut();
                                     let group = header.group.get();
                                     let key = GroupKey::new(header.session_cid.get(), group);
-                                    if let None = state_container.outbound_transmitters.remove(&key) {
+                                    if let None = state_container.outbound_transmitters.remove(&key)
+                                    {
                                         log::error!(target: "lusna", "Unable to remove outbound transmitter for group {} (non-existent)", group);
                                     }
                                     //std::mem::drop(state_container);
@@ -253,7 +371,14 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                     if !fast_msg {
                                         let ticket = header.context_info.get();
                                         log::trace!(target: "lusna", "Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
-                                        session.send_to_kernel(NodeResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
+                                        session.send_to_kernel(
+                                            NodeResult::OutboundRequestRejected(
+                                                ticket.into(),
+                                                Some(Vec::from(
+                                                    "Adjacent node unable to accept request",
+                                                )),
+                                            ),
+                                        )?;
                                     }
 
                                     Ok(PrimaryProcessorResult::Void)
@@ -276,14 +401,18 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                     }
 
                                     // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
-                                    if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header) {
+                                    if !state_container
+                                        .on_wave_ack_received(hyper_ratchet.get_cid(), &header)
+                                    {
                                         if udp_mode == UdpMode::Disabled {
                                             log::error!(target: "lusna", "There was an error sending the TCP window; Cancelling connection");
                                         } else {
                                             log::error!(target: "lusna", "There was an error sending the UDP window; Cancelling connection");
                                         }
 
-                                        Ok(PrimaryProcessorResult::EndSession("Sockets disconnected"))
+                                        Ok(PrimaryProcessorResult::EndSession(
+                                            "Sockets disconnected",
+                                        ))
                                     } else {
                                         log::trace!(target: "lusna", "Successfully sent next window in response to WAVE ACK");
                                         Ok(PrimaryProcessorResult::Void)
@@ -314,15 +443,24 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
 }
 
 #[inline]
-pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, state_container: &dyn ExpectedInnerTarget<StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
+pub(super) fn get_proper_hyper_ratchet(
+    header_drill_vers: u32,
+    state_container: &dyn ExpectedInnerTarget<StateContainerInner>,
+    proxy_cid_info: Option<(u64, u64)>,
+) -> Option<StackedRatchet> {
     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
         // In the case that a packet is proxied back to the source, the adjacent endpoint inscribes this node's cid
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
         // since we use the original implicated CID
-        if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            //log::trace!(target: "lusna", "[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
-            vconn.borrow_endpoint_hyper_ratchet(Some(header_drill_vers)).cloned()
+        if let Some(vconn) = state_container
+            .active_virtual_connections
+            .get(&original_implicated_cid)
+        {
+            //log::trace!(target: "lusna", "[Peer StackedRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
+            vconn
+                .borrow_endpoint_hyper_ratchet(Some(header_drill_vers))
+                .cloned()
         } else {
             log::warn!(target: "lusna", "Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
             return None;
@@ -332,7 +470,12 @@ pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, state_container: 
         if state_container.state.load(Ordering::Relaxed) != SessionState::Connected {
             state_container.pre_connect_state.generated_ratchet.clone()
         } else {
-            state_container.c2s_channel_container.as_ref()?.peer_session_crypto.get_hyper_ratchet(Some(header_drill_vers)).cloned()
+            state_container
+                .c2s_channel_container
+                .as_ref()?
+                .peer_session_crypto
+                .get_hyper_ratchet(Some(header_drill_vers))
+                .cloned()
         }
     }
 }
@@ -370,19 +513,34 @@ pub fn get_resp_target_cid_from_header(header: &HdpHeader) -> u64 {
 
 #[allow(unused)]
 pub enum ToolsetUpdate<'a> {
-    E2E { crypt: &'a mut PeerSessionCrypto<HyperRatchet>, local_cid: u64 },
-    FCM { fcm_crypt_container: &'a mut PeerSessionCrypto<ThinRatchet>, peer_cid: u64, local_cid: u64 },
+    E2E {
+        crypt: &'a mut PeerSessionCrypto<StackedRatchet>,
+        local_cid: u64,
+    },
+    FCM {
+        fcm_crypt_container: &'a mut PeerSessionCrypto<ThinRatchet>,
+        peer_cid: u64,
+        local_cid: u64,
+    },
 }
 
 impl ToolsetUpdate<'_> {
-    pub(crate) fn update(&mut self, constructor: ConstructorType<HyperRatchet, ThinRatchet>, local_is_alice: bool) -> Result<KemTransferStatus, ()> {
+    pub(crate) fn update(
+        &mut self,
+        constructor: ConstructorType<StackedRatchet, ThinRatchet>,
+        local_is_alice: bool,
+    ) -> Result<KemTransferStatus, ()> {
         match self {
             ToolsetUpdate::E2E { crypt, local_cid } => {
                 let constructor = constructor.assume_default().ok_or(())?;
                 crypt.update_sync_safe(constructor, local_is_alice, *local_cid)
             }
 
-            ToolsetUpdate::FCM { fcm_crypt_container, local_cid, .. } => {
+            ToolsetUpdate::FCM {
+                fcm_crypt_container,
+                local_cid,
+                ..
+            } => {
                 let constructor = constructor.assume_fcm().ok_or(())?;
                 fcm_crypt_container.update_sync_safe(constructor, local_is_alice, *local_cid)
             }
@@ -396,7 +554,10 @@ impl ToolsetUpdate<'_> {
                 crypt.post_alice_stage1_or_post_stage1_bob();
             }
 
-            ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
+            ToolsetUpdate::FCM {
+                fcm_crypt_container,
+                ..
+            } => {
                 fcm_crypt_container.post_alice_stage1_or_post_stage1_bob();
             }
         }
@@ -404,27 +565,40 @@ impl ToolsetUpdate<'_> {
 
     pub(crate) fn deregister(&mut self, version: u32) -> Result<(), NetworkError> {
         match self {
-            ToolsetUpdate::E2E { crypt, .. } => {
-                crypt.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
-            }
+            ToolsetUpdate::E2E { crypt, .. } => crypt
+                .deregister_oldest_hyper_ratchet(version)
+                .map_err(|err| NetworkError::Generic(err.to_string())),
 
-            ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
-                fcm_crypt_container.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
-            }
+            ToolsetUpdate::FCM {
+                fcm_crypt_container,
+                ..
+            } => fcm_crypt_container
+                .deregister_oldest_hyper_ratchet(version)
+                .map_err(|err| NetworkError::Generic(err.to_string())),
         }
     }
 
     /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
-    pub(crate) fn unlock(&mut self, requires_locked_by_alice: bool) -> Option<(RatchetType<HyperRatchet, ThinRatchet>, Option<bool>)> {
+    pub(crate) fn unlock(
+        &mut self,
+        requires_locked_by_alice: bool,
+    ) -> Option<(RatchetType<StackedRatchet, ThinRatchet>, Option<bool>)> {
         match self {
             ToolsetUpdate::E2E { crypt, .. } => {
                 let lock_src = crypt.lock_set_by_alice.clone();
-                crypt.maybe_unlock(requires_locked_by_alice).map(|r| (RatchetType::Default(r.clone()), lock_src))
+                crypt
+                    .maybe_unlock(requires_locked_by_alice)
+                    .map(|r| (RatchetType::Default(r.clone()), lock_src))
             }
 
-            ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
+            ToolsetUpdate::FCM {
+                fcm_crypt_container,
+                ..
+            } => {
                 let lock_src = fcm_crypt_container.lock_set_by_alice.clone();
-                fcm_crypt_container.maybe_unlock(requires_locked_by_alice).map(|r| (RatchetType::Fcm(r.clone()), lock_src))
+                fcm_crypt_container
+                    .maybe_unlock(requires_locked_by_alice)
+                    .map(|r| (RatchetType::Fcm(r.clone()), lock_src))
             }
         }
     }
@@ -432,19 +606,22 @@ impl ToolsetUpdate<'_> {
     pub(crate) fn get_local_cid(&self) -> u64 {
         match self {
             ToolsetUpdate::E2E { local_cid, .. } => *local_cid,
-            ToolsetUpdate::FCM { local_cid, .. } => *local_cid
+            ToolsetUpdate::FCM { local_cid, .. } => *local_cid,
         }
     }
 
-    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<HyperRatchet, ThinRatchet>> {
+    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<StackedRatchet, ThinRatchet>> {
         match self {
-            ToolsetUpdate::E2E { crypt, .. } => {
-                crypt.get_hyper_ratchet(None).map(|r| RatchetType::Default(r.clone()))
-            }
+            ToolsetUpdate::E2E { crypt, .. } => crypt
+                .get_hyper_ratchet(None)
+                .map(|r| RatchetType::Default(r.clone())),
 
-            ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
-                fcm_crypt_container.get_hyper_ratchet(None).map(|r| RatchetType::Fcm(r.clone()))
-            }
+            ToolsetUpdate::FCM {
+                fcm_crypt_container,
+                ..
+            } => fcm_crypt_container
+                .get_hyper_ratchet(None)
+                .map(|r| RatchetType::Fcm(r.clone())),
         }
     }
 }
@@ -453,20 +630,43 @@ impl ToolsetUpdate<'_> {
 /// target_cid: from header.target_cid
 ///
 /// Returns: Ok(latest_hyper_ratchet)
-pub(crate) fn attempt_kem_as_alice_finish(base_session_secrecy_mode: SecrecyMode,
-                                          peer_cid: u64,
-                                          target_cid: u64,
-                                          transfer: KemTransferStatus,
-                                          state_container: &mut StateContainerInner,
-                                          constructor: Option<ConstructorType<HyperRatchet, ThinRatchet>>) -> Result<Option<RatchetType<HyperRatchet, ThinRatchet>>, ()> {
-
+pub(crate) fn attempt_kem_as_alice_finish(
+    base_session_secrecy_mode: SecrecyMode,
+    peer_cid: u64,
+    target_cid: u64,
+    transfer: KemTransferStatus,
+    state_container: &mut StateContainerInner,
+    constructor: Option<ConstructorType<StackedRatchet, ThinRatchet>>,
+) -> Result<Option<RatchetType<StackedRatchet, ThinRatchet>>, ()> {
     let (mut toolset_update_method, secrecy_mode) = if target_cid != C2S_ENCRYPTION_ONLY {
-        let endpoint_container = state_container.active_virtual_connections.get_mut(&peer_cid).ok_or(())?.endpoint_container.as_mut().ok_or(())?;
+        let endpoint_container = state_container
+            .active_virtual_connections
+            .get_mut(&peer_cid)
+            .ok_or(())?
+            .endpoint_container
+            .as_mut()
+            .ok_or(())?;
         let crypt = &mut endpoint_container.endpoint_crypto;
-        (ToolsetUpdate::E2E { crypt, local_cid: target_cid }, endpoint_container.default_security_settings.secrecy_mode)
+        (
+            ToolsetUpdate::E2E {
+                crypt,
+                local_cid: target_cid,
+            },
+            endpoint_container.default_security_settings.secrecy_mode,
+        )
     } else {
-        let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
-        (ToolsetUpdate::E2E { crypt, local_cid: peer_cid }, base_session_secrecy_mode)
+        let crypt = &mut state_container
+            .c2s_channel_container
+            .as_mut()
+            .unwrap()
+            .peer_session_crypto;
+        (
+            ToolsetUpdate::E2E {
+                crypt,
+                local_cid: peer_cid,
+            },
+            base_session_secrecy_mode,
+        )
     };
 
     //let transfer_ocurred = transfer.has_some();
@@ -504,12 +704,10 @@ pub(crate) fn attempt_kem_as_alice_finish(base_session_secrecy_mode: SecrecyMode
                         } else {
                             Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
                         }
-                    }
-
-                    /*SecrecyMode::BestEffort => {
-                        // since we don't unlock on header_acks, we have to unconditionally unlock here
-                        Ok(Some(toolset_update_method.unlock(false).ok_or(())?.0))
-                    }*/
+                    } /*SecrecyMode::BestEffort => {
+                          // since we don't unlock on header_acks, we have to unconditionally unlock here
+                          Ok(Some(toolset_update_method.unlock(false).ok_or(())?.0))
+                      }*/
                 }
             } else {
                 log::error!(target: "lusna", "No constructor, yet, KemTransferStatus is Some??");
@@ -517,38 +715,51 @@ pub(crate) fn attempt_kem_as_alice_finish(base_session_secrecy_mode: SecrecyMode
             }
         }
 
-        KemTransferStatus::Omitted => {
-            match secrecy_mode {
-                SecrecyMode::Perfect => {
-                    Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
-                }
+        KemTransferStatus::Omitted => match secrecy_mode {
+            SecrecyMode::Perfect => Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0)),
 
-                SecrecyMode::BestEffort => {
-                    Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
-                }
-            }
-        }
+            SecrecyMode::BestEffort => Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0)),
+        },
 
         KemTransferStatus::StatusNoTransfer(_status) => {
             log::error!(target: "lusna", "Unaccounted program logic @ StatusNoTransfer! Report to developers");
             return Err(());
         }
 
-        _ => {
-            Ok(None)
-        }
+        _ => Ok(None),
     }
 }
 
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
-pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, state_container: &mut StateContainerInner, hr: &HyperRatchet) -> Option<KemTransferStatus> {
+pub(crate) fn attempt_kem_as_bob(
+    resp_target_cid: u64,
+    header: &LayoutVerified<&[u8], HdpHeader>,
+    transfer: Option<AliceToBobTransferType<'_>>,
+    state_container: &mut StateContainerInner,
+    hr: &StackedRatchet,
+) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
         let update = if resp_target_cid != C2S_ENCRYPTION_ONLY {
-            let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
-            ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() }
+            let crypt = &mut state_container
+                .active_virtual_connections
+                .get_mut(&resp_target_cid)?
+                .endpoint_container
+                .as_mut()?
+                .endpoint_crypto;
+            ToolsetUpdate::E2E {
+                crypt,
+                local_cid: header.target_cid.get(),
+            }
         } else {
-            let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
-            ToolsetUpdate::E2E { crypt, local_cid: header.session_cid.get() }
+            let crypt = &mut state_container
+                .c2s_channel_container
+                .as_mut()
+                .unwrap()
+                .peer_session_crypto;
+            ToolsetUpdate::E2E {
+                crypt,
+                local_cid: header.session_cid.get(),
+            }
         };
 
         update_toolset_as_bob(update, transfer, hr)
@@ -557,17 +768,35 @@ pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&
     }
 }
 
-pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transfer: AliceToBobTransferType<'_>, hr: &HyperRatchet) -> Option<KemTransferStatus> {
+pub(crate) fn update_toolset_as_bob(
+    mut update_method: ToolsetUpdate<'_>,
+    transfer: AliceToBobTransferType<'_>,
+    hr: &StackedRatchet,
+) -> Option<KemTransferStatus> {
     let cid = update_method.get_local_cid();
     let new_version = transfer.get_declared_new_version();
     //let (crypto_params, session_security_level) = transfer.get_security_opts();
     //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
     let opts = hr.get_next_constructor_opts();
     if transfer.is_fcm() {
-        let constructor = EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
-        Some(update_method.update(ConstructorType::Fcm(constructor), false).ok()?)
+        let constructor =
+            EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
+        Some(
+            update_method
+                .update(ConstructorType::Fcm(constructor), false)
+                .ok()?,
+        )
     } else {
-        let constructor = EndpointRatchetConstructor::<HyperRatchet>::new_bob(cid, new_version, opts, transfer)?;
-        Some(update_method.update(ConstructorType::Default(constructor), false).ok()?)
+        let constructor = EndpointRatchetConstructor::<StackedRatchet>::new_bob(
+            cid,
+            new_version,
+            opts,
+            transfer,
+        )?;
+        Some(
+            update_method
+                .update(ConstructorType::Default(constructor), false)
+                .ok()?,
+        )
     }
 }

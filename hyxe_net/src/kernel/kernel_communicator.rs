@@ -1,52 +1,64 @@
-use std::sync::Arc;
+use crate::error::NetworkError;
+use crate::hdp::hdp_node::{NodeResult, Ticket};
+use futures::{Future, Stream};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use crate::hdp::hdp_node::{Ticket, NodeResult};
-use crate::error::NetworkError;
-use futures::{Stream, Future};
-use std::task::{Context, Poll};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 pub struct KernelAsyncCallbackHandler {
-    pub inner: Arc<Mutex<KernelAsyncCallbackHandlerInner>>
+    pub inner: Arc<Mutex<KernelAsyncCallbackHandlerInner>>,
 }
 
 #[derive(Default)]
 pub struct KernelAsyncCallbackHandlerInner {
-    map: HashMap<Ticket, CallbackNotifier>
+    map: HashMap<Ticket, CallbackNotifier>,
 }
 
 pub(crate) enum CallbackNotifier {
     Future(tokio::sync::oneshot::Sender<NodeResult>),
-    Stream(tokio::sync::mpsc::UnboundedSender<NodeResult>)
+    Stream(tokio::sync::mpsc::UnboundedSender<NodeResult>),
 }
 
 impl CallbackNotifier {
     fn send(self, item: NodeResult) -> Result<(), NodeResult> {
         match self {
             Self::Future(tx) => tx.send(item),
-            Self::Stream(tx) => tx.send(item).map_err(|err| err.0)
+            Self::Stream(tx) => tx.send(item).map_err(|err| err.0),
         }
     }
 }
 
 impl KernelAsyncCallbackHandler {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(Default::default())) }
+        Self {
+            inner: Arc::new(Mutex::new(Default::default())),
+        }
     }
 
-    pub fn register_future(&self, ticket: Ticket) -> Result<tokio::sync::oneshot::Receiver<NodeResult>, NetworkError> {
+    pub fn register_future(
+        &self,
+        ticket: Ticket,
+    ) -> Result<tokio::sync::oneshot::Receiver<NodeResult>, NetworkError> {
         let mut this = self.inner.lock();
         let (tx, rx) = tokio::sync::oneshot::channel();
         this.insert(ticket, CallbackNotifier::Future(tx))?;
         Ok(rx)
     }
 
-    pub fn register_stream(&self, ticket: Ticket) -> Result<KernelStreamSubscription, NetworkError> {
+    pub fn register_stream(
+        &self,
+        ticket: Ticket,
+    ) -> Result<KernelStreamSubscription, NetworkError> {
         let mut this = self.inner.lock();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         this.insert(ticket, CallbackNotifier::Stream(tx))?;
-        Ok(KernelStreamSubscription { inner: rx, ptr: self.clone(), ticket })
+        Ok(KernelStreamSubscription {
+            inner: rx,
+            ptr: self.clone(),
+            ticket,
+        })
     }
 
     #[allow(unused_results)]
@@ -67,35 +79,33 @@ impl KernelAsyncCallbackHandler {
                             // it's possible the future listening dropped
                             match prev.send(result) {
                                 Ok(_) => None,
-                                Err(err) => Some(err)
+                                Err(err) => Some(err),
                             }
                         }
 
-                        CallbackNotifier::Stream(tx) => {
-                            match tx.send(result) {
-                                Ok(_) => None,
-                                Err(err) => Some(err.0)
-                            }
-                        }
+                        CallbackNotifier::Stream(tx) => match tx.send(result) {
+                            Ok(_) => None,
+                            Err(err) => Some(err.0),
+                        },
                     }
                 } else {
                     Some(result)
                 }
             }
 
-            None => Some(result)
+            None => Some(result),
         }
     }
 
-    pub async fn on_message_received<F: Future<Output=Result<(), NetworkError>>>(&self, result: NodeResult, default: impl FnOnce(NodeResult) -> F) -> Result<(), NetworkError> {
+    pub async fn on_message_received<F: Future<Output = Result<(), NetworkError>>>(
+        &self,
+        result: NodeResult,
+        default: impl FnOnce(NodeResult) -> F,
+    ) -> Result<(), NetworkError> {
         match self.maybe_notify(result) {
-            None => {
-                Ok(())
-            }
+            None => Ok(()),
 
-            Some(result) => {
-                default(result).await
-            }
+            Some(result) => default(result).await,
         }
     }
 }
@@ -112,14 +122,16 @@ impl KernelAsyncCallbackHandlerInner {
 
 impl Clone for KernelAsyncCallbackHandler {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
 pub struct KernelStreamSubscription {
     inner: tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
     ptr: KernelAsyncCallbackHandler,
-    ticket: Ticket
+    ticket: Ticket,
 }
 
 impl Stream for KernelStreamSubscription {

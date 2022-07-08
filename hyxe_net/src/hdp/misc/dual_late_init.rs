@@ -1,8 +1,11 @@
-use std::ops::Deref;
 use crate::macros::ContextRequirements;
+use std::ops::Deref;
 
 pub struct DualLateInit<T: ContextRequirements> {
-    inner: once_cell::sync::OnceCell<T>
+    #[cfg(feature = "multi-threaded")]
+    inner: once_cell::sync::OnceCell<T>,
+    #[cfg(not(feature = "multi-threaded"))]
+    inner: once_cell::unsync::OnceCell<T>,
 }
 
 impl<T: ContextRequirements> DualLateInit<T> {
@@ -24,6 +27,8 @@ impl<T: ContextRequirements> Deref for DualLateInit<T> {
 
 impl<T: ContextRequirements> Default for DualLateInit<T> {
     fn default() -> Self {
-        Self { inner: Default::default() }
+        Self {
+            inner: Default::default(),
+        }
     }
 }

@@ -7,10 +7,10 @@ use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;
-use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
-use crate::udp_traversal::targetted_udp_socket_addr::{TargettedSocketAddr, HolePunchedUdpSocket};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::method3::Method3;
+use crate::udp_traversal::targetted_udp_socket_addr::{HolePunchedUdpSocket, TargettedSocketAddr};
+use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use crate::upnp_handler::UPnPHandler;
 use netbeam::sync::RelativeNodeType;
 
@@ -38,18 +38,30 @@ pub struct SingleUDPHolePuncher {
     possible_endpoints: Vec<SocketAddr>,
     #[allow(dead_code)]
     relative_node_type: RelativeNodeType,
-    unique_id: HolePunchID
+    unique_id: HolePunchID,
 }
 
 impl SingleUDPHolePuncher {
-    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, local_socket: UdpSocket, peer_addrs_to_ping: Vec<SocketAddr>) -> Result<Self, anyhow::Error> {
+    pub fn new(
+        relative_node_type: RelativeNodeType,
+        encrypted_config_container: EncryptedConfigContainer,
+        local_socket: UdpSocket,
+        peer_addrs_to_ping: Vec<SocketAddr>,
+    ) -> Result<Self, anyhow::Error> {
         let local_bind_addr = local_socket.local_addr()?;
         let unique_id = HolePunchID::new();
         log::trace!(target: "lusna", "Setting up single-udp hole-puncher. Local bind addr: {:?} | Peer Addrs to ping: {:?} | [id = {:?}]", local_bind_addr, peer_addrs_to_ping, unique_id);
 
-        let method3= Method3::new(relative_node_type, encrypted_config_container, unique_id);
+        let method3 = Method3::new(relative_node_type, encrypted_config_container, unique_id);
 
-        Ok(Self { method3: (false, method3), upnp_handler: (false, None), socket: Some(local_socket), possible_endpoints: peer_addrs_to_ping, relative_node_type, unique_id })
+        Ok(Self {
+            method3: (false, method3),
+            upnp_handler: (false, None),
+            socket: Some(local_socket),
+            possible_endpoints: peer_addrs_to_ping,
+            relative_node_type,
+            unique_id,
+        })
     }
 
     pub fn take_socket(&mut self) -> Option<UdpSocket> {
@@ -57,29 +69,53 @@ impl SingleUDPHolePuncher {
     }
 
     /// kill_switch: Item sent is (local_id, peer_id)
-    pub async fn try_method(&mut self, method: NatTraversalMethod, mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>, post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>) -> Result<HolePunchedUdpSocket, FirewallError> {
+    pub async fn try_method(
+        &mut self,
+        method: NatTraversalMethod,
+        mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>,
+        post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>,
+    ) -> Result<HolePunchedUdpSocket, FirewallError> {
         match method {
             NatTraversalMethod::UPnP => {
                 self.upnp_handler.0 = true;
 
                 if self.upnp_handler.1.is_none() {
-                    self.upnp_handler.1 = Some(UPnPHandler::new(Some(Duration::from_millis(2000))).await?);
+                    self.upnp_handler.1 =
+                        Some(UPnPHandler::new(Some(Duration::from_millis(2000))).await?);
                 }
 
                 let handler = self.upnp_handler.1.as_ref().unwrap();
-                let local_addr = self.socket.as_ref().ok_or_else(||FirewallError::HolePunch("UDP Socket not loaded".to_string()))?.local_addr()?;
-                let reserved_port = handler.open_any_firewall_port(PortMappingProtocol::UDP, None, "Lusna", None, local_addr.port()).await?;
+                let local_addr = self
+                    .socket
+                    .as_ref()
+                    .ok_or_else(|| FirewallError::HolePunch("UDP Socket not loaded".to_string()))?
+                    .local_addr()?;
+                let reserved_port = handler
+                    .open_any_firewall_port(
+                        PortMappingProtocol::UDP,
+                        None,
+                        "Lusna",
+                        None,
+                        local_addr.port(),
+                    )
+                    .await?;
                 //let reserved_port = handler.open_any_firewall_port(PortMappingProtocol::TCP, None, "SatoriNET", None, local_socket.local_addr()?.port()).await?;
                 let peer_external_addr = self.peer_external_addr(); // the external addr is in slot 0
-                // The return address will appear as the natted socket below because the adjacent endpoint must send through the reserve port
+                                                                    // The return address will appear as the natted socket below because the adjacent endpoint must send through the reserve port
                 let natted_socket = SocketAddr::new(peer_external_addr.ip(), reserved_port);
                 log::trace!(target: "lusna", "[UPnP]: Opened port {}", reserved_port);
                 let unique_id = self.unique_id;
-                let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, natted_socket, unique_id);
+                let hole_punched_addr =
+                    TargettedSocketAddr::new(peer_external_addr, natted_socket, unique_id);
                 log::trace!(target: "lusna", "[UPnP] {}", &hole_punched_addr);
 
-                Ok(HolePunchedUdpSocket { addr: hole_punched_addr, socket: self.socket.take().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))? })
-            },
+                Ok(HolePunchedUdpSocket {
+                    addr: hole_punched_addr,
+                    socket: self.socket.take().ok_or_else(|| {
+                        FirewallError::HolePunch("UDP socket not loaded".to_string())
+                    })?,
+                })
+            }
 
             NatTraversalMethod::Method3 => {
                 self.method3.0 = true;
@@ -87,14 +123,22 @@ impl SingleUDPHolePuncher {
 
                 let this = &*self;
                 let process = async move {
-                    this.method3.1.execute(this.socket.as_ref().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?, &this.possible_endpoints).await
+                    this.method3
+                        .1
+                        .execute(
+                            this.socket.as_ref().ok_or_else(|| {
+                                FirewallError::HolePunch("UDP socket not loaded".to_string())
+                            })?,
+                            &this.possible_endpoints,
+                        )
+                        .await
                 };
 
                 let kill_listener = async move {
                     if let Ok((local_id, peer_id)) = kill_switch.recv().await {
                         log::trace!(target: "lusna", "[Kill Listener] Received signal. {:?} must == {:?} || {:?}", local_id, this_local_id, peer_id);
                         if local_id == this_local_id && this.has_remote_id_synd(peer_id) {
-                            return Some((local_id, peer_id))
+                            return Some((local_id, peer_id));
                         }
                     }
 
@@ -107,9 +151,10 @@ impl SingleUDPHolePuncher {
                 };
 
                 match res {
-                    Either::Right(addr) => {
-                        Ok(HolePunchedUdpSocket { socket: self.socket.take().unwrap(), addr })
-                    }
+                    Either::Right(addr) => Ok(HolePunchedUdpSocket {
+                        socket: self.socket.take().unwrap(),
+                        addr,
+                    }),
 
                     Either::Left(id_opt) => {
                         match id_opt {
@@ -119,22 +164,34 @@ impl SingleUDPHolePuncher {
 
                             None => {
                                 log::trace!(target: "lusna", "Will end hole puncher {:?} since kill switch called", self.get_unique_id());
-                                post_kill_rebuild.send(None).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                                post_kill_rebuild
+                                    .send(None)
+                                    .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
                             }
                         }
 
                         Err(FirewallError::Skip)
                     }
                 }
-            },
+            }
 
             NatTraversalMethod::None => {
                 // assume the endpoint is exactly as expected. This is not recommended unless server to server communication occurs
                 // 1-1 mapping
-                let socket = self.socket.take().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?;
+                let socket = self
+                    .socket
+                    .take()
+                    .ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?;
                 //let bind_addr = socket.local_addr()?;
                 let unique_id = self.unique_id;
-                Ok(HolePunchedUdpSocket { socket, addr: TargettedSocketAddr { send_address: self.peer_external_addr(), receive_address: self.peer_external_addr(), unique_id } })
+                Ok(HolePunchedUdpSocket {
+                    socket,
+                    addr: TargettedSocketAddr {
+                        send_address: self.peer_external_addr(),
+                        receive_address: self.peer_external_addr(),
+                        unique_id,
+                    },
+                })
             }
         }
     }
@@ -151,11 +208,11 @@ impl SingleUDPHolePuncher {
     /// returns None if all techniques have been exhausted
     pub fn get_next_method(&self) -> Option<NatTraversalMethod> {
         if !self.method3.0 {
-            return Some(NatTraversalMethod::Method3)
+            return Some(NatTraversalMethod::Method3);
         }
 
         if !self.upnp_handler.0 {
-            return Some(NatTraversalMethod::UPnP)
+            return Some(NatTraversalMethod::UPnP);
         }
 
         None
@@ -166,18 +223,30 @@ impl SingleUDPHolePuncher {
     }
 
     /// this should only be called when the adjacent node verified that the connection occured
-    pub fn recovery_mode_generate_socket_by_remote_id(&mut self, remote_id: HolePunchID) -> Option<HolePunchedUdpSocket> {
-        let addr = self.method3.1.get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
+    pub fn recovery_mode_generate_socket_by_remote_id(
+        &mut self,
+        remote_id: HolePunchID,
+    ) -> Option<HolePunchedUdpSocket> {
+        let addr = self
+            .method3
+            .1
+            .get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
         let socket = self.socket.take()?;
         Some(HolePunchedUdpSocket { addr, socket })
     }
 
     fn has_remote_id_synd(&self, remote_id: HolePunchID) -> bool {
-        self.method3.1.get_peer_external_addr_from_peer_hole_punch_id(remote_id).is_some()
+        self.method3
+            .1
+            .get_peer_external_addr_from_peer_hole_punch_id(remote_id)
+            .is_some()
     }
 
     /// this should only be called when the adjacent node verified that the connection occured
-    pub fn recovery_mode_generate_socket_by_addr(&mut self, addr: TargettedSocketAddr) -> Option<HolePunchedUdpSocket> {
+    pub fn recovery_mode_generate_socket_by_addr(
+        &mut self,
+        addr: TargettedSocketAddr,
+    ) -> Option<HolePunchedUdpSocket> {
         let socket = self.socket.take()?;
         Some(HolePunchedUdpSocket { addr, socket })
     }
@@ -186,7 +255,11 @@ impl SingleUDPHolePuncher {
 /// Methods described in https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MethodType {
-    METHOD1, METHOD2, METHOD3, METHOD4, METHOD5
+    METHOD1,
+    METHOD2,
+    METHOD3,
+    METHOD4,
+    METHOD5,
 }
 
 impl MethodType {
@@ -196,7 +269,7 @@ impl MethodType {
             MethodType::METHOD2 => 1,
             MethodType::METHOD3 => 2,
             MethodType::METHOD4 => 3,
-            MethodType::METHOD5 => 4
+            MethodType::METHOD5 => 4,
         }
     }
 
@@ -207,7 +280,7 @@ impl MethodType {
             2 => Some(MethodType::METHOD3),
             3 => Some(MethodType::METHOD4),
             4 => Some(MethodType::METHOD5),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -221,9 +294,16 @@ pub trait LinearUdpHolePunchImpl {
     ///
     /// `endpoint`: is the initial send location
     /// `sockets`: Must be the same length as the base_local_ports
-    async fn execute(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError>;
+    async fn execute(
+        &self,
+        socket: &UdpSocket,
+        endpoints: &Vec<SocketAddr>,
+    ) -> Result<TargettedSocketAddr, FirewallError>;
     /// used during "recovery mode" (when one side completes, but the other does not
-    fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<TargettedSocketAddr>;
+    fn get_peer_external_addr_from_peer_hole_punch_id(
+        &self,
+        id: HolePunchID,
+    ) -> Option<TargettedSocketAddr>;
     fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID>;
 }
 

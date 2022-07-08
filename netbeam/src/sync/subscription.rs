@@ -1,13 +1,15 @@
+use crate::multiplex::{MemorySender, MultiplexedConn, MultiplexedConnKey, MultiplexedPacket};
 use crate::reliable_conn::ReliableOrderedStreamToTarget;
-use crate::multiplex::{MultiplexedConnKey, MultiplexedPacket, MultiplexedConn, MemorySender};
-use tokio::sync::Mutex;
-use tokio::sync::mpsc::UnboundedReceiver;
+use crate::sync::network_application::{
+    PostActionChannel, PostActionSync, PreActionChannel, PreActionSync,
+};
+use crate::sync::RelativeNodeType;
+use async_trait::async_trait;
+use bytes::Bytes;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use crate::sync::network_application::{PostActionChannel, PreActionChannel, PreActionSync, PostActionSync};
-use crate::sync::RelativeNodeType;
-use bytes::Bytes;
-use async_trait::async_trait;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::Mutex;
 
 #[async_trait]
 pub trait SubscriptionBiStream: Send + Sync {
@@ -24,8 +26,12 @@ pub trait SubscriptionBiStream: Send + Sync {
 pub trait SubscriptionBiStreamExt: SubscriptionBiStream {
     /// Creates a new multiplexed level capable of obtaining more subscribers.
     /// Uses Self as a reliable ordered connection, while using NewId to identify the substreams in the created next level
-    async fn multiplex<NewID: MultiplexedConnKey + 'static>(self) -> Result<MultiplexedConn<NewID>, anyhow::Error>
-        where Self: Sized + 'static {
+    async fn multiplex<NewID: MultiplexedConnKey + 'static>(
+        self,
+    ) -> Result<MultiplexedConn<NewID>, anyhow::Error>
+    where
+        Self: Sized + 'static,
+    {
         MultiplexedConn::register(self.node_type(), self).await
     }
 }
@@ -37,7 +43,8 @@ pub trait Subscribable: Send + Sync + Sized {
     type ID: MultiplexedConnKey;
     type UnderlyingConn: ReliableOrderedStreamToTarget + 'static;
     type SubscriptionType: SubscriptionBiStream;
-    type BorrowedSubscriptionType: SubscriptionBiStream<ID=Self::ID, Conn=Self::UnderlyingConn> + Into<Self::SubscriptionType>;
+    type BorrowedSubscriptionType: SubscriptionBiStream<ID = Self::ID, Conn = Self::UnderlyingConn>
+        + Into<Self::SubscriptionType>;
     // TODO on stabalization of GATs: type BorrowedSubscriptionType<'a>: SubscriptionBiStream<ID=Self::ID, Conn=Self::UnderlyingConn> + Into<Self::SubscriptionType>;
 
     fn underlying_conn(&self) -> &Self::UnderlyingConn;
@@ -64,19 +71,38 @@ pub trait Subscribable: Send + Sync + Sized {
 #[async_trait]
 impl<R: SubscriptionBiStream + ?Sized> ReliableOrderedStreamToTarget for R {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-        let packet = MultiplexedPacket::ApplicationLayer { id: self.id(), payload: input.to_vec() };
-        self.conn().send_to_peer(&bincode2::serialize(&packet).unwrap()).await
+        let packet = MultiplexedPacket::ApplicationLayer {
+            id: self.id(),
+            payload: input.to_vec(),
+        };
+        self.conn()
+            .send_to_peer(&bincode2::serialize(&packet).unwrap())
+            .await
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {
-        self.receiver().lock().await.recv().await.map(Bytes::from).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Receiver died"))
+        self.receiver()
+            .lock()
+            .await
+            .recv()
+            .await
+            .map(Bytes::from)
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Receiver died")
+            })
     }
 }
 
-pub(crate) fn close_sequence_for_multiplexed_bistream<S: Subscribable<ID=K> + 'static, K: MultiplexedConnKey + 'static>(id: K, ptr: S) {
+pub(crate) fn close_sequence_for_multiplexed_bistream<
+    S: Subscribable<ID = K> + 'static,
+    K: MultiplexedConnKey + 'static,
+>(
+    id: K,
+    ptr: S,
+) {
     log::trace!(target: "lusna", "Running DROP on {:?}", id);
 
-    fn close<S: Subscribable<ID=K>, K: MultiplexedConnKey>(id: K, ptr: &S) {
+    fn close<S: Subscribable<ID = K>, K: MultiplexedConnKey>(id: K, ptr: &S) {
         let _ = ptr.subscriptions().write().remove(&id);
         log::trace!(target: "lusna", "DROPPED id = {:?}", id);
     }

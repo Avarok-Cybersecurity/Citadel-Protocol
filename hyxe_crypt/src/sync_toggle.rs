@@ -1,10 +1,10 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct SyncToggle {
     // when serializing this, always reset to default (untoggled/false)
     #[serde(default)]
-    inner: std::sync::Arc<std::sync::atomic::AtomicBool>
+    inner: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCst;
@@ -13,12 +13,14 @@ const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCs
 pub enum CurrentToggleState {
     JustToggled,
     AlreadyToggled,
-    Untoggled
+    Untoggled,
 }
 
 impl SyncToggle {
     pub fn new() -> Self {
-        Self { inner: Default::default()  }
+        Self {
+            inner: Default::default(),
+        }
     }
 
     // Returns true if value has already been toggled to true,
@@ -46,23 +48,38 @@ impl SyncToggle {
 
 #[cfg(test)]
 mod tests {
-    use crate::sync_toggle::{SyncToggle, CurrentToggleState};
+    use crate::sync_toggle::{CurrentToggleState, SyncToggle};
 
     #[test]
     fn test_sync_toggle() {
         let toggle = SyncToggle::new();
         assert_eq!(toggle.get(), CurrentToggleState::Untoggled);
-        assert_eq!(toggle.toggle_on_if_untoggled(), CurrentToggleState::JustToggled);
+        assert_eq!(
+            toggle.toggle_on_if_untoggled(),
+            CurrentToggleState::JustToggled
+        );
         toggle.toggle_off();
         assert_eq!(toggle.get(), CurrentToggleState::Untoggled);
-        assert_eq!(toggle.toggle_on_if_untoggled(), CurrentToggleState::JustToggled);
+        assert_eq!(
+            toggle.toggle_on_if_untoggled(),
+            CurrentToggleState::JustToggled
+        );
         assert_eq!(toggle.get(), CurrentToggleState::AlreadyToggled);
-        assert_eq!(toggle.toggle_on_if_untoggled(), CurrentToggleState::AlreadyToggled);
+        assert_eq!(
+            toggle.toggle_on_if_untoggled(),
+            CurrentToggleState::AlreadyToggled
+        );
         assert_eq!(toggle.get(), CurrentToggleState::AlreadyToggled);
-        assert_eq!(toggle.toggle_on_if_untoggled(), CurrentToggleState::AlreadyToggled);
+        assert_eq!(
+            toggle.toggle_on_if_untoggled(),
+            CurrentToggleState::AlreadyToggled
+        );
         assert_eq!(toggle.get(), CurrentToggleState::AlreadyToggled);
         toggle.toggle_off();
         assert_eq!(toggle.get(), CurrentToggleState::Untoggled);
-        assert_eq!(toggle.toggle_on_if_untoggled(), CurrentToggleState::JustToggled);
+        assert_eq!(
+            toggle.toggle_on_if_untoggled(),
+            CurrentToggleState::JustToggled
+        );
     }
 }

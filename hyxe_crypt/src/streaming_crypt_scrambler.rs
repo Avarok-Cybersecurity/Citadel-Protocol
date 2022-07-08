@@ -1,23 +1,23 @@
 use bytes::BytesMut;
-use tokio::sync::mpsc::Sender as GroupChanneler;
-use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
 use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
+use tokio::sync::mpsc::Sender as GroupChanneler;
+use tokio::sync::oneshot::Receiver;
 
 use crate::drill::{Drill, SecurityLevel};
-use crate::net::crypt_splitter::{GroupSenderDevice, par_scramble_encrypt_group};
+use crate::net::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 use crate::packet_vector::PacketVector;
 
-use std::task::Poll;
-use tokio_stream::{Stream,StreamExt};
-use crate::hyper_ratchet::HyperRatchet;
-use tokio::task::{JoinHandle, JoinError};
 use crate::misc::CryptError;
+use crate::stacked_ratchet::StackedRatchet;
 use futures::Future;
-use std::sync::Arc;
-use parking_lot::Mutex;
 use num_integer::Integer;
+use parking_lot::Mutex;
+use std::sync::Arc;
+use std::task::Poll;
+use tokio::task::{JoinError, JoinHandle};
+use tokio_stream::{Stream, StreamExt};
 
 /// 3Mb per group
 pub const MAX_BYTES_PER_GROUP: usize = crate::net::crypt_splitter::MAX_BYTES_PER_GROUP;
@@ -36,8 +36,15 @@ impl FixedSizedStream for std::fs::File {
 }
 
 /// Generic function for inscribing headers on packets
-pub trait HeaderInscriberFn: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static {}
-impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static> HeaderInscriberFn for T {}
+pub trait HeaderInscriberFn:
+    for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static
+{
+}
+impl<
+        T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static,
+    > HeaderInscriberFn for T
+{
+}
 
 /// As the networking protocol receives ACKs from the packets it gets from the sender, it should call the waker that this function sends through `waker_sender` once
 /// it is close to finishing the group (depending on speed).
@@ -48,12 +55,29 @@ impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Se
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const N: usize>(source: S, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), CryptError> {
-    let file_len = source.length().map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
+pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const N: usize>(
+    source: S,
+    max_group_size: Option<usize>,
+    object_id: u32,
+    group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
+    stop: Receiver<()>,
+    security_level: SecurityLevel,
+    hyper_ratchet: StackedRatchet,
+    header_size_bytes: usize,
+    target_cid: u64,
+    group_id: u64,
+    header_inscriber: F,
+) -> Result<(usize, usize), CryptError> {
+    let file_len = source
+        .length()
+        .map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
-        return Err(CryptError::Encrypt(format!("Maximum group size cannot be larger than {} bytes", MAX_BYTES_PER_GROUP)))
+        return Err(CryptError::Encrypt(format!(
+            "Maximum group size cannot be larger than {} bytes",
+            MAX_BYTES_PER_GROUP
+        )));
     }
 
     let total_groups = Integer::div_ceil(&file_len, &max_bytes_per_group);
@@ -61,7 +85,10 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
     log::trace!(target: "lusna", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
     let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), source);
 
-    let buffer = Arc::new(Mutex::new(vec![0u8; std::cmp::min(file_len, max_bytes_per_group)]));
+    let buffer = Arc::new(Mutex::new(vec![
+        0u8;
+        std::cmp::min(file_len, max_bytes_per_group)
+    ]));
     let file_scrambler = AsyncCryptScrambler {
         total_groups,
         buffer,
@@ -78,7 +105,7 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
         read_cursor: 0,
         header_inscriber: Arc::new(header_inscriber),
         poll_amt: 0,
-        cur_task: None
+        cur_task: None,
     };
 
     tokio::task::spawn(async move {
@@ -96,12 +123,19 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
 }
 
 async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {
-    stop.await.map_err(|err| CryptError::Encrypt(err.to_string()))
+    stop.await
+        .map_err(|err| CryptError::Encrypt(err.to_string()))
 }
 
-async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, mut file_scrambler: AsyncCryptScrambler<F, R, N>) -> Result<(), CryptError> {
+async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(
+    group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
+    mut file_scrambler: AsyncCryptScrambler<F, R, N>,
+) -> Result<(), CryptError> {
     while let Some(val) = file_scrambler.next().await {
-        group_sender.send(Ok(val)).await.map_err(|err| CryptError::Encrypt(err.to_string()))?;
+        group_sender
+            .send(Ok(val))
+            .await
+            .map_err(|err| CryptError::Encrypt(err.to_string()))?;
     }
 
     Ok(())
@@ -110,7 +144,7 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(group_send
 #[allow(dead_code)]
 struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     reader: BufReader<R>,
-    hyper_ratchet: HyperRatchet,
+    hyper_ratchet: StackedRatchet,
     security_level: SecurityLevel,
     file_len: usize,
     read_cursor: usize,
@@ -124,12 +158,19 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     poll_amt: usize,
     buffer: Arc<Mutex<Vec<u8>>>,
     header_inscriber: Arc<F>,
-    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>
+    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
 }
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
-    fn poll_task(groups_rendered: &mut usize, read_cursor: &mut usize, poll_amt: usize, cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>, cx: &mut Context<'_>) -> Poll<Option<GroupSenderDevice<N>>> {
-        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, JoinError> = futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
+    fn poll_task(
+        groups_rendered: &mut usize,
+        read_cursor: &mut usize,
+        poll_amt: usize,
+        cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<GroupSenderDevice<N>>> {
+        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, JoinError> =
+            futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
         return if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;
             *read_cursor += poll_amt;
@@ -138,14 +179,17 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
         } else {
             log::error!(target: "lusna", "Unable to par_scramble_encrypt group");
             Poll::Ready(None)
-        }
+        };
     }
 }
 
 impl<'a, F: HeaderInscriberFn, R: Read, const N: usize> Unpin for AsyncCryptScrambler<F, R, N> {}
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
-    fn poll_scramble_next_group(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<GroupSenderDevice<N>>> {
+    fn poll_scramble_next_group(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<GroupSenderDevice<N>>> {
         let Self {
             hyper_ratchet,
             file_len,
@@ -166,7 +210,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
         } = &mut *self;
 
         if cur_task.is_some() {
-            return Self::poll_task(groups_rendered,read_cursor, *poll_amt, cur_task, cx);
+            return Self::poll_task(groups_rendered, read_cursor, *poll_amt, cur_task, cx);
         }
 
         if *read_cursor != *file_len {
@@ -189,14 +233,21 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 let object_id = *object_id;
 
                 let task = tokio::task::spawn_blocking(move || {
-                    par_scramble_encrypt_group(&buffer.lock()[..poll_len], security_level, &hyper_ratchet,  header_size_bytes, target_cid, object_id, group_id_input, |a, b, c, d, e| {
-                        (header_inscriber)(a, b, c, d, e)
-                    })
+                    par_scramble_encrypt_group(
+                        &buffer.lock()[..poll_len],
+                        security_level,
+                        &hyper_ratchet,
+                        header_size_bytes,
+                        target_cid,
+                        object_id,
+                        group_id_input,
+                        |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
+                    )
                 });
 
                 *cur_task = Some(task);
                 *poll_amt = poll_len;
-                Self::poll_task(groups_rendered,read_cursor,*poll_amt, cur_task, cx)
+                Self::poll_task(groups_rendered, read_cursor, *poll_amt, cur_task, cx)
             } else {
                 log::error!(target: "lusna", "Error polling exact amt {}", poll_len);
                 Poll::Ready(None)

@@ -1,17 +1,19 @@
-use std::ops::Deref;
-use std::fmt::{Debug, Display};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use std::fmt::{Debug, Display};
+use std::ops::Deref;
 
 /// Allows mutable access
 pub struct SecString {
-    inner: String
+    inner: String,
 }
 
 impl SecString {
     /// Creates a new instance SecString
     pub const fn new() -> Self {
-        Self { inner: String::new() }
+        Self {
+            inner: String::new(),
+        }
     }
 
     /// Safely pushes a new character
@@ -67,7 +69,9 @@ impl SecString {
 
 impl<T: Into<String>> From<T> for SecString {
     fn from(inner: T) -> Self {
-        let this = Self { inner: inner.into() };
+        let this = Self {
+            inner: inner.into(),
+        };
         this.lock();
         this
     }
@@ -122,8 +126,10 @@ fn decompose(input: &String) -> (*const u8, usize) {
 }
 
 impl Serialize for SecString {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-        S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
         self.unlock();
         let res = serializer.serialize_bytes(self.as_ref());
         self.lock();
@@ -132,8 +138,10 @@ impl Serialize for SecString {
 }
 
 impl<'de> Deserialize<'de> for SecString {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
         Ok(Self::from(String::deserialize(deserializer)?))
     }
 }
