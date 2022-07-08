@@ -208,10 +208,8 @@ jobs:
           redis-port: 6379
       - name: Run llvm-cov nextest
         env:
-          TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/Users/runner/hyxewave.db,redis://127.0.0.1:6379/1"
-          TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/Users/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-#        run: 'RUST_LOG=lusna=trace cargo tarpaulin --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=filesystem,redis,sql,localhost-testing,multi-threaded -- --test-threads=1 --skip argon_autotuner'
-        run: cargo llvm-cov nextest --features=filesystem,redis,sql,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --lcov --output-path lcov.info
+          SKIP_EXT_BACKENDS: "true"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --lcov --output-path lcov.info --ignore-filename-regex mysql_backend,redis_backend
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
