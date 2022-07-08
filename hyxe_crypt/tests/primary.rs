@@ -8,6 +8,7 @@ mod tests {
     use hyxe_crypt::argon::argon_container::{
         ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
     };
+    #[cfg(not(coverage))]
     use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
@@ -22,6 +23,7 @@ mod tests {
     use std::time::Instant;
 
     #[tokio::test]
+    #[cfg(not(coverage))]
     async fn argon_autotuner() {
         lusna_logging::setup_log();
         let start_time = Instant::now();
