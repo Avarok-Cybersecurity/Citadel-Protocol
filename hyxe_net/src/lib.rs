@@ -367,9 +367,9 @@ pub mod re_imports {
 
 pub mod prelude {
     pub use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
-    pub use hyxe_crypt::argon::{
-        argon_container::ArgonDefaultServerSettings, autotuner::calculate_optimal_argon_params,
-    };
+    pub use hyxe_crypt::argon::argon_container::ArgonDefaultServerSettings;
+    #[cfg(not(coverage))]
+    pub use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     pub use hyxe_crypt::fcm::keys::FcmKeys;
     pub use hyxe_crypt::secure_buffer::{sec_bytes::SecBuffer, sec_string::SecString};
     pub use hyxe_user::account_manager::AccountManager;
