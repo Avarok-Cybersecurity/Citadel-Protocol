@@ -1,8 +1,8 @@
 use tokio::time::Instant;
 
+use crate::hdp::hdp_node::ConnectMode;
 use crate::hdp::hdp_packet::packet_flags;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
-use crate::hdp::hdp_node::ConnectMode;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_connect::*
 #[derive(Default)]
@@ -11,7 +11,7 @@ pub struct ConnectState {
     pub(crate) proposed_credentials: Option<ProposedCredentials>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) fail_time: Option<i64>,
-    pub(crate) connect_mode: Option<ConnectMode>
+    pub(crate) connect_mode: Option<ConnectMode>,
 }
 
 impl ConnectState {
@@ -36,6 +36,9 @@ impl ConnectState {
 
 impl From<u8> for ConnectState {
     fn from(stage: u8) -> Self {
-        Self { last_stage: stage, ..Default::default() }
+        Self {
+            last_stage: stage,
+            ..Default::default()
+        }
     }
 }

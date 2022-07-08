@@ -1,13 +1,13 @@
 use crate::secure_buffer::sec_string::SecString;
+use bytes::BytesMut;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use bytes::BytesMut;
 use std::ops::{Deref, DerefMut};
 
 /// A memory-secure wrapper for shipping around Bytes
 pub struct SecBuffer {
-    inner: BytesMut
+    inner: BytesMut,
 }
 
 impl SecBuffer {
@@ -54,7 +54,7 @@ impl SecBuffer {
 }
 
 pub struct SecureBufMutHandle<'a> {
-    inner: &'a mut SecBuffer
+    inner: &'a mut SecBuffer,
 }
 
 impl<'a> SecureBufMutHandle<'a> {
@@ -163,8 +163,10 @@ impl Clone for SecBuffer {
 }
 
 impl Serialize for SecBuffer {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-        S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
         self.unlock();
         let ret = self.inner.serialize(serializer);
         self.lock();
@@ -173,8 +175,10 @@ impl Serialize for SecBuffer {
 }
 
 impl<'de> Deserialize<'de> for SecBuffer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
         Ok(Self::from(BytesMut::deserialize(deserializer)?))
     }
 }

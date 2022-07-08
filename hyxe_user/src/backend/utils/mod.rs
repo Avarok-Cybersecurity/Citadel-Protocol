@@ -1,5 +1,5 @@
-use futures::Stream;
 use crate::serialization::SyncIO;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 use std::path::PathBuf;
@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 pub use utils::StreamableTargetInformation;
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender, UnboundedReceiver};
 use std::sync::Arc;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 /// Misc utils/traits
 pub mod utils;
@@ -20,7 +20,7 @@ pub struct VirtualObjectMetadata {
     pub author: String,
     pub plaintext_length: usize,
     pub group_count: usize,
-    pub object_id: u32
+    pub object_id: u32,
 }
 
 impl VirtualObjectMetadata {
@@ -46,7 +46,7 @@ pub struct ObjectTransferHandle {
     inner: UnboundedReceiver<ObjectTransferStatus>,
     pub source: u64,
     pub receiver: u64,
-    pub orientation: ObjectTransferOrientation
+    pub orientation: ObjectTransferOrientation,
 }
 
 impl Stream for ObjectTransferHandle {
@@ -58,14 +58,18 @@ impl Stream for ObjectTransferHandle {
 }
 
 impl ObjectTransferHandle {
-    pub fn new(source: u64, receiver: u64, orientation: ObjectTransferOrientation) -> (Self, UnboundedSender<ObjectTransferStatus>) {
+    pub fn new(
+        source: u64,
+        receiver: u64,
+        orientation: ObjectTransferOrientation,
+    ) -> (Self, UnboundedSender<ObjectTransferStatus>) {
         let (tx, inner) = unbounded_channel();
 
         let this = Self {
             inner,
             source,
             receiver,
-            orientation
+            orientation,
         };
 
         (this, tx)
@@ -74,7 +78,8 @@ impl ObjectTransferHandle {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ObjectTransferOrientation {
-    Receiver, Sender
+    Receiver,
+    Sender,
 }
 
 #[derive(Debug, Clone)]
@@ -87,22 +92,25 @@ pub enum ObjectTransferStatus {
     ReceptionTick(usize, usize, f32),
     TransferComplete,
     ReceptionComplete,
-    Fail(String)
+    Fail(String),
 }
 
 impl ObjectTransferStatus {
     pub fn is_tick_type(&self) -> bool {
         match self {
-            ObjectTransferStatus::TransferTick(_, _, _) | ObjectTransferStatus::ReceptionTick(_, _, _) => true,
-            _ => false
+            ObjectTransferStatus::TransferTick(_, _, _)
+            | ObjectTransferStatus::ReceptionTick(_, _, _) => true,
+            _ => false,
         }
     }
 
     /// Even if an error, returns true if the file transfer is done
     pub fn is_finished_type(&self) -> bool {
         match self {
-            ObjectTransferStatus::TransferComplete | ObjectTransferStatus::ReceptionComplete | ObjectTransferStatus::Fail(_) => true,
-            _ => false
+            ObjectTransferStatus::TransferComplete
+            | ObjectTransferStatus::ReceptionComplete
+            | ObjectTransferStatus::Fail(_) => true,
+            _ => false,
         }
     }
 }
@@ -141,9 +149,19 @@ impl std::fmt::Display for ObjectTransferStatus {
     }
 }
 
-fn print_tick(f: &mut Formatter<'_>, relative_group_id: usize, total_groups: usize, transfer_rate: f32) -> std::fmt::Result {
+fn print_tick(
+    f: &mut Formatter<'_>,
+    relative_group_id: usize,
+    total_groups: usize,
+    transfer_rate: f32,
+) -> std::fmt::Result {
     if can_print_progress(relative_group_id, total_groups) {
-        write!(f, " ({}% @ {} MB/s) ", get_progress_percent(relative_group_id, total_groups), transfer_rate)
+        write!(
+            f,
+            " ({}% @ {} MB/s) ",
+            get_progress_percent(relative_group_id, total_groups),
+            transfer_rate
+        )
     } else {
         write!(f, "...")
     }

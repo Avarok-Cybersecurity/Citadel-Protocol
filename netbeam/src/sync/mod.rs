@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+pub mod collections;
 pub mod operations;
 pub mod primitives;
-pub mod collections;
 
 pub mod subscription;
 
@@ -28,34 +28,45 @@ impl From<u64> for SymmetricConvID {
 pub mod test_utils {
     use async_trait::async_trait;
     use bytes::Bytes;
-    use futures::{SinkExt, StreamExt};
     use futures::stream::{SplitSink, SplitStream};
+    use futures::{SinkExt, StreamExt};
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::Mutex;
     use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-    use crate::reliable_conn::{ReliableOrderedStreamToTarget, ConnAddr};
     use crate::reliable_conn::simulator::NetworkConnSimulator;
+    use crate::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
     use crate::sync::network_application::NetworkApplication;
-    use crate::sync::RelativeNodeType;
     use crate::sync::network_endpoint::NetworkEndpoint;
+    use crate::sync::RelativeNodeType;
     use std::net::SocketAddr;
 
     pub struct TcpCodecFramed {
         sink: Mutex<SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>>,
         stream: Mutex<SplitStream<Framed<TcpStream, LengthDelimitedCodec>>>,
         local_addr: SocketAddr,
-        peer_addr: SocketAddr
+        peer_addr: SocketAddr,
     }
 
     #[async_trait]
     impl ReliableOrderedStreamToTarget for TcpCodecFramed {
         async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-            self.sink.lock().await.send(Bytes::copy_from_slice(input)).await
+            self.sink
+                .lock()
+                .await
+                .send(Bytes::copy_from_slice(input))
+                .await
         }
 
         async fn recv(&self) -> std::io::Result<Bytes> {
-            Ok(self.stream.lock().await.next().await.ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Stream died"))??.freeze())
+            Ok(self
+                .stream
+                .lock()
+                .await
+                .next()
+                .await
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Stream died"))??
+                .freeze())
         }
     }
 
@@ -73,7 +84,12 @@ pub mod test_utils {
         let local_addr = stream.local_addr().unwrap();
         let peer_addr = stream.peer_addr().unwrap();
         let (sink, stream) = LengthDelimitedCodec::builder().new_framed(stream).split();
-        TcpCodecFramed { sink: Mutex::new(sink), stream: Mutex::new(stream), peer_addr, local_addr }
+        TcpCodecFramed {
+            sink: Mutex::new(sink),
+            stream: Mutex::new(stream),
+            peer_addr,
+            local_addr,
+        }
     }
 
     pub async fn create_streams() -> (NetworkApplication, NetworkApplication) {
@@ -81,28 +97,50 @@ pub mod test_utils {
         let server = async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             tx.send(listener.local_addr().unwrap()).unwrap();
-            NetworkApplication::register(RelativeNodeType::Receiver, NetworkConnSimulator::new(0, codec(listener.accept().await.unwrap().0))).await.unwrap()
+            NetworkApplication::register(
+                RelativeNodeType::Receiver,
+                NetworkConnSimulator::new(0, codec(listener.accept().await.unwrap().0)),
+            )
+            .await
+            .unwrap()
         };
 
         let client = async move {
             let addr = rx.await.unwrap();
-            NetworkApplication::register(RelativeNodeType::Initiator, NetworkConnSimulator::new(0,codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
+            NetworkApplication::register(
+                RelativeNodeType::Initiator,
+                NetworkConnSimulator::new(0, codec(TcpStream::connect(addr).await.unwrap())),
+            )
+            .await
+            .unwrap()
         };
 
         tokio::join!(server, client)
     }
 
-    pub async fn create_streams_with_addrs_and_lag(min: usize) -> (NetworkEndpoint, NetworkEndpoint) {
+    pub async fn create_streams_with_addrs_and_lag(
+        min: usize,
+    ) -> (NetworkEndpoint, NetworkEndpoint) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let server = async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             tx.send(listener.local_addr().unwrap()).unwrap();
-            NetworkEndpoint::register(RelativeNodeType::Receiver, NetworkConnSimulator::new(min, codec(listener.accept().await.unwrap().0))).await.unwrap()
+            NetworkEndpoint::register(
+                RelativeNodeType::Receiver,
+                NetworkConnSimulator::new(min, codec(listener.accept().await.unwrap().0)),
+            )
+            .await
+            .unwrap()
         };
 
         let client = async move {
             let addr = rx.await.unwrap();
-            NetworkEndpoint::register(RelativeNodeType::Initiator, NetworkConnSimulator::new(min, codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
+            NetworkEndpoint::register(
+                RelativeNodeType::Initiator,
+                NetworkConnSimulator::new(min, codec(TcpStream::connect(addr).await.unwrap())),
+            )
+            .await
+            .unwrap()
         };
 
         tokio::join!(server, client)
@@ -116,14 +154,14 @@ pub mod test_utils {
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RelativeNodeType {
     Initiator,
-    Receiver
+    Receiver,
 }
 
 impl RelativeNodeType {
     pub fn into_byte(self) -> u8 {
         match self {
             RelativeNodeType::Initiator => 10,
-            RelativeNodeType::Receiver => 20
+            RelativeNodeType::Receiver => 20,
         }
     }
 
@@ -131,7 +169,7 @@ impl RelativeNodeType {
         match byte {
             10 => Some(RelativeNodeType::Initiator),
             20 => Some(RelativeNodeType::Receiver),
-            _ => None
+            _ => None,
         }
     }
 }

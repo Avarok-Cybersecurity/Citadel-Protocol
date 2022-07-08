@@ -4,7 +4,7 @@ use crate::hdp::hdp_node::Ticket;
 pub struct DeRegisterState {
     pub(crate) last_packet_time: Option<i64>,
     pub(crate) in_progress: bool,
-    pub(crate) current_ticket: Option<Ticket>
+    pub(crate) current_ticket: Option<Ticket>,
 }
 
 impl DeRegisterState {
@@ -18,6 +18,10 @@ impl DeRegisterState {
 
 impl Default for DeRegisterState {
     fn default() -> Self {
-        Self { last_packet_time: None, in_progress: false, current_ticket: None }
+        Self {
+            last_packet_time: None,
+            in_progress: false,
+            current_ticket: None,
+        }
     }
 }

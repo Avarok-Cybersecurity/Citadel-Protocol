@@ -3,56 +3,74 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{Future, StreamExt};
 use futures::stream::FuturesUnordered;
-use serde::{Deserialize, Serialize};
+use futures::{Future, StreamExt};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
-use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
+use crate::error::FirewallError;
+use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
+use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
+use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
-use netbeam::sync::RelativeNodeType;
-use crate::error::FirewallError;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
-use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use netbeam::sync::subscription::Subscribable;
+use netbeam::sync::RelativeNodeType;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
 /// allows the inclusion of a "breadth" variable to allow opening multiple ports for traversing across multiple ports
 pub(crate) struct DualStackUdpHolePuncher<'a> {
     // the key is the local bind addr
-    future: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
+    future: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[allow(variant_size_differences)]
 enum DualStackCandidate {
     MutexSet(HolePunchID, HolePunchID),
-    WinnerCanEnd
+    WinnerCanEnd,
 }
 
 impl<'a> DualStackUdpHolePuncher<'a> {
     /// `peer_internal_port`: Required for determining the internal socket addr
-    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, err(Debug)))]
-    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, mut hole_punch_config: HolePunchConfig, napp: &'a NetworkEndpoint) -> Result<Self, anyhow::Error> {
+    #[cfg_attr(
+        feature = "localhost-testing",
+        tracing::instrument(target = "lusna", skip_all, err(Debug))
+    )]
+    pub fn new(
+        relative_node_type: RelativeNodeType,
+        encrypted_config_container: EncryptedConfigContainer,
+        mut hole_punch_config: HolePunchConfig,
+        napp: &'a NetworkEndpoint,
+    ) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
-        let sockets = hole_punch_config.locally_bound_sockets.take().ok_or_else(|| anyhow::Error::msg("sockets already taken"))?;
+        let sockets = hole_punch_config
+            .locally_bound_sockets
+            .take()
+            .ok_or_else(|| anyhow::Error::msg("sockets already taken"))?;
         let addrs_to_ping: &Vec<SocketAddr> = &hole_punch_config.into_iter().collect();
 
         // each individual hole puncher fans-out from 1 bound socket to n many peer addrs (determined by addrs_to_ping)
         for socket in sockets {
             // TODO: ensure only *some* of the addrs in addrs_to_ping get passed (MAX 2)
-            let hole_puncher = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), socket, addrs_to_ping.clone())?;
+            let hole_puncher = SingleUDPHolePuncher::new(
+                relative_node_type,
+                encrypted_config_container.clone(),
+                socket,
+                addrs_to_ping.clone(),
+            )?;
             hole_punchers.push(hole_puncher);
         }
 
         // TODO: Setup concurrent UPnP AND NAT-PMP async https://docs.rs/natpmp/latest/natpmp/struct.NatpmpAsync.html
 
-        Ok(Self { future: Box::pin(drive(hole_punchers, relative_node_type, napp)) })
+        Ok(Self {
+            future: Box::pin(drive(hole_punchers, relative_node_type, napp)),
+        })
     }
 }
 
@@ -64,8 +82,15 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
-async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNodeType, app: &NetworkEndpoint) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+#[cfg_attr(
+    feature = "localhost-testing",
+    tracing::instrument(target = "lusna", skip_all, ret, err(Debug))
+)]
+async fn drive(
+    hole_punchers: Vec<SingleUDPHolePuncher>,
+    node_type: RelativeNodeType,
+    app: &NetworkEndpoint,
+) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // We use a single mutex to resolve timing/priority conflicts automatically
     // Which ever node FIRST can set the value will "win"
     let value = if node_type == RelativeNodeType::Initiator {
@@ -80,34 +105,51 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
     // setup a mutex for handling contentions
     let net_mutex = &(app.mutex::<Option<()>>(value).await?);
 
-    let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
+    let (final_candidate_tx, final_candidate_rx) =
+        tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
     let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut reader_done_rx_3 = reader_done_tx.subscribe();
 
-    let (ref kill_signal_tx, _kill_signal_rx) = tokio::sync::broadcast::channel(hole_punchers.len());
+    let (ref kill_signal_tx, _kill_signal_rx) =
+        tokio::sync::broadcast::channel(hole_punchers.len());
     let (ref post_rebuild_tx, post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let final_candidate_tx = &mut parking_lot::Mutex::new(Some(final_candidate_tx));
 
-
     let submit_final_candidate = &(|candidate: HolePunchedUdpSocket| -> Result<(), anyhow::Error> {
-        let tx = final_candidate_tx.lock().take().ok_or_else(|| anyhow::Error::msg("submit_final_candidate has already been called"))?;
-        tx.send(candidate).map_err(|_| anyhow::Error::msg("Unable to submit final candidate"))
+        let tx = final_candidate_tx
+            .lock()
+            .take()
+            .ok_or_else(|| anyhow::Error::msg("submit_final_candidate has already been called"))?;
+        tx.send(candidate)
+            .map_err(|_| anyhow::Error::msg("Unable to submit final candidate"))
     });
 
     struct RebuildReadyContainer {
         local_failures: HashMap<HolePunchID, SingleUDPHolePuncher>,
-        post_rebuild_rx: Option<UnboundedReceiver<Option<HolePunchedUdpSocket>>>
+        post_rebuild_rx: Option<UnboundedReceiver<Option<HolePunchedUdpSocket>>>,
     }
 
-    let rebuilder = &tokio::sync::Mutex::new( RebuildReadyContainer { local_failures: HashMap::new(), post_rebuild_rx: Some(post_rebuild_rx) } );
+    let rebuilder = &tokio::sync::Mutex::new(RebuildReadyContainer {
+        local_failures: HashMap::new(),
+        post_rebuild_rx: Some(post_rebuild_rx),
+    });
 
     let loser_value_set = &parking_lot::Mutex::new(None);
 
     let mut futures = FuturesUnordered::new();
-    for (kill_switch_rx, mut hole_puncher) in hole_punchers.into_iter().map(|r| (kill_signal_tx.subscribe(), r)) {
+    for (kill_switch_rx, mut hole_puncher) in hole_punchers
+        .into_iter()
+        .map(|r| (kill_signal_tx.subscribe(), r))
+    {
         futures.push(async move {
-            let res = hole_puncher.try_method(NatTraversalMethod::Method3, kill_switch_rx, post_rebuild_tx.clone()).await;
+            let res = hole_puncher
+                .try_method(
+                    NatTraversalMethod::Method3,
+                    kill_switch_rx,
+                    post_rebuild_tx.clone(),
+                )
+                .await;
             (res, hole_puncher)
         });
     }
@@ -124,27 +166,28 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
         if let Some(mut failure) = lock.local_failures.remove(&local_id) {
             log::trace!(target: "lusna", "[Rebuild] While searching local_failures, found match");
             if let Some(rebuilt) = failure.recovery_mode_generate_socket_by_remote_id(peer_id) {
-                return Ok(rebuilt)
+                return Ok(rebuilt);
             } else {
                 log::warn!(target: "lusna", "[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
             }
         }
 
         let _receivers = kill_signal_tx.send((local_id, peer_id))?;
-        let mut post_rebuild_rx = lock.post_rebuild_rx.take().ok_or_else(||anyhow::Error::msg("post_rebuild_rx has already been taken"))?;
+        let mut post_rebuild_rx = lock
+            .post_rebuild_rx
+            .take()
+            .ok_or_else(|| anyhow::Error::msg("post_rebuild_rx has already been taken"))?;
         log::trace!(target: "lusna", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
         let mut count = 0;
         // Note: if properly implemented, the below should return almost instantly
         loop {
             if let Some(current_enqueued) = current_enqueued.lock().await.take() {
                 log::trace!(target: "lusna", "Grabbed the currently enqueued socket!");
-                return Ok(current_enqueued)
+                return Ok(current_enqueued);
             }
 
             match post_rebuild_rx.recv().await {
-                None => {
-                    return Err(anyhow::Error::msg("post_rebuild_rx failed"))
-                }
+                None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
 
                 Some(None) => {
                     count += 1;
@@ -156,7 +199,7 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
 
                 Some(Some(res)) => {
                     log::trace!(target: "lusna", "*** [rebuild] complete");
-                    return Ok(res)
+                    return Ok(res);
                 }
             }
         }
@@ -166,8 +209,12 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
     let done_tx = parking_lot::Mutex::new(Some(done_tx));
 
     let signal_done = || -> Result<(), anyhow::Error> {
-        let tx = done_tx.lock().take().ok_or_else(||anyhow::Error::msg("signal_done has already been called"))?;
-        tx.send(()).map_err(|_| anyhow::Error::msg("signal_done oneshot sender failed to send"))
+        let tx = done_tx
+            .lock()
+            .take()
+            .ok_or_else(|| anyhow::Error::msg("signal_done has already been called"))?;
+        tx.send(())
+            .map_err(|_| anyhow::Error::msg("signal_done oneshot sender failed to send"))
     };
 
     let (winner_can_end_tx, winner_can_end_rx) = tokio::sync::oneshot::channel();
@@ -176,7 +223,9 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
 
     let futures_executor = async move {
         while let Some(res) = futures.next().await {
-            futures_tx.send(res).map_err(|_| anyhow::Error::msg("futures_tx send error"))?;
+            futures_tx
+                .send(res)
+                .map_err(|_| anyhow::Error::msg("futures_tx send error"))?;
         }
 
         log::trace!(target: "lusna", "Finished polling all futures");
@@ -220,13 +269,16 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                             socket.cleanse()?;
                             submit_final_candidate(socket)?;
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
-                            send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn).await?;
+                            send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
+                                .await?;
                             log::trace!(target: "lusna", "*** [winner] Awaiting the signal ...");
                             winner_can_end_rx.await?;
                             log::trace!(target: "lusna", "*** [winner] received the signal");
                             return signal_done();
                         } else {
-                            unreachable!("Should not happen since the winner holds the mutex until complete");
+                            unreachable!(
+                                "Should not happen since the winner holds the mutex until complete"
+                            );
                         }
                     } else {
                         log::trace!(target: "lusna", "While looping, detected that the socket was taken")
@@ -239,7 +291,11 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
 
                 Err(err) => {
                     log::warn!(target: "lusna", "[non-terminating] Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
-                    rebuilder.lock().await.local_failures.insert(hole_puncher.get_unique_id(), hole_puncher);
+                    rebuilder
+                        .lock()
+                        .await
+                        .local_failures
+                        .insert(hole_puncher.get_unique_id(), hole_puncher);
                 }
             }
         }
@@ -263,11 +319,13 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                     // return here. The winner must exit last
                     send(DualStackCandidate::WinnerCanEnd, conn).await?;
                     return signal_done();
-                },
+                }
 
                 DualStackCandidate::WinnerCanEnd => {
-                    winner_can_end_tx.send(()).map_err(|_| anyhow::Error::msg("Unable to send through winner_can_end_tx"))?;
-                    return Ok(())
+                    winner_can_end_tx.send(()).map_err(|_| {
+                        anyhow::Error::msg("Unable to send through winner_can_end_tx")
+                    })?;
+                    return Ok(());
                 }
             }
         }
@@ -290,10 +348,17 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
     Ok(sock)
 }
 
-async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
-    Ok(conn.send_to_peer(&bincode2::serialize(input).unwrap()).await?)
+async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(
+    ref input: R,
+    conn: &V,
+) -> Result<(), anyhow::Error> {
+    Ok(conn
+        .send_to_peer(&bincode2::serialize(input).unwrap())
+        .await?)
 }
 
-async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(conn: &V) -> Result<T, anyhow::Error> {
+async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(
+    conn: &V,
+) -> Result<T, anyhow::Error> {
     Ok(bincode2::deserialize(&conn.recv().await?)?)
 }

@@ -7,7 +7,7 @@ pub enum FirewallError {
     Skip,
     NotApplicable,
     HolePunchExhausted,
-    LocalIPAddrFail
+    LocalIPAddrFail,
 }
 
 impl FirewallError {
@@ -24,7 +24,7 @@ impl ToString for FirewallError {
             FirewallError::NotApplicable => "Method not applicable to local node".to_string(),
             FirewallError::HolePunchExhausted => "No more NAT traversal methods exist".to_string(),
             FirewallError::LocalIPAddrFail => "Unable to obtain local IP info".to_string(),
-            FirewallError::Skip => {"Skipped".to_string()}
+            FirewallError::Skip => "Skipped".to_string(),
         }
     }
 }

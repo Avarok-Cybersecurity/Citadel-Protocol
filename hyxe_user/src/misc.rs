@@ -39,7 +39,7 @@ impl AccountError {
             AccountError::ClientNonExists(cid) => format!("Client {} does not exist", cid),
             AccountError::ServerExists(cid) => format!("Server {} already exists", cid),
             AccountError::ServerNonExists(cid) => format!("Server {} does not exist", cid),
-            AccountError::Disengaged(cid) => format!("Server {} is not engaged", cid)
+            AccountError::Disengaged(cid) => format!("Server {} is not engaged", cid),
         }
     }
 }
@@ -82,47 +82,70 @@ const ASCII_ONLY: bool = false;
 
 /// Used to determine if the desired credentials have a valid format, length, etc. This alone DOES NOT imply whether or not the
 /// credentials are available
-pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: T, password: Option<R>, full_name: V) -> Result<(), AccountError> {
+pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
+    username: T,
+    password: Option<R>,
+    full_name: V,
+) -> Result<(), AccountError> {
     let username = username.as_ref();
     let full_name = full_name.as_ref();
-    
+
     if ASCII_ONLY {
         if !username.is_ascii() {
-            return Err(AccountError::Generic("Username contains non-ascii characters".to_string()));
+            return Err(AccountError::Generic(
+                "Username contains non-ascii characters".to_string(),
+            ));
         }
 
         if let Some(password) = password.as_ref() {
             if !password.as_ref().is_ascii() {
-                return Err(AccountError::Generic("Password contains non-ascii characters".to_string()));
+                return Err(AccountError::Generic(
+                    "Password contains non-ascii characters".to_string(),
+                ));
             }
         }
 
         if !full_name.is_ascii() {
-            return Err(AccountError::Generic("Full name contains non-ascii characters".to_string()));
+            return Err(AccountError::Generic(
+                "Full name contains non-ascii characters".to_string(),
+            ));
         }
     }
 
     if username.len() < MIN_USERNAME_LENGTH || username.len() > MAX_USERNAME_LENGTH {
-        return Err(AccountError::Generic(format!("Username must be between {} and {} characters", MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH)));
+        return Err(AccountError::Generic(format!(
+            "Username must be between {} and {} characters",
+            MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH
+        )));
     }
 
     if username.contains(' ') {
-        return Err(AccountError::Generic("Username cannot contain spaces. Use a period instead".to_string()));
+        return Err(AccountError::Generic(
+            "Username cannot contain spaces. Use a period instead".to_string(),
+        ));
     }
 
     if let Some(password) = password.as_ref() {
         let password = password.as_ref();
         if password.len() < MIN_PASSWORD_LENGTH || password.len() > MAX_PASSWORD_LENGTH {
-            return Err(AccountError::Generic(format!("Password must be between {} and {} characters", MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)));
+            return Err(AccountError::Generic(format!(
+                "Password must be between {} and {} characters",
+                MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH
+            )));
         }
 
         if password.contains(' ') {
-            return Err(AccountError::Generic("Password cannot contain spaces".to_string()));
+            return Err(AccountError::Generic(
+                "Password cannot contain spaces".to_string(),
+            ));
         }
     }
 
     if full_name.len() < MIN_NAME_LENGTH || full_name.len() > MAX_NAME_LENGTH {
-        return Err(AccountError::Generic(format!("Full name must be between {} and {} characters", MIN_NAME_LENGTH, MAX_NAME_LENGTH)));
+        return Err(AccountError::Generic(format!(
+            "Full name must be between {} and {} characters",
+            MIN_NAME_LENGTH, MAX_NAME_LENGTH
+        )));
     }
 
     Ok(())
@@ -130,23 +153,25 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
 
 /// For convenience ser/de
 pub mod constructor_map {
-    use std::collections::HashMap;
-    use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-    use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
     use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
-    use std::ops::{Deref, DerefMut};
-    use serde::{Serialize, Serializer, Deserialize, Deserializer};
+    use hyxe_crypt::stacked_ratchet::constructor::ConstructorType;
+    use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use serde::ser::SerializeMap;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+    use std::ops::{Deref, DerefMut};
 
     /// A no-serialization container (except for FCM, since we need to preserve them)
-    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
-        inner: HashMap<u64, ConstructorType<R, Fcm>>
+    pub struct ConstructorMap<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+        inner: HashMap<u64, ConstructorType<R, Fcm>>,
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorMap<R, Fcm> {
         /// Creates an empty hashmap. No allocation occurs
         pub fn new() -> Self {
-            Self { inner: HashMap::with_capacity(0) }
+            Self {
+                inner: HashMap::with_capacity(0),
+            }
         }
     }
 
@@ -171,16 +196,23 @@ pub mod constructor_map {
     }
 
     impl<R: Ratchet, Fcm: Ratchet> Serialize for ConstructorMap<R, Fcm> {
-        fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-            S: Serializer {
+        fn serialize<S>(
+            &self,
+            serializer: S,
+        ) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+        where
+            S: Serializer,
+        {
             let map = serializer.serialize_map(Some(0))?;
             map.end()
         }
     }
 
     impl<'de, R: Ratchet, Fcm: Ratchet> Deserialize<'de> for ConstructorMap<R, Fcm> {
-        fn deserialize<D>(_deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
-            D: Deserializer<'de> {
+        fn deserialize<D>(_deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+        where
+            D: Deserializer<'de>,
+        {
             Ok(ConstructorMap::default())
         }
     }
@@ -198,56 +230,69 @@ pub struct CNACMetadata {
     /// Whether CNAC is personal
     pub is_personal: bool,
     /// Date created
-    pub creation_date: String
+    pub creation_date: String,
 }
 
 impl PartialEq for CNACMetadata {
     fn eq(&self, other: &Self) -> bool {
-        self.cid == other.cid &&
-            &self.username == &other.username &&
-            &self.full_name == &other.full_name &&
-            self.is_personal == other.is_personal
+        self.cid == other.cid
+            && &self.username == &other.username
+            && &self.full_name == &other.full_name
+            && self.is_personal == other.is_personal
     }
 }
 
 #[allow(missing_docs)]
 pub mod none {
-    use serde::{Serializer, Deserializer};
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
     use std::marker::PhantomData;
 
     #[derive(Serialize, Deserialize)]
     struct Empty<T> {
-        _pd: PhantomData<T>
+        _pd: PhantomData<T>,
     }
 
     pub fn serialize<T, S>(_value: &T, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
-        let empty = Empty::<T>{ _pd: Default::default() };
+        let empty = Empty::<T> {
+            _pd: Default::default(),
+        };
         Empty::serialize(&empty, serializer)
     }
 
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error> where D: Deserializer<'de> {
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let _ = Empty::<T>::deserialize(deserializer)?;
         Ok(None)
     }
 }
 
 #[allow(missing_docs)]
-#[cfg(feature = "sql")]
+#[cfg(all(feature = "sql", not(coverage)))]
 pub mod base64_string {
-    use serde::{Serializer, Deserializer, Deserialize};
+    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
-        where T: AsRef<[u8]>,
-              S: Serializer
+    where
+        T: AsRef<[u8]>,
+        S: Serializer,
     {
         serializer.collect_str(&base64::encode(value))
     }
 
-    pub fn deserialize<'de, D>(value: D) -> Result<Vec<u8>, D::Error> where D: Deserializer<'de> {
-        base64::decode(String::deserialize(value).map_err(|_| serde::de::Error::custom("Deser err"))?).map_err(|_| serde::de::Error::custom("Deser err"))
+    pub fn deserialize<'de, D>(value: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        base64::decode(
+            String::deserialize(value).map_err(|_| serde::de::Error::custom("Deser err"))?,
+        )
+        .map_err(|_| serde::de::Error::custom("Deser err"))
     }
 }
 
