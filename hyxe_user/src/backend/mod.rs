@@ -8,9 +8,9 @@ use async_trait::async_trait;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 
-#[cfg(all(feature = "sql", not(tarpaulin)))]
+#[cfg(all(feature = "sql", not(coverage)))]
 use crate::backend::mysql_backend::SqlConnectionOptions;
-#[cfg(all(feature = "redis", not(tarpaulin)))]
+#[cfg(all(feature = "redis", not(coverage)))]
 use crate::backend::redis_backend::RedisConnectionOptions;
 use crate::backend::utils::utils::StreamableTargetInformation;
 use crate::backend::utils::ObjectTransferStatus;
@@ -24,10 +24,10 @@ pub mod filesystem_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
 pub mod memory;
-#[cfg(all(feature = "sql", not(tarpaulin)))]
+#[cfg(all(feature = "sql", not(coverage)))]
 /// Implementation for the SQL backend
 pub mod mysql_backend;
-#[cfg(all(feature = "redis", not(tarpaulin)))]
+#[cfg(all(feature = "redis", not(coverage)))]
 /// Implementation for the redis backend
 pub mod redis_backend;
 /// Utils for the backend trait
@@ -45,10 +45,10 @@ pub enum BackendType {
     /// Synchronization will occur on the filesystem
     #[cfg(feature = "filesystem")]
     Filesystem(String),
-    #[cfg(all(feature = "sql", not(tarpaulin)))]
+    #[cfg(all(feature = "sql", not(coverage)))]
     /// Synchronization will occur on a remote SQL database
     SQLDatabase(String, SqlConnectionOptions),
-    #[cfg(all(feature = "redis", not(tarpaulin)))]
+    #[cfg(all(feature = "redis", not(coverage)))]
     /// Synchronization will occur on a remote redis database
     Redis(String, RedisConnectionOptions),
 }
@@ -58,14 +58,14 @@ impl BackendType {
     /// if the URL could not be parsed
     pub fn new<T: Into<String>>(url: T) -> Result<Self, AccountError> {
         let addr = url.into();
-        #[cfg(all(feature = "redis", not(tarpaulin)))]
+        #[cfg(all(feature = "redis", not(coverage)))]
         {
             if addr.starts_with("redis") {
                 return Ok(BackendType::redis(addr));
             }
         }
 
-        #[cfg(all(feature = "sql", not(tarpaulin)))]
+        #[cfg(all(feature = "sql", not(coverage)))]
         {
             if addr.starts_with("mysql")
                 || addr.starts_with("postgres")
@@ -92,7 +92,7 @@ impl BackendType {
         Self::Filesystem(path.into().replace("file:", ""))
     }
 
-    #[cfg(all(feature = "redis", not(tarpaulin)))]
+    #[cfg(all(feature = "redis", not(coverage)))]
     /// For requesting the use of the redis backend driver.
     /// URL format: redis://[<username>][:<password>@]<hostname>[:port][/<db>]
     /// If unix socket support is available:
@@ -101,7 +101,7 @@ impl BackendType {
         Self::redis_with(url, Default::default())
     }
 
-    #[cfg(all(feature = "redis", not(tarpaulin)))]
+    #[cfg(all(feature = "redis", not(coverage)))]
     /// Like [`Self::redis`], but with custom options
     pub fn redis_with<T: Into<String>>(url: T, opts: RedisConnectionOptions) -> BackendType {
         BackendType::Redis(url.into(), opts)
@@ -113,13 +113,13 @@ impl BackendType {
     /// "sqlite:// [...]"
     ///
     /// PostgreSQL, MySQL, SqLite supported
-    #[cfg(all(feature = "sql", not(tarpaulin)))]
+    #[cfg(all(feature = "sql", not(coverage)))]
     pub fn sql<T: Into<String>>(url: T) -> BackendType {
         BackendType::SQLDatabase(url.into(), Default::default())
     }
 
     /// Like [`Self::sql`], but with custom options
-    #[cfg(all(feature = "sql", not(tarpaulin)))]
+    #[cfg(all(feature = "sql", not(coverage)))]
     pub fn sql_with<T: Into<String>>(url: T, opts: SqlConnectionOptions) -> BackendType {
         BackendType::SQLDatabase(url.into(), opts)
     }

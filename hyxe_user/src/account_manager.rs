@@ -52,7 +52,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 PersistenceHandler::create(backend).await?
             }
 
-            #[cfg(all(feature = "sql", not(tarpaulin)))]
+            #[cfg(all(feature = "sql", not(coverage)))]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::mysql_backend::SqlBackend;
                 use std::convert::TryFrom;
@@ -60,7 +60,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 PersistenceHandler::create(backend).await?
             }
 
-            #[cfg(all(feature = "redis", not(tarpaulin)))]
+            #[cfg(all(feature = "redis", not(coverage)))]
             BackendType::Redis(url, opts) => {
                 use crate::backend::redis_backend::RedisBackend;
                 let backend = RedisBackend::new(url.clone(), opts.clone());
