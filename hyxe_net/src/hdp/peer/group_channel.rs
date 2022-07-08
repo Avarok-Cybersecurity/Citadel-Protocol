@@ -154,7 +154,7 @@ pub struct GroupChannelRecvHalf {
 }
 
 impl Debug for GroupChannelRecvHalf {
-    fn fmt(&self, f: &mut Formatter<'_>) -> hyxe_user::re_imports::__private::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "GroupChannelRx: {} subscribed to {:?}",
