@@ -218,12 +218,10 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let (res0, res1) = tokio::time::timeout(Duration::from_secs(120), joined)
+        let (_res0, _res1) = joined
             .await
-            .unwrap()
             .unwrap();
-        let _ = res0.unwrap();
-        let _ = res1.unwrap();
+
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
     }
@@ -310,7 +308,6 @@ mod tests {
 
         let _ = tokio::time::timeout(Duration::from_secs(120), task)
             .await
-            .unwrap()
             .unwrap();
 
         assert!(client0_success.load(Ordering::Relaxed));

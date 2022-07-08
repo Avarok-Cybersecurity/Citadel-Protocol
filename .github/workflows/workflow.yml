@@ -119,7 +119,7 @@ jobs:
             return 'stop'
           result-encoding: string
   misc_checks:
-    name: valgrind_and_deny
+    name: miscellaneous
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
@@ -187,7 +187,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path lcov.info
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
