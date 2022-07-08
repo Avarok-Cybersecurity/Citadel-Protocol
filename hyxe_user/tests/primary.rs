@@ -166,10 +166,12 @@ mod tests {
 
         match std::env::var(&env) {
             Ok(addr) => {
-                for addr in addr.split(',') {
-                    log::trace!(target: "lusna", "Adding testing addr: {}", addr);
-                    let backend = BackendType::new(addr).unwrap();
-                    backends.push(backend);
+                if addr.len() > 0 {
+                    for addr in addr.split(',') {
+                        log::trace!(target: "lusna", "Adding testing addr: {}", addr);
+                        let backend = BackendType::new(addr).unwrap();
+                        backends.push(backend);
+                    }
                 }
             }
             _ => {
