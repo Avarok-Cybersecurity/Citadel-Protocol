@@ -326,12 +326,13 @@ pub trait ProtocolRemoteExt: Remote {
                     _,
                 ),
                 _,
-            ) = map_errors(status)? {
+            ) = map_errors(status)?
+            {
                 return Ok(cids
                     .into_iter()
                     .zip(is_onlines.into_iter())
                     .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
-                    .collect())
+                    .collect());
             }
         }
 
@@ -355,12 +356,16 @@ pub trait ProtocolRemoteExt: Remote {
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))), _) = map_errors(status)? {
+            if let NodeResult::PeerEvent(
+                PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))),
+                _,
+            ) = map_errors(status)?
+            {
                 return Ok(cids
                     .into_iter()
                     .zip(is_onlines.into_iter())
                     .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
-                    .collect())
+                    .collect());
             }
         }
 
@@ -526,7 +531,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .await?;
 
         while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp)), _) = map_errors(status)? {
+            if let NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp)), _) =
+                map_errors(status)?
+            {
                 match resp {
                     PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
                     PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
@@ -695,7 +702,7 @@ mod tests {
         let port = crate::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server =
-            crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None), |_|{});
+            crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None), |_| {});
         (server, bind_addr)
     }
 
