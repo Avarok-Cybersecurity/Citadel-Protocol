@@ -254,29 +254,53 @@ where
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prelude::*;
-    use crate::test_common::server_info;
+    use crate::test_common::{server_info, server_info_reactive};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
+    use crate::prefabs::ClientServerRemote;
+
+    async fn udp_mode_assertions(udp_mode: UdpMode, conn: ConnectSuccess) {
+        match udp_mode {
+            UdpMode::Enabled => {
+                assert!(conn.udp_channel_rx.is_some())
+            },
+
+            UdpMode::Disabled => {
+                assert!(conn.udp_channel_rx.is_none());
+            }
+        }
+    }
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn single_connection_registered() {
+    async fn single_connection_registered(
+        #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode) {
         let _ = lusna_logging::setup_log();
 
         let client_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info();
+        async fn on_server_received_conn(udp_mode: UdpMode, conn: ConnectSuccess, _remote: ClientServerRemote) -> Result<(), NetworkError> {
+            udp_mode_assertions(udp_mode, conn).await;
+            Ok(())
+        }
+
+        let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
+            on_server_received_conn(udp_mode, conn, remote).await
+        });
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_register_defaults(
+        let client_kernel = SingleClientServerConnectionKernel::new_register(
             "Thomas P Braun",
             "nologik",
             "password",
             server_addr,
-            |_channel, _remote| async move {
+            udp_mode,
+            Default::default(),
+            |channel, _remote| async move {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                udp_mode_assertions(udp_mode, channel).await;
                 client_success.store(true, Ordering::Relaxed);
                 stop_tx.send(()).unwrap();
                 Ok(())

@@ -29,6 +29,18 @@ pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
     (server, bind_addr)
 }
 
+#[allow(dead_code)]
+#[cfg(feature = "localhost-testing")]
+pub fn server_info_reactive<'a, F: 'static, Fut: 'static>(f: F) -> (NodeFuture<'a, Box<dyn NetKernel>>, SocketAddr)
+    where
+        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<(), NetworkError>> + Send + Sync {
+    let port = get_unused_tcp_port();
+    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+    let server = crate::test_common::server_test_node(bind_addr, Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>);
+    (server, bind_addr)
+}
+
 #[cfg(feature = "localhost-testing")]
 pub fn get_unused_tcp_port() -> u16 {
     std::net::TcpListener::bind("0.0.0.0:0")
