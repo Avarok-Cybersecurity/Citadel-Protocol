@@ -695,7 +695,7 @@ mod tests {
         let port = crate::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server =
-            crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None));
+            crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None), |_|{});
         (server, bind_addr)
     }
 

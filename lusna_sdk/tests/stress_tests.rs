@@ -170,7 +170,7 @@ mod tests {
             log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
             SERVER_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
-        });
+        }, |_| {});
 
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()

@@ -254,39 +254,57 @@ where
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prelude::*;
-    use crate::test_common::{server_info, server_info_reactive};
+    use crate::test_common::{server_info, server_info_reactive, TestBarrier, wait_for_peers};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
     use crate::prefabs::ClientServerRemote;
+    use futures::StreamExt;
 
     async fn udp_mode_assertions(udp_mode: UdpMode, conn: ConnectSuccess) {
+        log::info!(target: "lusna", "Inside UDP mode assertions ...");
+        wait_for_peers().await;
         match udp_mode {
             UdpMode::Enabled => {
-                assert!(conn.udp_channel_rx.is_some())
+                assert!(conn.udp_channel_rx.is_some());
+                let chan = conn.udp_channel_rx.unwrap().await.unwrap();
+                let (tx, mut rx) = chan.split();
+                tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
+                assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
             },
 
             UdpMode::Disabled => {
                 assert!(conn.udp_channel_rx.is_none());
             }
         }
+
+        log::info!(target: "lusna", "Done w/ UDP mode assertions");
     }
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn single_connection_registered(
-        #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode) {
+        #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode,
+        #[values(UnderlyingProtocol::new_quic_self_signed(), UnderlyingProtocol::new_tls_self_signed().unwrap())] underlying_protocol: UnderlyingProtocol) {
         let _ = lusna_logging::setup_log();
+        TestBarrier::setup(2);
 
         let client_success = &AtomicBool::new(false);
+        let server_success = &AtomicBool::new(false);
+
         async fn on_server_received_conn(udp_mode: UdpMode, conn: ConnectSuccess, _remote: ClientServerRemote) -> Result<(), NetworkError> {
             udp_mode_assertions(udp_mode, conn).await;
             Ok(())
         }
 
         let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
-            on_server_received_conn(udp_mode, conn, remote).await
+            on_server_received_conn(udp_mode, conn, remote).await?;
+            server_success.store(true, Ordering::SeqCst);
+            wait_for_peers().await;
+            Ok(())
+        }, |builder| {
+            let _ = builder.server_config().with_underlying_protocol(underlying_protocol);
         });
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
@@ -302,6 +320,7 @@ mod tests {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
                 udp_mode_assertions(udp_mode, channel).await;
                 client_success.store(true, Ordering::Relaxed);
+                wait_for_peers().await;
                 stop_tx.send(()).unwrap();
                 Ok(())
             },
@@ -317,6 +336,7 @@ mod tests {
         }
 
         assert!(client_success.load(Ordering::Relaxed));
+        assert!(server_success.load(Ordering::Relaxed));
     }
 
     #[rstest]
