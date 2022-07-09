@@ -70,9 +70,7 @@ where
     type UserLevelInputFunction = F;
     type SharedBundle = ();
 
-    fn get_shared_bundle(&mut self) -> Self::SharedBundle {
-        
-    }
+    fn get_shared_bundle(&mut self) -> Self::SharedBundle {}
 
     #[cfg_attr(
         feature = "localhost-testing",
