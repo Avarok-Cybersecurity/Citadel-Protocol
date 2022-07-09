@@ -164,13 +164,16 @@ mod tests {
         CLIENT_SUCCESS.store(false, Ordering::Relaxed);
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
 
-        let (server, server_addr) = lusna_sdk::test_common::server_info_reactive(move |conn, remote| async move {
-            log::trace!(target: "lusna", "*** SERVER RECV CHANNEL ***");
-            handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
-            log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
-            SERVER_SUCCESS.store(true, Ordering::Relaxed);
-            remote.shutdown_kernel().await
-        }, |_| {});
+        let (server, server_addr) = lusna_sdk::test_common::server_info_reactive(
+            move |conn, remote| async move {
+                log::trace!(target: "lusna", "*** SERVER RECV CHANNEL ***");
+                handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
+                log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
+                SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+            |_| {},
+        );
 
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
@@ -197,9 +200,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let (_res0, _res1) = joined
-            .await
-            .unwrap();
+        let (_res0, _res1) = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
