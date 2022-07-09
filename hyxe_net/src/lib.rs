@@ -387,7 +387,7 @@ pub mod prelude {
     pub use crate::hdp::hdp_node::HdpServer;
     pub use crate::hdp::hdp_node::Ticket;
     pub use crate::hdp::hdp_node::{
-        atexit, NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode,
+        NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode,
     };
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
