@@ -85,9 +85,9 @@ impl OutboundUdpSender {
         }
     }
 
-    pub fn unbounded_send(&self, packet: BytesMut) -> Result<(), NetworkError> {
+    pub fn unbounded_send<T: Into<BytesMut>>(&self, packet: T) -> Result<(), NetworkError> {
         self.sender
-            .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet))
+            .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet.into()))
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
