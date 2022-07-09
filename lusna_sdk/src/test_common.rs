@@ -13,9 +13,15 @@ use tokio::net::TcpListener;
 pub fn server_test_node<'a, K: NetKernel + 'a>(
     bind_addr: SocketAddr,
     kernel: K,
+    opts: impl FnOnce(&mut NodeBuilder)
 ) -> NodeFuture<'a, K> {
-    NodeBuilder::default()
-        .with_node_type(NodeType::Server(bind_addr))
+    let mut builder = NodeBuilder::default();
+    let _ = builder
+        .with_node_type(NodeType::Server(bind_addr));
+
+    (opts)(&mut builder);
+
+    builder
         .build(kernel)
         .unwrap()
 }
@@ -25,19 +31,19 @@ pub fn server_test_node<'a, K: NetKernel + 'a>(
 pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
     let port = get_unused_tcp_port();
     let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-    let server = crate::test_common::server_test_node(bind_addr, EmptyKernel::default());
+    let server = crate::test_common::server_test_node(bind_addr, EmptyKernel::default(), |_|{});
     (server, bind_addr)
 }
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
-pub fn server_info_reactive<'a, F: 'static, Fut: 'static>(f: F) -> (NodeFuture<'a, Box<dyn NetKernel>>, SocketAddr)
+pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(f: F, opts: impl FnOnce(&mut NodeBuilder)) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
     where
         F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
         Fut: Future<Output = Result<(), NetworkError>> + Send + Sync {
     let port = get_unused_tcp_port();
     let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-    let server = crate::test_common::server_test_node(bind_addr, Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>);
+    let server = crate::test_common::server_test_node(bind_addr, Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>, opts);
     (server, bind_addr)
 }
 
