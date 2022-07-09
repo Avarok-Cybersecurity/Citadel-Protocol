@@ -62,7 +62,9 @@ jobs:
           SKIP_EXT_BACKENDS: "true"
         run: cargo test --package hyxe_user --features localhost-testing -- --test-threads=1
       - run: cargo test --package ez_pqcrypto --package hyxe_crypt
-      - run: RUST_LOG=lusna=trace cargo test --features=localhost-testing,multi-threaded --package hyxe_net -- --test-threads=1
+      - run: cargo test --features=localhost-testing,multi-threaded --package hyxe_net -- --test-threads=1
+        env:
+          RUST_LOG: lusna=trace
       - uses: actions/github-script@v6
         if: failure()
         with:

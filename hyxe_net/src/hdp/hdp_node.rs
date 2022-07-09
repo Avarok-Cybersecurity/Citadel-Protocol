@@ -9,7 +9,6 @@ use std::task::{Context, Poll};
 
 use futures::channel::mpsc::TrySendError;
 use futures::{Sink, SinkExt, StreamExt};
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 use tokio::task::LocalSet;
@@ -20,9 +19,6 @@ use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::ServicesObject;
 use hyxe_wire::hypernode_type::NodeType;
-use hyxe_wire::local_firewall_handler::{
-    open_local_firewall_port, remove_firewall_rule, FirewallProtocol,
-};
 use hyxe_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 
@@ -54,17 +50,6 @@ use hyxe_wire::exports::Endpoint;
 use hyxe_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
 use hyxe_wire::tls::client_config_to_tls_connector;
 use std::convert::TryFrom;
-
-/// ports which were opened that must be closed atexit
-static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
-
-pub extern "C" fn atexit() {
-    log::trace!(target: "lusna", "Cleaning up firewall ports ...");
-    let lock = OPENED_PORTS.lock();
-    for port in lock.iter() {
-        HdpServer::close_tcp_port(*port);
-    }
-}
 
 pub type TlsDomain = Option<String>;
 
@@ -112,10 +97,6 @@ impl HdpServer {
         };
 
         if let Some(local_bind_addr) = bind_addr {
-            let primary_port = local_bind_addr.port();
-            // Note: on Android/IOS, the below command will fail since sudo access is prohibited
-            Self::open_tcp_port(primary_port);
-
             log::trace!(target: "lusna", "HdpServer established on {}", local_bind_addr);
         } else {
             log::trace!(target: "lusna", "HdpClient Established")
@@ -313,36 +294,6 @@ impl HdpServer {
         )
     }
 
-    fn open_tcp_port(port: u16) {
-        if let Ok(Some(res)) = open_local_firewall_port(FirewallProtocol::TCP(port)) {
-            if !res.status.success() {
-                let data = if res.stdout.is_empty() {
-                    res.stderr
-                } else {
-                    res.stdout
-                };
-                log::warn!(target: "lusna", "We were unable to ensure that port {}, be open. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
-            } else {
-                OPENED_PORTS.lock().push(port);
-            }
-        }
-    }
-
-    fn close_tcp_port(port: u16) {
-        if let Ok(Some(res)) = remove_firewall_rule(FirewallProtocol::TCP(port)) {
-            if !res.status.success() {
-                let data = if res.stdout.is_empty() {
-                    res.stderr
-                } else {
-                    res.stdout
-                };
-                log::warn!(target: "lusna", "We were unable to ensure that port {}, be CLOSED. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
-            } else {
-                log::trace!(target: "lusna", "Successfully shutdown port {}", port);
-            }
-        }
-    }
-
     pub fn server_create_primary_listen_socket<T: ToSocketAddrs>(
         underlying_proto: UnderlyingProtocol,
         full_bind_addr: T,
@@ -451,16 +402,6 @@ impl HdpServer {
         // We start by creating a client to server connection
         let (stream, _quic_endpoint_generated_during_connect) =
             Self::create_c2s_connect_socket(remote, None, default_client_config).await?;
-        // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
-        // NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
-        // Wait ... maybe not? Jul 22 2021
-        // We obtain the bind addr of the client-to-server connection for NAT traversal purposes
-        let stream_bind_addr = stream.local_addr()?;
-
-        // we then bind a listener to the same local addr as the connection to the central server. The central server just needs to share the external addr with each peer to know where to connect
-        //let (p2p_listener, _bind_addr) = Self::bind_defaults(listener_underlying_proto, None,quic_endpoint_generated_during_connect, SocketAddr::new(stream_bind_addr.ip(), stream_bind_addr.port()))?;
-
-        Self::open_tcp_port(stream_bind_addr.port());
 
         log::trace!(target: "lusna", "[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
         Ok(stream)
