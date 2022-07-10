@@ -8,6 +8,7 @@ use crate::prelude::{
 use crate::test_common::wait_for_peers;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
+use hyxe_net::prelude::{SessionSecuritySettings, UdpMode};
 use hyxe_net::re_imports::async_trait;
 use std::marker::PhantomData;
 use tokio::sync::mpsc::Receiver;
@@ -42,25 +43,117 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
     }
 }
 
-/// Allows easy aggregation of [`UserIdentifier`]'s
+/// Allows easy aggregation of [`UserIdentifier`]'s and custom settings for the connection
+/// request
 #[derive(Default)]
-pub struct PeerIDAggregator {
-    inner: Vec<UserIdentifier>,
+pub struct PeerConnectionSetupAggregator {
+    inner: Vec<PeerConnectionSettings>,
 }
 
-impl PeerIDAggregator {
-    pub fn with_id<T: Into<UserIdentifier>>(mut self, peer: T) -> Self {
-        self.inner.push(peer.into());
+struct PeerConnectionSettings {
+    id: UserIdentifier,
+    session_security_settings: SessionSecuritySettings,
+    udp_mode: UdpMode,
+}
+
+pub struct AddedPeer {
+    list: PeerConnectionSetupAggregator,
+    id: UserIdentifier,
+    session_security_settings: Option<SessionSecuritySettings>,
+    udp_mode: Option<UdpMode>,
+}
+
+impl AddedPeer {
+    /// Adds the peer
+    pub fn add(mut self) -> PeerConnectionSetupAggregator {
+        let new = PeerConnectionSettings {
+            id: self.id,
+            session_security_settings: self.session_security_settings.unwrap_or_default(),
+            udp_mode: self.udp_mode.unwrap_or_default(),
+        };
+
+        self.list.inner.push(new);
+        self.list
+    }
+
+    /// Sets the [`UdpMode`] for this peer to peer connection
+    pub fn with_udp_mode(mut self, udp_mode: UdpMode) -> Self {
+        self.udp_mode = Some(udp_mode);
         self
     }
 
-    pub fn finish(self) -> Vec<UserIdentifier> {
-        self.inner
+    /// Sets the [`SessionSecuritySettings`] for this peer to peer connection
+    pub fn with_session_security_settings(
+        mut self,
+        session_security_settings: SessionSecuritySettings,
+    ) -> Self {
+        self.session_security_settings = Some(session_security_settings);
+        self
+    }
+}
+
+impl PeerConnectionSetupAggregator {
+    /// Adds a peer with default connection settings
+    /// ```
+    ///     PeerIDAggregator::default()
+    ///         .with_peer("john.doe")
+    ///         .with_peer("alice")
+    ///         .with_peer("bob")
+    /// ```
+    pub fn with_peer<T: Into<UserIdentifier>>(self, peer: T) -> PeerConnectionSetupAggregator {
+        self.with_peer_custom(peer).add()
+    }
+
+    /// Adds a peer with custom settings
+    /// ```
+    ///     // Set up a p2p connection to john.doe with udp enabled,
+    ///     // and, a p2p connection to alice with udp disabled and
+    ///     // custom security settings
+    ///     PeerIDAggregator::default()
+    ///         .with_peer_custom("john.doe")
+    ///         .with_udp_mode(UdpMode::Enabled)
+    ///         .add()
+    ///         .with_peer_custom("alice")
+    ///         .with_udp_mode(UdpMode::Disabled)
+    ///         .with_session_security_settings(...)
+    ///         .add()
+    /// ```
+    pub fn with_peer_custom<T: Into<UserIdentifier>>(self, peer: T) -> AddedPeer {
+        AddedPeer {
+            list: self,
+            id: peer.into(),
+            session_security_settings: None,
+            udp_mode: None,
+        }
+    }
+}
+
+impl From<PeerConnectionSetupAggregator> for Vec<PeerConnectionSettings> {
+    fn from(this: PeerConnectionSetupAggregator) -> Self {
+        this.inner
+    }
+}
+
+impl From<Vec<UserIdentifier>> for PeerConnectionSetupAggregator {
+    fn from(ids: Vec<UserIdentifier>) -> Self {
+        let mut this = PeerConnectionSetupAggregator::default();
+        for peer in ids {
+            this = this.with_peer(peer);
+        }
+
+        this
+    }
+}
+
+impl From<UserIdentifier> for PeerConnectionSetupAggregator {
+    fn from(this: UserIdentifier) -> Self {
+        Self::from(vec![this])
     }
 }
 
 #[async_trait]
-impl<'a, F, Fut> PrefabFunctions<'a, Vec<UserIdentifier>> for PeerConnectionKernel<'a, F, Fut>
+impl<'a, F, Fut, T: Into<PeerConnectionSetupAggregator> + Send + 'a> PrefabFunctions<'a, T>
+    for PeerConnectionKernel<'a, F, Fut>
 where
     F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut
         + Send
@@ -79,7 +172,7 @@ where
     async fn on_c2s_channel_received(
         connect_success: ConnectSuccess,
         cls_remote: ClientServerRemote,
-        peers_to_connect: Vec<UserIdentifier>,
+        peers_to_connect: T,
         f: Self::UserLevelInputFunction,
         _: (),
     ) -> Result<(), NetworkError> {
@@ -87,11 +180,13 @@ where
         let mut peers_already_registered = vec![];
 
         wait_for_peers().await;
+        let peers_to_connect = peers_to_connect.into().inner;
 
         for peer in &peers_to_connect {
             // TODO: optimize this into a single concurrent operation
             peers_already_registered.push(
-                peer.search_peer(implicated_cid, cls_remote.inner.account_manager())
+                peer.id
+                    .search_peer(implicated_cid, cls_remote.inner.account_manager())
                     .await?,
             )
         }
@@ -106,22 +201,28 @@ where
             // each task will be responsible for possibly registering to and connecting
             // with the desired peer
             let mut remote = remote.clone();
+            let PeerConnectionSettings {
+                id,
+                session_security_settings,
+                udp_mode,
+            } = peer_to_connect;
+
             let task = async move {
                 let inner_task = async move {
-                    if let Some(_already_registered) = mutually_registered {
-                        let mut handle =
-                            remote.find_target(implicated_cid, peer_to_connect).await?;
-                        handle.connect_to_peer().await
+                    let mut handle = if let Some(_already_registered) = mutually_registered {
+                        remote.find_target(implicated_cid, id).await?
                     } else {
                         // do both register + connect
                         // TODO: optimize peer registration + connection in one go
-                        let mut handle = remote
-                            .propose_target(implicated_cid, peer_to_connect.clone())
-                            .await?;
+                        let mut handle = remote.propose_target(implicated_cid, id.clone()).await?;
                         let _reg_success = handle.register_to_peer().await?;
-                        log::trace!(target: "lusna", "Peer {:?} registered || success -> now connecting", peer_to_connect);
-                        handle.connect_to_peer().await
-                    }
+                        log::trace!(target: "lusna", "Peer {:?} registered || success -> now connecting", id);
+                        handle
+                    };
+
+                    handle
+                        .connect_to_peer_custom(session_security_settings, udp_mode)
+                        .await
                 };
 
                 tx.send(inner_task.await)
@@ -147,7 +248,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
+    use crate::prefabs::client::peer_connection::{
+        PeerConnectionKernel, PeerConnectionSetupAggregator,
+    };
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier, PEERS};
     use futures::stream::FuturesUnordered;
@@ -169,9 +272,12 @@ mod tests {
         let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
-        if debug_force_nat_timeout {
+        let udp_mode = if debug_force_nat_timeout {
             std::env::set_var("debug_cause_timeout", "ON");
-        }
+            UdpMode::Disabled
+        } else {
+            UdpMode::Enabled
+        };
 
         let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
@@ -190,20 +296,32 @@ mod tests {
                 .filter(|r| r != username)
                 .map(UserIdentifier::Username)
                 .collect::<Vec<UserIdentifier>>();
+
+            let mut agg = PeerConnectionSetupAggregator::default();
+
+            for peer in peers {
+                agg = agg
+                    .with_peer_custom(peer)
+                    .with_udp_mode(udp_mode)
+                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .add();
+            }
+
             let username = username.clone();
 
             let client_kernel = PeerConnectionKernel::new_register_defaults(
                 full_name.as_str(),
                 username.clone().as_str(),
                 password.as_str(),
-                peers,
+                agg,
                 server_addr,
                 move |mut results, remote| async move {
                     let mut success = 0;
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "lusna", "User {} received {:?}", username, conn);
-                        let _conn = conn?;
+                        let conn = conn?;
+                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_rx_opt).await;
                         success += 1;
                         if success == peer_count - 1 {
                             break;

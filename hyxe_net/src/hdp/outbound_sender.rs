@@ -70,6 +70,7 @@ pub struct OutboundUdpSender {
     sender: UnboundedSender<(u8, BytesMut)>,
     local_addr: SocketAddr,
     remote_addr: SocketAddr,
+    pub(crate) needs_manual_ka: bool,
 }
 
 impl OutboundUdpSender {
@@ -77,11 +78,13 @@ impl OutboundUdpSender {
         sender: UnboundedSender<(u8, BytesMut)>,
         local_addr: SocketAddr,
         remote_addr: SocketAddr,
+        needs_manual_ka: bool,
     ) -> Self {
         Self {
             sender,
             local_addr,
             remote_addr,
+            needs_manual_ka,
         }
     }
 

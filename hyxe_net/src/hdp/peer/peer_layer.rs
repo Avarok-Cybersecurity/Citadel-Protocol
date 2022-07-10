@@ -342,18 +342,6 @@ impl HyperNodePeerLayer {
             .await?;
         Ok(())
     }
-
-    /// Removes a [TrackedPosting] from the internal queue, and returns the signal
-    #[allow(unused_results)]
-    #[allow(dead_code)]
-    pub async fn remove_tracked_posting(
-        &self,
-        implicated_cid: u64,
-        ticket: Ticket,
-    ) -> Option<PeerSignal> {
-        let mut this = self.inner.write().await;
-        this.remove_tracked_posting_inner(implicated_cid, ticket)
-    }
 }
 
 impl HyperNodePeerLayerExecutor {
@@ -369,7 +357,7 @@ impl HyperNodePeerLayerExecutor {
                     log::warn!(target: "lusna", "Running on_timeout for active posting {} for CID {}", ticket, implicated_cid);
                     (posting.on_timeout)(posting.signal)
                 } else {
-                    log::error!(target: "lusna", "Attempted to remove active posting {} for CID {}, but failed", implicated_cid, ticket);
+                    log::warn!(target: "lusna", "Attempted to remove active posting {} for CID {}, but failed", implicated_cid, ticket);
                 }
             }
         }
