@@ -134,3 +134,29 @@ lazy_static::lazy_static! {
         });
     };
 }
+
+#[cfg(feature = "localhost-testing")]
+#[allow(dead_code)]
+pub async fn udp_mode_assertions(
+    udp_mode: UdpMode,
+    udp_channel_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+) {
+    use futures::StreamExt;
+    log::info!(target: "lusna", "Inside UDP mode assertions ...");
+    wait_for_peers().await;
+    match udp_mode {
+        UdpMode::Enabled => {
+            assert!(udp_channel_rx_opt.is_some());
+            let chan = udp_channel_rx_opt.unwrap().await.unwrap();
+            let (tx, mut rx) = chan.split();
+            tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
+            assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
+        }
+
+        UdpMode::Disabled => {
+            assert!(udp_channel_rx_opt.is_none());
+        }
+    }
+
+    log::info!(target: "lusna", "Done w/ UDP mode assertions");
+}

@@ -71,6 +71,11 @@ impl UdpSplittableTypes {
             Self::Raw(raw) => TargettedSocketAddr::new_invariant(raw.sink.peer_addr),
         }
     }
+
+    /// QUIC automatically handles keep alives, RAW UDP does not
+    pub(crate) fn needs_manual_ka(&self) -> bool {
+        matches!(self, UdpSplittableTypes::Raw(..))
+    }
 }
 
 impl UdpSplittable for QuicUdpSocketConnector {
