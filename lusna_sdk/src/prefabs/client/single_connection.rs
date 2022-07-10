@@ -256,30 +256,9 @@ mod tests {
     use crate::prefabs::ClientServerRemote;
     use crate::prelude::*;
     use crate::test_common::{server_info, server_info_reactive, wait_for_peers, TestBarrier};
-    use futures::StreamExt;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
-
-    async fn udp_mode_assertions(udp_mode: UdpMode, conn: ConnectSuccess) {
-        log::info!(target: "lusna", "Inside UDP mode assertions ...");
-        wait_for_peers().await;
-        match udp_mode {
-            UdpMode::Enabled => {
-                assert!(conn.udp_channel_rx.is_some());
-                let chan = conn.udp_channel_rx.unwrap().await.unwrap();
-                let (tx, mut rx) = chan.split();
-                tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
-                assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
-            }
-
-            UdpMode::Disabled => {
-                assert!(conn.udp_channel_rx.is_none());
-            }
-        }
-
-        log::info!(target: "lusna", "Done w/ UDP mode assertions");
-    }
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -300,7 +279,7 @@ mod tests {
             conn: ConnectSuccess,
             _remote: ClientServerRemote,
         ) -> Result<(), NetworkError> {
-            udp_mode_assertions(udp_mode, conn).await;
+            crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
             Ok(())
         }
 
@@ -329,7 +308,7 @@ mod tests {
             Default::default(),
             |channel, _remote| async move {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
-                udp_mode_assertions(udp_mode, channel).await;
+                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
                 stop_tx.send(()).unwrap();

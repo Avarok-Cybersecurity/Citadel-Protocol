@@ -720,12 +720,14 @@ impl HdpSession {
                 let hole_punched_addr_ip = hole_punched_socket.ip();
 
                 let local_bind_addr = udp_conn.local_addr().unwrap();
+                let needs_manual_ka = udp_conn.needs_manual_ka();
 
                 let (outbound_sender_tx, outbound_sender_rx) = unbounded();
                 let udp_sender = OutboundUdpSender::new(
                     outbound_sender_tx,
                     local_bind_addr,
                     hole_punched_socket,
+                    needs_manual_ka,
                 );
                 let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -1123,11 +1125,13 @@ impl HdpSession {
                             return QueueWorkerResult::Complete;
                         }
 
-                        let _ = state_container
-                            .udp_primary_outbound_tx
-                            .as_ref()
-                            .unwrap()
-                            .send_keep_alive();
+                        if let Some(tx) = state_container.udp_primary_outbound_tx.as_ref() {
+                            if !tx.needs_manual_ka {
+                                return QueueWorkerResult::Complete;
+                            }
+
+                            let _ = tx.send_keep_alive();
+                        }
                     }
 
                     QueueWorkerResult::Incomplete

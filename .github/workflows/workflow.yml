@@ -186,6 +186,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v1
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
