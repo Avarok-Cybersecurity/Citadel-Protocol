@@ -1,3 +1,4 @@
+#![cfg(not(coverage))]
 use hyxe_crypt::prelude::SecBuffer;
 
 #[allow(dead_code)]
