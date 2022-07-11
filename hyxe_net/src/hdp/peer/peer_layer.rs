@@ -374,24 +374,18 @@ impl HyperNodePeerLayerInner {
         implicated_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        let this = self.inner.read();
         log::trace!(target: "lusna", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
-        let peer_map = this.observed_postings.get(&peer_cid)?;
-        log::trace!(target: "lusna", "Checking simultaneous register between {} and {} | map len: {}", implicated_cid, peer_cid, peer_map.len());
-        peer_map
-            .iter()
-            // PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>, FcmPostRegister
-            .find(|(_, posting)| if let PeerSignal::PostRegister(conn, _, _, _, None) = &posting.signal {
-                log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-                if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
-                    *b == implicated_cid
-                } else {
-                    false
-                }
+
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister(conn, _, _, _, None) = &posting.signal {
+            log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
+            if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
+                *b == implicated_cid
             } else {
                 false
-            })
-            .map(|(ticket, _)| *ticket)
+            }
+        } else {
+            false
+        })
     }
 
     /// Determines if `peer_cid` is already attempting to connect to `implicated_cid`
@@ -401,22 +395,45 @@ impl HyperNodePeerLayerInner {
         implicated_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        let this = self.inner.read();
         log::trace!(target: "lusna", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
-        let peer_map = this.observed_postings.get(&peer_cid)?;
 
-        peer_map
-            .iter()
-            .find(|(_, posting)| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
-                log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-                if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
-                    *b == implicated_cid
-                } else {
-                    false
-                }
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
+            log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
+            if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
+                *b == implicated_cid
             } else {
                 false
-            })
+            }
+        } else {
+            false
+        })
+    }
+
+    pub fn check_simulataneous_deregister(
+        &mut self,
+        implicated_cid: u64,
+        peer_cid: u64,
+    ) -> Option<Ticket> {
+        log::trace!(target: "lusna", "Checking simultaneous deregister between {} and {}", implicated_cid, peer_cid);
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::DeregistrationSuccess(peer) = &posting.signal {
+            log::trace!(target: "lusna", "Checking if posting from {} == {}", peer, implicated_cid);
+            *peer == implicated_cid
+        } else {
+            false
+        })
+    }
+
+    fn check_simultaneous_event(
+        &mut self,
+        peer_cid: u64,
+        fx: impl Fn(&TrackedPosting) -> bool,
+    ) -> Option<Ticket> {
+        let this = self.inner.read();
+        let peer_map = this.observed_postings.get(&peer_cid)?;
+        log::trace!(target: "lusna", "[simultaneous checking] peer_map len: {}", peer_map.len());
+        peer_map
+            .iter()
+            .find(|(_, posting)| (fx)(*posting))
             .map(|(ticket, _)| *ticket)
     }
 

@@ -303,10 +303,7 @@ impl VirtualConnectionType {
     /// Gets the target cid, agnostic to type
     pub fn get_implicated_cid(&self) -> u64 {
         match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANServer(cid) => {
-                // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan serve conn
-                *cid
-            }
+            VirtualConnectionType::HyperLANPeerToHyperLANServer(cid) => *cid,
 
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
                 *implicated_cid
