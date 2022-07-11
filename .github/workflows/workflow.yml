@@ -130,16 +130,16 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y valgrind
       # Compile tests
-      - name: cargo build secmem_bytes_test
-        run: cargo build --bin secmem_bytes_test
+#      - name: cargo build secmem_bytes_test
+#        run: cargo build --bin secmem_bytes_test
       # Run with valgrind
-      - name: Run valgrind secmem_bytes
-        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
-      - name: cargo build secmem_string_test
-        run: cargo build --bin secmem_string_test
+#      - name: Run valgrind secmem_bytes
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
+#      - name: cargo build secmem_string_test
+#        run: cargo build --bin secmem_string_test
       # Run with valgrind
-      - name: Run valgrind secmem_string
-        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+#      - name: Run valgrind secmem_string
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
 #      - name: cargo build pq_kems

@@ -1744,7 +1744,7 @@ impl HdpSession {
                 Ok((packet, remote_peer)) => {
                     log::trace!(target: "lusna", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
                     let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                    this.process_inbound_packet_wave(packet, peer_session_accessor)?;
+                    this.process_inbound_packet_udp(packet, peer_session_accessor)?;
                 }
 
                 Err(err) => {
@@ -1790,7 +1790,7 @@ impl HdpSession {
         Ok(())
     }
 
-    pub fn process_inbound_packet_wave(
+    pub fn process_inbound_packet_udp(
         &self,
         packet: HdpPacket,
         accessor: &EndpointCryptoAccessor,
