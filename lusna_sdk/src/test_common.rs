@@ -3,6 +3,7 @@
 use crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
 use crate::prefabs::server::empty::EmptyKernel;
 use crate::prefabs::ClientServerRemote;
+use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use futures::Future;
 use std::net::SocketAddr;
@@ -143,20 +144,43 @@ pub async fn udp_mode_assertions(
 ) {
     use futures::StreamExt;
     log::info!(target: "lusna", "Inside UDP mode assertions ...");
-    wait_for_peers().await;
     match udp_mode {
         UdpMode::Enabled => {
+            log::info!(target: "lusna", "Inside UDP mode assertions AB1 ...");
             assert!(udp_channel_rx_opt.is_some());
+            log::info!(target: "lusna", "Inside UDP mode assertions AB1.5 ...");
             let chan = udp_channel_rx_opt.unwrap().await.unwrap();
+            log::info!(target: "lusna", "Inside UDP mode assertions AB2 ...");
             let (tx, mut rx) = chan.split();
             tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
             assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
         }
 
         UdpMode::Disabled => {
+            log::info!(target: "lusna", "Inside UDP mode assertions AB0-null ...");
             assert!(udp_channel_rx_opt.is_none());
         }
     }
 
     log::info!(target: "lusna", "Done w/ UDP mode assertions");
+}
+
+#[cfg(feature = "localhost-testing")]
+#[allow(dead_code)]
+pub async fn p2p_assertions(implicated_cid: u64, conn_success: &PeerConnectSuccess) {
+    log::info!(target: "lusna", "Inside p2p assertions ...");
+    let peer_cid = conn_success.channel.get_peer_cid();
+
+    assert_eq!(implicated_cid, conn_success.channel.get_implicated_cid());
+    assert_ne!(implicated_cid, peer_cid);
+    assert!(conn_success
+        .remote
+        .inner
+        .account_manager()
+        .get_persistence_handler()
+        .hyperlan_peer_exists(implicated_cid, peer_cid)
+        .await
+        .unwrap());
+
+    log::info!(target: "lusna", "Done w/ p2p mode assertions");
 }

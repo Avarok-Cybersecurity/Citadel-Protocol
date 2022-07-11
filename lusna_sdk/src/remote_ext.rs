@@ -1,5 +1,6 @@
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
+use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::HyperlanPeer;
 use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
 use futures::StreamExt;
@@ -479,10 +480,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
                 NodeResult::PeerChannelCreated(_, channel, udp_rx_opt) => {
+                    let username = self.target_username().cloned();
+                    let remote = PeerRemote {
+                        inner: self.remote().clone(),
+                        peer: peer_target.as_virtual_connection(),
+                        username,
+                    };
+
                     return Ok(PeerConnectSuccess {
+                        remote,
                         channel,
                         udp_rx_opt,
-                    })
+                    });
                 }
 
                 NodeResult::PeerEvent(
@@ -546,6 +555,45 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         Err(NetworkError::InternalError("Internal kernel stream died"))
     }
 
+    /// Deregisters the currently locked target. If the target is a client to server
+    /// connection, deregisters from the server. If the target is a p2p connection,
+    /// deregisters the p2p
+    async fn deregister(&mut self) -> Result<(), NetworkError> {
+        if let Ok(peer_conn) = self.try_as_peer_connection().await {
+            let peer_request = PeerSignal::Deregister(peer_conn);
+            let implicated_cid = self.user().get_implicated_cid();
+            let request = NodeRequest::PeerCommand(implicated_cid, peer_request);
+
+            let mut subscription = self.remote().send_callback_subscription(request).await?;
+            while let Some(result) = subscription.next().await {
+                if let NodeResult::PeerEvent(PeerSignal::DeregistrationSuccess(..), _) =
+                    map_errors(result)?
+                {
+                    return Ok(());
+                }
+            }
+        } else {
+            // c2s conn
+            let cid = self.user().get_implicated_cid();
+            let request = NodeRequest::DeregisterFromHypernode(cid, self.user().clone());
+            let mut subscription = self.remote().send_callback_subscription(request).await?;
+            while let Some(result) = subscription.next().await {
+                match map_errors(result)? {
+                    NodeResult::DeRegistration(_, _, true) => return Ok(()),
+                    NodeResult::DeRegistration(_, _, false) => {
+                        return Err(NetworkError::msg(format!(
+                            "Unable to deregister: status=false"
+                        )))
+                    }
+
+                    _ => {}
+                }
+            }
+        }
+
+        Err(NetworkError::InternalError("Deregister ended unexpectedly"))
+    }
+
     #[doc(hidden)]
     async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {
@@ -582,12 +630,14 @@ impl<T: TargetLockedRemote> ProtocolRemoteTargetExt for T {}
 
 pub mod results {
     use crate::prelude::{PeerChannel, UdpChannel};
+    use crate::remote_ext::remote_specialization::PeerRemote;
     use tokio::sync::oneshot::Receiver;
 
     #[derive(Debug)]
     pub struct PeerConnectSuccess {
         pub channel: PeerChannel,
         pub udp_rx_opt: Option<Receiver<UdpChannel>>,
+        pub remote: PeerRemote,
     }
 
     pub enum PeerRegisterStatus {
@@ -606,10 +656,11 @@ pub mod remote_specialization {
     use crate::prelude::user_ids::TargetLockedRemote;
     use crate::prelude::{NodeRemote, VirtualTargetType};
 
+    #[derive(Debug, Clone)]
     pub struct PeerRemote {
-        inner: NodeRemote,
-        peer: VirtualTargetType,
-        username: Option<String>,
+        pub(crate) inner: NodeRemote,
+        pub(crate) peer: VirtualTargetType,
+        pub(crate) username: Option<String>,
     }
 
     impl TargetLockedRemote for PeerRemote {

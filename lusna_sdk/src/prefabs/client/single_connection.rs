@@ -279,6 +279,7 @@ mod tests {
             conn: ConnectSuccess,
             _remote: ClientServerRemote,
         ) -> Result<(), NetworkError> {
+            wait_for_peers().await;
             crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
             Ok(())
         }
@@ -308,6 +309,7 @@ mod tests {
             Default::default(),
             |channel, _remote| async move {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
@@ -370,6 +372,43 @@ mod tests {
 
         if debug_force_nat_timeout {
             std::env::remove_var("debug_cause_timeout");
+        }
+
+        assert!(client_success.load(Ordering::Relaxed));
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn single_connection_passwordless_deregister() {
+        let _ = lusna_logging::setup_log();
+
+        let client_success = &AtomicBool::new(false);
+        let (server, server_addr) = server_info();
+
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let uuid = Uuid::new_v4();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
+            uuid,
+            server_addr,
+            |_channel, mut remote| async move {
+                log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
+                remote.deregister().await?;
+                client_success.store(true, Ordering::Relaxed);
+                stop_tx.send(()).unwrap();
+                Ok(())
+            },
+        );
+
+        let client = NodeBuilder::default().build(client_kernel).unwrap();
+
+        let joined = futures::future::try_join(server, client);
+
+        tokio::select! {
+            res0 = joined => { let _ = res0.unwrap(); },
+            res1 = stop_rx => { res1.unwrap(); }
         }
 
         assert!(client_success.load(Ordering::Relaxed));

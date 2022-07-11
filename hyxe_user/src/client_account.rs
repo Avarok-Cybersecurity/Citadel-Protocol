@@ -415,9 +415,10 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         );
     }
 
-    /// Returns Some if success, None otherwise. Also syncs to the disk in via the threadpool
+    /// Returns Some if success, None otherwise
     #[allow(unused_results)]
     pub(crate) fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
+        log::trace!(target: "lusna", "[remove peer] implicated_cid: {} | peer_cid: {}", self.get_cid(), cid);
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {

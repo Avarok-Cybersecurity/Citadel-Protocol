@@ -45,11 +45,12 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
 
 /// Allows easy aggregation of [`UserIdentifier`]'s and custom settings for the connection
 /// request
-#[derive(Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PeerConnectionSetupAggregator {
     inner: Vec<PeerConnectionSettings>,
 }
 
+#[derive(Debug, Clone)]
 struct PeerConnectionSettings {
     id: UserIdentifier,
     session_security_settings: SessionSecuritySettings,
@@ -256,6 +257,7 @@ mod tests {
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use rstest::rstest;
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use uuid::Uuid;
 
@@ -313,19 +315,41 @@ mod tests {
                 full_name.as_str(),
                 username.clone().as_str(),
                 password.as_str(),
-                agg,
+                agg.clone(),
                 server_addr,
-                move |mut results, remote| async move {
+                move |mut results, mut remote| async move {
                     let mut success = 0;
+                    let mut p2p_remotes = HashMap::new();
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "lusna", "User {} received {:?}", username, conn);
                         let conn = conn?;
                         crate::test_common::udp_mode_assertions(udp_mode, conn.udp_rx_opt).await;
                         success += 1;
+                        let _ = p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote);
                         if success == peer_count - 1 {
                             break;
                         }
+                    }
+
+                    // by now, all the network peers have been registered to
+                    // test that getting the peers (not necessarily mutual)
+                    // show up
+                    let network_peers = remote.get_peers(None).await.unwrap();
+                    for user in agg.inner {
+                        let peer_cid = user.id.get_cid();
+                        assert!(network_peers.iter().find(|r| r.cid == peer_cid).is_some())
+                    }
+
+                    // test to make sure the mutuals are valid
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
+                    let mutual_peers = remote
+                        .inner
+                        .get_hyperlan_mutual_peers(implicated_cid)
+                        .await
+                        .unwrap();
+                    for (peer_cid, _) in p2p_remotes {
+                        assert!(mutual_peers.iter().find(|r| r.cid == peer_cid).is_some());
                     }
 
                     log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", username, success);
@@ -362,6 +386,8 @@ mod tests {
         let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
+        let do_deregister = peer_count == 2;
+
         let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
@@ -386,10 +412,33 @@ mod tests {
                 peers,
                 move |mut results, remote| async move {
                     let mut success = 0;
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
-                        let _conn = conn?;
+                        let mut conn = conn?;
+                        let peer_cid = conn.channel.get_peer_cid();
+
+                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
+
+                        crate::test_common::udp_mode_assertions(
+                            Default::default(),
+                            conn.udp_rx_opt,
+                        )
+                        .await;
+
+                        if do_deregister {
+                            conn.remote.deregister().await?;
+                            assert!(!conn
+                                .remote
+                                .inner
+                                .account_manager()
+                                .get_persistence_handler()
+                                .hyperlan_peer_exists(implicated_cid, peer_cid)
+                                .await
+                                .unwrap());
+                        }
+
                         success += 1;
                         if success == peer_count - 1 {
                             break;

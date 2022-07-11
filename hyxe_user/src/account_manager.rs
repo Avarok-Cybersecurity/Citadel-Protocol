@@ -270,17 +270,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .await
     }
 
-    /// Deregisters the two peers from each other
-    pub async fn deregister_hyperlan_p2p_as_server(
-        &self,
-        cid0: u64,
-        cid1: u64,
-    ) -> Result<(), AccountError> {
-        self.persistence_handler
-            .deregister_p2p_as_server(cid0, cid1)
-            .await
-    }
-
     /// Deletes a client by cid. Returns true if a success
     #[allow(unused_results)]
     pub async fn delete_client_by_cid(&self, cid: u64) -> Result<(), AccountError> {

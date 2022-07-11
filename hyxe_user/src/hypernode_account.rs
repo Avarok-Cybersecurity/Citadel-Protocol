@@ -1,4 +1,5 @@
 use crate::account_manager::AccountManager;
+use crate::backend::username_to_cid;
 use crate::misc::AccountError;
 use crate::prelude::{ClientNetworkAccount, MutualPeer};
 use uuid::Uuid;
@@ -46,6 +47,14 @@ impl UserIdentifier {
                     .get_hyperlan_peer_by_username(implicated_cid, name.as_str())
                     .await
             }
+        }
+    }
+
+    /// Gets the CID of this target
+    pub fn get_cid(&self) -> u64 {
+        match self {
+            UserIdentifier::ID(cid) => *cid,
+            UserIdentifier::Username(uname) => username_to_cid(uname),
         }
     }
 }

@@ -1186,7 +1186,7 @@ pub enum NodeResult {
     /// The registration was a failure
     RegisterFailure(Ticket, String),
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
-    DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
+    DeRegistration(u64, Option<Ticket>, bool),
     /// Connection succeeded for the cid self.0. bool is "is personal"
     ConnectSuccess(
         Ticket,
@@ -1246,7 +1246,7 @@ impl NodeResult {
         match self {
             NodeResult::RegisterOkay(t, _, _) => Some(*t),
             NodeResult::RegisterFailure(t, _) => Some(*t),
-            NodeResult::DeRegistration(_, t, _, _) => t.clone(),
+            NodeResult::DeRegistration(_, t, ..) => t.clone(),
             NodeResult::ConnectSuccess(t, ..) => Some(*t),
             NodeResult::ConnectFail(t, _, _) => Some(*t),
             NodeResult::OutboundRequestRejected(t, _) => Some(*t),
