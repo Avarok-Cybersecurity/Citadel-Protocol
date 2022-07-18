@@ -180,7 +180,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 80
     env:
-      OUTFILE: "" + $ {{ GITHUB_WORKSPACE }} + "/lcov.info"
+      OUTFILE: $ {{ GITHUB_WORKSPACE }} + "/lcov.info"
     steps:
       - uses: actions/checkout@v3
       - name: Install Rust

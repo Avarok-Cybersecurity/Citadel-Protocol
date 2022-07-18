@@ -93,7 +93,7 @@ impl ObjectTransferHandle {
     }
 
     fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
-        if self.orientation == ObjectTransferOrientation::Receiver {
+        if matches!(self.orientation, ObjectTransferOrientation::Receiver) {
             self.start_recv_tx
                 .take()
                 .ok_or_else(|| AccountError::msg("Start_recv_tx already called"))?

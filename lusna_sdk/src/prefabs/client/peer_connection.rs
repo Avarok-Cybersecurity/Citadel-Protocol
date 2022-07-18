@@ -349,7 +349,7 @@ mod tests {
                         .await
                         .unwrap();
                     for (peer_cid, _) in p2p_remotes {
-                        assert!(mutual_peers.iter().find(|r| r.cid == peer_cid).is_some());
+                        assert!(mutual_peers.iter().find(|r| r.cid == peer_cid).is_some())
                     }
 
                     log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", username, success);
