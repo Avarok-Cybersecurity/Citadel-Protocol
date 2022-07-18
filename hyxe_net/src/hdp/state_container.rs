@@ -50,7 +50,7 @@ use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use crate::hdp::state_subcontainers::preconnect_state_container::PreConnectState;
 use crate::hdp::state_subcontainers::register_state_container::RegisterState;
-use crate::hdp::time::TransferStats;
+use crate::hdp::transfer_stats::TransferStats;
 use crate::prelude::MessageGroupKey;
 use atomic::Atomic;
 use bytes::Bytes;
@@ -265,17 +265,6 @@ impl VirtualConnectionType {
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
         Self::deserialize_from_vector(this.as_ref()).ok()
-    }
-
-    pub fn from_header(header: &LayoutVerified<&[u8], HdpHeader>) -> Self {
-        if header.target_cid.get() != 0 {
-            VirtualTargetType::HyperLANPeerToHyperLANPeer(
-                header.session_cid.get(),
-                header.target_cid.get(),
-            )
-        } else {
-            VirtualTargetType::HyperLANPeerToHyperLANServer(header.session_cid.get())
-        }
     }
 
     /// Gets the target cid, agnostic to type
@@ -704,15 +693,12 @@ impl StateContainerInner {
                         // data can now be forwarded
                         Some(udp_channel)
                     } else {
-                        log::trace!(target: "lusna", "WE2");
                         None
                     }
                 } else {
-                    log::trace!(target: "lusna", "WE1");
                     None
                 }
             } else {
-                log::trace!(target: "lusna", "WE0");
                 None
             }
         }
@@ -1050,6 +1036,12 @@ impl StateContainerInner {
         virtual_target: VirtualTargetType,
         metadata_orig: VirtualObjectMetadata,
         pers: &PersistenceHandler<R, Fcm>,
+        state_container: StateContainer,
+        hyper_ratchet: StackedRatchet,
+        target_cid: u64,
+        v_target_flipped: VirtualTargetType
+
+        preferred_primary_stream: OutboundPrimaryStreamSender
     ) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
@@ -1057,6 +1049,11 @@ impl StateContainerInner {
         // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
         if !self.inbound_files.contains_key(&key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
+            let (start_recv_tx, start_recv_rx) = tokio::sync::oneshot::channel::<bool>();
+
+            let security_level_rebound: SecurityLevel = header.security_level.into();
+            let timestamp = self.time_tracker.get_global_time_ns();
+            let object_id = metadata_orig.object_id;
             let pers = pers.clone();
             let metadata = metadata_orig.clone();
             let (reception_complete_tx, success_receiving_rx) =
@@ -1064,7 +1061,7 @@ impl StateContainerInner {
             let entry = InboundFileTransfer {
                 last_group_finish_time: Instant::now(),
                 last_group_window_len: 0,
-                object_id: metadata_orig.object_id,
+                object_id,
                 total_groups: metadata_orig.group_count,
                 ticket,
                 groups_rendered: 0,
@@ -1079,6 +1076,7 @@ impl StateContainerInner {
                 header.session_cid.get(),
                 header.target_cid.get(),
                 ObjectTransferOrientation::Receiver,
+                Some(start_recv_tx)
             );
             self.file_transfer_handles.insert(
                 key,
@@ -1090,28 +1088,66 @@ impl StateContainerInner {
                 .unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle));
 
             let task = async move {
-                match pers
-                    .stream_object_to_backend(
-                        stream_to_hd_rx,
-                        Arc::new(metadata),
-                        tx_status.clone(),
-                    )
-                    .await
-                {
-                    Ok(()) => {
-                        log::trace!(target: "lusna", "Successfully synced file to backend");
-                        let status = match success_receiving_rx.await {
-                            Ok(_) => ObjectTransferStatus::ReceptionComplete,
+                let res = start_recv_rx.await;
+                let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
+                // first, send a rebound signal immediately to the sender
+                // to ensure the sender knows if the user accepted or not
+                let file_header_ack =
+                    hdp_packet_crafter::file::craft_file_header_ack_packet(
+                        &hyper_ratchet,
+                        accepted,
+                        object_id,
+                        target_cid,
+                        ticket,
+                        security_level_rebound,
+                        v_target_flipped,
+                        timestamp,
+                    );
 
-                            Err(_) => ObjectTransferStatus::Fail(format!(
-                                "An unknown error occurred while receiving file"
-                            )),
-                        };
+                if let Err(err) = preferred_primary_stream.unbounded_send(file_header_ack) {
+                    log::error!(target: "lusna", "Unable to send file_header_ack rebound signal; aborting: {:?}", err);
+                    return;
+                }
 
-                        let _ = tx_status.send(status);
-                    }
+                match res {
+                    Ok(accepted) => {
+                        if accepted {
+                            // local user accepts the file transfer. Alert the adjacent end
+                            // and get ready to begin streaming
+                            match pers
+                                .stream_object_to_backend(
+                                    stream_to_hd_rx,
+                                    Arc::new(metadata),
+                                    tx_status.clone(),
+                                )
+                                .await
+                            {
+                                Ok(()) => {
+                                    log::trace!(target: "lusna", "Successfully synced file to backend");
+                                    let status = match success_receiving_rx.await {
+                                        Ok(_) => ObjectTransferStatus::ReceptionComplete,
+
+                                        Err(_) => ObjectTransferStatus::Fail(format!(
+                                            "An unknown error occurred while receiving file"
+                                        )),
+                                    };
+
+                                    let _ = tx_status.send(status);
+                                }
+                                Err(err) => {
+                                    log::error!(target: "lusna", "Unable to sync file to backend: {:?}", err);
+                                }
+                            }
+                        } else {
+                            // user did not accept. cleanup local
+                            let mut state_container = inner_mut_state!(state_container);
+                            let _ = state_container.inbound_files.remove(&key);
+                            let _ =state_container.file_transfer_handles.remove(&key);
+                        }
+                    },
+
                     Err(err) => {
-                        log::error!(target: "lusna", "Unable to sync file to backend: {:?}", err);
+                        log::error!(target: "lusna", "Start_recv_rx failed: {:?}", err);
                     }
                 }
             };
@@ -1157,6 +1193,7 @@ impl StateContainerInner {
                     implicated_cid,
                     receiver_cid,
                     ObjectTransferOrientation::Sender,
+                    None
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
                 let _ = self

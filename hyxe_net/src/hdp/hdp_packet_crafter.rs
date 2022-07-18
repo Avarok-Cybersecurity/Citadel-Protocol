@@ -595,7 +595,7 @@ pub(crate) mod keep_alive {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet_mut();
+        let mut packet = header.into_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
@@ -833,7 +833,7 @@ pub mod do_disconnect {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet_mut();
+        let mut packet = header.into_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
@@ -863,7 +863,7 @@ pub mod do_disconnect {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet_mut();
+        let mut packet = header.into_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();

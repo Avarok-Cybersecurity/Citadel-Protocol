@@ -424,8 +424,8 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let remote = self.remote();
 
         let result = remote
-            .send_callback(NodeRequest::SendFile(
-                path.into(),
+            .send_callback(NodeRequest::SendObject(
+                Box::new(path.into()),
                 chunk_size,
                 implicated_cid,
                 user,

@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -44,6 +43,7 @@ use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
 use crate::kernel::RuntimeFuture;
 use hyxe_crypt::prelude::SecBuffer;
+use hyxe_crypt::streaming_crypt_scrambler::ObjectSource;
 use hyxe_user::backend::utils::ObjectTransferHandle;
 use hyxe_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
 use hyxe_wire::exports::Endpoint;
@@ -832,7 +832,7 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::SendFile(path, chunk_size, implicated_cid, virtual_target) => {
+                NodeRequest::SendObject(path, chunk_size, implicated_cid, virtual_target) => {
                     if let Err(err) = session_manager.process_outbound_file(
                         ticket_id,
                         chunk_size,
@@ -1152,7 +1152,7 @@ pub enum NodeRequest {
     /// Updates the drill for the given CID
     ReKey(VirtualTargetType),
     /// Send a file
-    SendFile(PathBuf, Option<usize>, u64, VirtualTargetType),
+    SendObject(Box<dyn ObjectSource>, Option<usize>, u64, VirtualTargetType),
     /// A group-message related command
     GroupBroadcastCommand(u64, GroupBroadcast),
     /// Tells the server to disconnect a session (implicated cid, target_cid)

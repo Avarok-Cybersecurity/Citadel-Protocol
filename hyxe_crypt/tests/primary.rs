@@ -20,6 +20,7 @@ mod tests {
     use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use hyxe_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
     use std::convert::TryFrom;
+    use std::path::PathBuf;
     use std::time::Instant;
 
     #[tokio::test]
@@ -756,11 +757,10 @@ mod tests {
         let security_level = SecurityLevel::LOW;
         const HEADER_LEN: usize = 52;
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
-        let std_file = std::fs::File::open("../resources/TheBridge.pdf").unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let (bytes, _num_groups) = scramble_encrypt_source::<_, _, HEADER_LEN>(
-            std_file,
+            PathBuf::from("../resources/TheBridge.pdf"),
             None,
             99,
             group_sender_tx,
