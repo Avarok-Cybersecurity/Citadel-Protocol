@@ -10,6 +10,7 @@ env:
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
   RUST_LOG: "lusna=warn"
+  OUTFILE: $ {{ GITHUB_WORKSPACE }} + "/lcov.info"
 
 concurrency:
   group: ${{ github.head_ref || github.run_id }}
@@ -25,7 +26,7 @@ jobs:
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: $ {{ GITHUB_WORKSPACE }} + "/lcov.info"
+          files: $ {{ env.OUTFILE }}
   docs:
     needs:
       - coverage_upload
