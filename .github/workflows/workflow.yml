@@ -177,7 +177,7 @@ jobs:
 #            return 'stop'
 #          result-encoding: string
   coverage:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v3
