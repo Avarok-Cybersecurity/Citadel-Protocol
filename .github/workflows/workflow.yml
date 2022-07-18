@@ -197,14 +197,14 @@ jobs:
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ${GITHUB_WORKSPACE}/lcov.info
+          files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
       - name: Add codecov report to branch
         run: |
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
           git add .
           git commit -m "add coverage report"
-          git push
+          git push origin HEAD:${GITHUB_REF}
       - uses: actions/github-script@v6
         if: failure()
         with:
