@@ -25,6 +25,6 @@ pub(crate) mod state_container;
 /// For organizing the stage containers
 pub(crate) mod state_subcontainers;
 /// ~!
-pub(crate) mod time;
+pub(crate) mod transfer_stats;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;

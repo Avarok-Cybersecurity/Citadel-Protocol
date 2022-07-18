@@ -8,7 +8,8 @@
     variant_size_differences,
     unused_features,
     unused_results,
-    warnings
+    warnings,
+    dead_code
 )]
 #![allow(rustdoc::broken_intra_doc_links)]
 
@@ -386,9 +387,7 @@ pub mod prelude {
     pub use crate::hdp::hdp_node::ConnectMode;
     pub use crate::hdp::hdp_node::HdpServer;
     pub use crate::hdp::hdp_node::Ticket;
-    pub use crate::hdp::hdp_node::{
-        NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode,
-    };
+    pub use crate::hdp::hdp_node::{NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode};
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
     pub use crate::hdp::misc::session_security_settings::{

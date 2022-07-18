@@ -5,7 +5,7 @@ use crate::constants::{
     DRILL_UPDATE_FREQUENCY_LOW_BASE, DRILL_UPDATE_FREQUENCY_MEDIUM_BASE,
     DRILL_UPDATE_FREQUENCY_ULTRA_BASE,
 };
-use crate::hdp::time::TransferStats;
+use crate::hdp::transfer_stats::TransferStats;
 use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use std::collections::HashMap;
 
