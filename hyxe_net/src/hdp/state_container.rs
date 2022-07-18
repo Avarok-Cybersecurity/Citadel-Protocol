@@ -310,44 +310,6 @@ impl VirtualConnectionType {
         }
     }
 
-    /// panics if self is not the supposed type
-    pub fn assert_hyperlan_peer_to_hyperlan_peer(self) -> (u64, u64) {
-        match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                (implicated_cid, target_cid)
-            }
-            _ => panic!("Invalid branch selection"),
-        }
-    }
-
-    /// panics if self is not the supposed type
-    pub fn assert_hyperlan_peer_to_hyperwan_peer(self) -> (u64, u64, u64) {
-        match self {
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
-                (implicated_cid, icid, target_cid)
-            }
-            _ => panic!("Invalid branch selection"),
-        }
-    }
-
-    /// panics if self is not the supposed type
-    pub fn assert_hyperlan_peer_to_hyperlan_server(self) -> u64 {
-        match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => implicated_cid,
-            _ => panic!("Invalid branch selection"),
-        }
-    }
-
-    /// panics if self is not the supposed type
-    pub fn assert_hyperlan_peer_to_hyperwan_server(self) -> (u64, u64) {
-        match self {
-            VirtualConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, icid) => {
-                (implicated_cid, icid)
-            }
-            _ => panic!("Invalid branch selection"),
-        }
-    }
-
     pub fn is_hyperlan(&self) -> bool {
         match self {
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(..)
@@ -583,6 +545,30 @@ impl StateContainerInner {
             outbound_files: HashMap::new(),
         };
         inner.into()
+    }
+
+    /// Attempts to find the direct p2p stream. If not found, will use the default
+    /// to_server stream. Note: the underlying crypto is still the same
+    pub fn get_preferred_stream(&self, peer_cid: u64) -> &OutboundPrimaryStreamSender {
+        fn get_inner(
+            this: &StateContainerInner,
+            peer_cid: u64,
+        ) -> Option<&OutboundPrimaryStreamSender> {
+            Some(
+                &this
+                    .active_virtual_connections
+                    .get(&peer_cid)?
+                    .endpoint_container
+                    .as_ref()?
+                    .direct_p2p_remote
+                    .as_ref()?
+                    .p2p_primary_stream,
+            )
+        }
+
+        get_inner(self, peer_cid)
+            .or_else(|| Some(&self.c2s_channel_container.as_ref()?.to_primary_stream))
+            .unwrap()
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
@@ -1039,9 +1025,8 @@ impl StateContainerInner {
         state_container: StateContainer,
         hyper_ratchet: StackedRatchet,
         target_cid: u64,
-        v_target_flipped: VirtualTargetType
-
-        preferred_primary_stream: OutboundPrimaryStreamSender
+        v_target_flipped: VirtualTargetType,
+        preferred_primary_stream: OutboundPrimaryStreamSender,
     ) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
@@ -1076,7 +1061,7 @@ impl StateContainerInner {
                 header.session_cid.get(),
                 header.target_cid.get(),
                 ObjectTransferOrientation::Receiver,
-                Some(start_recv_tx)
+                Some(start_recv_tx),
             );
             self.file_transfer_handles.insert(
                 key,
@@ -1092,17 +1077,16 @@ impl StateContainerInner {
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender
                 // to ensure the sender knows if the user accepted or not
-                let file_header_ack =
-                    hdp_packet_crafter::file::craft_file_header_ack_packet(
-                        &hyper_ratchet,
-                        accepted,
-                        object_id,
-                        target_cid,
-                        ticket,
-                        security_level_rebound,
-                        v_target_flipped,
-                        timestamp,
-                    );
+                let file_header_ack = hdp_packet_crafter::file::craft_file_header_ack_packet(
+                    &hyper_ratchet,
+                    accepted,
+                    object_id,
+                    target_cid,
+                    ticket,
+                    security_level_rebound,
+                    v_target_flipped,
+                    timestamp,
+                );
 
                 if let Err(err) = preferred_primary_stream.unbounded_send(file_header_ack) {
                     log::error!(target: "lusna", "Unable to send file_header_ack rebound signal; aborting: {:?}", err);
@@ -1142,9 +1126,9 @@ impl StateContainerInner {
                             // user did not accept. cleanup local
                             let mut state_container = inner_mut_state!(state_container);
                             let _ = state_container.inbound_files.remove(&key);
-                            let _ =state_container.file_transfer_handles.remove(&key);
+                            let _ = state_container.file_transfer_handles.remove(&key);
                         }
-                    },
+                    }
 
                     Err(err) => {
                         log::error!(target: "lusna", "Start_recv_rx failed: {:?}", err);
@@ -1193,7 +1177,7 @@ impl StateContainerInner {
                     implicated_cid,
                     receiver_cid,
                     ObjectTransferOrientation::Sender,
-                    None
+                    None,
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
                 let _ = self

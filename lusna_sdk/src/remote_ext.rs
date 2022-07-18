@@ -715,6 +715,11 @@ mod tests {
             log::trace!(target: "lusna", "SERVER received {:?}", message);
             if let NodeResult::ObjectTransferHandle(_, mut handle) = map_errors(message)? {
                 let mut path = None;
+                // accept the transfer
+                handle
+                    .accept()
+                    .map_err(|err| NetworkError::msg(err.into_string()))?;
+
                 while let Some(status) = handle.next().await {
                     match status {
                         ObjectTransferStatus::ReceptionComplete => {
