@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 
@@ -39,6 +38,7 @@ use crate::hdp::peer::peer_layer::{
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
 use crate::macros::SyncContextRequirements;
+use hyxe_crypt::streaming_crypt_scrambler::ObjectSource;
 use hyxe_wire::exports::tokio_rustls::rustls;
 use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
@@ -523,7 +523,7 @@ impl HdpSessionManager {
         &self,
         ticket: Ticket,
         max_group_size: Option<usize>,
-        file: PathBuf,
+        source: Box<dyn ObjectSource>,
         implicated_cid: u64,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
@@ -533,7 +533,7 @@ impl HdpSessionManager {
             existing_session.1.process_outbound_file(
                 ticket,
                 max_group_size,
-                file,
+                source,
                 virtual_target,
                 security_level,
             )

@@ -224,23 +224,6 @@ impl HdpHeader {
     pub fn into_packet(self) -> BytesMut {
         BytesMut::from(self.as_bytes())
     }
-
-    pub fn into_vec(self) -> Vec<u8> {
-        Vec::from(self.as_ref())
-    }
-
-    pub fn into_packet_mut(self) -> BytesMut {
-        BytesMut::from(self.as_bytes())
-    }
-
-    /// Useful for FCM relaying
-    pub fn concat_with<T: AsRef<[u8]>>(&self, payload: T) -> Vec<u8> {
-        let payload = payload.as_ref();
-        let mut ret = Vec::<u8>::with_capacity(HDP_HEADER_BYTE_LEN + payload.len());
-        self.inscribe_into(&mut ret);
-        ret.put(payload);
-        ret
-    }
 }
 
 /// The HdpPacket structure

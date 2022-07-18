@@ -40,12 +40,7 @@ pub fn process_file_packet(
                             let object_id = vfm.object_id;
                             let ticket = Ticket(header.context_info.get());
                             let security_level = SecurityLevel::from(header.security_level);
-                            let success = state_container.on_file_header_received(
-                                &header,
-                                v_target,
-                                vfm,
-                                session.account_manager.get_persistence_handler(),
-                            );
+
                             let (target_cid, v_target_flipped) = match v_target {
                                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(
                                     implicated_cid,
@@ -73,18 +68,21 @@ pub fn process_file_packet(
                                 }
                             };
 
-                            let file_header_ack =
-                                hdp_packet_crafter::file::craft_file_header_ack_packet(
-                                    &hyper_ratchet,
-                                    success,
-                                    object_id,
-                                    target_cid,
-                                    ticket,
-                                    security_level,
-                                    v_target_flipped,
-                                    timestamp,
-                                );
-                            Ok(PrimaryProcessorResult::ReplyToSender(file_header_ack))
+                            state_container.on_file_header_received(
+                                &header,
+                                v_target,
+                                vfm,
+                                session.account_manager.get_persistence_handler(),
+                                session.state_container.clone(),
+                                hyper_ratchet,
+                                target_cid,
+                                v_target_flipped,
+                                preferred_primary_stream,
+                            );
+
+                            // We do not send a rebound signal until AFTER the local user
+                            // accepts the file transfer requests
+                            Ok(PrimaryProcessorResult::Void)
                         }
 
                         _ => {
