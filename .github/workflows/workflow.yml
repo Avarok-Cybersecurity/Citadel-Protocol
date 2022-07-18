@@ -197,7 +197,7 @@ jobs:
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: $OUTFILE
+          files: ${{ env.OUTFILE }}
       - name: Add codecov report to branch
         run: |
           git config --global user.name "tbraun96"
