@@ -48,7 +48,7 @@ impl<
 }
 
 #[auto_impl::auto_impl(Box)]
-pub trait ObjectSource: Send + 'static {
+pub trait ObjectSource: Send + Sync + 'static {
     fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError>;
     fn get_source_name(&self) -> Result<String, CryptError>;
 }
