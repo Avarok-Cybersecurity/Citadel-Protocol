@@ -22,8 +22,6 @@ pub mod udp_traversal;
 
 pub mod nat_identification;
 
-pub mod local_firewall_handler;
-
 pub mod hypernode_type;
 
 pub mod socket_helpers;

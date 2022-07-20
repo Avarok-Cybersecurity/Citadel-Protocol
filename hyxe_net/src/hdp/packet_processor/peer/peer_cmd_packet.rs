@@ -178,12 +178,7 @@ pub async fn process_peer_cmd(
                             }
 
                             kernel_tx.unbounded_send(NodeResult::PeerEvent(
-                                PeerSignal::Deregister(
-                                    PeerConnectionType::HyperLANPeerToHyperLANPeer(
-                                        implicated_cid,
-                                        *peer_cid,
-                                    ),
-                                ),
+                                PeerSignal::DeregistrationSuccess(*peer_cid),
                                 ticket,
                             ))?;
                             return Ok(PrimaryProcessorResult::Void);
@@ -964,16 +959,41 @@ async fn process_signal_command_as_server(
             // then, delete the cid entry from the CNAC and save to the local FS
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                    let mut peer_layer_lock = session.hypernode_peer_layer.inner.write().await;
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
-                    match account_manager
-                        .deregister_hyperlan_p2p_as_server(implicated_cid, target_cid)
-                        .await
+                    let mut register_event = false;
+
+                    let dereg_result = if peer_layer_lock
+                        .check_simulataneous_deregister(implicated_cid, target_cid)
+                        .is_some()
                     {
+                        // if the other peer is simultaneously deregistering, mark as Ok(())
+                        log::info!(target: "lusna", "Simultaneous deregister detected");
+                        Ok(())
+                    } else {
+                        register_event = true;
+                        account_manager
+                            .get_persistence_handler()
+                            .deregister_p2p_as_server(implicated_cid, target_cid)
+                            .await
+                    };
+
+                    match dereg_result {
                         Ok(_) => {
-                            // route the original signal to the other end. If not connected, don't bother
-                            // FCM note: the endpoint's duty is to send an FCM signal before completing deregistration
+                            if register_event {
+                                log::trace!(target: "lusna", "Registering dereg event");
+                                peer_layer_lock
+                                    .insert_tracked_posting(
+                                        implicated_cid,
+                                        Duration::from_secs(60),
+                                        ticket,
+                                        PeerSignal::DeregistrationSuccess(target_cid),
+                                        |_| {},
+                                    )
+                                    .await;
+                            }
                             let peer_alert_signal =
                                 PeerSignal::DeregistrationSuccess(implicated_cid);
                             if !session_manager.send_signal_to_peer(
@@ -999,6 +1019,7 @@ async fn process_signal_command_as_server(
                         }
 
                         Err(err) => {
+                            log::error!(target: "lusna", "Unable to find peer");
                             // unable to find the peer
                             let error_signal = PeerSignal::SignalError(ticket, err.into_string());
                             let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(

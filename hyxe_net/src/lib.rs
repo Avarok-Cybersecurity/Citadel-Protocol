@@ -8,7 +8,8 @@
     variant_size_differences,
     unused_features,
     unused_results,
-    warnings
+    warnings,
+    dead_code
 )]
 #![allow(rustdoc::broken_intra_doc_links)]
 
@@ -386,9 +387,7 @@ pub mod prelude {
     pub use crate::hdp::hdp_node::ConnectMode;
     pub use crate::hdp::hdp_node::HdpServer;
     pub use crate::hdp::hdp_node::Ticket;
-    pub use crate::hdp::hdp_node::{
-        atexit, NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode,
-    };
+    pub use crate::hdp::hdp_node::{NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode};
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
     pub use crate::hdp::misc::session_security_settings::{
@@ -412,7 +411,10 @@ pub mod prelude {
         kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings,
     };
     pub use crate::re_imports::{async_trait, NodeType};
-    pub use hyxe_user::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
+    pub use hyxe_user::backend::utils::{
+        ObjectTransferHandle, ObjectTransferOrientation, ObjectTransferStatus,
+        VirtualObjectMetadata,
+    };
     pub use hyxe_user::serialization::SyncIO;
 
     #[doc(hidden)]

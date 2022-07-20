@@ -63,6 +63,8 @@ jobs:
         run: cargo test --package hyxe_user --features localhost-testing -- --test-threads=1
       - run: cargo test --package ez_pqcrypto --package hyxe_crypt
       - run: cargo test --features=localhost-testing,multi-threaded --package hyxe_net -- --test-threads=1
+        env:
+          RUST_LOG: lusna=trace
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -128,16 +130,16 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y valgrind
       # Compile tests
-      - name: cargo build secmem_bytes_test
-        run: cargo build --bin secmem_bytes_test
+#      - name: cargo build secmem_bytes_test
+#        run: cargo build --bin secmem_bytes_test
       # Run with valgrind
-      - name: Run valgrind secmem_bytes
-        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
-      - name: cargo build secmem_string_test
-        run: cargo build --bin secmem_string_test
+#      - name: Run valgrind secmem_bytes
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
+#      - name: cargo build secmem_string_test
+#        run: cargo build --bin secmem_string_test
       # Run with valgrind
-      - name: Run valgrind secmem_string
-        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+#      - name: Run valgrind secmem_string
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
 #      - name: cargo build pq_kems
@@ -184,14 +186,30 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v1
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path lcov.info
+        run: |
+          export OUTFILE=${GITHUB_WORKSPACE}/lcov.info
+          echo $OUTFILE
+          cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path $OUTFILE
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
+          files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
+      - name: Commit codecov report to branch
+        run: |
+          git config --global user.name "tbraun96"
+          git config --global user.email "thomas.braun@avarok.net"
+          export OUTFILE=${GITHUB_WORKSPACE}/lcov.info
+          git add $OUTFILE
+          git commit -m "add coverage report"
+      - name: Push codecov to branch
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          force: true
       - uses: actions/github-script@v6
         if: failure()
         with:

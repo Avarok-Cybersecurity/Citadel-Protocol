@@ -1,6 +1,7 @@
 use bytes::BytesMut;
 use futures::task::Context;
 use std::io::{BufReader, Read};
+use std::path::PathBuf;
 use tokio::macros::support::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
@@ -46,6 +47,29 @@ impl<
 {
 }
 
+#[auto_impl::auto_impl(Box)]
+pub trait ObjectSource: Send + Sync + 'static {
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError>;
+    fn get_source_name(&self) -> Result<String, CryptError>;
+}
+
+#[cfg(feature = "filesystem")]
+impl ObjectSource for PathBuf {
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError> {
+        std::fs::File::open(self)
+            .map_err(|err| CryptError::Encrypt(err.to_string()))
+            .map(|r| Box::new(r) as Box<dyn FixedSizedStream>)
+    }
+
+    fn get_source_name(&self) -> Result<String, CryptError> {
+        self.file_name()
+            .ok_or_else(|| CryptError::Encrypt("Unable to get filename".to_string()))?
+            .to_str()
+            .map(|r| r.to_string())
+            .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
+    }
+}
+
 /// As the networking protocol receives ACKs from the packets it gets from the sender, it should call the waker that this function sends through `waker_sender` once
 /// it is close to finishing the group (depending on speed).
 ///
@@ -55,8 +79,8 @@ impl<
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const N: usize>(
-    source: S,
+pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: usize>(
+    mut source: S,
     max_group_size: Option<usize>,
     object_id: u32,
     group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
@@ -68,7 +92,8 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
     group_id: u64,
     header_inscriber: F,
 ) -> Result<(usize, usize), CryptError> {
-    let file_len = source
+    let source = source.try_get_stream()?;
+    let object_len = source
         .length()
         .map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
@@ -80,14 +105,17 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
         )));
     }
 
-    let total_groups = Integer::div_ceil(&file_len, &max_bytes_per_group);
+    let total_groups = Integer::div_ceil(&object_len, &max_bytes_per_group);
 
-    log::trace!(target: "lusna", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
-    let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), source);
+    log::trace!(target: "lusna", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, object_len, (object_len as f32)/(1024f32*1024f32), total_groups);
+    let reader = BufReader::with_capacity(std::cmp::min(object_len, max_bytes_per_group), source);
 
     let buffer = Arc::new(Mutex::new(vec![
         0u8;
-        std::cmp::min(file_len, max_bytes_per_group)
+        std::cmp::min(
+            object_len,
+            max_bytes_per_group
+        )
     ]));
     let file_scrambler = AsyncCryptScrambler {
         total_groups,
@@ -100,7 +128,7 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
         security_level,
         hyper_ratchet,
         reader,
-        file_len,
+        file_len: object_len,
         max_bytes_per_group,
         read_cursor: 0,
         header_inscriber: Arc::new(header_inscriber),
@@ -119,7 +147,7 @@ pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const 
         }
     });
 
-    Ok((file_len, total_groups))
+    Ok((object_len, total_groups))
 }
 
 async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {

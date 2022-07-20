@@ -20,6 +20,7 @@ mod tests {
     use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use hyxe_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
     use std::convert::TryFrom;
+    use std::path::PathBuf;
     use std::time::Instant;
 
     #[tokio::test]
@@ -120,6 +121,48 @@ mod tests {
         panic!("Failed somewhere");
     }
 
+    #[test]
+    fn test_sec_buffer() {
+        let buf = SecBuffer::from("Hello, world!");
+        let serde = bincode2::serialize(&buf).unwrap();
+        std::mem::drop(buf);
+        let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
+
+        assert_eq!(buf.as_ref(), b"Hello, world!");
+        let cloned = buf.clone();
+        let ptr = cloned.as_ref().as_ptr();
+        let len = cloned.as_ref().len();
+        let ptr_slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+
+        assert_eq!(cloned.as_ref(), ptr_slice);
+        let retrieved = buf.into_buffer();
+
+        assert_eq!(&*retrieved, b"Hello, world!");
+    }
+
+    #[test]
+    fn test_sec_string() {
+        let mut val = SecString::new();
+        assert_eq!(val.len(), 0);
+        val.push('h');
+        val.push('e');
+        //val.clear();
+        let mut basic = val.clone();
+        assert_eq!(val.len(), 2);
+        assert_eq!(basic.len(), 2);
+        assert_eq!(basic.as_str(), "he");
+
+        basic.push('y');
+        assert_ne!(val.as_str(), basic.as_str());
+
+        let retrieved = basic.into_buffer();
+        let serde = bincode2::serialize(&retrieved).unwrap();
+        let retrieved = bincode2::deserialize::<SecString>(&serde)
+            .unwrap()
+            .into_buffer();
+        // at this point, basic should have dropped, but the memory should not have been zeroed out
+        assert_eq!(retrieved, "hey");
+    }
     /*
     #[test]
     fn onion_packets() {
@@ -714,11 +757,10 @@ mod tests {
         let security_level = SecurityLevel::LOW;
         const HEADER_LEN: usize = 52;
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
-        let std_file = std::fs::File::open("../resources/TheBridge.pdf").unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let (bytes, _num_groups) = scramble_encrypt_source::<_, _, HEADER_LEN>(
-            std_file,
+            PathBuf::from("../resources/TheBridge.pdf"),
             None,
             99,
             group_sender_tx,

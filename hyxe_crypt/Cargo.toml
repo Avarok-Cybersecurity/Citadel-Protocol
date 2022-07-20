@@ -40,6 +40,7 @@ tokio = { version = "1.19.0", features = ["full"] }
 sha3 = "0.10.1"
 parking_lot = "0.12.1"
 tokio-stream = "0.1.7"
+auto_impl = "1.0.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2.80"
