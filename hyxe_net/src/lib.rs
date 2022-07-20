@@ -411,7 +411,10 @@ pub mod prelude {
         kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings,
     };
     pub use crate::re_imports::{async_trait, NodeType};
-    pub use hyxe_user::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
+    pub use hyxe_user::backend::utils::{
+        ObjectTransferHandle, ObjectTransferOrientation, ObjectTransferStatus,
+        VirtualObjectMetadata,
+    };
     pub use hyxe_user::serialization::SyncIO;
 
     #[doc(hidden)]

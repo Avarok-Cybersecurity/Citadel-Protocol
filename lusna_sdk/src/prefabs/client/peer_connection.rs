@@ -2,16 +2,19 @@ use crate::prefabs::client::PrefabFunctions;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::{
-    ConnectSuccess, NetKernel, NetworkError, NodeRemote, NodeResult, ProtocolRemoteExt,
-    ProtocolRemoteTargetExt, UserIdentifier,
+    ConnectSuccess, NetKernel, NetworkError, NodeRemote, NodeResult, ObjectTransferHandle,
+    ObjectTransferOrientation, ProtocolRemoteExt, ProtocolRemoteTargetExt, UserIdentifier,
 };
 use crate::test_common::wait_for_peers;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
-use hyxe_net::prelude::{SessionSecuritySettings, UdpMode};
+use hyxe_net::prelude::{PeerConnectionType, SessionSecuritySettings, UdpMode};
 use hyxe_net::re_imports::async_trait;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::marker::PhantomData;
-use tokio::sync::mpsc::Receiver;
+use std::sync::Arc;
+use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -20,8 +23,20 @@ use tokio::sync::mpsc::Receiver;
 /// peer(s)
 pub struct PeerConnectionKernel<'a, F, Fut> {
     inner_kernel: Box<dyn NetKernel + 'a>,
+    shared: Shared,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> (F, Fut)>,
+}
+
+#[derive(Clone)]
+#[doc(hidden)]
+pub struct Shared {
+    active_peer_conns: Arc<Mutex<HashMap<PeerConnectionType, PeerContext>>>,
+}
+
+struct PeerContext {
+    conn_type: PeerConnectionType,
+    send_file_transfer_tx: UnboundedSender<ObjectTransferHandle>,
 }
 
 #[async_trait]
@@ -35,7 +50,36 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
     }
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
-        self.inner_kernel.on_node_event_received(message).await
+        match message {
+            NodeResult::ObjectTransferHandle(_, handle) => {
+                let v_conn = if handle.orientation == ObjectTransferOrientation::Receiver {
+                    PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.receiver, handle.source)
+                } else {
+                    PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.source, handle.receiver)
+                };
+
+                let active_peers = self.shared.active_peer_conns.lock();
+                if let Some(peer_ctx) = active_peers.get(&v_conn) {
+                    if let Err(err) = peer_ctx.send_file_transfer_tx.send(handle) {
+                        log::warn!(target: "lusna", "Error forwarding file transfer handle: {:?}", err);
+                    }
+                } else {
+                    log::warn!(target: "lusna", "Unable to find key for inbound file transfer handle: {:?}", v_conn);
+                }
+            }
+
+            NodeResult::Disconnect(_, _, _, Some(v_conn), ..) => {
+                if let Some(v_conn) = v_conn.try_as_peer_connection() {
+                    let mut active_peers = self.shared.active_peer_conns.lock();
+                    let _ = active_peers.remove(&v_conn);
+                }
+            }
+
+            _ => {}
+        }
+
+        // We do not pass any signals down to the base kernel
+        Ok(())
     }
 
     async fn on_stop(&mut self) -> Result<(), NetworkError> {
@@ -162,9 +206,11 @@ where
     Fut: Future<Output = Result<(), NetworkError>> + Send + 'a,
 {
     type UserLevelInputFunction = F;
-    type SharedBundle = ();
+    type SharedBundle = Shared;
 
-    fn get_shared_bundle(&mut self) -> Self::SharedBundle {}
+    fn get_shared_bundle(&self) -> Self::SharedBundle {
+        self.shared.clone()
+    }
 
     #[cfg_attr(
         feature = "localhost-testing",
@@ -175,8 +221,9 @@ where
         cls_remote: ClientServerRemote,
         peers_to_connect: T,
         f: Self::UserLevelInputFunction,
-        _: (),
+        shared: Shared,
     ) -> Result<(), NetworkError> {
+        let shared = &shared;
         let implicated_cid = connect_success.cid;
         let mut peers_already_registered = vec![];
 
@@ -210,6 +257,9 @@ where
 
             let task = async move {
                 let inner_task = async move {
+                    let (file_transfer_tx, file_transfer_rx) =
+                        tokio::sync::mpsc::unbounded_channel();
+
                     let mut handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(implicated_cid, id).await?
                     } else {
@@ -224,6 +274,20 @@ where
                     handle
                         .connect_to_peer_custom(session_security_settings, udp_mode)
                         .await
+                        .map(|mut success| {
+                            let peer_conn = success.channel.get_peer_conn_type().unwrap();
+                            let peer_context = PeerContext {
+                                conn_type: success.channel.get_peer_conn_type().unwrap(),
+                                send_file_transfer_tx: file_transfer_tx,
+                            };
+                            // add an incoming file transfer receiver
+                            success.incoming_object_transfer_handles = Some(file_transfer_rx);
+                            let _ = shared
+                                .active_peer_conns
+                                .lock()
+                                .insert(peer_conn, peer_context);
+                            success
+                        })
                 };
 
                 tx.send(inner_task.await)
@@ -234,6 +298,7 @@ where
             requests.push(Box::pin(task))
         }
 
+        // TODO: What should be done if a peer conn fails? No room for error here
         let collection_task = async move { requests.try_collect::<()>().await };
 
         tokio::try_join!(collection_task, (f)(rx, cls_remote)).map(|_| ())
@@ -242,6 +307,9 @@ where
     fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
         Self {
             inner_kernel: kernel,
+            shared: Shared {
+                active_peer_conns: Arc::new(Mutex::new(Default::default())),
+            },
             _pd: Default::default(),
         }
     }
@@ -258,7 +326,8 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
     use uuid::Uuid;
 
     #[rstest]
@@ -466,6 +535,133 @@ mod tests {
         }
 
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(2)]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_peer_to_peer_file_transfer(
+        #[case] peer_count: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        assert!(peer_count > 1);
+        let _ = lusna_logging::setup_log();
+        TestBarrier::setup(peer_count);
+
+        let client_success = &AtomicBool::new(false);
+        let receiver_success = &Arc::new(AtomicBool::new(false));
+
+        let (server, server_addr) = server_info();
+
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count)
+            .into_iter()
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
+
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers
+                .clone()
+                .into_iter()
+                .filter(|r| r != &uuid)
+                .map(UserIdentifier::from)
+                .collect::<Vec<UserIdentifier>>();
+
+            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+                uuid,
+                server_addr,
+                peers,
+                move |mut results, remote| async move {
+                    let mut success = 0;
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
+
+                    while let Some(conn) = results.recv().await {
+                        log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+                        let mut conn = conn?;
+                        //let peer_cid = conn.channel.get_peer_cid();
+
+                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
+
+                        // one user will send the file, the other will receive the file
+                        if idx == 0 {
+                            conn.remote
+                                .send_file_with_custom_chunking(
+                                    "../resources/TheBridge.pdf",
+                                    32 * 1024,
+                                )
+                                .await?;
+
+                            client_success.store(true, Ordering::Relaxed);
+                        } else {
+                            // TODO: route file-transfer + other events to peer channel
+                            let mut handle = conn
+                                .incoming_object_transfer_handles
+                                .unwrap()
+                                .recv()
+                                .await
+                                .unwrap();
+                            handle.accept().unwrap();
+
+                            use futures::StreamExt;
+                            let mut path = None;
+                            while let Some(status) = handle.next().await {
+                                match status {
+                                    ObjectTransferStatus::ReceptionComplete => {
+                                        log::trace!(target: "lusna", "Peer has finished receiving the file!");
+                                        let cmp =
+                                            include_bytes!("../../../../resources/TheBridge.pdf");
+                                        let streamed_data =
+                                            tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                                        assert_eq!(
+                                            cmp,
+                                            streamed_data.as_slice(),
+                                            "Original data and streamed data does not match"
+                                        );
+
+                                        break;
+                                    }
+
+                                    ObjectTransferStatus::ReceptionBeginning(file_path, vfm) => {
+                                        path = Some(file_path);
+                                        assert_eq!(vfm.get_target_name(), "TheBridge.pdf")
+                                    }
+
+                                    _ => {}
+                                }
+                            }
+
+                            receiver_success.store(true, Ordering::Relaxed);
+                        }
+
+                        success += 1;
+                        if success == peer_count - 1 {
+                            break;
+                        }
+                    }
+
+                    log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                    wait_for_peers().await;
+                    remote.shutdown_kernel().await
+                },
+            );
+
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move { client.await.map(|_| ()) });
+        }
+
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
+
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            };
+        }
+
+        assert!(client_success.load(Ordering::Relaxed));
+        assert!(receiver_success.load(Ordering::Relaxed));
         Ok(())
     }
 }

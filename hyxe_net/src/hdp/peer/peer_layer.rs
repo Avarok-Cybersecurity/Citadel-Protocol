@@ -581,7 +581,7 @@ pub enum ChannelPacket {
     Message(Vec<u8>),
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone, Eq, Hash)]
 pub enum PeerConnectionType {
     // implicated_cid, target_cid
     HyperLANPeerToHyperLANPeer(u64, u64),

@@ -67,7 +67,7 @@ where
     type UserLevelInputFunction = F;
     type SharedBundle = Arc<BroadcastShared>;
 
-    fn get_shared_bundle(&mut self) -> Self::SharedBundle {
+    fn get_shared_bundle(&self) -> Self::SharedBundle {
         self.shared.clone()
     }
 

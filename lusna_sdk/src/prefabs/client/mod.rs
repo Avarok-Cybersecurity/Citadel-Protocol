@@ -17,7 +17,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
     /// Shared between the kernel and the on_c2s_channel_received function
     type SharedBundle: Send + 'a;
 
-    fn get_shared_bundle(&mut self) -> Self::SharedBundle;
+    fn get_shared_bundle(&self) -> Self::SharedBundle;
 
     async fn on_c2s_channel_received(
         connect_success: ConnectSuccess,
@@ -59,7 +59,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
             },
         );
 
-        let mut this = Self::construct(Box::new(server_conn_kernel));
+        let this = Self::construct(Box::new(server_conn_kernel));
         assert!(tx.send(this.get_shared_bundle()).is_ok());
         this
     }
@@ -116,7 +116,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
             },
         );
 
-        let mut this = Self::construct(Box::new(server_conn_kernel));
+        let this = Self::construct(Box::new(server_conn_kernel));
         assert!(tx.send(this.get_shared_bundle()).is_ok());
         this
     }
@@ -172,7 +172,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
             },
         );
 
-        let mut this = Self::construct(Box::new(server_conn_kernel));
+        let this = Self::construct(Box::new(server_conn_kernel));
         assert!(tx.send(this.get_shared_bundle()).is_ok());
         this
     }
