@@ -210,6 +210,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.ref }}
+          force_with_lease: true
       - uses: actions/github-script@v6
         if: failure()
         with:
