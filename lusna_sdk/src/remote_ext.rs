@@ -442,7 +442,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
 
             res => {
-                log::error!(target: "lusna", "Invalid HdpServerResult for FileTransfer request received: {:?}", res)
+                log::error!(target: "lusna", "Invalid NodeResult for FileTransfer request received: {:?}", res)
             }
         }
 
@@ -491,6 +491,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         remote,
                         channel,
                         udp_rx_opt,
+                        incoming_object_transfer_handles: None,
                     });
                 }
 
@@ -629,8 +630,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 impl<T: TargetLockedRemote> ProtocolRemoteTargetExt for T {}
 
 pub mod results {
-    use crate::prelude::{PeerChannel, UdpChannel};
+    use crate::prelude::{ObjectTransferHandle, PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
+    use hyxe_net::prelude::NetworkError;
+    use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::oneshot::Receiver;
 
     #[derive(Debug)]
@@ -638,6 +641,23 @@ pub mod results {
         pub channel: PeerChannel,
         pub udp_rx_opt: Option<Receiver<UdpChannel>>,
         pub remote: PeerRemote,
+        /// Receives incoming file/object transfer requests. The handles must be
+        /// .accepted() before the file/object transfer is allowed to proceed
+        pub(crate) incoming_object_transfer_handles:
+            Option<UnboundedReceiver<ObjectTransferHandle>>,
+    }
+
+    impl PeerConnectSuccess {
+        /// Obtains a receiver which yields incoming file/object transfer handles
+        pub fn get_incoming_file_transfer_handle(
+            &mut self,
+        ) -> Result<UnboundedReceiver<ObjectTransferHandle>, NetworkError> {
+            self.incoming_object_transfer_handles
+                .take()
+                .ok_or(NetworkError::InternalError(
+                    "This function has already been called",
+                ))
+        }
     }
 
     pub enum PeerRegisterStatus {
@@ -686,22 +706,22 @@ pub mod remote_specialization {
 mod tests {
     use crate::builder::node_builder::{NodeBuilder, NodeFuture};
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prelude::ProtocolRemoteTargetExt;
     use crate::prelude::*;
-    use crate::prelude::{
-        NetKernel, NetworkError, NodeRemote, NodeResult, ProtocolRemoteTargetExt,
-    };
-    use crate::remote_ext::map_errors;
-    use futures::StreamExt;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use uuid::Uuid;
 
-    pub struct ServerFileTransferKernel(Option<NodeRemote>);
+    pub struct ReceiverFileTransferKernel(
+        pub Option<NodeRemote>,
+        pub std::sync::Arc<std::sync::atomic::AtomicBool>,
+    );
 
     #[async_trait]
-    impl NetKernel for ServerFileTransferKernel {
+    impl NetKernel for ReceiverFileTransferKernel {
         fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
             self.0 = Some(node_remote);
             Ok(())
@@ -720,11 +740,11 @@ mod tests {
                     .accept()
                     .map_err(|err| NetworkError::msg(err.into_string()))?;
 
+                use futures::StreamExt;
                 while let Some(status) = handle.next().await {
                     match status {
                         ObjectTransferStatus::ReceptionComplete => {
                             log::trace!(target: "lusna", "Server has finished receiving the file!");
-                            SERVER_SUCCESS.store(true, Ordering::Relaxed);
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
                             let streamed_data =
                                 tokio::fs::read(path.clone().unwrap()).await.unwrap();
@@ -733,6 +753,8 @@ mod tests {
                                 streamed_data.as_slice(),
                                 "Original data and streamed data does not match"
                             );
+
+                            self.1.store(true, std::sync::atomic::Ordering::Relaxed);
                             self.0.clone().unwrap().shutdown().await?;
                         }
 
@@ -754,15 +776,18 @@ mod tests {
         }
     }
 
-    pub fn server_info<'a>() -> (NodeFuture<'a, ServerFileTransferKernel>, SocketAddr) {
+    pub fn server_info<'a>(
+        switch: Arc<AtomicBool>,
+    ) -> (NodeFuture<'a, ReceiverFileTransferKernel>, SocketAddr) {
         let port = crate::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        let server =
-            crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None), |_| {});
+        let server = crate::test_common::server_test_node(
+            bind_addr,
+            ReceiverFileTransferKernel(None, switch),
+            |_| {},
+        );
         (server, bind_addr)
     }
-
-    static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -770,8 +795,9 @@ mod tests {
     async fn test_c2s_file_transfer() {
         let _ = lusna_logging::setup_log();
 
-        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
-        let (server, server_addr) = server_info();
+        let ref client_success = AtomicBool::new(false);
+        let ref server_success = Arc::new(AtomicBool::new(false));
+        let (server, server_addr) = server_info(server_success.clone());
         let uuid = Uuid::new_v4();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
@@ -784,7 +810,7 @@ mod tests {
                     .await
                     .unwrap();
                 log::trace!(target: "lusna", "***CLIENT FILE TRANSFER SUCCESS***");
-                CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+                client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
         );
@@ -795,7 +821,7 @@ mod tests {
 
         let _ = joined.await.unwrap();
 
-        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
-        assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
+        assert!(client_success.load(Ordering::Relaxed));
+        assert!(server_success.load(Ordering::Relaxed));
     }
 }
