@@ -579,6 +579,7 @@ mod tests {
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+                        wait_for_peers().await;
                         let mut conn = conn?;
                         //let peer_cid = conn.channel.get_peer_cid();
 
