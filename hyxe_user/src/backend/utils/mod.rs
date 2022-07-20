@@ -105,7 +105,7 @@ impl ObjectTransferHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ObjectTransferOrientation {
     Receiver,
     Sender,
