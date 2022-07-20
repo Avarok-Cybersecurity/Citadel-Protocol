@@ -15,28 +15,20 @@ concurrency:
   group: ${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+
 jobs:
-  coverage:
+  coverage_upload:
     runs-on: macos-latest
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v3
-      - name: Install Rust
-        run: rustup toolchain install stable --component llvm-tools-preview
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: taiki-e/install-action@nextest
-      - name: Run llvm-cov nextest
-        env:
-          SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path lcov.info
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
+          files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
   docs:
     needs:
-      - coverage
+      - coverage_upload
     runs-on: ubuntu-latest
     strategy:
       matrix:

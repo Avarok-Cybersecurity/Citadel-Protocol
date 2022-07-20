@@ -11,8 +11,6 @@ mod tests {
     use lusna_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use lusna_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use lusna_sdk::prefabs::client::PrefabFunctions;
-    use lusna_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
-    use lusna_sdk::prefabs::ClientServerRemote;
     use lusna_sdk::prelude::*;
     use lusna_sdk::test_common::server_info;
     use rand::prelude::ThreadRng;
@@ -20,9 +18,6 @@ mod tests {
     use rstest::rstest;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
-    use std::future::Future;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -58,22 +53,6 @@ mod tests {
         pub fn receive(input: SecBuffer) -> Self {
             Self::deserialize_from_vector(input.as_ref()).unwrap()
         }
-    }
-
-    pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
-        on_channel_received: F,
-    ) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
-    where
-        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
-    {
-        let port = lusna_sdk::test_common::get_unused_tcp_port();
-        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        let server = lusna_sdk::test_common::server_test_node(
-            bind_addr,
-            Box::new(ClientConnectListenerKernel::new(on_channel_received)) as Box<dyn NetKernel>,
-        );
-        (server, bind_addr)
     }
 
     async fn handle_send_receive_e2e(
@@ -185,13 +164,16 @@ mod tests {
         CLIENT_SUCCESS.store(false, Ordering::Relaxed);
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
 
-        let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
-            log::trace!(target: "lusna", "*** SERVER RECV CHANNEL ***");
-            handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
-            log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
-            SERVER_SUCCESS.store(true, Ordering::Relaxed);
-            remote.shutdown_kernel().await
-        });
+        let (server, server_addr) = lusna_sdk::test_common::server_info_reactive(
+            move |conn, remote| async move {
+                log::trace!(target: "lusna", "*** SERVER RECV CHANNEL ***");
+                handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
+                log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
+                SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+            |_| {},
+        );
 
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
@@ -218,9 +200,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let (_res0, _res1) = joined
-            .await
-            .unwrap();
+        let (_res0, _res1) = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));

@@ -1,6 +1,5 @@
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::hdp::hdp_node::Ticket;
 use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use std::sync::atomic::Ordering;
 
@@ -16,7 +15,6 @@ pub fn process_file_packet(
 
     let (header, payload, _, _) = packet.decompose();
 
-    let timestamp = session.time_tracker.get_global_time_ns();
     let mut state_container = inner_mut_state!(session.state_container);
     // get the proper pqc
     let header_bytes = &header[..];
@@ -37,15 +35,6 @@ pub fn process_file_packet(
                     log::trace!(target: "lusna", "RECV FILE HEADER");
                     match validation::file::validate_file_header(&header, &payload[..]) {
                         Some((v_target, vfm)) => {
-                            let object_id = vfm.object_id;
-                            let ticket = Ticket(header.context_info.get());
-                            let security_level = SecurityLevel::from(header.security_level);
-                            let success = state_container.on_file_header_received(
-                                &header,
-                                v_target,
-                                vfm,
-                                session.account_manager.get_persistence_handler(),
-                            );
                             let (target_cid, v_target_flipped) = match v_target {
                                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(
                                     implicated_cid,
@@ -73,18 +62,31 @@ pub fn process_file_packet(
                                 }
                             };
 
-                            let file_header_ack =
-                                hdp_packet_crafter::file::craft_file_header_ack_packet(
-                                    &hyper_ratchet,
-                                    success,
-                                    object_id,
-                                    target_cid,
-                                    ticket,
-                                    security_level,
-                                    v_target_flipped,
-                                    timestamp,
-                                );
-                            Ok(PrimaryProcessorResult::ReplyToSender(file_header_ack))
+                            let preferred_primary_stream = if header.target_cid.get() != 0 {
+                                state_container
+                                    .get_preferred_stream(header.session_cid.get())
+                                    .clone()
+                            } else {
+                                return_if_none!(session.to_primary_stream.clone())
+                            };
+
+                            if !state_container.on_file_header_received(
+                                &header,
+                                v_target,
+                                vfm,
+                                session.account_manager.get_persistence_handler(),
+                                session.state_container.clone(),
+                                hyper_ratchet,
+                                target_cid,
+                                v_target_flipped,
+                                preferred_primary_stream,
+                            ) {
+                                log::warn!(target: "lusna", "Failed to run on_file_header_received");
+                            }
+
+                            // We do not send a rebound signal until AFTER the local user
+                            // accepts the file transfer requests
+                            Ok(PrimaryProcessorResult::Void)
                         }
 
                         _ => {

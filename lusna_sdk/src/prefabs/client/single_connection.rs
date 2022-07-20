@@ -253,8 +253,9 @@ where
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::ClientServerRemote;
     use crate::prelude::*;
-    use crate::test_common::server_info;
+    use crate::test_common::{server_info, server_info_reactive, wait_for_peers, TestBarrier};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
@@ -262,22 +263,56 @@ mod tests {
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn single_connection_registered() {
+    async fn single_connection_registered(
+        #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode,
+        #[values(UnderlyingProtocol::new_quic_self_signed(), UnderlyingProtocol::new_tls_self_signed().unwrap())]
+        underlying_protocol: UnderlyingProtocol,
+    ) {
         let _ = lusna_logging::setup_log();
+        TestBarrier::setup(2);
 
         let client_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info();
+        let server_success = &AtomicBool::new(false);
+
+        async fn on_server_received_conn(
+            udp_mode: UdpMode,
+            conn: ConnectSuccess,
+            _remote: ClientServerRemote,
+        ) -> Result<(), NetworkError> {
+            wait_for_peers().await;
+            crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
+            Ok(())
+        }
+
+        let (server, server_addr) = server_info_reactive(
+            move |conn, remote| async move {
+                on_server_received_conn(udp_mode, conn, remote).await?;
+                server_success.store(true, Ordering::SeqCst);
+                wait_for_peers().await;
+                Ok(())
+            },
+            |builder| {
+                let _ = builder
+                    .server_config()
+                    .with_underlying_protocol(underlying_protocol);
+            },
+        );
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_register_defaults(
+        let client_kernel = SingleClientServerConnectionKernel::new_register(
             "Thomas P Braun",
             "nologik",
             "password",
             server_addr,
-            |_channel, _remote| async move {
+            udp_mode,
+            Default::default(),
+            |channel, _remote| async move {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                wait_for_peers().await;
+                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
                 client_success.store(true, Ordering::Relaxed);
+                wait_for_peers().await;
                 stop_tx.send(()).unwrap();
                 Ok(())
             },
@@ -293,6 +328,7 @@ mod tests {
         }
 
         assert!(client_success.load(Ordering::Relaxed));
+        assert!(server_success.load(Ordering::Relaxed));
     }
 
     #[rstest]
@@ -336,6 +372,43 @@ mod tests {
 
         if debug_force_nat_timeout {
             std::env::remove_var("debug_cause_timeout");
+        }
+
+        assert!(client_success.load(Ordering::Relaxed));
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn single_connection_passwordless_deregister() {
+        let _ = lusna_logging::setup_log();
+
+        let client_success = &AtomicBool::new(false);
+        let (server, server_addr) = server_info();
+
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let uuid = Uuid::new_v4();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
+            uuid,
+            server_addr,
+            |_channel, mut remote| async move {
+                log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
+                remote.deregister().await?;
+                client_success.store(true, Ordering::Relaxed);
+                stop_tx.send(()).unwrap();
+                Ok(())
+            },
+        );
+
+        let client = NodeBuilder::default().build(client_kernel).unwrap();
+
+        let joined = futures::future::try_join(server, client);
+
+        tokio::select! {
+            res0 = joined => { let _ = res0.unwrap(); },
+            res1 = stop_rx => { res1.unwrap(); }
         }
 
         assert!(client_success.load(Ordering::Relaxed));

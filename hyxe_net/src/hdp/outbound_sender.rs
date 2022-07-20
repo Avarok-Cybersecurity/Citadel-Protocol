@@ -70,6 +70,7 @@ pub struct OutboundUdpSender {
     sender: UnboundedSender<(u8, BytesMut)>,
     local_addr: SocketAddr,
     remote_addr: SocketAddr,
+    pub(crate) needs_manual_ka: bool,
 }
 
 impl OutboundUdpSender {
@@ -77,17 +78,19 @@ impl OutboundUdpSender {
         sender: UnboundedSender<(u8, BytesMut)>,
         local_addr: SocketAddr,
         remote_addr: SocketAddr,
+        needs_manual_ka: bool,
     ) -> Self {
         Self {
             sender,
             local_addr,
             remote_addr,
+            needs_manual_ka,
         }
     }
 
-    pub fn unbounded_send(&self, packet: BytesMut) -> Result<(), NetworkError> {
+    pub fn unbounded_send<T: Into<BytesMut>>(&self, packet: T) -> Result<(), NetworkError> {
         self.sender
-            .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet))
+            .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet.into()))
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 

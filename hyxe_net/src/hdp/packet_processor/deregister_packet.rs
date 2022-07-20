@@ -66,12 +66,7 @@ pub async fn process_deregister(
                     return_if_none!(session.implicated_cid.get(), "implicated CID not loaded");
                 session
                     .kernel_tx
-                    .unbounded_send(NodeResult::DeRegistration(
-                        VirtualConnectionType::HyperLANPeerToHyperLANServer(cid),
-                        ticket,
-                        true,
-                        false,
-                    ))?;
+                    .unbounded_send(NodeResult::DeRegistration(cid, ticket, false))?;
                 log::error!(target: "lusna", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
                 Ok(PrimaryProcessorResult::EndSession(
                     "Deregistration failure. Closing connection anyways",
@@ -138,6 +133,8 @@ async fn deregister_client_from_self(
 
     let session = session_ref;
 
+    session.send_to_kernel(NodeResult::DeRegistration(implicated_cid, ticket, success))?;
+
     // This ensures no further packets are processed
     session
         .state
@@ -176,6 +173,12 @@ async fn deregister_from_hyperlan_server_as_client(
             false
         }
     };
+
+    session.send_to_kernel(NodeResult::DeRegistration(
+        implicated_cid,
+        dereg_ticket,
+        true,
+    ))?;
 
     session.send_session_dc_signal(
         dereg_ticket,
