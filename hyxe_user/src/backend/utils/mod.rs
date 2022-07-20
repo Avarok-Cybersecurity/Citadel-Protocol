@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 pub use utils::StreamableTargetInformation;
 
+use crate::misc::AccountError;
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -47,6 +48,7 @@ pub struct ObjectTransferHandle {
     pub source: u64,
     pub receiver: u64,
     pub orientation: ObjectTransferOrientation,
+    start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
 impl Stream for ObjectTransferHandle {
@@ -62,6 +64,7 @@ impl ObjectTransferHandle {
         source: u64,
         receiver: u64,
         orientation: ObjectTransferOrientation,
+        start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     ) -> (Self, UnboundedSender<ObjectTransferStatus>) {
         let (tx, inner) = unbounded_channel();
 
@@ -70,13 +73,39 @@ impl ObjectTransferHandle {
             source,
             receiver,
             orientation,
+            start_recv_tx,
         };
 
         (this, tx)
     }
+
+    /// When the local handle type is for a Receiver,
+    /// the receiver must accept the transfer before
+    /// receiving the data
+    pub fn accept(&mut self) -> Result<(), AccountError> {
+        self.respond(true)
+    }
+
+    /// When the local handle type is for a Receiver,
+    /// the receiver can deny a request
+    pub fn decline(&mut self) -> Result<(), AccountError> {
+        self.respond(false)
+    }
+
+    fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
+        if matches!(self.orientation, ObjectTransferOrientation::Receiver) {
+            self.start_recv_tx
+                .take()
+                .ok_or_else(|| AccountError::msg("Start_recv_tx already called"))?
+                .send(accept)
+                .map_err(|err| AccountError::msg(err.to_string()))
+        } else {
+            Err(AccountError::msg("Local is not a receiver"))
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ObjectTransferOrientation {
     Receiver,
     Sender,

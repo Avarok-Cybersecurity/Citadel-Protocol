@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -66,12 +65,12 @@ use crate::hdp::state_container::{
 };
 use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use crate::hdp::time::TransferStats;
+use crate::hdp::transfer_stats::TransferStats;
 use crate::kernel::RuntimeFuture;
 use crate::prelude::{GroupBroadcast, SecureProtocolPacket};
 use atomic::Atomic;
 use hyxe_crypt::prelude::ConstructorOpts;
-use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
+use hyxe_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use hyxe_user::backend::PersistenceHandler;
 use hyxe_wire::exports::tokio_rustls::rustls;
 use hyxe_wire::exports::NewConnection;
@@ -720,12 +719,14 @@ impl HdpSession {
                 let hole_punched_addr_ip = hole_punched_socket.ip();
 
                 let local_bind_addr = udp_conn.local_addr().unwrap();
+                let needs_manual_ka = udp_conn.needs_manual_ka();
 
                 let (outbound_sender_tx, outbound_sender_rx) = unbounded();
                 let udp_sender = OutboundUdpSender::new(
                     outbound_sender_tx,
                     local_bind_addr,
                     hole_punched_socket,
+                    needs_manual_ka,
                 );
                 let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -1123,11 +1124,13 @@ impl HdpSession {
                             return QueueWorkerResult::Complete;
                         }
 
-                        let _ = state_container
-                            .udp_primary_outbound_tx
-                            .as_ref()
-                            .unwrap()
-                            .send_keep_alive();
+                        if let Some(tx) = state_container.udp_primary_outbound_tx.as_ref() {
+                            if !tx.needs_manual_ka {
+                                return QueueWorkerResult::Complete;
+                            }
+
+                            let _ = tx.send_keep_alive();
+                        }
                     }
 
                     QueueWorkerResult::Incomplete
@@ -1147,438 +1150,421 @@ impl HdpSession {
         &self,
         ticket: Ticket,
         max_group_size: Option<usize>,
-        file: PathBuf,
+        source: Box<dyn ObjectSource>,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
         let this = self;
 
         if this.state.load(Ordering::Relaxed) != SessionState::Connected {
-            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, file: {:?}) outbound, but the session is not connected", ticket, file)))
+            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, src: {:?}) outbound, but the session is not connected", ticket, source.get_source_name())))
         } else {
-            // TODO: When io_uring is released for tokio, use async io
-            if let Ok(std_file) = std::fs::File::open(&file) {
-                let file_name = file
-                    .file_name()
-                    .ok_or(NetworkError::InternalError("Invalid filename"))?
-                    .to_str()
-                    .ok_or(NetworkError::InternalError("Invalid filename"))?;
-                let file_name = String::from(file_name);
-                let time_tracker = this.time_tracker.clone();
-                let timestamp = this.time_tracker.get_global_time_ns();
-                let (group_sender, group_sender_rx) = channel(5);
-                let mut group_sender_rx =
-                    tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
-                let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-                // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
+            let file_name = source
+                .get_source_name()
+                .map_err(|err| NetworkError::msg(err.into_string()))?;
 
-                let mut state_container = inner_mut_state!(this.state_container);
+            let time_tracker = this.time_tracker.clone();
+            let timestamp = this.time_tracker.get_global_time_ns();
+            let (group_sender, group_sender_rx) = channel(5);
+            let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
+            let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+            // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
-                log::trace!(target: "lusna", "Transmit file name: {}", &file_name);
-                // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
-                // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
-                let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) =
-                    match virtual_target {
-                        VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
-                            // if we are sending this just to the HyperLAN server (in the case of file uploads),
-                            // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                            let crypt_container = &mut state_container
-                                .c2s_channel_container
-                                .as_mut()
-                                .unwrap()
-                                .peer_session_crypto;
-                            let object_id = crypt_container.get_and_increment_object_id();
-                            let group_id_start = crypt_container.get_and_increment_group_id();
-                            let latest_hr =
-                                crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+            let mut state_container = inner_mut_state!(this.state_container);
 
-                            let to_primary_stream = this.to_primary_stream.clone().unwrap();
-                            let target_cid = 0;
-                            let (file_size, groups_needed) = scramble_encrypt_source(
-                                std_file,
-                                max_group_size,
-                                object_id,
-                                group_sender,
-                                stop_rx,
-                                security_level,
-                                latest_hr.clone(),
-                                HDP_HEADER_BYTE_LEN,
-                                target_cid,
-                                group_id_start,
-                                hdp_packet_crafter::group::craft_wave_payload_packet_into,
-                            )
-                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+            log::trace!(target: "lusna", "Transmit file name: {}", &file_name);
+            // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
+            // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
+            let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) =
+                match virtual_target {
+                    VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                        // if we are sending this just to the HyperLAN server (in the case of file uploads),
+                        // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                        let crypt_container = &mut state_container
+                            .c2s_channel_container
+                            .as_mut()
+                            .unwrap()
+                            .peer_session_crypto;
+                        let object_id = crypt_container.get_and_increment_object_id();
+                        let group_id_start = crypt_container.get_and_increment_group_id();
+                        let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
 
-                            let file_metadata = VirtualObjectMetadata {
-                                object_id,
-                                name: file_name,
-                                date_created: "".to_string(),
-                                author: format!("N/A"),
-                                plaintext_length: file_size,
-                                group_count: groups_needed,
-                            };
-
-                            // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                            let amt_to_reserve = groups_needed - 1;
-                            crypt_container.rolling_group_id += amt_to_reserve as u64;
-                            let file_header = hdp_packet_crafter::file::craft_file_header_packet(
-                                &latest_hr,
-                                group_id_start,
-                                ticket,
-                                security_level,
-                                virtual_target,
-                                file_metadata,
-                                timestamp,
-                            );
-                            (
-                                to_primary_stream,
-                                file_header,
-                                object_id,
-                                target_cid,
-                                implicated_cid,
-                                groups_needed,
-                            )
-                        }
-
-                        VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                            implicated_cid,
+                        let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                        let target_cid = 0;
+                        let (file_size, groups_needed) = scramble_encrypt_source(
+                            source,
+                            max_group_size,
+                            object_id,
+                            group_sender,
+                            stop_rx,
+                            security_level,
+                            latest_hr.clone(),
+                            HDP_HEADER_BYTE_LEN,
                             target_cid,
-                        ) => {
-                            log::trace!(target: "lusna", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                            // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
-                            if let Some(vconn) = state_container
-                                .active_virtual_connections
-                                .get_mut(&target_cid)
-                            {
-                                if let Some(endpoint_container) = vconn.endpoint_container.as_mut()
-                                {
-                                    let object_id = endpoint_container
-                                        .endpoint_crypto
-                                        .get_and_increment_object_id();
-                                    // reserve group ids
-                                    let start_group_id = endpoint_container
-                                        .endpoint_crypto
-                                        .get_and_increment_group_id();
+                            group_id_start,
+                            hdp_packet_crafter::group::craft_wave_payload_packet_into,
+                        )
+                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                                    let latest_usable_ratchet = endpoint_container
-                                        .endpoint_crypto
-                                        .get_hyper_ratchet(None)
-                                        .unwrap();
+                        let file_metadata = VirtualObjectMetadata {
+                            object_id,
+                            name: file_name,
+                            date_created: "".to_string(),
+                            author: format!("N/A"),
+                            plaintext_length: file_size,
+                            group_count: groups_needed,
+                        };
 
-                                    let preferred_primary_stream = endpoint_container
-                                        .get_direct_p2p_primary_stream()
-                                        .cloned()
-                                        .unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+                        // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                        let amt_to_reserve = groups_needed - 1;
+                        crypt_container.rolling_group_id += amt_to_reserve as u64;
+                        let file_header = hdp_packet_crafter::file::craft_file_header_packet(
+                            &latest_hr,
+                            group_id_start,
+                            ticket,
+                            security_level,
+                            virtual_target,
+                            file_metadata,
+                            timestamp,
+                        );
+                        (
+                            to_primary_stream,
+                            file_header,
+                            object_id,
+                            target_cid,
+                            implicated_cid,
+                            groups_needed,
+                        )
+                    }
 
-                                    let (file_size, groups_needed) = scramble_encrypt_source(
-                                        std_file,
-                                        max_group_size,
-                                        object_id,
-                                        group_sender,
-                                        stop_rx,
-                                        security_level,
-                                        latest_usable_ratchet.clone(),
-                                        HDP_HEADER_BYTE_LEN,
-                                        target_cid,
+                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(
+                        implicated_cid,
+                        target_cid,
+                    ) => {
+                        log::trace!(target: "lusna", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                        // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
+                        if let Some(vconn) = state_container
+                            .active_virtual_connections
+                            .get_mut(&target_cid)
+                        {
+                            if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                                let object_id = endpoint_container
+                                    .endpoint_crypto
+                                    .get_and_increment_object_id();
+                                // reserve group ids
+                                let start_group_id = endpoint_container
+                                    .endpoint_crypto
+                                    .get_and_increment_group_id();
+
+                                let latest_usable_ratchet = endpoint_container
+                                    .endpoint_crypto
+                                    .get_hyper_ratchet(None)
+                                    .unwrap();
+
+                                let preferred_primary_stream = endpoint_container
+                                    .get_direct_p2p_primary_stream()
+                                    .cloned()
+                                    .unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+
+                                let (file_size, groups_needed) = scramble_encrypt_source(
+                                    source,
+                                    max_group_size,
+                                    object_id,
+                                    group_sender,
+                                    stop_rx,
+                                    security_level,
+                                    latest_usable_ratchet.clone(),
+                                    HDP_HEADER_BYTE_LEN,
+                                    target_cid,
+                                    start_group_id,
+                                    hdp_packet_crafter::group::craft_wave_payload_packet_into,
+                                )
+                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                                let file_metadata = VirtualObjectMetadata {
+                                    object_id,
+                                    name: file_name,
+                                    date_created: "".to_string(),
+                                    author: "".to_string(),
+                                    plaintext_length: file_size,
+                                    group_count: groups_needed,
+                                };
+
+                                let file_header =
+                                    hdp_packet_crafter::file::craft_file_header_packet(
+                                        latest_usable_ratchet,
                                         start_group_id,
-                                        hdp_packet_crafter::group::craft_wave_payload_packet_into,
-                                    )
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                        ticket,
+                                        security_level,
+                                        virtual_target,
+                                        file_metadata,
+                                        timestamp,
+                                    );
 
-                                    let file_metadata = VirtualObjectMetadata {
-                                        object_id,
-                                        name: file_name,
-                                        date_created: "".to_string(),
-                                        author: "".to_string(),
-                                        plaintext_length: file_size,
-                                        group_count: groups_needed,
-                                    };
+                                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                                let amt_to_reserve = groups_needed - 1;
+                                endpoint_container.endpoint_crypto.rolling_group_id +=
+                                    amt_to_reserve as u64;
 
-                                    let file_header =
-                                        hdp_packet_crafter::file::craft_file_header_packet(
-                                            latest_usable_ratchet,
-                                            start_group_id,
-                                            ticket,
-                                            security_level,
-                                            virtual_target,
-                                            file_metadata,
-                                            timestamp,
-                                        );
-
-                                    // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                                    let amt_to_reserve = groups_needed - 1;
-                                    endpoint_container.endpoint_crypto.rolling_group_id +=
-                                        amt_to_reserve as u64;
-
-                                    (
-                                        preferred_primary_stream,
-                                        file_header,
-                                        object_id,
-                                        target_cid,
-                                        target_cid,
-                                        groups_needed,
-                                    )
-                                } else {
-                                    log::error!(target: "lusna", "Endpoint container not found");
-                                    return Err(NetworkError::InternalError(
-                                        "Endpoint container not found",
-                                    ));
-                                }
+                                (
+                                    preferred_primary_stream,
+                                    file_header,
+                                    object_id,
+                                    target_cid,
+                                    target_cid,
+                                    groups_needed,
+                                )
                             } else {
-                                log::error!(target: "lusna", "Unable to find active vconn for the channel");
+                                log::error!(target: "lusna", "Endpoint container not found");
                                 return Err(NetworkError::InternalError(
-                                    "Virtual connection not found for channel",
+                                    "Endpoint container not found",
                                 ));
                             }
-                        }
-
-                        _ => {
-                            log::error!(target: "lusna", "HyperWAN functionality not yet implemented");
+                        } else {
+                            log::error!(target: "lusna", "Unable to find active vconn for the channel");
                             return Err(NetworkError::InternalError(
-                                "HyperWAN functionality not yet implemented",
+                                "Virtual connection not found for channel",
                             ));
-                        }
-                    };
-
-                // now that the async cryptscrambler tasks have been spawned on the threadpool, we need to also
-                // spawn tasks that read the [GroupSenders] from there. We also need to store an [OutboundFileMetadataTransmitter]
-                // to store the stopper. After spawning them, the rest is under control. Note: for the async task that spawns here
-                // should be given a Rc<RefCell<StateContainer>>. Finally, since two vpeers may send to the source we are sending
-                // to, the GROUP HEADER ACK needs to return the group start idx. It is expected the adjacent node reserve enough groups
-                // on its end to take into account
-
-                // send the FILE_HEADER
-                to_primary_stream
-                    .unbounded_send(file_header)
-                    .map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
-                // create the outbound file container
-                let kernel_tx = state_container.kernel_tx.clone();
-                let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
-                let mut next_gs_alerter_rx =
-                    tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
-                let (start, start_rx) = tokio::sync::oneshot::channel();
-                let outbound_file_transfer_container = OutboundFileTransfer {
-                    stop_tx: Some(stop_tx),
-                    object_id,
-                    ticket,
-                    next_gs_alerter: next_gs_alerter.clone(),
-                    start: Some(start),
-                };
-                let file_key = FileKey::new(key_cid, object_id);
-                let _ = state_container
-                    .outbound_files
-                    .insert(file_key, outbound_file_transfer_container);
-                // spawn the task that takes GroupSenders from the threadpool cryptscrambler
-                std::mem::drop(state_container);
-
-                let this = self.clone();
-                let future = async move {
-                    let ref this = this;
-                    let ref next_gs_alerter = next_gs_alerter;
-                    // this future will resolve when the sender drops in the file_crypt_scrambler
-                    match start_rx.await {
-                        Ok(false) => {
-                            log::warn!(target: "lusna", "start_rx signalled to NOT begin streaming process. Ending async subroutine");
-                            return;
-                        }
-                        Err(err) => {
-                            log::error!(target: "lusna", "start_rx error occurred: {:?}", err);
-                            return;
-                        }
-
-                        _ => {
-                            log::trace!(target: "lusna", "Outbound file transfer async subroutine signalled to begin!");
                         }
                     }
 
-                    // TODO: planning/overhaul of file transmission process
-                    // By now, the file container has been created remotely and locally
-                    // We have been signalled to begin polling the group sender
-                    // NOTE: polling the group_sender_rx (eventually) stops polling the
-                    // async crypt scrambler. Up to 5 groups can be enqueued before stopping
-                    // Once 5 groups have enqueued, the only way to continue is if the receiving
-                    // end tells us it finished that group, and, we poll the next() group sender below.
-                    //
+                    _ => {
+                        log::error!(target: "lusna", "HyperWAN functionality not yet implemented");
+                        return Err(NetworkError::InternalError(
+                            "HyperWAN functionality not yet implemented",
+                        ));
+                    }
+                };
 
-                    let mut relative_group_id = 0;
-                    // while waiting, we likely have a set of GroupSenders to process
-                    while let Some(sender) = group_sender_rx.next().await {
-                        match sender {
-                            Ok(sender) => {
-                                let (group_id, key) = {
-                                    // construct the OutboundTransmitters
-                                    let sess = this;
-                                    if sess.state.load(Ordering::Relaxed) != SessionState::Connected
-                                    {
-                                        log::warn!(target: "lusna", "Since transmitting the file, the session ended");
-                                        return;
+            // now that the async cryptscrambler tasks have been spawned on the threadpool, we need to also
+            // spawn tasks that read the [GroupSenders] from there. We also need to store an [OutboundFileMetadataTransmitter]
+            // to store the stopper. After spawning them, the rest is under control. Note: for the async task that spawns here
+            // should be given a Rc<RefCell<StateContainer>>. Finally, since two vpeers may send to the source we are sending
+            // to, the GROUP HEADER ACK needs to return the group start idx. It is expected the adjacent node reserve enough groups
+            // on its end to take into account
+
+            // send the FILE_HEADER
+            to_primary_stream
+                .unbounded_send(file_header)
+                .map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
+            // create the outbound file container
+            let kernel_tx = state_container.kernel_tx.clone();
+            let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
+            let mut next_gs_alerter_rx =
+                tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
+            let (start, start_rx) = tokio::sync::oneshot::channel();
+            let outbound_file_transfer_container = OutboundFileTransfer {
+                stop_tx: Some(stop_tx),
+                object_id,
+                ticket,
+                next_gs_alerter: next_gs_alerter.clone(),
+                start: Some(start),
+            };
+            let file_key = FileKey::new(key_cid, object_id);
+            let _ = state_container
+                .outbound_files
+                .insert(file_key, outbound_file_transfer_container);
+            // spawn the task that takes GroupSenders from the threadpool cryptscrambler
+            std::mem::drop(state_container);
+
+            let this = self.clone();
+            let future = async move {
+                let ref this = this;
+                let ref next_gs_alerter = next_gs_alerter;
+                // this future will resolve when the sender drops in the file_crypt_scrambler
+                match start_rx.await {
+                    Ok(false) => {
+                        log::warn!(target: "lusna", "start_rx signalled to NOT begin streaming process. Ending async subroutine");
+                        return;
+                    }
+                    Err(err) => {
+                        log::error!(target: "lusna", "start_rx error occurred: {:?}", err);
+                        return;
+                    }
+
+                    _ => {
+                        log::trace!(target: "lusna", "Outbound file transfer async subroutine signalled to begin!");
+                    }
+                }
+
+                // TODO: planning/overhaul of file transmission process
+                // By now, the file container has been created remotely and locally
+                // We have been signalled to begin polling the group sender
+                // NOTE: polling the group_sender_rx (eventually) stops polling the
+                // async crypt scrambler. Up to 5 groups can be enqueued before stopping
+                // Once 5 groups have enqueued, the only way to continue is if the receiving
+                // end tells us it finished that group, and, we poll the next() group sender below.
+                //
+
+                let mut relative_group_id = 0;
+                // while waiting, we likely have a set of GroupSenders to process
+                while let Some(sender) = group_sender_rx.next().await {
+                    match sender {
+                        Ok(sender) => {
+                            let (group_id, key) = {
+                                // construct the OutboundTransmitters
+                                let sess = this;
+                                if sess.state.load(Ordering::Relaxed) != SessionState::Connected {
+                                    log::warn!(target: "lusna", "Since transmitting the file, the session ended");
+                                    return;
+                                }
+
+                                let mut state_container = inner_mut_state!(sess.state_container);
+
+                                let proper_latest_hyper_ratchet = match virtual_target {
+                                    VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
+                                        state_container
+                                            .c2s_channel_container
+                                            .as_ref()
+                                            .unwrap()
+                                            .peer_session_crypto
+                                            .get_hyper_ratchet(None)
                                     }
-
-                                    let mut state_container =
-                                        inner_mut_state!(sess.state_container);
-
-                                    let proper_latest_hyper_ratchet = match virtual_target {
-                                        VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
-                                            state_container
-                                                .c2s_channel_container
-                                                .as_ref()
-                                                .unwrap()
-                                                .peer_session_crypto
-                                                .get_hyper_ratchet(None)
-                                        }
-                                        VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                                            _,
-                                            peer_cid,
-                                        ) => {
-                                            match state_container.get_peer_session_crypto(peer_cid)
-                                            {
-                                                Some(peer_sess_crypt) => {
-                                                    peer_sess_crypt.get_hyper_ratchet(None)
-                                                }
-
-                                                None => {
-                                                    log::warn!(target: "lusna", "Since transmitting the file, the peer session ended");
-                                                    return;
-                                                }
-                                            }
+                                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(
+                                        _,
+                                        peer_cid,
+                                    ) => match state_container.get_peer_session_crypto(peer_cid) {
+                                        Some(peer_sess_crypt) => {
+                                            peer_sess_crypt.get_hyper_ratchet(None)
                                         }
 
-                                        _ => {
-                                            log::error!(target: "lusna", "HyperWAN Functionality not implemented");
+                                        None => {
+                                            log::warn!(target: "lusna", "Since transmitting the file, the peer session ended");
                                             return;
                                         }
-                                    };
+                                    },
 
-                                    if proper_latest_hyper_ratchet.is_none() {
-                                        log::error!(target: "lusna", "Unable to unwrap StackedRatchet (X-05)");
+                                    _ => {
+                                        log::error!(target: "lusna", "HyperWAN Functionality not implemented");
                                         return;
                                     }
-
-                                    let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
-
-                                    let mut transmitter = GroupTransmitter::new_from_group_sender(
-                                        to_primary_stream.clone(),
-                                        sender,
-                                        RatchetPacketCrafterContainer::new(
-                                            hyper_ratchet.clone(),
-                                            None,
-                                        ),
-                                        object_id,
-                                        ticket,
-                                        security_level,
-                                        time_tracker.clone(),
-                                    );
-                                    // group_id is unique per session
-                                    let group_id = transmitter.group_id;
-
-                                    // We manually send the header. The tails get sent automatically
-                                    log::trace!(target: "lusna", "Sending GROUP HEADER through primary stream for group {}", group_id);
-                                    if let Err(err) = sess.try_action(Some(ticket), || {
-                                        transmitter.transmit_group_header(virtual_target)
-                                    }) {
-                                        log::error!(target: "lusna", "Unable to send through primary stream: {}", err.to_string());
-                                        return;
-                                    }
-                                    let group_byte_len = transmitter.get_total_plaintext_bytes();
-
-                                    let outbound_container = OutboundTransmitterContainer::new(
-                                        Some(next_gs_alerter.clone()),
-                                        transmitter,
-                                        group_byte_len,
-                                        groups_needed,
-                                        relative_group_id,
-                                        ticket,
-                                    );
-                                    relative_group_id += 1;
-                                    // The payload packets won't be sent until a GROUP_HEADER_ACK is received
-                                    // the key is the target_cid coupled with the group id
-                                    let key = GroupKey::new(key_cid, group_id);
-
-                                    assert!(state_container
-                                        .outbound_transmitters
-                                        .insert(key, outbound_container)
-                                        .is_none());
-                                    // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
-                                    // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
-                                    // here. Also: DROP `sess`!
-                                    std::mem::drop(state_container);
-                                    //sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
-                                    (group_id, key)
                                 };
 
-                                let kernel_tx2 = kernel_tx.clone();
+                                if proper_latest_hyper_ratchet.is_none() {
+                                    log::error!(target: "lusna", "Unable to unwrap StackedRatchet (X-05)");
+                                    return;
+                                }
 
-                                this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                                    if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
-                                        // as long as a wave ACK has been received, proceed with the timeout check
-                                        // The reason why is because this group may be loaded, but the previous one isn't done
-                                        if transmitter.has_begun {
-                                            let ref transmitter = transmitter.burst_transmitter.group_transmitter;
-                                            if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                                if state_container.meta_expiry_state.expired() {
-                                                    log::error!(target: "lusna", "Outbound group {} has expired; dropping entire transfer", group_id);
-                                                    //std::mem::drop(transmitter);
-                                                    if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                                        if let Some(stop) = outbound_container.stop_tx.take() {
-                                                            if let Err(_) = stop.send(()) {
-                                                                log::error!(target: "lusna", "Unable to send stop signal");
-                                                            }
+                                let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
+
+                                let mut transmitter = GroupTransmitter::new_from_group_sender(
+                                    to_primary_stream.clone(),
+                                    sender,
+                                    RatchetPacketCrafterContainer::new(hyper_ratchet.clone(), None),
+                                    object_id,
+                                    ticket,
+                                    security_level,
+                                    time_tracker.clone(),
+                                );
+                                // group_id is unique per session
+                                let group_id = transmitter.group_id;
+
+                                // We manually send the header. The tails get sent automatically
+                                log::trace!(target: "lusna", "Sending GROUP HEADER through primary stream for group {}", group_id);
+                                if let Err(err) = sess.try_action(Some(ticket), || {
+                                    transmitter.transmit_group_header(virtual_target)
+                                }) {
+                                    log::error!(target: "lusna", "Unable to send through primary stream: {}", err.to_string());
+                                    return;
+                                }
+                                let group_byte_len = transmitter.get_total_plaintext_bytes();
+
+                                let outbound_container = OutboundTransmitterContainer::new(
+                                    Some(next_gs_alerter.clone()),
+                                    transmitter,
+                                    group_byte_len,
+                                    groups_needed,
+                                    relative_group_id,
+                                    ticket,
+                                );
+                                relative_group_id += 1;
+                                // The payload packets won't be sent until a GROUP_HEADER_ACK is received
+                                // the key is the target_cid coupled with the group id
+                                let key = GroupKey::new(key_cid, group_id);
+
+                                assert!(state_container
+                                    .outbound_transmitters
+                                    .insert(key, outbound_container)
+                                    .is_none());
+                                // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
+                                // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
+                                // here. Also: DROP `sess`!
+                                std::mem::drop(state_container);
+                                //sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
+                                (group_id, key)
+                            };
+
+                            let kernel_tx2 = kernel_tx.clone();
+
+                            this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                                if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
+                                    // as long as a wave ACK has been received, proceed with the timeout check
+                                    // The reason why is because this group may be loaded, but the previous one isn't done
+                                    if transmitter.has_begun {
+                                        let ref transmitter = transmitter.burst_transmitter.group_transmitter;
+                                        if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
+                                            if state_container.meta_expiry_state.expired() {
+                                                log::error!(target: "lusna", "Outbound group {} has expired; dropping entire transfer", group_id);
+                                                //std::mem::drop(transmitter);
+                                                if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
+                                                    if let Some(stop) = outbound_container.stop_tx.take() {
+                                                        if let Err(_) = stop.send(()) {
+                                                            log::error!(target: "lusna", "Unable to send stop signal");
                                                         }
-                                                    } else {
-                                                        log::warn!(target: "lusna", "Attempted to remove {:?}, but was already absent from map", &file_key);
-                                                    }
-
-                                                    if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
-                                                        log::error!(target: "lusna", "[File] Unable to send kernel error signal. Ending session");
-                                                        QueueWorkerResult::EndSession
-                                                    } else {
-                                                        QueueWorkerResult::Complete
                                                     }
                                                 } else {
-                                                    log::trace!(target: "lusna", "[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
-                                                    QueueWorkerResult::Incomplete
+                                                    log::warn!(target: "lusna", "Attempted to remove {:?}, but was already absent from map", &file_key);
+                                                }
+
+                                                if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
+                                                    log::error!(target: "lusna", "[File] Unable to send kernel error signal. Ending session");
+                                                    QueueWorkerResult::EndSession
+                                                } else {
+                                                    QueueWorkerResult::Complete
                                                 }
                                             } else {
-                                                // it hasn't expired yet, and is still transmitting
+                                                log::trace!(target: "lusna", "[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
                                                 QueueWorkerResult::Incomplete
                                             }
                                         } else {
-                                            // WAVE_ACK hasn't been received yet; try again later
+                                            // it hasn't expired yet, and is still transmitting
                                             QueueWorkerResult::Incomplete
                                         }
                                     } else {
-                                        // it finished
-                                        QueueWorkerResult::Complete
+                                        // WAVE_ACK hasn't been received yet; try again later
+                                        QueueWorkerResult::Incomplete
                                     }
-                                });
-
-                                // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
-                                // received a signal here
-
-                                if let None = next_gs_alerter_rx.next().await {
-                                    log::warn!(target: "lusna", "next_gs_alerter: steam ended");
-                                    return;
+                                } else {
+                                    // it finished
+                                    QueueWorkerResult::Complete
                                 }
-                            }
+                            });
 
-                            Err(err) => {
-                                let _ = kernel_tx.clone().unbounded_send(
-                                    NodeResult::InternalServerError(Some(ticket), err.to_string()),
-                                );
+                            // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
+                            // received a signal here
+
+                            if let None = next_gs_alerter_rx.next().await {
+                                log::warn!(target: "lusna", "next_gs_alerter: steam ended");
+                                return;
                             }
                         }
+
+                        Err(err) => {
+                            let _ =
+                                kernel_tx
+                                    .clone()
+                                    .unbounded_send(NodeResult::InternalServerError(
+                                        Some(ticket),
+                                        err.to_string(),
+                                    ));
+                        }
                     }
-                };
+                }
+            };
 
-                let _ = spawn!(future);
+            let _ = spawn!(future);
 
-                Ok(())
-            } else {
-                Err(NetworkError::Generic(format!(
-                    "File `{:?}` not found",
-                    file
-                )))
-            }
+            Ok(())
         }
     }
 
@@ -1740,7 +1726,7 @@ impl HdpSession {
                 Ok((packet, remote_peer)) => {
                     log::trace!(target: "lusna", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
                     let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                    this.process_inbound_packet_wave(packet, peer_session_accessor)?;
+                    this.process_inbound_packet_udp(packet, peer_session_accessor)?;
                 }
 
                 Err(err) => {
@@ -1786,7 +1772,7 @@ impl HdpSession {
         Ok(())
     }
 
-    pub fn process_inbound_packet_wave(
+    pub fn process_inbound_packet_udp(
         &self,
         packet: HdpPacket,
         accessor: &EndpointCryptoAccessor,

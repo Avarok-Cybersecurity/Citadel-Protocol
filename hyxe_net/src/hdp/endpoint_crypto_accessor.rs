@@ -23,23 +23,13 @@ impl EndpointCryptoAccessor {
         match self {
             Self::P2P(peer_cid, state_container) => {
                 let mut state_container = inner_mut_state!(state_container);
-                let v_conn = state_container
-                    .active_virtual_connections
-                    .get(peer_cid)
-                    .ok_or(NetworkError::InternalError("Virtual Connection not loaded"))?;
-                let v_conn =
-                    v_conn
-                        .endpoint_container
-                        .as_ref()
-                        .ok_or(NetworkError::InternalError(
-                            "Endpoint channel container not loaded",
-                        ))?;
-                v_conn
-                    .endpoint_crypto
-                    .get_hyper_ratchet(vers)
+                state_container
+                    .get_peer_session_crypto(*peer_cid)
+                    .ok_or(NetworkError::InternalError("Peer session crypto missing"))?
+                    .get_hyper_ratchet(None)
                     .cloned()
-                    .ok_or(NetworkError::InternalError("P2P HR does not exist"))
-                    .map(|r| access(&r, &mut state_container))
+                    .map(|hr| access(&hr, &mut state_container))
+                    .ok_or(NetworkError::InternalError("Ratchet does not exist"))
             }
 
             Self::C2S(state_container) => {

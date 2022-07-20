@@ -23,29 +23,20 @@ pub mod prelude {
     pub use crate::toolset::Toolset;
 }
 
-/// Provides drill management, update, and versioning. This is what's exposed to the hyxe_user api. The drills themselves are abstracted beneath
-pub mod toolset;
-
-/// Organizes the different types of drills that can be used. Currently, there is only one: The Standard Drill
-pub mod drill;
-
-/// For endowing packets with coordinates
-pub mod packet_vector;
-
-/// Contains the subroutines for network-related functionality
-pub mod net;
-
-/// Contains future-oriented subroutines for encrypting data
-pub mod aes_gcm;
-
 /// For argon-related functionality
 pub mod argon;
+/// Organizes the different types of drills that can be used. Currently, there is only one: The Standard Drill
+pub mod drill;
 /// An abstraction binding the drill and the PQC
 pub mod endpoint_crypto_container;
 /// Contains the cryptographic primitives for handling FCM interactions on the network
 pub mod fcm;
 /// Error type
 pub mod misc;
+/// Contains the subroutines for network-related functionality
+pub mod net;
+/// For endowing packets with coordinates
+pub mod packet_vector;
 /// Cryptographic container for handling routes
 pub mod relay_chain;
 /// For secure byte handling
@@ -56,3 +47,5 @@ pub mod stacked_ratchet;
 pub mod streaming_crypt_scrambler;
 ///
 pub mod sync_toggle;
+/// Provides drill management, update, and versioning. This is what's exposed to the hyxe_user api. The drills themselves are abstracted beneath
+pub mod toolset;

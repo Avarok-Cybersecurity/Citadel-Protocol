@@ -64,10 +64,15 @@ pub mod tests {
         }
 
         for proto in protocols {
-            log::trace!(target: "lusna", "Testing proto {:?}", &proto);
+            log::trace!(target: "lusna", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let (mut listener, addr) =
-                HdpServer::server_create_primary_listen_socket(proto.clone(), addr).unwrap();
+            let res = HdpServer::server_create_primary_listen_socket(proto.clone(), addr);
+
+            if let Err(err) = res.as_ref() {
+                log::error!(target: "lusna", "Error creating primary socket: {:?}", err);
+            }
+
+            let (mut listener, addr) = res.unwrap();
             log::trace!(target: "lusna", "Bind/connect addr: {:?}", addr);
 
             let server = async move {
@@ -84,7 +89,8 @@ pub mod tests {
                 on_client_received_stream(stream).await
             };
 
-            let _ = tokio::join!(server, client);
+            let res = tokio::try_join!(server, client);
+            let _ = res.unwrap();
             log::trace!(target: "lusna", "Ended");
         }
 
@@ -113,8 +119,13 @@ pub mod tests {
             log::trace!(target: "lusna", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let (mut listener, addr) =
-                HdpServer::server_create_primary_listen_socket(proto.clone(), addr).unwrap();
+            let res = HdpServer::server_create_primary_listen_socket(proto.clone(), addr);
+
+            if let Err(err) = res.as_ref() {
+                log::error!(target: "lusna", "Error creating primary socket: {:?}", err);
+            }
+
+            let (mut listener, addr) = res.unwrap();
             log::trace!(target: "lusna", "Bind/connect addr: {:?}", addr);
 
             let server = async move {
@@ -172,9 +183,11 @@ pub mod tests {
         log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
         let (mut sink, mut stream) = safe_split_stream(stream);
         let packet = stream.next().await.unwrap()?;
+        log::trace!(target: "lusna", "[Server] Received packet");
         assert_eq!(&packet[..], &[100u8]);
         sink.send(BytesMut::from(&[100u8] as &[u8]).freeze())
             .await?;
+        log::trace!(target: "lusna", "[Server] Sent packet");
         Ok(())
     }
 
@@ -183,7 +196,9 @@ pub mod tests {
         log::trace!(target: "lusna", "Client connected");
         sink.send(BytesMut::from(&[100u8] as &[u8]).freeze())
             .await?;
+        log::trace!(target: "lusna", "Client - sent packet");
         let packet = stream.next().await.unwrap()?;
+        log::trace!(target: "lusna", "Client - obtained packet");
         assert_eq!(&packet[..], &[100u8]);
         Ok(())
     }
