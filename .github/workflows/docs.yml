@@ -25,6 +25,7 @@ jobs:
         with:
           ref: 'coverage_files'
       - run: ls -la $GITHUB_WORKSPACE
+      - run: echo $GITHUB_REF_NAME
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
