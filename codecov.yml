@@ -11,8 +11,7 @@ coverage:
     project:
       default:
         # basic
-        target: 25%
-        threshold: 1%
+        target: 70%
         # advanced settings
         #if_ci_failed: error
         informational: false
