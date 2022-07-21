@@ -209,6 +209,7 @@ jobs:
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.head_ref }}
           force: true
       - uses: actions/github-script@v6
         if: failure()
