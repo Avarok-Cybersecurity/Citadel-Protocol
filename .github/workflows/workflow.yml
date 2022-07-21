@@ -200,6 +200,7 @@ jobs:
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
           mv ${GITHUB_WORKSPACE}/lcov.info ${HOME}/lcov.info
+          git fetch
           git checkout coverage_files
           mv ${HOME}/lcov.info ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
           git add ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
