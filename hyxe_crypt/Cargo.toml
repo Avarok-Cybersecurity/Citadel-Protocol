@@ -30,7 +30,7 @@ rayon = "1.5.1"
 arrayvec = { version = "0.7.0", features = ["serde"] }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 #fcm = { path = "../fcm-rust", version = "0.8.1" }
-bitvec = "1.0.0"
+bitvec = "1.0.1"
 serde-big-array = "0.4.1"
 rust-argon2 = "1.0.0"
 sysinfo = "0.23.2"
