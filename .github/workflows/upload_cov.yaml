@@ -12,7 +12,18 @@ jobs:
       - uses: actions/checkout@v3
         with:
           ref: 'coverage_files'
+      - run: echo $(ls)
+      - run: echo $GITHUB_HEAD_REF
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov-${{ env.GITHUB_HEAD_REF }}.info
+          fail_ci_if_error: true
+      - name: Cleanup codecov file
+        if: success()
+        run: |
+          git config --global user.name "tbraun96"
+          git config --global user.email "thomas.braun@avarok.net"
+          git rm ${{ env.GITHUB_WORKSPACE }}/lcov-${{ env.GITHUB_HEAD_REF }}.info
+          git commit -am "cleanup old codecov file"
+          git push
