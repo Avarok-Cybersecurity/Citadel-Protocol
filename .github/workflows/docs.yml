@@ -17,22 +17,7 @@ concurrency:
 
 
 jobs:
-  coverage_upload:
-    runs-on: ubuntu-latest
-    timeout-minutes: 80
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: 'coverage_files'
-      - run: ls -la $GITHUB_WORKSPACE
-      - run: echo $GITHUB_REF_NAME
-      - uses: codecov/codecov-action@master
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ${{ env.GITHUB_WORKSPACE }}/lcov-${{ env.GITHUB_REF_NAME }}.info
   docs:
-    needs:
-      - coverage_upload
     runs-on: ubuntu-latest
     strategy:
       matrix:
