@@ -1,0 +1,18 @@
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+
+jobs:
+  coverage_upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: 'coverage_files'
+      - uses: codecov/codecov-action@master
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ env.GITHUB_WORKSPACE }}/lcov-${{ env.GITHUB_HEAD_REF }}.info
