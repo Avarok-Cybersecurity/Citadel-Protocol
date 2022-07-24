@@ -397,7 +397,15 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
                 return Ok(lock);
             }
 
-            UpdatePacket::Halt => return Err(anyhow::Error::msg("Halted from background")),
+            UpdatePacket::Halt => {
+                // This is what happened: Local called yield_lock, yielding the lock
+                // to the adjacent node. Then, we waited for the adjacent node to release
+                // the lock. However, the adjacent node did not release the lock, and instead,
+                // dropped the mutex without editing the final value. Thus, return the local lock
+                // with the current value
+                log::warn!(target: "lusna", "Received a HALT from the adjacent background thread. Assuming local value is most recent: {:?}", lock.0);
+                return Ok(lock);
+            }
 
             UpdatePacket::LockAcquired | UpdatePacket::ReleasedVerified => {
                 // this is received after sending the Released packet. We do nothing here
