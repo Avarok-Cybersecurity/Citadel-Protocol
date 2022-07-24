@@ -12,6 +12,7 @@ pub struct EncryptedConfigContainer {
 
 impl EncryptedConfigContainer {
     /// Wraps the provided functions into a portable abstraction
+    #[cfg(not(feature = "localhost-testing"))]
     pub fn new(
         _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
         _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
@@ -20,6 +21,14 @@ impl EncryptedConfigContainer {
             generate_packet: Arc::new(_generate_packet),
             decrypt_packet: Arc::new(_decrypt_packet),
         }
+    }
+
+    #[cfg(feature = "localhost-testing")]
+    pub fn new(
+        _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
+        _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
+    ) -> Self {
+        Default::default()
     }
 
     /// Generates a packet
