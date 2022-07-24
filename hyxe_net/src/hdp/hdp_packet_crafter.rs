@@ -1700,9 +1700,13 @@ pub(crate) mod hole_punch {
         let mut packet = BytesMut::new();
         header.inscribe_into(&mut packet);
         packet.put(plaintext);
-        hyper_ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+
+        #[cfg(not(feature = "localhost-testing"))]
+        {
+            hyper_ratchet
+                .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+                .unwrap();
+        }
 
         packet
     }
@@ -1710,9 +1714,9 @@ pub(crate) mod hole_punch {
     /// this is called assuming the CORRECT hyper ratchet is used (i.e., the same one used above)
     /// This strips the header, since it's only relevant to the networking protocol and NOT the hole-puncher
     pub fn decrypt_packet(
-        hyper_ratchet: &StackedRatchet,
+        _hyper_ratchet: &StackedRatchet,
         packet: &[u8],
-        security_level: SecurityLevel,
+        _security_level: SecurityLevel,
     ) -> Option<BytesMut> {
         if packet.len() < HDP_HEADER_BYTE_LEN {
             log::warn!(target: "lusna", "Bad hole-punch packet size. Len: {} | {:?}", packet.len(), packet);
@@ -1720,10 +1724,18 @@ pub(crate) mod hole_punch {
         }
 
         let mut packet = BytesMut::from(packet);
-        let header = packet.split_to(HDP_HEADER_BYTE_LEN);
-        hyper_ratchet
-            .validate_message_packet_in_place_split(Some(security_level), &header, &mut packet)
-            .ok()?;
+        let _header = packet.split_to(HDP_HEADER_BYTE_LEN);
+        #[cfg(not(feature = "localhost-testing"))]
+        {
+            _hyper_ratchet
+                .validate_message_packet_in_place_split(
+                    Some(_security_level),
+                    &_header,
+                    &mut packet,
+                )
+                .ok()?;
+        }
+
         Some(packet)
     }
 }
