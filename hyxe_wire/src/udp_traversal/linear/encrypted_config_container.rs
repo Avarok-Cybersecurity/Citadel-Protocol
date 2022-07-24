@@ -13,12 +13,12 @@ pub struct EncryptedConfigContainer {
 impl EncryptedConfigContainer {
     /// Wraps the provided functions into a portable abstraction
     pub fn new(
-        generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
-        decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
+        _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
+        _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
     ) -> Self {
         Self {
-            generate_packet: Arc::new(generate_packet),
-            decrypt_packet: Arc::new(decrypt_packet),
+            generate_packet: Arc::new(_generate_packet),
+            decrypt_packet: Arc::new(_decrypt_packet),
         }
     }
 

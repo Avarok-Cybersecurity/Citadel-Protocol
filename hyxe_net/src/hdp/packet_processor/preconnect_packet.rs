@@ -620,6 +620,7 @@ pub(crate) fn generate_hole_punch_crypt_container(
     target_cid: u64,
 ) -> EncryptedConfigContainer {
     let hyper_ratchet_cloned = hyper_ratchet.clone();
+
     EncryptedConfigContainer::new(
         move |plaintext| {
             hdp_packet_crafter::hole_punch::generate_packet(

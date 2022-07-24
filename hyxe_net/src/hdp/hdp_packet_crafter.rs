@@ -1701,12 +1701,9 @@ pub(crate) mod hole_punch {
         header.inscribe_into(&mut packet);
         packet.put(plaintext);
 
-        #[cfg(not(feature = "localhost-testing"))]
-        {
-            hyper_ratchet
-                .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-                .unwrap();
-        }
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
 
         packet
     }
@@ -1725,16 +1722,10 @@ pub(crate) mod hole_punch {
 
         let mut packet = BytesMut::from(packet);
         let _header = packet.split_to(HDP_HEADER_BYTE_LEN);
-        #[cfg(not(feature = "localhost-testing"))]
-        {
-            _hyper_ratchet
-                .validate_message_packet_in_place_split(
-                    Some(_security_level),
-                    &_header,
-                    &mut packet,
-                )
-                .ok()?;
-        }
+
+        _hyper_ratchet
+            .validate_message_packet_in_place_split(Some(_security_level), &_header, &mut packet)
+            .ok()?;
 
         Some(packet)
     }
