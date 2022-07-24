@@ -172,7 +172,7 @@ mod tests {
     #[case(50)]
     #[case(100)]
     #[tokio::test]
-    async fn dual_hole_puncher(#[case] lag: usize) {
+    async fn test_dual_hole_puncher(#[case] lag: usize) {
         lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams_with_addrs_and_lag(lag).await;
