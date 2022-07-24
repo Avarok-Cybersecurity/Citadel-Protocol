@@ -113,6 +113,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetMutex<T, S> {
     fn drop(&mut self) {
         let conn = self.app.clone();
         let stop_tx = self.stop_tx.take().unwrap();
+        // stop the background task
         let _ = stop_tx.send(());
 
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
@@ -452,7 +453,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         UpdatePacket::Released(..)
                         | UpdatePacket::ReleasedVerified
                         | UpdatePacket::LockAcquired => {
-                            unreachable!("RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
+                            unreachable!("[BG] RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
                         }
 
                         UpdatePacket::Halt => {
