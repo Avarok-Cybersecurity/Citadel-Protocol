@@ -81,7 +81,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
                 passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
                     .await
             {
-                log::error!(target: "lusna", "[NetMutex] Err: {:?}", err.to_string());
+                log::error!(target: "lusna", "[NetMutex Passive Background Handler] Err: {:?}", err.to_string());
             }
 
             log::trace!(target: "lusna", "[NetMutex] Passive background handler ending")
