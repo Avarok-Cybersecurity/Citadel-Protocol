@@ -332,11 +332,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(false)]
-    #[case(true)]
+    #[case(false, UdpMode::Enabled)]
+    #[case(true, UdpMode::Enabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn single_connection_passwordless(#[case] debug_force_nat_timeout: bool) {
+    async fn single_connection_passwordless(
+        #[case] debug_force_nat_timeout: bool,
+        #[case] udp_mode: UdpMode,
+    ) {
         let _ = lusna_logging::setup_log();
 
         if debug_force_nat_timeout {
@@ -349,12 +352,15 @@ mod tests {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
             server_addr,
-            |_channel, _remote| async move {
+            udp_mode,
+            Default::default(),
+            |channel, _remote| async move {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
                 //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
+                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
                 client_success.store(true, Ordering::Relaxed);
                 stop_tx.send(()).unwrap();
                 Ok(())
@@ -378,9 +384,10 @@ mod tests {
     }
 
     #[rstest]
+    #[case(UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn single_connection_passwordless_deregister() {
+    async fn single_connection_passwordless_deregister(#[case] udp_mode: UdpMode) {
         let _ = lusna_logging::setup_log();
 
         let client_success = &AtomicBool::new(false);
@@ -389,12 +396,15 @@ mod tests {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
             server_addr,
-            |_channel, mut remote| async move {
+            udp_mode,
+            Default::default(),
+            |channel, mut remote| async move {
                 log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
                 //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
+                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
                 remote.deregister().await?;
                 client_success.store(true, Ordering::Relaxed);
                 stop_tx.send(()).unwrap();
