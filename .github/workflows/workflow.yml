@@ -202,7 +202,7 @@ jobs:
           mv ${GITHUB_WORKSPACE}/lcov.info ${HOME}/lcov.info
           git fetch
           git checkout coverage_files
-          mv ${HOME}/lcov.info ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
+          mv ${GITHUB_WORKSPACE}/lcov.info ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
           git add ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
           git commit -m "add coverage report"
       - name: Push codecov to branch
