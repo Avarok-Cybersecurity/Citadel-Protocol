@@ -918,10 +918,11 @@ impl HdpSession {
             )
         };
 
-        fn evaulute_result(
+        fn evaluate_result(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult>,
+            session: &HdpSession,
         ) -> std::io::Result<()> {
             match result {
                 Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
@@ -932,12 +933,15 @@ impl HdpSession {
                         None,
                     )
                     .map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::Other, err.into_string())
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Unable to ReplyToSender: {:?}", err.into_string()),
+                        )
                     })
                 }
 
                 Err(reason) => {
-                    log::error!(target: "lusna", "[PrimaryProcessor] session ending: {:?}", reason);
+                    log::error!(target: "lusna", "[PrimaryProcessor] session ending: {:?} | Session end state: {:?}", reason, session.state.load(Ordering::Relaxed));
                     Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         reason.into_string(),
@@ -990,7 +994,7 @@ impl HdpSession {
                     packet,
                 )
                 .await;
-                evaulute_result(result, primary_stream, kernel_tx)
+                evaluate_result(result, primary_stream, kernel_tx, this_main)
             })
             .map_err(|err| handle_session_terminating_error(err, is_server, p2p))
             .await
