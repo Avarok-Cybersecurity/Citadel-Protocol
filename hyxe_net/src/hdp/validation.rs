@@ -316,7 +316,7 @@ pub(crate) mod pre_connect {
         cnac: &ClientNetworkAccount,
         mut alice_constructor: StackedRatchetConstructor,
         packet: HdpPacket,
-    ) -> Option<(StackedRatchet, NatType, Option<u16>)> {
+    ) -> Option<(StackedRatchet, NatType)> {
         let static_auxiliary_ratchet = cnac.get_static_auxiliary_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
         let (_, payload) =
@@ -331,7 +331,7 @@ pub(crate) mod pre_connect {
         let _ = new_hyper_ratchet.verify_level(lvl.into()).ok()?;
         let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));
         cnac.replace_toolset(toolset);
-        Some((new_hyper_ratchet, packet.nat_type, packet.udp_port_opt))
+        Some((new_hyper_ratchet, packet.nat_type))
     }
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point

@@ -1192,14 +1192,12 @@ pub(crate) mod pre_connect {
     pub struct SynAckPacket {
         pub transfer: BobToAliceTransfer,
         pub nat_type: NatType,
-        pub udp_port_opt: Option<u16>,
     }
 
     pub(crate) fn craft_syn_ack(
         static_aux_hr: &StaticAuxRatchet,
         transfer: BobToAliceTransfer,
         nat_type: NatType,
-        udp_port_opt: Option<u16>,
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
@@ -1220,13 +1218,9 @@ pub(crate) mod pre_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynAckPacket {
-            transfer,
-            nat_type,
-            udp_port_opt,
-        }
-        .serialize_into_buf(&mut packet)
-        .unwrap();
+        SynAckPacket { transfer, nat_type }
+            .serialize_into_buf(&mut packet)
+            .unwrap();
 
         static_aux_hr
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)

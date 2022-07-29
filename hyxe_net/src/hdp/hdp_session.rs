@@ -730,8 +730,10 @@ impl HdpSession {
                 );
                 let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
+                let is_server = sess.is_server;
                 std::mem::drop(sess);
                 if let Some(tcp_conn_awaiter) = tcp_conn_awaiter {
+                    log::trace!(target: "lusna", "Awaiting tcp conn to finish before creating UDP subsystem ... is_server={}", is_server);
                     tcp_conn_awaiter
                         .await
                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -744,7 +746,7 @@ impl HdpSession {
                     VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
-
+                        log::trace!(target: "lusna", "C2S UDP subroutine inserting UDP channel ... (is_server={})", is_server);
                         if let Some(channel) = state_container.insert_udp_channel(
                             C2S_ENCRYPTION_ONLY,
                             v_target,
@@ -752,12 +754,15 @@ impl HdpSession {
                             udp_sender,
                             stopper_tx,
                         ) {
+                            log::trace!(target: "lusna", "C2S UDP subroutine created udp channel ... (is_server={})", is_server);
                             if let Some(sender) = state_container
                                 .pre_connect_state
                                 .udp_channel_oneshot_tx
                                 .tx
                                 .take()
                             {
+                                //TODO: await before sending Channel to c2s or p2p
+                                log::trace!(target: "lusna", "C2S UDP subroutine sending channel to local user ... (is_server={})", is_server);
                                 sender.send(channel).map_err(|_| {
                                     NetworkError::InternalError("Unable to send UdpChannel through")
                                 })?;
