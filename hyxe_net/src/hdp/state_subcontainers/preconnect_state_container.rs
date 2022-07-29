@@ -4,7 +4,6 @@ use crate::hdp::peer::channel::UdpChannel;
 use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_wire::hypernode_type::NodeType;
-use tokio::net::UdpSocket;
 use tokio::sync::oneshot::{channel, Receiver, Sender};
 
 /// For keeping track of the pre-connect state
@@ -18,7 +17,6 @@ pub struct PreConnectState {
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
     pub(crate) success: bool,
-    pub(crate) unused_local_udp_socket: Option<UdpSocket>,
     pub(crate) generated_ratchet: Option<StackedRatchet>,
 }
 
@@ -39,7 +37,6 @@ impl Default for PreConnectState {
             adjacent_node_type: None,
             success: false,
             ticket: None,
-            unused_local_udp_socket: None,
         }
     }
 }

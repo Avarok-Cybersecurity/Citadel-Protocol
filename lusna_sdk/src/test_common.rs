@@ -137,20 +137,21 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "localhost-testing")]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna"))]
 #[allow(dead_code)]
 pub async fn udp_mode_assertions(
     udp_mode: UdpMode,
     udp_channel_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
 ) {
     use futures::StreamExt;
-    log::info!(target: "lusna", "Inside UDP mode assertions ...");
+    lusna_logging::info!(target: "lusna", "Inside UDP mode assertions ...");
     match udp_mode {
         UdpMode::Enabled => {
-            log::info!(target: "lusna", "Inside UDP mode assertions AB1 ...");
+            lusna_logging::info!(target: "lusna", "Inside UDP mode assertions AB1 ...");
             assert!(udp_channel_rx_opt.is_some());
-            log::info!(target: "lusna", "Inside UDP mode assertions AB1.5 ...");
+            lusna_logging::info!(target: "lusna", "Inside UDP mode assertions AB1.5 ...");
             let chan = udp_channel_rx_opt.unwrap().await.unwrap();
-            log::info!(target: "lusna", "Inside UDP mode assertions AB2 ...");
+            lusna_logging::info!(target: "lusna", "Inside UDP mode assertions AB2 ...");
             let (tx, mut rx) = chan.split();
             tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
             assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
@@ -159,7 +160,7 @@ pub async fn udp_mode_assertions(
         }
 
         UdpMode::Disabled => {
-            log::info!(target: "lusna", "Inside UDP mode assertions AB0-null ...");
+            lusna_logging::info!(target: "lusna", "Inside UDP mode assertions AB0-null ...");
             assert!(udp_channel_rx_opt.is_none());
         }
     }
