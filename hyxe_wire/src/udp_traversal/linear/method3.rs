@@ -254,8 +254,8 @@ impl Method3 {
                     let expected_addr = expected_response_addr.unwrap();
 
                     if peer_external_addr != expected_addr {
-                        log::warn!(target: "lusna", "RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
-                        continue;
+                        log::warn!(target: "lusna", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                        //continue;
                     }
 
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
