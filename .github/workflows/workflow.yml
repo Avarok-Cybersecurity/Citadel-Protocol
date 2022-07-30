@@ -105,11 +105,12 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
-        run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
+        run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package lusna_sdk --features=multi-threaded,localhost-testing -- --test-threads=1
+        run: cargo nextest run --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -125,11 +126,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - name: Install Valgrind
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y valgrind
-      # Compile tests
+#      - name: Install Valgrind
+#        run: |
+#          sudo apt-get update -y
+#          sudo apt-get install -y valgrind
+#      # Compile tests
 #      - name: cargo build secmem_bytes_test
 #        run: cargo build --bin secmem_bytes_test
       # Run with valgrind
@@ -190,7 +191,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path ${HOME}/lcov.info
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -199,7 +200,6 @@ jobs:
         run: |
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
-          mv ${GITHUB_WORKSPACE}/lcov.info ${HOME}/lcov.info
           git fetch
           git checkout coverage_files
           mv ${HOME}/lcov.info ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info

@@ -38,11 +38,7 @@ impl<'a> UdpHolePuncher<'a> {
                     tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
                 } else {
                     log::warn!(target: "lusna", "DEBUG_CAUSE_TIMEOUT enabled");
-                    tokio::time::timeout(
-                        Duration::from_millis(1),
-                        driver(conn, encrypted_config_container),
-                    )
-                    .await?
+                    Err(anyhow::Error::msg("DEBUG_CAUSE_TIMEOUT invoked"))
                 }
             }),
         }
@@ -98,7 +94,12 @@ async fn driver(
         conn,
     )?
     .await;
-    res
+    res.map_err(|err| {
+        anyhow::Error::msg(format!(
+            "**HOLE-PUNCH-ERR**: {:?} | local_nat_type: {:?} | peer_nat_type: {:?}",
+            err, local_nat_type, peer_nat_type
+        ))
+    })
 }
 
 /// since the NAT traversal process always ensures that both public-facing and loopback
@@ -172,7 +173,7 @@ mod tests {
     #[case(50)]
     #[case(100)]
     #[tokio::test]
-    async fn dual_hole_puncher(#[case] lag: usize) {
+    async fn test_dual_hole_puncher(#[case] lag: usize) {
         lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams_with_addrs_and_lag(lag).await;

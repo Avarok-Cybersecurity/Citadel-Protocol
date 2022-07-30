@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
 use crate::error::FirewallError;
 use crate::socket_helpers::is_ipv6_enabled;
 use async_ip::IpAddressInfo;
@@ -6,7 +6,6 @@ use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::iter::Sum;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::pin::Pin;
@@ -26,7 +25,7 @@ const STUN_SERVERS: [&str; 3] = [
 ];
 
 const V4_BIND_ADDR: &str = "0.0.0.0:0";
-const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(5000);
+const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3200);
 pub(crate) const MAX_PORT_DELTA_FOR_PREDICTION: usize = 30;
 pub(crate) const MAX_LAST_OCTET_DELTA_FOR_PREDICTION: usize = 2;
 
@@ -64,6 +63,10 @@ impl Default for NatType {
     }
 }
 
+// we only need to check the NAT type once per node
+static LOCALHOST_TESTING_NAT_TYPE: parking_lot::Mutex<Option<NatType>> =
+    parking_lot::const_mutex(None);
+
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
     /// `local_bind_addr`: Only relevant for localhost testing
@@ -76,11 +79,39 @@ impl NatType {
     }
 
     /// Identifies the NAT which the local node is behind
-    pub async fn identify_timeout(timeout: Duration) -> Result<Self, FirewallError> {
-        tokio::time::timeout(timeout, get_nat_type())
-            .await
-            .map_err(|_| FirewallError::HolePunch("NAT identification elapsed".to_string()))?
-            .map_err(|err| FirewallError::HolePunch(err.to_string()))
+    pub async fn identify_timeout(_timeout: Duration) -> Result<Self, FirewallError> {
+        #[cfg(feature = "localhost-testing-loopback-only")]
+        {
+            let lock = LOCALHOST_TESTING_NAT_TYPE.lock();
+            if let Some(nat_type) = lock.clone() {
+                log::warn!(target: "lusna", "Will not detect NAT type since local already has it: {:?}", nat_type);
+                return Ok(nat_type);
+            }
+        }
+        match tokio::time::timeout(_timeout, get_nat_type()).await {
+            Ok(res) => res
+                .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                .map(|nat_type| {
+                    *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
+                    nat_type
+                }),
+
+            Err(_elapsed) => {
+                log::warn!(target: "lusna", "Timeout on NAT identification occured");
+                if cfg!(feature = "localhost-testing") {
+                    log::warn!(target: "lusna", "Will use default NatType for localhost-testing");
+                    Ok(NatType::PortPreserved(
+                        IpAddr::from([1, 2, 3, 4]),
+                        None,
+                        false,
+                    ))
+                } else {
+                    Err(FirewallError::HolePunch(
+                        "NAT identification elapsed".to_string(),
+                    ))
+                }
+            }
+        }
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively
@@ -98,7 +129,7 @@ impl NatType {
             NatType::EIM(..) => TraversalTypeRequired::Linear,
             NatType::PortPreserved(..) => TraversalTypeRequired::Linear,
             NatType::EDM(_, _, n, _) => TraversalTypeRequired::Delta(*n),
-            NatType::EDMRandomPort(_, _, ports, _) => {
+            NatType::EDMRandomPort(_, _, _ports, _) => {
                 let average_delta = self.get_average_delta_for_rand_port().unwrap();
                 if average_delta > MAX_PORT_DELTA_FOR_PREDICTION as _ {
                     TraversalTypeRequired::TURN
@@ -206,7 +237,6 @@ fn average_delta<T: Ord + Copy + Sized + Sub>(vals: &Vec<T>) -> usize
 where
     usize: From<<T as Sub>::Output>,
 {
-    use itertools::Itertools;
     let vals = vals.iter().copied().sorted().collect::<Vec<T>>();
     let count = vals.len() as f32;
     let sum_diff: usize = vals
@@ -215,7 +245,7 @@ where
         .map(|(a, b)| usize::from(b - a))
         .sum();
     let average = sum_diff as f32 / (count - 1f32);
-    (average.abs() as usize)
+    average.abs() as usize
 }
 
 #[cfg_attr(

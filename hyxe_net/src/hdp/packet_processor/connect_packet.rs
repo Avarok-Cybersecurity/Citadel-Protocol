@@ -195,7 +195,7 @@ pub async fn process_connect(
                         message,
                     ))?;
                     Ok(PrimaryProcessorResult::EndSession(
-                        "Failed connecting. Retry again",
+                        "Failed connecting. Try again",
                     ))
                 } else {
                     trace!(target: "lusna", "An invalid FAILURE packet was received; dropping due to invalid signature");
