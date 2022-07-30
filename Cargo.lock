@@ -1225,7 +1225,7 @@ dependencies = [
  "slab",
  "tokio",
  "tokio-util 0.7.3",
- "tracing 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.35",
 ]
 
 [[package]]
@@ -1389,7 +1389,7 @@ dependencies = [
  "socket2",
  "tokio",
  "tower-service",
- "tracing 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.35",
  "want",
 ]
 
@@ -1467,7 +1467,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util 0.7.3",
- "tracing 0.1.35 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.36",
  "ureq",
  "uuid 1.1.2",
  "webrtc-util",
@@ -1544,7 +1544,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util 0.7.3",
- "tracing 0.1.35 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.36",
  "uuid 1.1.2",
  "webpki",
  "whoami",
@@ -1745,7 +1745,7 @@ name = "lusna_logging"
 version = "0.1.0"
 dependencies = [
  "log",
- "tracing 0.1.35 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.36",
  "tracing-subscriber",
 ]
 
@@ -1764,7 +1764,7 @@ dependencies = [
  "rstest 0.16.0",
  "serde",
  "tokio",
- "tracing 0.1.35 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.36",
  "uuid 1.1.2",
 ]
 
@@ -2422,7 +2422,7 @@ dependencies = [
  "rustls",
  "thiserror",
  "tokio",
- "tracing 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.35",
  "webpki",
 ]
 
@@ -2442,7 +2442,7 @@ dependencies = [
  "slab",
  "thiserror",
  "tinyvec",
- "tracing 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.35",
  "webpki",
 ]
 
@@ -2457,7 +2457,7 @@ dependencies = [
  "quinn-proto",
  "socket2",
  "tokio",
- "tracing 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.35",
 ]
 
 [[package]]
@@ -3582,7 +3582,7 @@ dependencies = [
  "pin-project-lite",
  "slab",
  "tokio",
- "tracing 0.1.35 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.35",
 ]
 
 [[package]]
@@ -3600,18 +3600,18 @@ dependencies = [
  "cfg-if 1.0.0",
  "pin-project-lite",
  "tracing-attributes 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
- "tracing-core 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing-core 0.1.28",
 ]
 
 [[package]]
 name = "tracing"
-version = "0.1.35"
-source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#e4a6b5745f748ad165e5bb49d44428bd68580600"
+version = "0.1.36"
+source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#5a141ea9c16ccacf411b9b917a07e216ff5c6b4d"
 dependencies = [
  "cfg-if 1.0.0",
  "pin-project-lite",
  "tracing-attributes 0.1.22 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
- "tracing-core 0.1.28 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing-core 0.1.29",
 ]
 
 [[package]]
@@ -3628,7 +3628,7 @@ dependencies = [
 [[package]]
 name = "tracing-attributes"
 version = "0.1.22"
-source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#e4a6b5745f748ad165e5bb49d44428bd68580600"
+source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#5a141ea9c16ccacf411b9b917a07e216ff5c6b4d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3646,8 +3646,8 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.28"
-source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#e4a6b5745f748ad165e5bb49d44428bd68580600"
+version = "0.1.29"
+source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#5a141ea9c16ccacf411b9b917a07e216ff5c6b4d"
 dependencies = [
  "once_cell",
  "valuable",
@@ -3656,17 +3656,17 @@ dependencies = [
 [[package]]
 name = "tracing-log"
 version = "0.1.3"
-source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#e4a6b5745f748ad165e5bb49d44428bd68580600"
+source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#5a141ea9c16ccacf411b9b917a07e216ff5c6b4d"
 dependencies = [
  "log",
  "once_cell",
- "tracing-core 0.1.28 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing-core 0.1.29",
 ]
 
 [[package]]
 name = "tracing-subscriber"
 version = "0.3.15"
-source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#e4a6b5745f748ad165e5bb49d44428bd68580600"
+source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#5a141ea9c16ccacf411b9b917a07e216ff5c6b4d"
 dependencies = [
  "ansi_term",
  "matchers",
@@ -3675,8 +3675,8 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
- "tracing 0.1.35 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
- "tracing-core 0.1.28 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.36",
+ "tracing-core 0.1.29",
  "tracing-log",
 ]
 
