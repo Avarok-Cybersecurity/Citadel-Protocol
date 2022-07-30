@@ -186,7 +186,7 @@ async fn deregister_from_hyperlan_server_as_client(
         "Deregistration occurred. Session disconnected",
     );
 
-    Ok(PrimaryProcessorResult::EndSession(
-        "Session ended after deregistration",
-    ))
+    session.shutdown();
+
+    Ok(PrimaryProcessorResult::Void)
 }

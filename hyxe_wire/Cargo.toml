@@ -10,6 +10,7 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
 localhost-testing = ["tracing"]
+localhost-testing-loopback-only = []
 
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }

@@ -81,7 +81,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
                 passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
                     .await
             {
-                log::error!(target: "lusna", "[NetMutex] Err: {:?}", err.to_string());
+                log::error!(target: "lusna", "[NetMutex Passive Background Handler] Err: {:?}", err.to_string());
             }
 
             log::trace!(target: "lusna", "[NetMutex] Passive background handler ending")
@@ -113,6 +113,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetMutex<T, S> {
     fn drop(&mut self) {
         let conn = self.app.clone();
         let stop_tx = self.stop_tx.take().unwrap();
+        // stop the background task
         let _ = stop_tx.send(());
 
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
@@ -397,7 +398,15 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
                 return Ok(lock);
             }
 
-            UpdatePacket::Halt => return Err(anyhow::Error::msg("Halted from background")),
+            UpdatePacket::Halt => {
+                // This is what happened: Local called yield_lock, yielding the lock
+                // to the adjacent node. Then, we waited for the adjacent node to release
+                // the lock. However, the adjacent node did not release the lock, and instead,
+                // dropped the mutex without editing the final value. Thus, return the local lock
+                // with the current value
+                log::warn!(target: "lusna", "Received a HALT from the adjacent background thread. Assuming local value is most recent: {:?}", lock.0);
+                return Ok(lock);
+            }
 
             UpdatePacket::LockAcquired | UpdatePacket::ReleasedVerified => {
                 // this is received after sending the Released packet. We do nothing here
@@ -444,7 +453,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         UpdatePacket::Released(..)
                         | UpdatePacket::ReleasedVerified
                         | UpdatePacket::LockAcquired => {
-                            unreachable!("RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
+                            unreachable!("[BG] RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
                         }
 
                         UpdatePacket::Halt => {

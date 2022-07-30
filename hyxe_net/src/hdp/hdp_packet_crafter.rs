@@ -1192,14 +1192,12 @@ pub(crate) mod pre_connect {
     pub struct SynAckPacket {
         pub transfer: BobToAliceTransfer,
         pub nat_type: NatType,
-        pub udp_port_opt: Option<u16>,
     }
 
     pub(crate) fn craft_syn_ack(
         static_aux_hr: &StaticAuxRatchet,
         transfer: BobToAliceTransfer,
         nat_type: NatType,
-        udp_port_opt: Option<u16>,
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
@@ -1220,13 +1218,9 @@ pub(crate) mod pre_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynAckPacket {
-            transfer,
-            nat_type,
-            udp_port_opt,
-        }
-        .serialize_into_buf(&mut packet)
-        .unwrap();
+        SynAckPacket { transfer, nat_type }
+            .serialize_into_buf(&mut packet)
+            .unwrap();
 
         static_aux_hr
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
@@ -1700,6 +1694,7 @@ pub(crate) mod hole_punch {
         let mut packet = BytesMut::new();
         header.inscribe_into(&mut packet);
         packet.put(plaintext);
+
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
@@ -1710,9 +1705,9 @@ pub(crate) mod hole_punch {
     /// this is called assuming the CORRECT hyper ratchet is used (i.e., the same one used above)
     /// This strips the header, since it's only relevant to the networking protocol and NOT the hole-puncher
     pub fn decrypt_packet(
-        hyper_ratchet: &StackedRatchet,
+        _hyper_ratchet: &StackedRatchet,
         packet: &[u8],
-        security_level: SecurityLevel,
+        _security_level: SecurityLevel,
     ) -> Option<BytesMut> {
         if packet.len() < HDP_HEADER_BYTE_LEN {
             log::warn!(target: "lusna", "Bad hole-punch packet size. Len: {} | {:?}", packet.len(), packet);
@@ -1720,10 +1715,12 @@ pub(crate) mod hole_punch {
         }
 
         let mut packet = BytesMut::from(packet);
-        let header = packet.split_to(HDP_HEADER_BYTE_LEN);
-        hyper_ratchet
-            .validate_message_packet_in_place_split(Some(security_level), &header, &mut packet)
+        let _header = packet.split_to(HDP_HEADER_BYTE_LEN);
+
+        _hyper_ratchet
+            .validate_message_packet_in_place_split(Some(_security_level), &_header, &mut packet)
             .ok()?;
+
         Some(packet)
     }
 }

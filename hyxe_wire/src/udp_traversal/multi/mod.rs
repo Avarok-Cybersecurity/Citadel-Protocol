@@ -193,7 +193,7 @@ async fn drive(
                     count += 1;
                     log::trace!(target: "lusna", "*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
                     if count == hole_puncher_count {
-                        log::trace!(target: "lusna", "This should not happen")
+                        log::error!(target: "lusna", "This should not happen")
                     }
                 }
 
@@ -272,6 +272,7 @@ async fn drive(
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
                                 .await?;
                             log::trace!(target: "lusna", "*** [winner] Awaiting the signal ...");
+                            // the winner will drop once the adjacent node sends a WinnerCanEnd signal
                             winner_can_end_rx.await?;
                             log::trace!(target: "lusna", "*** [winner] received the signal");
                             return signal_done();
@@ -306,27 +307,23 @@ async fn drive(
     };
 
     let reader = async move {
-        loop {
-            let next_packet = receive::<DualStackCandidate, _>(conn).await?;
-            log::trace!(target: "lusna", "DualStack RECV {:?}", next_packet);
-            match next_packet {
-                DualStackCandidate::MutexSet(local, remote) => {
-                    log::trace!(target: "lusna", "*** received MutexSet. Will unconditionally end ...");
-                    assert!(loser_value_set.lock().replace((local, remote)).is_none());
-                    let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
-                    hole_punched_socket.cleanse()?;
-                    submit_final_candidate(hole_punched_socket)?;
-                    // return here. The winner must exit last
-                    send(DualStackCandidate::WinnerCanEnd, conn).await?;
-                    return signal_done();
-                }
+        match receive::<DualStackCandidate, _>(conn).await? {
+            DualStackCandidate::MutexSet(local, remote) => {
+                log::trace!(target: "lusna", "*** received MutexSet. Will unconditionally end ...");
+                assert!(loser_value_set.lock().replace((local, remote)).is_none());
+                let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
+                hole_punched_socket.cleanse()?;
+                submit_final_candidate(hole_punched_socket)?;
+                // return here. The winner must exit last
+                send(DualStackCandidate::WinnerCanEnd, conn).await?;
+                signal_done()
+            }
 
-                DualStackCandidate::WinnerCanEnd => {
-                    winner_can_end_tx.send(()).map_err(|_| {
-                        anyhow::Error::msg("Unable to send through winner_can_end_tx")
-                    })?;
-                    return Ok(());
-                }
+            DualStackCandidate::WinnerCanEnd => {
+                winner_can_end_tx
+                    .send(())
+                    .map_err(|_| anyhow::Error::msg("Unable to send through winner_can_end_tx"))?;
+                Ok(())
             }
         }
     };

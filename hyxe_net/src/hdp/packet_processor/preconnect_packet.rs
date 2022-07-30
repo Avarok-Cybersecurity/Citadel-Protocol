@@ -13,10 +13,10 @@ use crate::hdp::misc::udp_internal_interface::{
 use crate::hdp::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::hdp::peer::peer_layer::UdpMode;
 use crate::hdp::state_container::{StateContainerInner, VirtualTargetType};
-use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
 use super::includes::*;
 use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
+use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_wire::exports::NewConnection;
 use hyxe_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
@@ -93,31 +93,12 @@ pub async fn process_preconnect(
                                 packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                             state_container.keep_alive_timeout_ns = kat;
 
-                            let unused_port = if udp_mode == UdpMode::Enabled {
-                                state_container.pre_connect_state.udp_channel_oneshot_tx =
-                                    UdpChannelSender::default();
-                                // we also need to reserve a local socket addr. Since servers are usually globally-reachable, we assume no IP/port translation
-                                if inner!(session.primary_stream_quic_conn).is_none() {
-                                    // we need to reserve a new UDP socket since we can't use the local bind addr if there are multiple udp-requesting connections to this server
-                                    let socket = hyxe_wire::socket_helpers::get_unused_udp_socket_at_bind_ip(session.local_bind_addr.ip())?;
-                                    let port = socket.local_addr()?.port();
-                                    state_container.pre_connect_state.unused_local_udp_socket =
-                                        Some(socket);
-                                    Some(port)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
                             // here, we also send the peer's external address to itself
                             // Also, we use the security level that was created on init b/c the other side still uses the static aux ratchet
                             let syn_ack = hdp_packet_crafter::pre_connect::craft_syn_ack(
                                 &static_aux_ratchet,
                                 transfer,
                                 session.local_nat_type.clone(),
-                                unused_port,
                                 timestamp,
                                 security_level,
                             );
@@ -169,7 +150,7 @@ pub async fn process_preconnect(
                             "Alice constructor not loaded"
                         );
                         let implicated_cid = header.session_cid.get();
-                        if let Some((new_hyper_ratchet, nat_type, _server_udp_port_opt)) =
+                        if let Some((new_hyper_ratchet, nat_type)) =
                             validation::pre_connect::validate_syn_ack(
                                 cnac,
                                 alice_constructor,
@@ -206,6 +187,7 @@ pub async fn process_preconnect(
                             if let Some(quic_conn) =
                                 inner_mut!(session.primary_stream_quic_conn).take()
                             {
+                                log::trace!(target: "lusna", "Skipping NAT traversal since QUIC is enabled for this session");
                                 return send_success_as_initiator(
                                     Some(get_quic_udp_interface(
                                         quic_conn,
@@ -328,14 +310,6 @@ pub async fn process_preconnect(
                                 );
                                 return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                             } // .. otherwise, continue logic below to punch a hole through the firewall
-
-                            // At this point, UDP mode is enabled and we aren't using QUIC.
-                            std::mem::drop(
-                                state_container
-                                    .pre_connect_state
-                                    .unused_local_udp_socket
-                                    .take(),
-                            );
 
                             //let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
                             let to_primary_stream = return_if_none!(
@@ -598,6 +572,16 @@ fn handle_success_as_receiver(
     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
     state_container.pre_connect_state.on_packet_received();
 
+    if state_container
+        .pre_connect_state
+        .udp_channel_oneshot_tx
+        .tx
+        .is_none()
+    {
+        // TODO ensure this exists BEFORE udp socket loading
+        state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
+    }
+
     if let Some(udp_splittable) = udp_splittable {
         let peer_addr = udp_splittable.peer_addr();
         // the UDP subsystem will automatically engage at this point
@@ -609,8 +593,10 @@ fn handle_success_as_receiver(
             session.kernel_ticket.get(),
             Some(tcp_loaded_alerter_rx),
         );
+    } else {
+        log::warn!(target: "lusna", "No UDP splittable was specified. UdpMode: {:?}", state_container.udp_mode);
     }
-    // the server will await for the client to send an initiation packeet
+    // the server will await for the client to send an initiation packet
     Ok(PrimaryProcessorResult::Void)
 }
 
@@ -620,6 +606,7 @@ pub(crate) fn generate_hole_punch_crypt_container(
     target_cid: u64,
 ) -> EncryptedConfigContainer {
     let hyper_ratchet_cloned = hyper_ratchet.clone();
+
     EncryptedConfigContainer::new(
         move |plaintext| {
             hdp_packet_crafter::hole_punch::generate_packet(
