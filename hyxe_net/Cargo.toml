@@ -15,6 +15,7 @@ redis = ["hyxe_user/redis"]
 webrtc = ["webrtc-util"]
 localhost-testing = ["hyxe_wire/localhost-testing", "hyxe_user/localhost-testing", "tracing"]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
+localhost-testing-loopback-only = ["hyxe_wire/localhost-testing-loopback-only"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
 use crate::nat_identification::NatType;
 use async_ip::IpAddressInfo;
 use std::net::{IpAddr, SocketAddr};
@@ -40,6 +41,20 @@ impl HolePunchConfig {
                     "This cannot be called if STUN is not compatible",
                 ));
             }
+        }
+
+        #[cfg(feature = "localhost-testing-loopback-only")]
+        {
+            let _ = peer_nat_info;
+            let _ = local_nat_info;
+            return Ok(Self {
+                bands: vec![AddrBand {
+                    necessary_ip: IpAddr::from([127, 0, 0, 1]),
+                    anticipated_ports: vec![peer_declared_internal_port],
+                }],
+
+                locally_bound_sockets: Some(vec![first_local_socket]),
+            });
         }
 
         // below is only needed if the peer is behind a random port NAT

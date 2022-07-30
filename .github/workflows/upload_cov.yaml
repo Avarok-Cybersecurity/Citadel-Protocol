@@ -8,6 +8,7 @@ jobs:
   coverage_upload:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: github.event.pull_request.merged == true
     steps:
       - uses: actions/checkout@v3
         with:
@@ -23,6 +24,6 @@ jobs:
         run: |
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
-          git rm ${{ env.GITHUB_WORKSPACE }}/lcov.info
+          rm -rf ${{ env.GITHUB_WORKSPACE }}/lcov.info
           git commit -am "cleanup old codecov file"
           git push
