@@ -64,7 +64,6 @@ impl Default for NatType {
 }
 
 // we only need to check the NAT type once per node
-#[cfg(feature = "localhost-testing-loopback-only")]
 static LOCALHOST_TESTING_NAT_TYPE: parking_lot::Mutex<Option<NatType>> =
     parking_lot::const_mutex(None);
 
