@@ -11,7 +11,7 @@ env:
   RUST_BACKTRACE: full
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
-  RUST_LOG: "lusna=trace"
+  RUST_LOG: "lusna=warn"
 
 jobs:
   core_libs:
@@ -105,11 +105,12 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
-        run: cargo test --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only -- --test-threads=1
+        run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only -- --test-threads=1
+        run: cargo nextest run --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only
       - uses: actions/github-script@v6
         if: failure()
         with:
