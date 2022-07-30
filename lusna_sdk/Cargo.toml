@@ -17,6 +17,7 @@ webrtc = ["hyxe_net/webrtc"]
 # for testing only
 localhost-testing = ["hyxe_net/localhost-testing", "tracing", "lusna_logging"]
 localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy"]
+localhost-testing-loopback-only = ["hyxe_net/localhost-testing-loopback-only"]
 
 [dependencies]
 hyxe_net = { path = "../hyxe_net", default-features = false }
