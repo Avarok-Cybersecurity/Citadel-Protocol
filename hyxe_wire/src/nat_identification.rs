@@ -77,10 +77,25 @@ impl NatType {
 
     /// Identifies the NAT which the local node is behind
     pub async fn identify_timeout(timeout: Duration) -> Result<Self, FirewallError> {
-        tokio::time::timeout(timeout, get_nat_type())
-            .await
-            .map_err(|_| FirewallError::HolePunch("NAT identification elapsed".to_string()))?
-            .map_err(|err| FirewallError::HolePunch(err.to_string()))
+        match tokio::time::timeout(timeout, get_nat_type()).await {
+            Ok(res) => res.map_err(|err| FirewallError::HolePunch(err.to_string())),
+
+            Err(err) => {
+                log::warn!(target: "lusna", "Timeout on NAT identification occured");
+                if cfg!(feature = "localhost-testing") {
+                    log::warn!(target: "lusna", "Will use default NatType for localhost-testing");
+                    Ok(NatType::PortPreserved(
+                        IpAddr::from([1, 2, 3, 4]),
+                        None,
+                        false,
+                    ))
+                } else {
+                    Err(FirewallError::HolePunch(
+                        "NAT identification elapsed".to_string(),
+                    ))
+                }
+            }
+        }
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively
