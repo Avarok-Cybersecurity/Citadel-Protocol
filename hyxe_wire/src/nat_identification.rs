@@ -26,7 +26,7 @@ const STUN_SERVERS: [&str; 3] = [
 ];
 
 const V4_BIND_ADDR: &str = "0.0.0.0:0";
-const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(5000);
+const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3200);
 pub(crate) const MAX_PORT_DELTA_FOR_PREDICTION: usize = 30;
 pub(crate) const MAX_LAST_OCTET_DELTA_FOR_PREDICTION: usize = 2;
 

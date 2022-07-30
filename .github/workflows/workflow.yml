@@ -125,11 +125,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - name: Install Valgrind
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y valgrind
-      # Compile tests
+#      - name: Install Valgrind
+#        run: |
+#          sudo apt-get update -y
+#          sudo apt-get install -y valgrind
+#      # Compile tests
 #      - name: cargo build secmem_bytes_test
 #        run: cargo build --bin secmem_bytes_test
       # Run with valgrind
