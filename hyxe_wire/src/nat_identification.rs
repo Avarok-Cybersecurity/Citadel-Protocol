@@ -101,7 +101,7 @@ impl NatType {
                 if cfg!(feature = "localhost-testing") {
                     log::warn!(target: "lusna", "Will use default NatType for localhost-testing");
                     Ok(NatType::PortPreserved(
-                        IpAddr::from([1, 2, 3, 4]),
+                        IpAddr::from([127, 0, 0, 1]),
                         None,
                         false,
                     ))
