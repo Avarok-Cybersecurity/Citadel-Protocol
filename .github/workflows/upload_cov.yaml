@@ -19,6 +19,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
           fail_ci_if_error: true
+          override_branch: 'master'
       - name: Cleanup codecov file
         if: success()
         run: |
