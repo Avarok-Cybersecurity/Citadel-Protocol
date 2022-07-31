@@ -44,41 +44,26 @@ impl AccountError {
     }
 }
 
-/// Meant for easy mapping of an optional type into a result type
-pub trait EmptyOptional<T> {
-    /// Maps the empty value to an error type
-    fn map_empty_err(self) -> Result<T, AccountError>;
-    /// Maps the empty value to an error type with a custom message
-    fn map_empty_err_ctx<R: Into<String>>(self, msg: R) -> Result<T, AccountError>;
-}
-
-impl<T> EmptyOptional<T> for Option<T> {
-    fn map_empty_err(self) -> Result<T, AccountError> {
-        self.map_empty_err_ctx("empty error")
-    }
-
-    fn map_empty_err_ctx<R: Into<String>>(self, msg: R) -> Result<T, AccountError> {
-        self.ok_or_else(|| AccountError::msg(msg))
-    }
-}
-
 impl<T: ToString> From<T> for AccountError {
     fn from(err: T) -> Self {
         AccountError::Generic(err.to_string())
     }
 }
 
-const MIN_PASSWORD_LENGTH: usize = 7;
-const MAX_PASSWORD_LENGTH: usize = 17;
+///
+pub const MIN_PASSWORD_LENGTH: usize = 7;
+///
+pub const MAX_PASSWORD_LENGTH: usize = 17;
 
-const MIN_USERNAME_LENGTH: usize = 3;
+///
+pub const MIN_USERNAME_LENGTH: usize = 3;
 ///
 pub const MAX_USERNAME_LENGTH: usize = 37;
 
-const MIN_NAME_LENGTH: usize = 2;
-const MAX_NAME_LENGTH: usize = 77;
-
-const ASCII_ONLY: bool = false;
+///
+pub const MIN_NAME_LENGTH: usize = 2;
+///
+pub const MAX_NAME_LENGTH: usize = 77;
 
 /// Used to determine if the desired credentials have a valid format, length, etc. This alone DOES NOT imply whether or not the
 /// credentials are available
@@ -89,28 +74,6 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
 ) -> Result<(), AccountError> {
     let username = username.as_ref();
     let full_name = full_name.as_ref();
-
-    if ASCII_ONLY {
-        if !username.is_ascii() {
-            return Err(AccountError::Generic(
-                "Username contains non-ascii characters".to_string(),
-            ));
-        }
-
-        if let Some(password) = password.as_ref() {
-            if !password.as_ref().is_ascii() {
-                return Err(AccountError::Generic(
-                    "Password contains non-ascii characters".to_string(),
-                ));
-            }
-        }
-
-        if !full_name.is_ascii() {
-            return Err(AccountError::Generic(
-                "Full name contains non-ascii characters".to_string(),
-            ));
-        }
-    }
 
     if username.len() < MIN_USERNAME_LENGTH || username.len() > MAX_USERNAME_LENGTH {
         return Err(AccountError::Generic(format!(
@@ -151,73 +114,6 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
     Ok(())
 }
 
-/// For convenience ser/de
-pub mod constructor_map {
-    use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
-    use hyxe_crypt::stacked_ratchet::constructor::ConstructorType;
-    use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
-    use serde::ser::SerializeMap;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::collections::HashMap;
-    use std::ops::{Deref, DerefMut};
-
-    /// A no-serialization container (except for FCM, since we need to preserve them)
-    pub struct ConstructorMap<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
-        inner: HashMap<u64, ConstructorType<R, Fcm>>,
-    }
-
-    impl<R: Ratchet, Fcm: Ratchet> ConstructorMap<R, Fcm> {
-        /// Creates an empty hashmap. No allocation occurs
-        pub fn new() -> Self {
-            Self {
-                inner: HashMap::with_capacity(0),
-            }
-        }
-    }
-
-    impl<R: Ratchet, Fcm: Ratchet> Default for ConstructorMap<R, Fcm> {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl<R: Ratchet, Fcm: Ratchet> Deref for ConstructorMap<R, Fcm> {
-        type Target = HashMap<u64, ConstructorType<R, Fcm>>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.inner
-        }
-    }
-
-    impl<R: Ratchet, Fcm: Ratchet> DerefMut for ConstructorMap<R, Fcm> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.inner
-        }
-    }
-
-    impl<R: Ratchet, Fcm: Ratchet> Serialize for ConstructorMap<R, Fcm> {
-        fn serialize<S>(
-            &self,
-            serializer: S,
-        ) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-        where
-            S: Serializer,
-        {
-            let map = serializer.serialize_map(Some(0))?;
-            map.end()
-        }
-    }
-
-    impl<'de, R: Ratchet, Fcm: Ratchet> Deserialize<'de> for ConstructorMap<R, Fcm> {
-        fn deserialize<D>(_deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            Ok(ConstructorMap::default())
-        }
-    }
-}
-
 /// For passing metadata from a cnac
 #[derive(Debug)]
 pub struct CNACMetadata {
@@ -239,36 +135,6 @@ impl PartialEq for CNACMetadata {
             && &self.username == &other.username
             && &self.full_name == &other.full_name
             && self.is_personal == other.is_personal
-    }
-}
-
-#[allow(missing_docs)]
-pub mod none {
-    use serde::{Deserialize, Serialize};
-    use serde::{Deserializer, Serializer};
-    use std::marker::PhantomData;
-
-    #[derive(Serialize, Deserialize)]
-    struct Empty<T> {
-        _pd: PhantomData<T>,
-    }
-
-    pub fn serialize<T, S>(_value: &T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let empty = Empty::<T> {
-            _pd: Default::default(),
-        };
-        Empty::serialize(&empty, serializer)
-    }
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let _ = Empty::<T>::deserialize(deserializer)?;
-        Ok(None)
     }
 }
 
