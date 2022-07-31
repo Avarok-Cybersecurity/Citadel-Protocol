@@ -13,13 +13,16 @@ jobs:
       - uses: actions/checkout@v3
         with:
           ref: 'coverage_files'
-      - run: mv ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info ${GITHUB_WORKSPACE}/lcov.info
+      - run: mv ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info ${HOME}/lcov.info
+      - uses: actions/checkout@v3
+        with:
+          ref: 'master'
+      - run: mv ${HOME}/lcov.info ${{ GITHUB_WORKSPACE }}/lcov.info
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
           fail_ci_if_error: true
-          override_branch: 'master'
       - name: Cleanup codecov file
         if: success()
         run: |
