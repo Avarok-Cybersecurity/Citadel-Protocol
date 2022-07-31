@@ -1467,4 +1467,99 @@ mod tests {
             .await
             .unwrap()
     }
+
+    #[test]
+    fn test_credential_formatting() {
+        // test below the username length
+        const MIN_USERNAME_LEN: usize = hyxe_user::misc::MIN_USERNAME_LENGTH;
+        const MAX_USERNAME_LEN: usize = hyxe_user::misc::MAX_USERNAME_LENGTH;
+        const MIN_PASSWORD_LEN: usize = hyxe_user::misc::MIN_PASSWORD_LENGTH;
+        const MAX_PASSWORD_LEN: usize = hyxe_user::misc::MAX_PASSWORD_LENGTH;
+        const MIN_NAME_LEN: usize = hyxe_user::misc::MIN_NAME_LENGTH;
+        const MAX_NAME_LEN: usize = hyxe_user::misc::MAX_NAME_LENGTH;
+
+        assert!(MIN_USERNAME_LEN + 1 < MAX_USERNAME_LEN);
+        assert!(MIN_PASSWORD_LEN + 1 < MAX_PASSWORD_LEN);
+        assert!(MIN_NAME_LEN + 1 < MAX_NAME_LEN);
+
+        let ref good_username = (0..(MIN_USERNAME_LEN + 1))
+            .into_iter()
+            .map(|r| r.to_string())
+            .collect::<String>();
+        let ref good_password = (0..(MIN_PASSWORD_LEN + 1))
+            .into_iter()
+            .map(|r| r.to_string())
+            .collect::<String>();
+        let ref good_name = (0..(MIN_NAME_LEN + 1))
+            .into_iter()
+            .map(|r| r.to_string())
+            .collect::<String>();
+
+        fn generate_test(
+            min: usize,
+            max: usize,
+            ty: &str,
+            good_username: &str,
+            good_password: &str,
+            good_name: &str,
+        ) {
+            use hyxe_user::misc::check_credential_formatting as check;
+
+            let ref bad_below = (0..(min - 1))
+                .into_iter()
+                .map(|r| r.to_string())
+                .collect::<String>();
+            let ref bad_above = (0..(max + 1))
+                .into_iter()
+                .map(|r| r.to_string())
+                .collect::<String>();
+
+            match ty {
+                "username" => {
+                    assert!(check(bad_below, Some(good_password), good_name).is_err());
+                    assert!(check(good_username, Some(good_password), good_name).is_ok());
+                    assert!(check(bad_above, Some(good_password), good_name).is_err());
+                }
+
+                "password" => {
+                    assert!(check(good_username, Some(bad_below), good_name).is_err());
+                    assert!(check(good_username, Some(good_password), good_name).is_ok());
+                    assert!(check(good_username, Some(bad_above), good_name).is_err());
+                }
+
+                "name" => {
+                    assert!(check(good_username, Some(good_password), bad_below).is_err());
+                    assert!(check(good_username, Some(good_password), good_name).is_ok());
+                    assert!(check(good_username, Some(good_password), bad_above).is_err());
+                }
+
+                _ => unreachable!("Bad unit test"),
+            };
+        }
+
+        generate_test(
+            MIN_USERNAME_LEN,
+            MAX_USERNAME_LEN,
+            "username",
+            good_username,
+            good_password,
+            good_name,
+        );
+        generate_test(
+            MIN_PASSWORD_LEN,
+            MAX_PASSWORD_LEN,
+            "password",
+            good_username,
+            good_password,
+            good_name,
+        );
+        generate_test(
+            MIN_NAME_LEN,
+            MAX_NAME_LEN,
+            "name",
+            good_username,
+            good_password,
+            good_name,
+        );
+    }
 }
