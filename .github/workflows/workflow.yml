@@ -123,6 +123,31 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
+
+  lusna_sdk_release:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - uses: taiki-e/install-action@nextest
+      - name: Single-threaded testing
+        run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only --release
+      - name: Multi-threaded testing
+        run: cargo nextest run --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only --release
+      - uses: actions/github-script@v6
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
+
   misc_checks:
     name: miscellaneous
     runs-on: ubuntu-latest
