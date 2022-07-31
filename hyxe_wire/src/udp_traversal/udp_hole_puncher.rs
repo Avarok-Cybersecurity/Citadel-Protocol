@@ -171,7 +171,7 @@ mod tests {
     #[rstest]
     #[case(0)]
     #[case(50)]
-    #[case(100)]
+    #[case(70)]
     #[tokio::test]
     async fn test_dual_hole_puncher(#[case] lag: usize) {
         lusna_logging::setup_log();
