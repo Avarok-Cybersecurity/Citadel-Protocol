@@ -550,7 +550,7 @@ mod tests {
         TestBarrier::setup(peer_count);
 
         let client_success = &AtomicBool::new(false);
-        let receiver_success = &Arc::new(AtomicBool::new(false));
+        let receiver_success = &AtomicBool::new(false);
 
         let (server, server_addr) = server_info();
 
