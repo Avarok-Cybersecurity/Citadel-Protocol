@@ -595,6 +595,52 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         Err(NetworkError::InternalError("Deregister ended unexpectedly"))
     }
 
+    async fn create_group(
+        &mut self,
+        initial_users_to_invite: Option<Vec<UserIdentifier>>,
+    ) -> Result<GroupChannel, NetworkError> {
+        let implicated_cid = self.user().get_implicated_cid();
+
+        let mut initial_users = vec![];
+        // TODO: allow for custom message group options. For now, don't
+        let options = MessageGroupOptions::default();
+        // TODO/NOTE: default is PRIVATE mode, meaning all users in group must be registered to the owner
+        // in the future, allow for private/public modes by adjusting the below. Initial users should be
+        // a UserIdentifier
+        if let Some(initial_users_to_invite) = initial_users_to_invite {
+            for user in initial_users_to_invite {
+                initial_users.push(
+                    self.remote()
+                        .account_manager()
+                        .find_target_information(implicated_cid, &user)
+                        .await
+                        .map_err(|err| NetworkError::msg(err.into_string()))?
+                        .ok_or_else(|| {
+                            NetworkError::msg(format!(
+                                "Account {:?} not found for local user {:?}",
+                                user, implicated_cid
+                            ))
+                        })
+                        .map(|r| r.1.cid)?,
+                )
+            }
+        }
+
+        let group_request = GroupBroadcast::Create(initial_users, options);
+        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, group_request);
+        let mut subscription = self.remote().send_callback_subscription(request).await?;
+
+        while let Some(evt) = subscription.next().await {
+            if let NodeResult::GroupChannelCreated(_, channel) = evt {
+                return Ok(channel);
+            }
+        }
+
+        Err(NetworkError::InternalError(
+            "Create_group ended unexpectedly",
+        ))
+    }
+
     /// Lists all groups that which the current peer owns
     async fn list_owned_groups(&mut self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();

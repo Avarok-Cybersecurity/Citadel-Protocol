@@ -49,8 +49,7 @@ jobs:
         with:
           redis-version: 4
           redis-port: 6379
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - uses: taiki-e/install-action@nextest
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         env:
@@ -84,8 +83,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - uses: taiki-e/install-action@nextest
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - run: cargo nextest run --package netbeam
       - run: cargo nextest run --package hyxe_wire --features=localhost-testing
       - uses: actions/github-script@v6
@@ -106,8 +104,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - uses: taiki-e/install-action@nextest
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - name: Single-threaded testing
         run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only
       - name: Multi-threaded testing
@@ -131,8 +128,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - uses: taiki-e/install-action@nextest
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - name: Single-threaded testing
         run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only --release
       - name: Multi-threaded testing
@@ -152,7 +148,7 @@ jobs:
     name: miscellaneous
     runs-on: ubuntu-latest
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
 #      - name: Install Valgrind
 #        run: |
 #          sudo apt-get update -y
@@ -189,7 +185,7 @@ jobs:
 #    name: check features
 #    runs-on: ubuntu-latest
 #    steps:
-#      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+#      - uses: Avarok-Cybersecurity/gh-actions-deps@master
 #      - name: Install features checker
 #        run: cargo install cargo-all-features
 #      - name: Check all feature combinations
@@ -213,7 +209,6 @@ jobs:
         run: rustup toolchain install stable --component llvm-tools-preview
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: taiki-e/install-action@nextest
       - uses: Swatinem/rust-cache@v1
       - name: Run llvm-cov nextest
         env:
