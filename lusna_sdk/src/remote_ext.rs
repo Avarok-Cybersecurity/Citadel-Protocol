@@ -595,6 +595,24 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         Err(NetworkError::InternalError("Deregister ended unexpectedly"))
     }
 
+    /// Lists all groups that which the current peer owns
+    async fn list_owned_groups(&mut self) -> Result<Vec<MessageGroupKey>, NetworkError> {
+        let implicated_cid = self.user().get_implicated_cid();
+        let group_request = GroupBroadcast::ListGroupsFor(implicated_cid);
+        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, group_request);
+        let mut subscription = self.remote().send_callback_subscription(request).await?;
+
+        while let Some(evt) = subscription.next().await {
+            if let NodeResult::GroupEvent(_, _, GroupBroadcast::ListResponse(groups)) = evt {
+                return Ok(groups);
+            }
+        }
+
+        Err(NetworkError::InternalError(
+            "List_members ended unexpectedly",
+        ))
+    }
+
     #[doc(hidden)]
     async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {
