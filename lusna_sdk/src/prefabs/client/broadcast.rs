@@ -275,7 +275,7 @@ mod tests {
     use crate::builder::node_builder::NodeBuilder;
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::PrefabFunctions;
-    use crate::prelude::UserIdentifier;
+    use crate::prelude::{ProtocolRemoteTargetExt, UserIdentifier};
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
@@ -327,9 +327,18 @@ mod tests {
                 uuid,
                 server_addr,
                 request,
-                move |channel, remote| async move {
+                move |channel, mut remote| async move {
                     log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
+                    wait_for_peers().await;
+                    let owned_groups = remote.list_owned_groups().await.unwrap();
+
+                    if idx == 0 {
+                        assert_eq!(owned_groups.len(), 1);
+                    } else {
+                        assert_eq!(owned_groups.len(), 0);
+                    }
+
                     wait_for_peers().await;
                     std::mem::drop(channel);
                     remote.shutdown_kernel().await
