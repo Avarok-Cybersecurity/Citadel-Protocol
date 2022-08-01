@@ -274,13 +274,14 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 mod tests {
     use crate::builder::node_builder::NodeBuilder;
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::PrefabFunctions;
     use crate::prelude::{ProtocolRemoteTargetExt, UserIdentifier};
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use rstest::rstest;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use uuid::Uuid;
 
     #[rstest]
@@ -362,6 +363,98 @@ mod tests {
         }
 
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(2)]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_manual_group_connect(
+        #[case] peer_count: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        /*
+           Test a group connection between two registered peers
+           who engage in a manual mode
+        */
+        assert!(peer_count > 1);
+        let _ = lusna_logging::setup_log();
+        TestBarrier::setup(peer_count);
+
+        let client_success = &AtomicBool::new(false);
+        let receiver_success = &AtomicBool::new(false);
+
+        let (server, server_addr) = server_info();
+
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count)
+            .into_iter()
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
+
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers
+                .clone()
+                .into_iter()
+                .filter(|r| r != &uuid)
+                .map(UserIdentifier::from)
+                .collect::<Vec<UserIdentifier>>();
+
+            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+                uuid,
+                server_addr,
+                peers,
+                move |mut results, mut remote| async move {
+                    let mut success = 0;
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
+
+                    while let Some(conn) = results.recv().await {
+                        log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+                        wait_for_peers().await;
+                        let mut conn = conn?;
+
+                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
+
+                        // one user will create the group, the other will respond
+                        if idx == 0 {
+                            let channel = remote
+                                .create_group(Some(vec![conn.channel.get_peer_cid().into()]))
+                                .await?;
+                            client_success.store(true, Ordering::Relaxed);
+                        } else {
+                            // wait until the group host finishes setting up the group
+                            wait_for_peers().await;
+                            receiver_success.store(true, Ordering::Relaxed);
+                        }
+
+                        success += 1;
+                        if success == peer_count - 1 {
+                            break;
+                        }
+                    }
+
+                    log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                    wait_for_peers().await;
+                    remote.shutdown_kernel().await
+                },
+            );
+
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move { client.await.map(|_| ()) });
+        }
+
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
+
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            };
+        }
+
+        assert!(client_success.load(Ordering::Relaxed));
+        assert!(receiver_success.load(Ordering::Relaxed));
         Ok(())
     }
 }
