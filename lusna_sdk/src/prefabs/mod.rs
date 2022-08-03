@@ -1,4 +1,6 @@
 use hyxe_net::prelude::*;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Kernels for clients
 pub mod client;
@@ -13,7 +15,18 @@ use crate::remote_ext::ProtocolRemoteExt;
 #[derive(Clone)]
 pub struct ClientServerRemote {
     pub(crate) inner: NodeRemote,
+    #[allow(dead_code)]
+    unprocessed_signals_rx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NodeResult>>>>,
     conn_type: VirtualTargetType,
+}
+
+impl ClientServerRemote {
+    /// Can only be called once per remote. Allows receiving events
+    pub fn get_unprocessed_signals_receiver(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<NodeResult>> {
+        self.unprocessed_signals_rx.lock().take()
+    }
 }
 
 impl TargetLockedRemote for ClientServerRemote {

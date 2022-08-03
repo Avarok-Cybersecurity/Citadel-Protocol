@@ -35,6 +35,7 @@ pub struct Shared {
 }
 
 struct PeerContext {
+    #[allow(dead_code)]
     conn_type: PeerConnectionType,
     send_file_transfer_tx: UnboundedSender<ObjectTransferHandle>,
 }
@@ -66,6 +67,8 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
                 } else {
                     log::warn!(target: "lusna", "Unable to find key for inbound file transfer handle: {:?}", v_conn);
                 }
+
+                Ok(())
             }
 
             NodeResult::Disconnect(_, _, _, Some(v_conn), ..) => {
@@ -73,13 +76,15 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
                     let mut active_peers = self.shared.active_peer_conns.lock();
                     let _ = active_peers.remove(&v_conn);
                 }
+
+                Ok(())
             }
 
-            _ => {}
+            unprocessed => {
+                // pass any unprocessed events to the lower kernel
+                self.inner_kernel.on_node_event_received(unprocessed).await
+            }
         }
-
-        // We do not pass any signals down to the base kernel
-        Ok(())
     }
 
     async fn on_stop(&mut self) -> Result<(), NetworkError> {
@@ -327,7 +332,6 @@ mod tests {
     use rstest::rstest;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Arc;
     use uuid::Uuid;
 
     #[rstest]

@@ -612,7 +612,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 initial_users.push(
                     self.remote()
                         .account_manager()
-                        .find_target_information(implicated_cid, &user)
+                        .find_target_information(implicated_cid, user.clone())
                         .await
                         .map_err(|err| NetworkError::msg(err.into_string()))?
                         .ok_or_else(|| {
