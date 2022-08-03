@@ -118,21 +118,6 @@ impl<R: Ratchet> Toolset<R> {
         Some(update_status)
     }
 
-    /*
-    // on wrap-around, will hit zero (which is reserved), thus will return 1
-    fn get_next_version(base: u32) -> u32 {
-        std::cmp::max(1, base.wrapping_add(1))
-    }
-
-    const fn get_previous_version(base: u32) -> u32 {
-        let vers = base.wrapping_sub(1);
-        if vers != STATIC_AUX_VERSION {
-            vers
-        } else {
-            u32::MAX
-        }
-    }*/
-
     #[allow(unused_results)]
     ///Replacing drills is not allowed, and is why this subroutine returns an error when a collision is detected
     ///

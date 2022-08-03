@@ -7,6 +7,7 @@ use hyxe_net::prelude::*;
 use parking_lot::Mutex;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
@@ -18,6 +19,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
     udp_mode: UdpMode,
     auth_info: Mutex<Option<ConnectionType>>,
     session_security_settings: SessionSecuritySettings,
+    unprocessed_signal_filter_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
     remote: Option<NodeRemote>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
@@ -62,6 +64,7 @@ where
                 password: password.into(),
             })),
             session_security_settings,
+            unprocessed_signal_filter_tx: Default::default(),
             remote: None,
             _pd: Default::default(),
         }
@@ -102,6 +105,7 @@ where
                 password: password.into(),
             })),
             session_security_settings,
+            unprocessed_signal_filter_tx: Default::default(),
             remote: None,
             _pd: Default::default(),
         }
@@ -139,6 +143,7 @@ where
             udp_mode,
             auth_info: Mutex::new(Some(ConnectionType::Passwordless { uuid, server_addr })),
             session_security_settings,
+            unprocessed_signal_filter_tx: Default::default(),
             remote: None,
             _pd: Default::default(),
         }
@@ -231,17 +236,35 @@ where
             .await?;
         let conn_type = VirtualTargetType::HyperLANPeerToHyperLANServer(connect_success.cid);
 
+        let unprocessed_signal_filter = if cfg!(feature = "localhost-testing") {
+            let (reroute_tx, reroute_rx) = tokio::sync::mpsc::unbounded_channel();
+            *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
+            Some(reroute_rx)
+        } else {
+            None
+        };
+
         (handler)(
             connect_success,
             ClientServerRemote {
                 inner: remote,
+                unprocessed_signals_rx: Arc::new(Mutex::new(unprocessed_signal_filter)),
                 conn_type,
             },
         )
         .await
     }
 
-    async fn on_node_event_received(&self, _message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+        if let Some(val) = self.unprocessed_signal_filter_tx.lock().as_ref() {
+            log::info!(target: "lusna", "Will forward message {:?}", val);
+            if let Err(err) = val.send(message) {
+                log::warn!(target: "lusna", "failed to send unprocessed NodeResult: {:?}", err)
+            }
+        } else {
+            log::info!(target: "lusna", "ASDFKL");
+        }
+
         Ok(())
     }
 

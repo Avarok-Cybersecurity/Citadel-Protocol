@@ -280,6 +280,7 @@ mod tests {
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
+    use hyxe_net::prelude::{GroupBroadcast, NetworkError, NodeResult};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use uuid::Uuid;
@@ -406,37 +407,54 @@ mod tests {
                 server_addr,
                 peers,
                 move |mut results, mut remote| async move {
-                    let mut success = 0;
-                    let implicated_cid = remote.conn_type.get_implicated_cid();
+                    let _implicated_cid = remote.conn_type.get_implicated_cid();
+                    let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
 
-                    while let Some(conn) = results.recv().await {
-                        log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+                    wait_for_peers().await;
+                    let conn = results.recv().await.unwrap()?;
+                    log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+
+                    // one user will create the group, the other will respond
+                    if idx == 0 {
+                        let _channel = remote
+                            .create_group(Some(vec![conn.channel.get_peer_cid().into()]))
+                            .await?;
+                        log::info!(target: "lusna", "The designated node has finished creating a group");
+
                         wait_for_peers().await;
-                        let mut conn = conn?;
+                        client_success.store(true, Ordering::Relaxed);
+                        return remote.shutdown_kernel().await;
+                    } else {
+                        // wait until the group host finishes setting up the group
+                        while let Some(evt) = signals.recv().await {
+                            log::info!(target: "lusna", "Received unprocessed signal: {:?}", evt);
+                            match evt {
+                                NodeResult::GroupEvent(_, _, GroupBroadcast::Invitation(_key)) => {
+                                    let _ = crate::responses::group_invite(
+                                        evt,
+                                        true,
+                                        &mut remote.inner,
+                                    )
+                                    .await?;
+                                }
 
-                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
+                                NodeResult::GroupChannelCreated(_, _chan) => {
+                                    receiver_success.store(true, Ordering::Relaxed);
+                                    log::trace!(target: "lusna", "***PEER {} CONNECT***", uuid);
+                                    wait_for_peers().await;
+                                    return remote.shutdown_kernel().await;
+                                }
 
-                        // one user will create the group, the other will respond
-                        if idx == 0 {
-                            let channel = remote
-                                .create_group(Some(vec![conn.channel.get_peer_cid().into()]))
-                                .await?;
-                            client_success.store(true, Ordering::Relaxed);
-                        } else {
-                            // wait until the group host finishes setting up the group
-                            wait_for_peers().await;
-                            receiver_success.store(true, Ordering::Relaxed);
-                        }
-
-                        success += 1;
-                        if success == peer_count - 1 {
-                            break;
+                                val => {
+                                    log::warn!(target: "lusna", "Unhandled response: {:?}", val)
+                                }
+                            }
                         }
                     }
 
-                    log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
-                    wait_for_peers().await;
-                    remote.shutdown_kernel().await
+                    Err(NetworkError::InternalError(
+                        "signals_recv ended unexpectdly",
+                    ))
                 },
             );
 
