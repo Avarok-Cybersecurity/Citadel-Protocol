@@ -306,7 +306,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "clap 3.2.14",
+ "clap 3.2.16",
  "env_logger",
  "lazy_static",
  "lazycell",
@@ -531,9 +531,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.14"
+version = "3.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54635806b078b7925d6e36810b1755f2a4b5b4d57560432c1ecf60bcbe10602b"
+checksum = "a3dbbb6653e7c55cc8595ad3e1f7be8f32aba4eb7ff7f0fd1163d4f3d137c0a9"
 dependencies = [
  "atty",
  "bitflags",
@@ -2133,7 +2133,7 @@ dependencies = [
 [[package]]
 name = "oqs"
 version = "0.7.1"
-source = "git+https://github.com/open-quantum-safe/liboqs-rust.git#f807891f428afc7c9fd76d8ee99ccad4db162c30"
+source = "git+https://github.com/open-quantum-safe/liboqs-rust.git#bfa3505591a9814021529dcc63e62c38594bcf0f"
 dependencies = [
  "cstr_core",
  "libc",
@@ -2144,7 +2144,7 @@ dependencies = [
 [[package]]
 name = "oqs-sys"
 version = "0.7.1"
-source = "git+https://github.com/open-quantum-safe/liboqs-rust.git#f807891f428afc7c9fd76d8ee99ccad4db162c30"
+source = "git+https://github.com/open-quantum-safe/liboqs-rust.git#bfa3505591a9814021529dcc63e62c38594bcf0f"
 dependencies = [
  "bindgen",
  "build-deps",
@@ -3692,7 +3692,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "rand",
  "static_assertions",
 ]

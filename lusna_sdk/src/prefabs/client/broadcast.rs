@@ -274,13 +274,15 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 mod tests {
     use crate::builder::node_builder::NodeBuilder;
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::PrefabFunctions;
-    use crate::prelude::UserIdentifier;
+    use crate::prelude::{ProtocolRemoteTargetExt, UserIdentifier};
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
+    use hyxe_net::prelude::{GroupBroadcast, NetworkError, NodeResult};
     use rstest::rstest;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use uuid::Uuid;
 
     #[rstest]
@@ -327,9 +329,18 @@ mod tests {
                 uuid,
                 server_addr,
                 request,
-                move |channel, remote| async move {
+                move |channel, mut remote| async move {
                     log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
+                    wait_for_peers().await;
+                    let owned_groups = remote.list_owned_groups().await.unwrap();
+
+                    if idx == 0 {
+                        assert_eq!(owned_groups.len(), 1);
+                    } else {
+                        assert_eq!(owned_groups.len(), 0);
+                    }
+
                     wait_for_peers().await;
                     std::mem::drop(channel);
                     remote.shutdown_kernel().await
@@ -353,6 +364,115 @@ mod tests {
         }
 
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(2)]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_manual_group_connect(
+        #[case] peer_count: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        /*
+           Test a group connection between two registered peers
+           who engage in a manual mode
+        */
+        assert!(peer_count > 1);
+        let _ = lusna_logging::setup_log();
+        TestBarrier::setup(peer_count);
+
+        let client_success = &AtomicBool::new(false);
+        let receiver_success = &AtomicBool::new(false);
+
+        let (server, server_addr) = server_info();
+
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count)
+            .into_iter()
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
+
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers
+                .clone()
+                .into_iter()
+                .filter(|r| r != &uuid)
+                .map(UserIdentifier::from)
+                .collect::<Vec<UserIdentifier>>();
+
+            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+                uuid,
+                server_addr,
+                peers,
+                move |mut results, mut remote| async move {
+                    let _implicated_cid = remote.conn_type.get_implicated_cid();
+                    let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
+
+                    wait_for_peers().await;
+                    let conn = results.recv().await.unwrap()?;
+                    log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+
+                    // one user will create the group, the other will respond
+                    if idx == 0 {
+                        let _channel = remote
+                            .create_group(Some(vec![conn.channel.get_peer_cid().into()]))
+                            .await?;
+                        log::info!(target: "lusna", "The designated node has finished creating a group");
+
+                        wait_for_peers().await;
+                        client_success.store(true, Ordering::Relaxed);
+                        return remote.shutdown_kernel().await;
+                    } else {
+                        // wait until the group host finishes setting up the group
+                        while let Some(evt) = signals.recv().await {
+                            log::info!(target: "lusna", "Received unprocessed signal: {:?}", evt);
+                            match evt {
+                                NodeResult::GroupEvent(_, _, GroupBroadcast::Invitation(_key)) => {
+                                    let _ = crate::responses::group_invite(
+                                        evt,
+                                        true,
+                                        &mut remote.inner,
+                                    )
+                                    .await?;
+                                }
+
+                                NodeResult::GroupChannelCreated(_, _chan) => {
+                                    receiver_success.store(true, Ordering::Relaxed);
+                                    log::trace!(target: "lusna", "***PEER {} CONNECT***", uuid);
+                                    wait_for_peers().await;
+                                    return remote.shutdown_kernel().await;
+                                }
+
+                                val => {
+                                    log::warn!(target: "lusna", "Unhandled response: {:?}", val)
+                                }
+                            }
+                        }
+                    }
+
+                    Err(NetworkError::InternalError(
+                        "signals_recv ended unexpectdly",
+                    ))
+                },
+            );
+
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move { client.await.map(|_| ()) });
+        }
+
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
+
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            };
+        }
+
+        assert!(client_success.load(Ordering::Relaxed));
+        assert!(receiver_success.load(Ordering::Relaxed));
         Ok(())
     }
 }
