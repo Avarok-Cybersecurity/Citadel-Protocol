@@ -63,11 +63,7 @@ impl Drill {
         version: u32,
         algorithm: EncryptionAlgorithm,
     ) -> Result<Self, CryptError<String>> {
-        if PORT_RANGE > MAX_PORT_RANGE {
-            return Err(CryptError::OutOfBoundsError);
-        }
-
-        Self::download_raw_3d_array().map(|bytes| {
+        Self::generate_raw_3d_array().map(|bytes| {
             let port_mappings = create_port_mapping();
 
             Drill {
@@ -138,22 +134,6 @@ impl Drill {
         output: B,
     ) -> Result<usize, CryptError<String>> {
         self.aes_gcm_encrypt_into_custom_nonce(
-            &self.get_aes_gcm_nonce(nonce_version),
-            quantum_container,
-            input,
-            output,
-        )
-    }
-
-    /// Returns the length of the plaintext
-    pub fn aes_gcm_decrypt_into<T: AsRef<[u8]>, B: BufMut>(
-        &self,
-        nonce_version: usize,
-        quantum_container: &PostQuantumContainer,
-        input: T,
-        output: B,
-    ) -> Result<usize, CryptError<String>> {
-        self.aes_gcm_decrypt_into_custom_nonce(
             &self.get_aes_gcm_nonce(nonce_version),
             quantum_container,
             input,
@@ -319,7 +299,7 @@ impl Drill {
     }
 
     /// Downloads the data necessary to create a drill
-    fn download_raw_3d_array() -> Result<[u8; BYTES_PER_3D_ARRAY], CryptError<String>> {
+    fn generate_raw_3d_array() -> Result<[u8; BYTES_PER_3D_ARRAY], CryptError<String>> {
         let bytes: &mut [u8; BYTES_PER_3D_ARRAY] = &mut [0; BYTES_PER_3D_ARRAY];
         let mut trng = thread_rng();
         let _ = rand::distributions::Bernoulli::new(0.5)
