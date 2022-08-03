@@ -2,7 +2,7 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_session::SessionRequest;
 use crate::hdp::outbound_sender::{Sender, UnboundedReceiver};
 use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::prelude::{MessageGroupKey, SecBuffer, Ticket};
+use crate::prelude::{MessageGroupKey, NodeRemote, SecBuffer, Ticket};
 use futures::Stream;
 use hyxe_user::re_imports::__private::Formatter;
 use std::fmt::Debug;
@@ -27,6 +27,7 @@ impl Deref for GroupChannel {
 
 impl GroupChannel {
     pub fn new(
+        node_remote: NodeRemote,
         tx: Sender<SessionRequest>,
         key: MessageGroupKey,
         ticket: Ticket,
@@ -35,6 +36,7 @@ impl GroupChannel {
     ) -> Self {
         Self {
             send_half: GroupChannelSendHalf {
+                node_remote,
                 tx: tx.clone(),
                 ticket,
                 key,
@@ -73,6 +75,8 @@ pub enum GroupBroadcastPayload {
 }
 
 pub struct GroupChannelSendHalf {
+    #[allow(dead_code)]
+    node_remote: NodeRemote,
     tx: Sender<SessionRequest>,
     ticket: Ticket,
     key: MessageGroupKey,

@@ -35,6 +35,15 @@ pub struct MessageGroupOptions {
     pub id: u128,
 }
 
+impl Default for MessageGroupOptions {
+    fn default() -> Self {
+        Self {
+            group_type: GroupType::Private,
+            id: uuid::Uuid::new_v4().as_u128(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
 pub enum GroupType {
     /// A public group is a group where any user registered to the owner can join

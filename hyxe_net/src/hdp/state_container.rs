@@ -2042,6 +2042,7 @@ impl StateContainerInner {
             | GroupBroadcast::Add(..)
             | GroupBroadcast::AcceptMembership(_)
             | GroupBroadcast::RequestJoin(..)
+            | GroupBroadcast::ListGroupsFor(..)
             | GroupBroadcast::LeaveRoom(_) => {
                 hdp_packet_crafter::peer_cmd::craft_group_message_packet(
                     hyper_ratchet,
@@ -2093,6 +2094,7 @@ impl StateContainerInner {
         HdpSession::spawn_message_sender_function(session.clone(), to_session_rx);
 
         Ok(GroupChannel::new(
+            self.hdp_server_remote.clone(),
             to_session_tx,
             key,
             ticket,

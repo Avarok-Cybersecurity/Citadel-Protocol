@@ -56,6 +56,7 @@ where
             ) => {
                 let client_server_remote = ClientServerRemote {
                     inner: self.node_remote.clone().unwrap(),
+                    unprocessed_signals_rx: Default::default(),
                     conn_type,
                 };
                 (self.on_channel_received)(
