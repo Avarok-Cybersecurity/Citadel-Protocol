@@ -14,6 +14,12 @@ jobs:
         with:
           ref: 'coverage_files'
       - run: mv ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info ${HOME}/lcov.info
+      - name: Cleanup codecov file
+        run: |
+          git config --global user.name "tbraun96"
+          git config --global user.email "thomas.braun@avarok.net"
+          git commit -am "cleanup old codecov file"
+          git push --force
       - uses: actions/checkout@v3
         with:
           ref: 'master'
