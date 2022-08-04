@@ -163,54 +163,6 @@ mod tests {
         // at this point, basic should have dropped, but the memory should not have been zeroed out
         assert_eq!(retrieved, "hey");
     }
-    /*
-    #[test]
-    fn onion_packets() {
-        onion_packet::<StackedRatchet>();
-        #[cfg(feature = "fcm")]
-            onion_packet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
-    }
-
-    fn onion_packet<R: Ratchet>() {
-        lusna_logging::setup_log();
-        const LEN: usize = 5;
-        const HEADER_LEN: usize = 50;
-        let message = "Hello, world!";
-        let algo = KemAlgorithm::Kyber1024_90s + EncryptionAlgorithm::Xchacha20Poly_1305;
-
-        let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
-            .map(|cid| {
-                let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(Some(algo))], 0, 0, None);
-                let transfer = alice_hr.stage0_alice();
-                let bob_hr = R::Constructor::new_bob(0, 0, vec![ConstructorOpts::new_init(Some(algo))], transfer).unwrap();
-                let transfer = bob_hr.stage0_bob().unwrap();
-                alice_hr.stage1_alice(&transfer).unwrap();
-                let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
-                let container = PeerSessionCrypto::new(toolset, true);
-                container
-            }));
-
-        log::trace!(target: "lusna", "Generated chain!");
-
-        let onion_packet = chain.encrypt(message, 0, HEADER_LEN, |_ratchet, _target_cid, buffer| {
-            for x in 0..HEADER_LEN {
-                buffer.put_u8(x as u8);
-            }
-        }).unwrap();
-
-        println!("Onion packet: {:?}", &onion_packet);
-        let cids_order_decrypt = chain.target_cid_list.as_ref().unwrap().iter().rev().cloned().collect::<Vec<u64>>();
-        println!("{:?}\n", &cids_order_decrypt);
-        let output = chain.links.iter().rfold(onion_packet, |mut acc, (cid, container)| {
-            println!("At {} (onion packet len: {})", cid, acc.len());
-            let (pqc, drill) = container.get_hyper_ratchet(None).unwrap().message_pqc_drill(None);
-            let payload = acc.split_off(HEADER_LEN);
-            drill.aes_gcm_decrypt(0, pqc, payload)
-                .map(|vec| bytes::BytesMut::from(&vec[..])).unwrap()
-        });
-
-        assert_eq!(message, String::from_utf8(output.to_vec()).unwrap());
-    }*/
 
     #[test]
     fn secstring() {

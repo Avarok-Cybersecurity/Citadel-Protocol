@@ -116,14 +116,6 @@ impl Ratchet for ThinRatchet {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.validate_packet_in_place_split(pqc, header, packet)
     }
-
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        self.decrypt_custom(0, 0, contents)
-    }
-
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        self.encrypt_custom(0, 0, contents)
-    }
 }
 
 /// Used for constructing the ratchet
