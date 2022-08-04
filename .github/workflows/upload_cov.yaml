@@ -30,11 +30,4 @@ jobs:
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
           fail_ci_if_error: true
           override_branch: 'master'
-      - name: Cleanup codecov file
-        if: success()
-        run: |
-          git config --global user.name "tbraun96"
-          git config --global user.email "thomas.braun@avarok.net"
-          rm -rf ${GITHUB_WORKSPACE}/lcov.info
-          git commit -am "cleanup old codecov file"
-          git push
+
