@@ -1,4 +1,4 @@
-use crate::drill::{get_approx_serialized_drill_len, Drill, SecurityLevel};
+use crate::drill::{Drill, SecurityLevel};
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
@@ -48,9 +48,6 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
         packet: &mut T,
     ) -> Result<(), CryptError<String>>;
 
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
-
     fn next_alice_constructor(&self) -> Option<Self::Constructor> {
         Self::Constructor::new_alice(
             self.get_next_constructor_opts(),
@@ -68,55 +65,11 @@ pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
 }
 
 impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
-    ///
     pub fn assume_default(self) -> Option<R> {
         if let RatchetType::Default(r) = self {
             Some(r)
         } else {
             None
-        }
-    }
-
-    ///
-    pub fn assume_default_ref(&self) -> Option<&R> {
-        if let RatchetType::Default(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    ///
-    pub fn assume_fcm(self) -> Option<Fcm> {
-        if let RatchetType::Fcm(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    ///
-    pub fn assume_fcm_ref(&self) -> Option<&Fcm> {
-        if let RatchetType::Fcm(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    /// returns the version
-    pub fn version(&self) -> u32 {
-        match self {
-            RatchetType::Default(r) => r.version(),
-            RatchetType::Fcm(r) => r.version(),
-        }
-    }
-
-    /// returns the version
-    pub fn get_cid(&self) -> u64 {
-        match self {
-            RatchetType::Default(r) => r.get_cid(),
-            RatchetType::Fcm(r) => r.get_cid(),
         }
     }
 }
@@ -202,19 +155,6 @@ impl Ratchet for StackedRatchet {
     ) -> Result<(), CryptError<String>> {
         self.validate_message_packet(security_level, header, packet)
     }
-
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        self.decrypt(contents)
-    }
-
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        self.encrypt(contents)
-    }
-}
-
-/// Returns the approximate size of each hyper ratchet, assuming LOW security level (default)
-pub const fn get_approx_bytes_per_hyper_ratchet() -> usize {
-    (2 * ez_pqcrypto::get_approx_bytes_per_container()) + (2 * get_approx_serialized_drill_len())
 }
 
 impl StackedRatchet {
