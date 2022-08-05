@@ -206,16 +206,6 @@ impl StackedRatchet {
     }
 
     /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
-    pub fn protect_message_packet_with_scrambler(
-        &self,
-        header_len_bytes: usize,
-        packet: &mut BytesMut,
-    ) -> Result<(), CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.protect_packet(pqc, header_len_bytes, packet)
-    }
-
-    /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
     pub fn protect_message_packet<T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
@@ -246,16 +236,6 @@ impl StackedRatchet {
         }
 
         Ok(())
-    }
-
-    /// Validates a packet in place
-    pub fn validate_message_packet_with_scrambler<H: AsRef<[u8]>>(
-        &self,
-        header: H,
-        packet: &mut BytesMut,
-    ) -> Result<(), CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.validate_packet_in_place_split(pqc, header, packet)
     }
 
     /// Validates in-place when the header + payload have already been split
