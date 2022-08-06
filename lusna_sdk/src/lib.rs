@@ -123,7 +123,6 @@
 /// Convenience import for building applications
 pub mod prelude {
     pub use crate::builder::node_builder::*;
-    pub use crate::builder::request_builder::*;
     pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::remote_ext::*;
     pub use crate::responses;

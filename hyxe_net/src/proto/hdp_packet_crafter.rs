@@ -909,7 +909,7 @@ pub(crate) mod do_drill_update {
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
-        transfer.serialize_into(&mut packet).unwrap();
+        transfer.serialize_into_buf(&mut packet).unwrap();
 
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
