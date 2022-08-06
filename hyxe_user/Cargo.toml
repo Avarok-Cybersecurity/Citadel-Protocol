@@ -44,7 +44,7 @@ jwt = { version = "0.16.0", features = ["openssl"] }
 openssl = { version = "0.10.36", features = ["vendored"] }
 uuid = { version = "1.0.0", features = ["v4"] }
 bincode2 = "2.0.1"
-chrono = "0.4.19"
+chrono = "0.4.20"
 tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"], optional = true }
 tokio-stream = { version = "0.1.7", optional = true }
 
