@@ -35,7 +35,7 @@ pub mod redis_backend;
 pub mod utils;
 
 /// Used when constructing the account manager
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(variant_size_differences)]
 pub enum BackendType {
     /// No true synchronization will occur; data is lost between program

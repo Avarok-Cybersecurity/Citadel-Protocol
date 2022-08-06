@@ -30,7 +30,7 @@ pub mod macros {
 
     use either::Either;
 
-    use crate::hdp::hdp_session::HdpSessionInner;
+    use crate::proto::hdp_session::HdpSessionInner;
 
     pub type OwnedReadGuard<'a, T> = std::cell::Ref<'a, T>;
     pub type OwnedWriteGuard<'a, T> = std::cell::RefMut<'a, T>;
@@ -146,7 +146,7 @@ pub mod macros {
 
     macro_rules! spawn {
         ($future:expr) => {
-            crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
                 $future,
             ))
         };
@@ -154,7 +154,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
                 $future,
             ))
         };
@@ -190,7 +190,7 @@ pub mod macros {
 
     use either::Either;
 
-    use crate::hdp::hdp_session::HdpSessionInner;
+    use crate::proto::hdp_session::HdpSessionInner;
 
     pub type OwnedReadGuard<'a, T> = parking_lot::RwLockReadGuard<'a, T>;
     pub type OwnedWriteGuard<'a, T> = parking_lot::RwLockWriteGuard<'a, T>;
@@ -312,7 +312,7 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future)));
+            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future)));
         } else {
             log::warn!(target: "lusna", "Unable to spawn future: {:?}", stringify!($future));
         }
@@ -322,7 +322,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
         };
     }
 
@@ -384,32 +384,32 @@ pub mod prelude {
 
     pub use crate::error::NetworkError;
     pub use crate::functional::*;
-    pub use crate::hdp::hdp_node::ConnectMode;
-    pub use crate::hdp::hdp_node::HdpServer;
-    pub use crate::hdp::hdp_node::Ticket;
-    pub use crate::hdp::hdp_node::{NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode};
-    pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
-    pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
-    pub use crate::hdp::misc::session_security_settings::{
-        SessionSecuritySettings, SessionSecuritySettingsBuilder,
-    };
-    pub use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
-    pub use crate::hdp::outbound_sender::OutboundUdpSender;
-    pub use crate::hdp::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-    pub use crate::hdp::peer::channel::*;
-    pub use crate::hdp::peer::group_channel::{
-        GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
-    };
-    pub use crate::hdp::peer::message_group::MessageGroupKey;
-    pub use crate::hdp::peer::message_group::{GroupType, MessageGroupOptions};
-    pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
-    pub use crate::hdp::peer::peer_layer::PeerResponse;
-    pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
-    pub use crate::hdp::state_container::VirtualTargetType;
     pub use crate::kernel::RuntimeFuture;
     pub use crate::kernel::{
         kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings,
     };
+    pub use crate::proto::hdp_node::ConnectMode;
+    pub use crate::proto::hdp_node::HdpServer;
+    pub use crate::proto::hdp_node::Ticket;
+    pub use crate::proto::hdp_node::{NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode};
+    pub use crate::proto::hdp_packet_crafter::SecureProtocolPacket;
+    pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
+    pub use crate::proto::misc::session_security_settings::{
+        SessionSecuritySettings, SessionSecuritySettingsBuilder,
+    };
+    pub use crate::proto::misc::underlying_proto::UnderlyingProtocol;
+    pub use crate::proto::outbound_sender::OutboundUdpSender;
+    pub use crate::proto::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
+    pub use crate::proto::peer::channel::*;
+    pub use crate::proto::peer::group_channel::{
+        GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
+    };
+    pub use crate::proto::peer::message_group::MessageGroupKey;
+    pub use crate::proto::peer::message_group::{GroupType, MessageGroupOptions};
+    pub use crate::proto::peer::peer_layer::HypernodeConnectionType;
+    pub use crate::proto::peer::peer_layer::PeerResponse;
+    pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
+    pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::re_imports::{async_trait, NodeType};
     pub use hyxe_user::backend::utils::{
         ObjectTransferHandle, ObjectTransferOrientation, ObjectTransferStatus,
@@ -418,7 +418,7 @@ pub mod prelude {
     pub use hyxe_user::serialization::SyncIO;
 
     #[doc(hidden)]
-    pub use crate::hdp::misc::net::{safe_split_stream, GenericNetworkStream};
+    pub use crate::proto::misc::net::{safe_split_stream, GenericNetworkStream};
 }
 
 pub mod auth;
@@ -428,9 +428,9 @@ pub mod constants;
 mod error;
 /// Functional extras
 mod functional;
-/// The primary module of this crate
-mod hdp;
 /// For handling differential function input types between single/multi-threaded modes
 mod inner_arg;
 /// Contains the streams for creating connections
 mod kernel;
+/// The primary module of this crate
+mod proto;

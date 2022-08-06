@@ -228,12 +228,6 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 }
 
-impl<R: Ratchet> Drop for PeerSessionCrypto<R> {
-    fn drop(&mut self) {
-        //log::trace!(target: "lusna", "**DROPPING PeerSessionCrypto for {:?}. Status: update_in_progress: {:?} | Status: lock_set_by_alice: {:?}**", self.toolset.cid, self.update_in_progress.load(Ordering::Relaxed), self.lock_set_by_alice);
-    }
-}
-
 // TODO: Use GAT's to have a type AliceToBobConstructor<'a>. Get rid of these enums
 pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
     fn new_alice(

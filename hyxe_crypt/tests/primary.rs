@@ -846,19 +846,50 @@ mod tests {
         }
     }
 
-    /*
-    #[test]
-    fn create_dummy_file() {
-        const LEN: usize = 4_187_593_113; // 3.9 gigabytes
-        let mut file = std::fs::File::create("C:/Users/tbrau/dummy.bin").unwrap();
-        let slab = (0..u8::MAX).into_iter().collect::<Vec<u8>>();
-        let mut written = 0;
-        while written < LEN {
-            file.write_all(slab.as_slice()).unwrap();
-            written += u8::MAX as usize;
-        }
+    const DATA: &'static [u8] = b"Hello, world!";
 
-        file.flush().unwrap();
-        file.sync_all().unwrap();
-    }*/
+    #[test]
+    fn test_drill_encrypt_decrypt_basic() {
+        lusna_logging::setup_log();
+        test_harness(|alice, bob| {
+            let encrypted = alice.encrypt(DATA).unwrap();
+            let decrypted = bob.decrypt(encrypted).unwrap();
+            assert_eq!(decrypted, DATA);
+        });
+    }
+
+    #[test]
+    fn test_drill_encrypt_decrypt_basic_in_place() {
+        lusna_logging::setup_log();
+        test_harness(|alice, bob| {
+            let mut encrypted = alice.encrypt(DATA).unwrap();
+            let len = bob.decrypt_in_place(&mut encrypted).unwrap();
+            assert_eq!(&encrypted[..len], DATA);
+        });
+    }
+
+    #[test]
+    fn test_drill_encrypt_decrypt_scrambler() {
+        lusna_logging::setup_log();
+        test_harness(|alice, bob| {
+            let encrypted = alice.encrypt_scrambler(DATA).unwrap();
+            let decrypted = bob.decrypt_scrambler(encrypted).unwrap();
+            assert_eq!(decrypted, DATA);
+        });
+    }
+
+    #[test]
+    fn test_drill_encrypt_decrypt_scrambler_in_place() {
+        lusna_logging::setup_log();
+        test_harness(|alice, bob| {
+            let mut encrypted = alice.encrypt_scrambler(DATA).unwrap();
+            let len = bob.decrypt_in_place_scrambler(&mut encrypted).unwrap();
+            assert_eq!(&encrypted[..len], DATA);
+        });
+    }
+
+    fn test_harness(fx: impl FnOnce(&StackedRatchet, &StackedRatchet)) {
+        let (hr_alice, hr_bob) = gen::<StackedRatchet>(0, 0, SecurityLevel::HIGH);
+        (fx)(&hr_alice, &hr_bob);
+    }
 }
