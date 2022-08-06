@@ -863,8 +863,8 @@ mod tests {
         lusna_logging::setup_log();
         test_harness(|alice, bob| {
             let mut encrypted = alice.encrypt(DATA).unwrap();
-            let _len = bob.decrypt_in_place(&mut encrypted).unwrap();
-            assert_eq!(encrypted, DATA);
+            let len = bob.decrypt_in_place(&mut encrypted).unwrap();
+            assert_eq!(&encrypted[..len], DATA);
         });
     }
 
@@ -875,6 +875,16 @@ mod tests {
             let encrypted = alice.encrypt_scrambler(DATA).unwrap();
             let decrypted = bob.decrypt_scrambler(encrypted).unwrap();
             assert_eq!(decrypted, DATA);
+        });
+    }
+
+    #[test]
+    fn test_drill_encrypt_decrypt_scrambler_in_place() {
+        lusna_logging::setup_log();
+        test_harness(|alice, bob| {
+            let mut encrypted = alice.encrypt_scrambler(DATA).unwrap();
+            let len = bob.decrypt_in_place_scrambler(&mut encrypted).unwrap();
+            assert_eq!(&encrypted[..len], DATA);
         });
     }
 

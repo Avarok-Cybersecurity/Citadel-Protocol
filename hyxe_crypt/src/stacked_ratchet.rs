@@ -547,38 +547,10 @@ pub mod constructor {
     }
 
     impl AliceToBobTransferType<'_> {
-        pub fn get_security_opts(&self) -> (CryptoParameters, SecurityLevel) {
-            match self {
-                Self::Default(tx) => (tx.params, tx.security_level),
-                Self::Fcm(tx) => (tx.params, SecurityLevel::LOW),
-            }
-        }
-
         pub fn get_declared_new_version(&self) -> u32 {
             match self {
                 AliceToBobTransferType::Default(tx) => tx.new_version,
                 AliceToBobTransferType::Fcm(tx) => tx.version,
-            }
-        }
-
-        pub fn assume_default(&self) -> Option<&AliceToBobTransfer<'_>> {
-            match self {
-                Self::Default(tx) => Some(tx),
-                _ => None,
-            }
-        }
-
-        pub fn assume_fcm(&self) -> Option<&FcmAliceToBobTransfer<'_>> {
-            match self {
-                Self::Fcm(tx) => Some(tx),
-                _ => None,
-            }
-        }
-
-        pub fn is_fcm(&self) -> bool {
-            match self {
-                Self::Fcm(_) => true,
-                _ => false,
             }
         }
     }
@@ -671,22 +643,6 @@ pub mod constructor {
         Fcm(FcmBobToAliceTransfer),
     }
 
-    impl BobToAliceTransferType {
-        pub fn assume_fcm(self) -> Option<FcmBobToAliceTransfer> {
-            match self {
-                Self::Fcm(this) => Some(this),
-                _ => None,
-            }
-        }
-
-        pub fn assume_default(self) -> Option<BobToAliceTransfer> {
-            match self {
-                Self::Default(this) => Some(this),
-                _ => None,
-            }
-        }
-    }
-
     impl BobToAliceTransfer {
         ///
         pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
@@ -695,27 +651,12 @@ pub mod constructor {
             bincode2::serialize_into(buf.writer(), self).ok()
         }
 
-        ///
-        #[allow(dead_code)]
-        pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
-            bincode2::serialize(self).ok()
-        }
-
-        ///
-        #[allow(dead_code)]
         pub fn deserialize_from<T: AsRef<[u8]>>(source: T) -> Option<BobToAliceTransfer> {
             bincode2::deserialize(source.as_ref()).ok()
         }
     }
 
     impl AliceToBobTransfer<'_> {
-        ///
-        pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
-            let len = bincode2::serialized_size(self).ok()?;
-            buf.reserve(len as usize);
-            bincode2::serialize_into(buf.writer(), self).ok()
-        }
-
         ///
         pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
             bincode2::serialize(self).ok()

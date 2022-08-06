@@ -778,7 +778,7 @@ pub(crate) fn update_toolset_as_bob(
     //let (crypto_params, session_security_level) = transfer.get_security_opts();
     //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
     let opts = hr.get_next_constructor_opts();
-    if transfer.is_fcm() {
+    if matches!(transfer, AliceToBobTransferType::Fcm(..)) {
         let constructor =
             EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
         Some(
