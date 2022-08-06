@@ -4,7 +4,7 @@ comment:
   require_changes: false
 
 coverage:
-  range: "70..100"
+  range: "70..90"
   round: down
   precision: 4
   status:

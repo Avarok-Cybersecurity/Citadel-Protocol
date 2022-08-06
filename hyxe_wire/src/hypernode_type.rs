@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 /// Used for determining the proper action when loading the server
-#[derive(Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 pub enum NodeType {
     /// A server with a static IP address will choose this option
     Server(SocketAddr),

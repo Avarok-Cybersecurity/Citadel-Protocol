@@ -334,60 +334,6 @@ fn scramble_encrypt_wave(
     packets
 }
 
-/// header_size_bytes: This size (in bytes) of each packet's header
-/// the feed order into the header_inscriber is first the target_cid, and then the object ID
-#[allow(unused_results)]
-pub fn encrypt_group_unified<T: AsRef<[u8]>, R: Ratchet>(
-    plain_text: T,
-    hyper_ratchet: &R,
-    header_size_bytes: usize,
-    target_cid: u64,
-    object_id: u32,
-    group_id: u64,
-    header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync,
-) -> Result<GroupSenderDevice<0>, CryptError<String>> {
-    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
-    let scramble_drill = hyper_ratchet.get_scramble_drill();
-
-    let plaintext = plain_text.as_ref();
-    let output_len = calculate_aes_gcm_output_length(plaintext.len());
-    let mut packet = BytesMut::with_capacity(header_size_bytes + output_len);
-    let vector_singleton = generate_packet_vector(0, group_id, scramble_drill);
-    header_inscriber(
-        &vector_singleton,
-        scramble_drill,
-        object_id,
-        target_cid,
-        &mut packet,
-    );
-    let _ = msg_drill.aes_gcm_encrypt_into(
-        calculate_nonce_version(0, group_id),
-        msg_pqc,
-        plaintext,
-        &mut packet,
-    )?;
-    let coord = PacketCoordinate {
-        vector: vector_singleton,
-        packet,
-    };
-    let group_receiver_config = GroupReceiverConfig::new(
-        group_id as usize,
-        1,
-        header_size_bytes,
-        plaintext.len(),
-        output_len,
-        output_len,
-        1,
-        plaintext.len(),
-        plaintext.len(),
-        1,
-        1,
-    );
-    let mut packets = HashMap::with_capacity(1);
-    packets.insert(0, coord);
-    Ok(GroupSenderDevice::new(group_receiver_config, packets))
-}
-
 /// Used for sending a packet that is expected to already be encrypted
 pub fn oneshot_unencrypted_group_unified<const N: usize>(
     plain_text: SecureMessagePacket<N>,

@@ -37,8 +37,6 @@ pub mod misc;
 pub mod net;
 /// For endowing packets with coordinates
 pub mod packet_vector;
-/// Cryptographic container for handling routes
-pub mod relay_chain;
 /// For secure byte handling
 pub mod secure_buffer;
 /// This is a container for holding the drill and PQC, and is intended to replace the seperate use of the drill/PQC

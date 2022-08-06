@@ -14,7 +14,7 @@ pub mod kernel_executor;
 pub trait RuntimeFuture: Future<Output = Result<(), NetworkError>> + ContextRequirements {}
 impl<T: Future<Output = Result<(), NetworkError>> + ContextRequirements> RuntimeFuture for T {}
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 /// Used for fine-tuning parameters within the [`KernelExecutor`]
 pub struct KernelExecutorSettings {
     max_concurrency: Option<usize>,
