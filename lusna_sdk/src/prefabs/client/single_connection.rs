@@ -332,9 +332,7 @@ mod tests {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
             |builder| {
-                let _ = builder
-                    .server_config()
-                    .with_underlying_protocol(underlying_protocol);
+                let _ = builder.with_underlying_protocol(underlying_protocol);
             },
         );
 

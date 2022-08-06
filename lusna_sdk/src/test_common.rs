@@ -17,9 +17,9 @@ pub fn server_test_node<'a, K: NetKernel + 'a>(
     opts: impl FnOnce(&mut NodeBuilder),
 ) -> NodeFuture<'a, K> {
     let mut builder = NodeBuilder::default();
-    let _ = builder.with_node_type(NodeType::Server(bind_addr));
+    let builder = builder.with_node_type(NodeType::Server(bind_addr));
 
-    (opts)(&mut builder);
+    (opts)(builder);
 
     builder.build(kernel).unwrap()
 }
