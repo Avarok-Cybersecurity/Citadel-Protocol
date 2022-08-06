@@ -199,7 +199,7 @@ class Utils {
 
           // ignore: cancel_subscriptions
           var listener = ref.onValue.listen((event) async {
-            print("[RTDB] Data received: KEY: ${event.snapshot.key}. prev sibling: ${event.previousSiblingKey}. VALUE: ${event.snapshot.value}");
+            print("[RTDB] Data received: KEY: ${event.snapshot.key}. prev sibling: ${event.previousSiblingKey}. value: ${event.snapshot.value}");
             // await ref.child(event.snapshot.key).remove();
             // TODO: This expects only packets. In the future, make it accept more
             var key = event.snapshot.key;
