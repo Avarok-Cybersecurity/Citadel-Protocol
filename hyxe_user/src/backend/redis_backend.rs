@@ -27,7 +27,7 @@ pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
 
 type RedisPool = Pool<RedisConnectionManager>;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 /// For setting custom options for the internal redis connection pool
 pub struct RedisConnectionOptions {
     /// Sets the number of connections. Default 10

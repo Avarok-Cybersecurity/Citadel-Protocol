@@ -38,7 +38,7 @@ enum SqlVariant {
 
 const CAR_MODE_DEFAULT: bool = false;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 /// Custom connection options
 pub struct SqlConnectionOptions {
     /// The maximum number of connections to keep
