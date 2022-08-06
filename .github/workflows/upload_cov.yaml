@@ -14,12 +14,6 @@ jobs:
         with:
           ref: 'coverage_files'
       - run: mv ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info ${HOME}/lcov.info
-      - name: Cleanup codecov file
-        run: |
-          git config --global user.name "tbraun96"
-          git config --global user.email "thomas.braun@avarok.net"
-          git commit -am "cleanup old codecov file"
-          git push --force
       - uses: actions/checkout@v3
         with:
           ref: 'master'
@@ -30,4 +24,15 @@ jobs:
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
           fail_ci_if_error: true
           override_branch: 'master'
+      - uses: actions/checkout@v3
+        with:
+          ref: 'coverage_files'
+      - name: Cleanup codecov file
+        if: success()
+        run: |
+          git config --global user.name "tbraun96"
+          git config --global user.email "thomas.braun@avarok.net"
+          rm -f ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
+          git commit -am "cleanup old codecov file"
+          git push --force
 
