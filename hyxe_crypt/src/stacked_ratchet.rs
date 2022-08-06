@@ -1,4 +1,4 @@
-use crate::drill::{get_approx_serialized_drill_len, Drill, SecurityLevel};
+use crate::drill::{Drill, SecurityLevel};
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
@@ -48,9 +48,6 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
         packet: &mut T,
     ) -> Result<(), CryptError<String>>;
 
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
-
     fn next_alice_constructor(&self) -> Option<Self::Constructor> {
         Self::Constructor::new_alice(
             self.get_next_constructor_opts(),
@@ -68,55 +65,11 @@ pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
 }
 
 impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
-    ///
     pub fn assume_default(self) -> Option<R> {
         if let RatchetType::Default(r) = self {
             Some(r)
         } else {
             None
-        }
-    }
-
-    ///
-    pub fn assume_default_ref(&self) -> Option<&R> {
-        if let RatchetType::Default(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    ///
-    pub fn assume_fcm(self) -> Option<Fcm> {
-        if let RatchetType::Fcm(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    ///
-    pub fn assume_fcm_ref(&self) -> Option<&Fcm> {
-        if let RatchetType::Fcm(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    /// returns the version
-    pub fn version(&self) -> u32 {
-        match self {
-            RatchetType::Default(r) => r.version(),
-            RatchetType::Fcm(r) => r.version(),
-        }
-    }
-
-    /// returns the version
-    pub fn get_cid(&self) -> u64 {
-        match self {
-            RatchetType::Default(r) => r.get_cid(),
-            RatchetType::Fcm(r) => r.get_cid(),
         }
     }
 }
@@ -202,19 +155,6 @@ impl Ratchet for StackedRatchet {
     ) -> Result<(), CryptError<String>> {
         self.validate_message_packet(security_level, header, packet)
     }
-
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        self.decrypt(contents)
-    }
-
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        self.encrypt(contents)
-    }
-}
-
-/// Returns the approximate size of each hyper ratchet, assuming LOW security level (default)
-pub const fn get_approx_bytes_per_hyper_ratchet() -> usize {
-    (2 * ez_pqcrypto::get_approx_bytes_per_container()) + (2 * get_approx_serialized_drill_len())
 }
 
 impl StackedRatchet {
@@ -266,16 +206,6 @@ impl StackedRatchet {
     }
 
     /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
-    pub fn protect_message_packet_with_scrambler(
-        &self,
-        header_len_bytes: usize,
-        packet: &mut BytesMut,
-    ) -> Result<(), CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.protect_packet(pqc, header_len_bytes, packet)
-    }
-
-    /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
     pub fn protect_message_packet<T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
@@ -306,16 +236,6 @@ impl StackedRatchet {
         }
 
         Ok(())
-    }
-
-    /// Validates a packet in place
-    pub fn validate_message_packet_with_scrambler<H: AsRef<[u8]>>(
-        &self,
-        header: H,
-        packet: &mut BytesMut,
-    ) -> Result<(), CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.validate_packet_in_place_split(pqc, header, packet)
     }
 
     /// Validates in-place when the header + payload have already been split
@@ -627,38 +547,10 @@ pub mod constructor {
     }
 
     impl AliceToBobTransferType<'_> {
-        pub fn get_security_opts(&self) -> (CryptoParameters, SecurityLevel) {
-            match self {
-                Self::Default(tx) => (tx.params, tx.security_level),
-                Self::Fcm(tx) => (tx.params, SecurityLevel::LOW),
-            }
-        }
-
         pub fn get_declared_new_version(&self) -> u32 {
             match self {
                 AliceToBobTransferType::Default(tx) => tx.new_version,
                 AliceToBobTransferType::Fcm(tx) => tx.version,
-            }
-        }
-
-        pub fn assume_default(&self) -> Option<&AliceToBobTransfer<'_>> {
-            match self {
-                Self::Default(tx) => Some(tx),
-                _ => None,
-            }
-        }
-
-        pub fn assume_fcm(&self) -> Option<&FcmAliceToBobTransfer<'_>> {
-            match self {
-                Self::Fcm(tx) => Some(tx),
-                _ => None,
-            }
-        }
-
-        pub fn is_fcm(&self) -> bool {
-            match self {
-                Self::Fcm(_) => true,
-                _ => false,
             }
         }
     }
@@ -751,22 +643,6 @@ pub mod constructor {
         Fcm(FcmBobToAliceTransfer),
     }
 
-    impl BobToAliceTransferType {
-        pub fn assume_fcm(self) -> Option<FcmBobToAliceTransfer> {
-            match self {
-                Self::Fcm(this) => Some(this),
-                _ => None,
-            }
-        }
-
-        pub fn assume_default(self) -> Option<BobToAliceTransfer> {
-            match self {
-                Self::Default(this) => Some(this),
-                _ => None,
-            }
-        }
-    }
-
     impl BobToAliceTransfer {
         ///
         pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
@@ -775,27 +651,12 @@ pub mod constructor {
             bincode2::serialize_into(buf.writer(), self).ok()
         }
 
-        ///
-        #[allow(dead_code)]
-        pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
-            bincode2::serialize(self).ok()
-        }
-
-        ///
-        #[allow(dead_code)]
         pub fn deserialize_from<T: AsRef<[u8]>>(source: T) -> Option<BobToAliceTransfer> {
             bincode2::deserialize(source.as_ref()).ok()
         }
     }
 
     impl AliceToBobTransfer<'_> {
-        ///
-        pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
-            let len = bincode2::serialized_size(self).ok()?;
-            buf.reserve(len as usize);
-            bincode2::serialize_into(buf.writer(), self).ok()
-        }
-
         ///
         pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
             bincode2::serialize(self).ok()

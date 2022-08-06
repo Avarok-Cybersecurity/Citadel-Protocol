@@ -1,5 +1,5 @@
-use crate::hdp::hdp_packet::HdpHeader;
-use crate::hdp::peer::peer_layer::UdpMode;
+use crate::proto::hdp_packet::HdpHeader;
+use crate::proto::peer::peer_layer::UdpMode;
 
 pub const BUILD_VERSION: usize = 7463;
 /// by default, the UDP is not initialized

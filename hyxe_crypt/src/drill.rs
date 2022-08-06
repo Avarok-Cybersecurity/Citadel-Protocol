@@ -1,9 +1,4 @@
-/*
- * Copyright (c) 2019. The information/code/data contained within this file and all other files with the same copyright are protected under US Statutes. You must have explicit written access by Thomas P. Braun in order to access, view, modify, alter, or apply this code in any context commercial or non-commercial. If you have this code but were not given explicit written access by Thomas P. Braun, you must destroy the information herein for legal safety. You agree that if you apply the concepts herein without any written access, Thomas P. Braun will seek the maximum possible legal retribution.
- */
-
 use crate::misc::{bytes_to_3d_array, create_port_mapping, CryptError};
-use crate::packet_vector::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
 use byteorder::BigEndian;
 use rand::distributions::Distribution;
 use rand::{thread_rng, Rng, RngCore};
@@ -14,7 +9,6 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::ops::Div;
 
-use bytes::BufMut;
 use ez_pqcrypto::{PostQuantumContainer, LARGEST_NONCE_LEN};
 use rand::prelude::ThreadRng;
 
@@ -125,56 +119,6 @@ impl Drill {
         base
     }
 
-    /// Returns the length of the plaintext
-    pub fn aes_gcm_encrypt_into<T: AsRef<[u8]>, B: BufMut>(
-        &self,
-        nonce_version: usize,
-        quantum_container: &PostQuantumContainer,
-        input: T,
-        output: B,
-    ) -> Result<usize, CryptError<String>> {
-        self.aes_gcm_encrypt_into_custom_nonce(
-            &self.get_aes_gcm_nonce(nonce_version),
-            quantum_container,
-            input,
-            output,
-        )
-    }
-
-    /// Returns the length of the ciphertext
-    pub fn aes_gcm_encrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(
-        &self,
-        nonce: &[u8],
-        quantum_container: &PostQuantumContainer,
-        input: T,
-        mut output: B,
-    ) -> Result<usize, CryptError<String>> {
-        quantum_container
-            .encrypt(input.as_ref(), nonce)
-            .map(|ciphertext| {
-                output.put(ciphertext.as_slice());
-                ciphertext.len()
-            })
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
-    }
-
-    /// Returns the length of the plaintext
-    pub fn aes_gcm_decrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(
-        &self,
-        nonce: &[u8],
-        quantum_container: &PostQuantumContainer,
-        input: T,
-        mut output: B,
-    ) -> Result<usize, CryptError<String>> {
-        quantum_container
-            .decrypt(input.as_ref(), nonce)
-            .map(|plaintext| {
-                output.put(plaintext.as_slice());
-                plaintext.len()
-            })
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
-    }
-
     /// Returns the length of the ciphertext
     pub fn aes_gcm_encrypt<T: AsRef<[u8]>>(
         &self,
@@ -268,24 +212,9 @@ impl Drill {
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
-    /// Gets the packet coordinates
-    pub fn generate_packet_coordinates(&self, true_sequence: usize, group_id: u64) -> PacketVector {
-        generate_packet_vector(true_sequence, group_id, self)
-    }
-
     /// Returns the multiport width
     pub fn get_multiport_width(&self) -> usize {
         self.scramble_mappings.len()
-    }
-
-    /// Determines the index of the packet w.r.t the total encrypted/scrambled data
-    pub fn get_packet_coordinate_inv(
-        &self,
-        src_port: u16,
-        recv_port: u16,
-        wave_id: u32,
-    ) -> Option<usize> {
-        generate_packet_coordinates_inv(wave_id, src_port, recv_port, self)
     }
 
     /// Gets the client ID

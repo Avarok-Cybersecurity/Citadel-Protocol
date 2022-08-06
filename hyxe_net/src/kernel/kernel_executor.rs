@@ -8,13 +8,13 @@ use hyxe_user::account_manager::AccountManager;
 use hyxe_wire::hypernode_type::NodeType;
 
 use crate::error::NetworkError;
-use crate::hdp::hdp_node::{HdpServer, NodeRemote, NodeResult};
-use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
-use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
-use crate::hdp::packet_processor::includes::Duration;
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::{KernelExecutorSettings, RuntimeFuture};
+use crate::proto::hdp_node::{HdpServer, NodeRemote, NodeResult};
+use crate::proto::misc::underlying_proto::UnderlyingProtocol;
+use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
+use crate::proto::packet_processor::includes::Duration;
 use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
 
@@ -94,7 +94,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             );
             #[cfg(feature = "multi-threaded")]
             {
-                use crate::hdp::misc::panic_future::ExplicitPanicFuture;
+                use crate::proto::misc::panic_future::ExplicitPanicFuture;
                 let hdp_server_future = ExplicitPanicFuture::new(_rt.spawn(hdp_server));
                 tokio::select! {
                     ret0 = kernel_future => ret0,

@@ -218,7 +218,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path ${HOME}/lcov.info
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path ${HOME}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs"
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
