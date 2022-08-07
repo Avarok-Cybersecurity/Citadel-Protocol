@@ -101,7 +101,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
             .await
             .map_err(|err| TrackedCallbackError::SendError(err.0.payload))?;
 
-        Ok(rx.await.map_err(|_| TrackedCallbackError::RecvError)?)
+        rx.await.map_err(|_| TrackedCallbackError::RecvError)
     }
 
     pub async fn send_no_callback(&self, payload: T) -> Result<(), TrackedCallbackError<T>> {
