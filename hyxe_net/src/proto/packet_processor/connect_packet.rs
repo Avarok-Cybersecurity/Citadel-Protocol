@@ -1,6 +1,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::proto::hdp_node::ConnectMode;
+use crate::proto::node::ConnectMode;
+use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use crate::proto::state_container::VirtualConnectionType;
 use hyxe_user::external_services::rtdb::RtdbClientConfig;
@@ -114,7 +115,7 @@ pub async fn process_connect(
                                     .await?;
 
                                 let success_packet =
-                                    hdp_packet_crafter::do_connect::craft_final_status_packet(
+                                    packet_crafter::do_connect::craft_final_status_packet(
                                         &hyper_ratchet,
                                         true,
                                         mailbox_items,
@@ -132,7 +133,17 @@ pub async fn process_connect(
 
                                 let cxn_type =
                                     VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                                let channel_signal = NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx);
+                                let channel_signal = NodeResult::ConnectSuccess(ConnectSuccess {
+                                    ticket: kernel_ticket,
+                                    implicated_cid: cid,
+                                    remote_addr: addr,
+                                    is_personal: is_personal,
+                                    v_conn_type: cxn_type,
+                                    services: post_login_object,
+                                    welcome_message: format!("Client {} successfully established a connection to the local HyperNode", cid),
+                                    channel: channel,
+                                    udp_rx_opt: udp_channel_rx
+                                });
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container)
                                     .c2s_channel_container
@@ -148,7 +159,7 @@ pub async fn process_connect(
                             let fail_time = time_tracker.get_global_time_ns();
 
                             //session.state = SessionState::NeedsConnect;
-                            let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(
+                            let packet = packet_crafter::do_connect::craft_final_status_packet(
                                 &hyper_ratchet,
                                 false,
                                 None,
@@ -189,11 +200,11 @@ pub async fn process_connect(
                         .store(SessionState::NeedsConnect, Ordering::Relaxed);
                     session.disable_dc_signal();
 
-                    session.send_to_kernel(NodeResult::ConnectFail(
-                        kernel_ticket,
-                        Some(cid),
-                        message,
-                    ))?;
+                    session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                        ticket: kernel_ticket,
+                        cid_opt: Some(cid),
+                        error_message: message,
+                    }))?;
                     Ok(PrimaryProcessorResult::EndSession(
                         "Failed connecting. Try again",
                     ))
@@ -273,30 +284,32 @@ pub async fn process_connect(
                                 .state
                                 .store(SessionState::Connected, Ordering::Relaxed);
 
-                            let success_ack = hdp_packet_crafter::do_connect::craft_success_ack(
+                            let success_ack = packet_crafter::do_connect::craft_success_ack(
                                 &hyper_ratchet,
                                 timestamp,
                                 security_level,
                             );
                             session.send_to_primary_stream(None, success_ack)?;
 
-                            session.send_to_kernel(NodeResult::ConnectSuccess(
-                                kernel_ticket,
-                                cid,
-                                addr,
-                                is_personal,
-                                cxn_type,
-                                payload.post_login_object,
-                                message,
-                                channel,
-                                udp_channel_rx,
-                            ))?;
+                            session.send_to_kernel(NodeResult::ConnectSuccess(ConnectSuccess {
+                                ticket: kernel_ticket,
+                                implicated_cid: cid,
+                                remote_addr: addr,
+                                is_personal: is_personal,
+                                v_conn_type: cxn_type,
+                                services: payload.post_login_object,
+                                welcome_message: message,
+                                channel: channel,
+                                udp_rx_opt: udp_channel_rx,
+                            }))?;
                             //finally, if there are any mailbox items, send them to the kernel for processing
                             if let Some(mailbox_delivery) = payload.mailbox {
                                 session.send_to_kernel(NodeResult::MailboxDelivery(
-                                    cid,
-                                    None,
-                                    mailbox_delivery,
+                                    MailboxDelivery {
+                                        implicated_cid: cid,
+                                        ticket_opt: None,
+                                        items: mailbox_delivery,
+                                    },
                                 ))?;
                             }
                             // TODO: Clean this up to prevent multiple saves
@@ -352,12 +365,11 @@ pub async fn process_connect(
                                 }
 
                                 if use_ka {
-                                    let ka =
-                                        hdp_packet_crafter::keep_alive::craft_keep_alive_packet(
-                                            &hyper_ratchet,
-                                            timestamp,
-                                            security_level,
-                                        );
+                                    let ka = packet_crafter::keep_alive::craft_keep_alive_packet(
+                                        &hyper_ratchet,
+                                        timestamp,
+                                        security_level,
+                                    );
                                     Ok(PrimaryProcessorResult::ReplyToSender(ka))
                                 } else {
                                     log::warn!(target: "lusna", "Keep-alive subsystem will not be used for this session as requested");

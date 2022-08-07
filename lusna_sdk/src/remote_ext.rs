@@ -113,7 +113,7 @@ pub(crate) mod user_ids {
 }
 
 /// Contains the elements required to communicate with the adjacent node
-pub struct ConnectSuccess {
+pub struct ConnectionSuccess {
     /// An interface to send ordered, reliable, and encrypted messages
     pub channel: PeerChannel,
     /// Only available if UdpMode was enabled at the beginning of a session
@@ -147,16 +147,17 @@ pub trait ProtocolRemoteExt: Remote {
         let creds =
             ProposedCredentials::new_register(full_name, username, proposed_password.into())
                 .await?;
-        let register_request = NodeRequest::RegisterToHypernode(
-            addr.to_socket_addrs()?
+        let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
+            remote_addr: addr
+                .to_socket_addrs()?
                 .next()
                 .ok_or(NetworkError::InternalError("Invalid socket addr"))?,
-            creds,
-            default_security_settings,
-        );
+            proposed_credentials: creds,
+            static_security_settings: default_security_settings,
+        });
 
         match map_errors(self.send_callback(register_request).await?)? {
-            NodeResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
+            NodeResult::RegisterOkay(RegisterOkay { .. }) => Ok(RegisterSuccess {}),
             res => Err(NetworkError::msg(format!(
                 "An unexpected response occurred: {:?}",
                 res
@@ -197,27 +198,39 @@ pub trait ProtocolRemoteExt: Remote {
         udp_mode: UdpMode,
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
-    ) -> Result<ConnectSuccess, NetworkError> {
+    ) -> Result<ConnectionSuccess, NetworkError> {
         //let fcm_keys = fcm_keys.or_else(||cnac.get_fcm_keys()); // use the specified keys, or else get the fcm keys created during the registration phase
 
-        let connect_request = NodeRequest::ConnectToHypernode(
-            auth,
-            connect_mode,
-            udp_mode,
-            keep_alive_timeout.map(|r| r.as_secs()),
-            session_security_settings,
-        );
+        let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
+            auth_request: auth,
+            connect_mode: connect_mode,
+            udp_mode: udp_mode,
+            keep_alive_timeout: keep_alive_timeout.map(|r| r.as_secs()),
+            session_security_settings: session_security_settings,
+        });
 
         match map_errors(self.send_callback(connect_request).await?)? {
-            NodeResult::ConnectSuccess(_, cid, _, _, _, services, _, channel, udp_channel_rx) => {
-                Ok(ConnectSuccess {
-                    channel,
-                    udp_channel_rx,
-                    services,
-                    cid,
-                })
-            }
-            NodeResult::ConnectFail(_, _, err) => Err(NetworkError::Generic(err)),
+            NodeResult::ConnectSuccess(ConnectSuccess {
+                ticket: _,
+                implicated_cid: cid,
+                remote_addr: _,
+                is_personal: _,
+                v_conn_type: _,
+                services,
+                welcome_message: _,
+                channel,
+                udp_rx_opt: udp_channel_rx,
+            }) => Ok(ConnectionSuccess {
+                channel,
+                udp_channel_rx,
+                services,
+                cid,
+            }),
+            NodeResult::ConnectFail(ConnectFail {
+                ticket: _,
+                cid_opt: _,
+                error_message: err,
+            }) => Err(NetworkError::Generic(err)),
             res => Err(NetworkError::msg(format!(
                 "[connect] An unexpected response occurred: {:?}",
                 res
@@ -230,7 +243,7 @@ pub trait ProtocolRemoteExt: Remote {
     async fn connect_with_defaults(
         &mut self,
         auth: AuthenticationRequest,
-    ) -> Result<ConnectSuccess, NetworkError> {
+    ) -> Result<ConnectionSuccess, NetworkError> {
         self.connect(
             auth,
             Default::default(),
@@ -308,26 +321,27 @@ pub trait ProtocolRemoteExt: Remote {
         limit: Option<usize>,
     ) -> Result<Vec<HyperlanPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
-        let command = NodeRequest::PeerCommand(
-            local_cid,
-            PeerSignal::GetRegisteredPeers(
+        let command = NodeRequest::PeerCommand(PeerCommand {
+            implicated_cid: local_cid,
+            command: PeerSignal::GetRegisteredPeers(
                 HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid),
                 None,
                 limit.map(|r| r as i32),
             ),
-        );
+        });
 
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(
-                PeerSignal::GetRegisteredPeers(
-                    _,
-                    Some(PeerResponse::RegisteredCids(cids, is_onlines)),
-                    _,
-                ),
-                _,
-            ) = map_errors(status)?
+            if let NodeResult::PeerEvent(PeerEvent {
+                event:
+                    PeerSignal::GetRegisteredPeers(
+                        _,
+                        Some(PeerResponse::RegisteredCids(cids, is_onlines)),
+                        _,
+                    ),
+                ticket: _,
+            }) = map_errors(status)?
             {
                 return Ok(cids
                     .into_iter()
@@ -346,21 +360,22 @@ pub trait ProtocolRemoteExt: Remote {
         local_user: T,
     ) -> Result<Vec<HyperlanPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
-        let command = NodeRequest::PeerCommand(
-            local_cid,
-            PeerSignal::GetMutuals(
+        let command = NodeRequest::PeerCommand(PeerCommand {
+            implicated_cid: local_cid,
+            command: PeerSignal::GetMutuals(
                 HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid),
                 None,
             ),
-        );
+        });
 
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(
-                PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))),
-                _,
-            ) = map_errors(status)?
+            if let NodeResult::PeerEvent(PeerEvent {
+                event:
+                    PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))),
+                ticket: _,
+            }) = map_errors(status)?
             {
                 return Ok(cids
                     .into_iter()
@@ -391,10 +406,14 @@ pub trait ProtocolRemoteExt: Remote {
 
 pub(crate) fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
     match result {
-        NodeResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
-        NodeResult::PeerEvent(PeerSignal::SignalError(_, err), _) => {
-            Err(NetworkError::Generic(err))
-        }
+        NodeResult::InternalServerError(InternalServerError {
+            ticket_opt: _,
+            message: err,
+        }) => Err(NetworkError::Generic(err)),
+        NodeResult::PeerEvent(PeerEvent {
+            event: PeerSignal::SignalError(_, err),
+            ticket: _,
+        }) => Err(NetworkError::Generic(err)),
         res => Ok(res),
     }
 }
@@ -424,15 +443,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let remote = self.remote();
 
         let result = remote
-            .send_callback(NodeRequest::SendObject(
-                Box::new(path.into()),
-                chunk_size,
-                implicated_cid,
-                user,
-            ))
+            .send_callback(NodeRequest::SendObject(SendObject {
+                source: Box::new(path.into()),
+                chunk_size: chunk_size,
+                implicated_cid: implicated_cid,
+                v_conn_type: user,
+            }))
             .await?;
         match map_errors(result)? {
-            NodeResult::ObjectTransferHandle(_ticket, mut handle) => {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                ticket: _ticket,
+                mut handle,
+            }) => {
                 while let Some(res) = handle.next().await {
                     log::trace!(target: "lusna", "Client received RES {:?}", res);
                     if let ObjectTransferStatus::TransferComplete = res {
@@ -465,21 +487,25 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
         let mut stream = self
             .remote()
-            .send_callback_subscription(NodeRequest::PeerCommand(
-                implicated_cid,
-                PeerSignal::PostConnect(
+            .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
+                implicated_cid: implicated_cid,
+                command: PeerSignal::PostConnect(
                     peer_target,
                     None,
                     None,
                     session_security_settings,
                     udp_mode,
                 ),
-            ))
+            }))
             .await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                NodeResult::PeerChannelCreated(_, channel, udp_rx_opt) => {
+                NodeResult::PeerChannelCreated(PeerChannelCreated {
+                    ticket: _,
+                    channel,
+                    udp_rx_opt,
+                }) => {
                     let username = self.target_username().cloned();
                     let remote = PeerRemote {
                         inner: self.remote().clone(),
@@ -495,10 +521,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     });
                 }
 
-                NodeResult::PeerEvent(
-                    PeerSignal::PostConnect(_, _, Some(PeerResponse::Decline), ..),
-                    ..,
-                ) => return Err(NetworkError::msg("Peer declined to connect")),
+                NodeResult::PeerEvent(PeerEvent {
+                    event: PeerSignal::PostConnect(_, _, Some(PeerResponse::Decline), ..),
+                    ..
+                }) => return Err(NetworkError::msg("Peer declined to connect")),
 
                 _ => {}
             }
@@ -528,21 +554,23 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
         let mut stream = self
             .remote()
-            .send_callback_subscription(NodeRequest::PeerCommand(
-                implicated_cid,
-                PeerSignal::PostRegister(
+            .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
+                implicated_cid: implicated_cid,
+                command: PeerSignal::PostRegister(
                     peer_target,
                     local_username,
                     peer_username_opt,
                     None,
                     None,
                 ),
-            ))
+            }))
             .await?;
 
         while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp)), _) =
-                map_errors(status)?
+            if let NodeResult::PeerEvent(PeerEvent {
+                event: PeerSignal::PostRegister(_, _, _, _, Some(resp)),
+                ticket: _,
+            }) = map_errors(status)?
             {
                 match resp {
                     PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
@@ -563,12 +591,17 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         if let Ok(peer_conn) = self.try_as_peer_connection().await {
             let peer_request = PeerSignal::Deregister(peer_conn);
             let implicated_cid = self.user().get_implicated_cid();
-            let request = NodeRequest::PeerCommand(implicated_cid, peer_request);
+            let request = NodeRequest::PeerCommand(PeerCommand {
+                implicated_cid: implicated_cid,
+                command: peer_request,
+            });
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(result) = subscription.next().await {
-                if let NodeResult::PeerEvent(PeerSignal::DeregistrationSuccess(..), _) =
-                    map_errors(result)?
+                if let NodeResult::PeerEvent(PeerEvent {
+                    event: PeerSignal::DeregistrationSuccess(..),
+                    ticket: _,
+                }) = map_errors(result)?
                 {
                     return Ok(());
                 }
@@ -576,12 +609,23 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         } else {
             // c2s conn
             let cid = self.user().get_implicated_cid();
-            let request = NodeRequest::DeregisterFromHypernode(cid, self.user().clone());
+            let request = NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
+                implicated_cid: cid,
+                v_conn_type: self.user().clone(),
+            });
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(result) = subscription.next().await {
                 match map_errors(result)? {
-                    NodeResult::DeRegistration(_, _, true) => return Ok(()),
-                    NodeResult::DeRegistration(_, _, false) => {
+                    NodeResult::DeRegistration(DeRegistration {
+                        implicated_cid: _,
+                        ticket_opt: _,
+                        success: true,
+                    }) => return Ok(()),
+                    NodeResult::DeRegistration(DeRegistration {
+                        implicated_cid: _,
+                        ticket_opt: _,
+                        success: false,
+                    }) => {
                         return Err(NetworkError::msg(format!(
                             "Unable to deregister: status=false"
                         )))
@@ -627,11 +671,15 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         }
 
         let group_request = GroupBroadcast::Create(initial_users, options);
-        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, group_request);
+        let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+            implicated_cid: implicated_cid,
+            command: group_request,
+        });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::GroupChannelCreated(_, channel) = evt {
+            if let NodeResult::GroupChannelCreated(GroupChannelCreated { ticket: _, channel }) = evt
+            {
                 return Ok(channel);
             }
         }
@@ -645,11 +693,19 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     async fn list_owned_groups(&mut self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
         let group_request = GroupBroadcast::ListGroupsFor(implicated_cid);
-        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, group_request);
+        let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+            implicated_cid: implicated_cid,
+            command: group_request,
+        });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::GroupEvent(_, _, GroupBroadcast::ListResponse(groups)) = evt {
+            if let NodeResult::GroupEvent(GroupEvent {
+                implicated_cid: _,
+                ticket: _,
+                event: GroupBroadcast::ListResponse(groups),
+            }) = evt
+            {
                 return Ok(groups);
             }
         }
@@ -694,7 +750,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 impl<T: TargetLockedRemote> ProtocolRemoteTargetExt for T {}
 
 pub mod results {
-    use crate::prelude::{ObjectTransferHandle, PeerChannel, UdpChannel};
+    use crate::prelude::{ObjectTransferHandler, PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
     use hyxe_net::prelude::NetworkError;
     use tokio::sync::mpsc::UnboundedReceiver;
@@ -708,14 +764,14 @@ pub mod results {
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
         pub(crate) incoming_object_transfer_handles:
-            Option<UnboundedReceiver<ObjectTransferHandle>>,
+            Option<UnboundedReceiver<ObjectTransferHandler>>,
     }
 
     impl PeerConnectSuccess {
         /// Obtains a receiver which yields incoming file/object transfer handles
         pub fn get_incoming_file_transfer_handle(
             &mut self,
-        ) -> Result<UnboundedReceiver<ObjectTransferHandle>, NetworkError> {
+        ) -> Result<UnboundedReceiver<ObjectTransferHandler>, NetworkError> {
             self.incoming_object_transfer_handles
                 .take()
                 .ok_or(NetworkError::InternalError(
@@ -737,8 +793,7 @@ pub mod results {
 }
 
 pub mod remote_specialization {
-    use crate::prelude::user_ids::TargetLockedRemote;
-    use crate::prelude::{NodeRemote, VirtualTargetType};
+    use crate::prelude::*;
 
     #[derive(Debug, Clone)]
     pub struct PeerRemote {
@@ -751,15 +806,12 @@ pub mod remote_specialization {
         fn user(&self) -> &VirtualTargetType {
             &self.peer
         }
-
         fn remote(&mut self) -> &mut NodeRemote {
             &mut self.inner
         }
-
         fn target_username(&self) -> Option<&String> {
             self.username.as_ref()
         }
-
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.peer
         }
@@ -797,7 +849,11 @@ mod tests {
 
         async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
             log::trace!(target: "lusna", "SERVER received {:?}", message);
-            if let NodeResult::ObjectTransferHandle(_, mut handle) = map_errors(message)? {
+            if let NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                ticket: _,
+                mut handle,
+            }) = map_errors(message)?
+            {
                 let mut path = None;
                 // accept the transfer
                 handle

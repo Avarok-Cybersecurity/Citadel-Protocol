@@ -30,7 +30,7 @@ pub mod macros {
 
     use either::Either;
 
-    use crate::proto::hdp_session::HdpSessionInner;
+    use crate::proto::session::HdpSessionInner;
 
     pub type OwnedReadGuard<'a, T> = std::cell::Ref<'a, T>;
     pub type OwnedWriteGuard<'a, T> = std::cell::RefMut<'a, T>;
@@ -190,7 +190,7 @@ pub mod macros {
 
     use either::Either;
 
-    use crate::proto::hdp_session::HdpSessionInner;
+    use crate::proto::session::HdpSessionInner;
 
     pub type OwnedReadGuard<'a, T> = parking_lot::RwLockReadGuard<'a, T>;
     pub type OwnedWriteGuard<'a, T> = parking_lot::RwLockWriteGuard<'a, T>;
@@ -388,17 +388,16 @@ pub mod prelude {
     pub use crate::kernel::{
         kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings,
     };
-    pub use crate::proto::hdp_node::ConnectMode;
-    pub use crate::proto::hdp_node::HdpServer;
-    pub use crate::proto::hdp_node::Ticket;
-    pub use crate::proto::hdp_node::{NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode};
-    pub use crate::proto::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     pub use crate::proto::misc::session_security_settings::{
         SessionSecuritySettings, SessionSecuritySettingsBuilder,
     };
     pub use crate::proto::misc::underlying_proto::UnderlyingProtocol;
+    pub use crate::proto::node::ConnectMode;
+    pub use crate::proto::node::HdpServer;
+    pub use crate::proto::node::SecrecyMode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
+    pub use crate::proto::packet_crafter::SecureProtocolPacket;
     pub use crate::proto::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
     pub use crate::proto::peer::channel::*;
     pub use crate::proto::peer::group_channel::{
@@ -409,16 +408,20 @@ pub mod prelude {
     pub use crate::proto::peer::peer_layer::HypernodeConnectionType;
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
+    pub use crate::proto::remote::Ticket;
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::re_imports::{async_trait, NodeType};
     pub use hyxe_user::backend::utils::{
-        ObjectTransferHandle, ObjectTransferOrientation, ObjectTransferStatus,
+        ObjectTransferHandler, ObjectTransferOrientation, ObjectTransferStatus,
         VirtualObjectMetadata,
     };
     pub use hyxe_user::serialization::SyncIO;
 
     #[doc(hidden)]
     pub use crate::proto::misc::net::{safe_split_stream, GenericNetworkStream};
+    pub use crate::proto::node_request::*;
+    pub use crate::proto::node_result::*;
+    pub use crate::proto::remote::*;
 }
 
 pub mod auth;

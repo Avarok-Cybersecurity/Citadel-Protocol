@@ -43,7 +43,7 @@ impl StreamableTargetInformation for VirtualObjectMetadata {
 /// Used to keep track of file transfer progress for either
 /// sender or receiver orientation
 #[derive(Debug)]
-pub struct ObjectTransferHandle {
+pub struct ObjectTransferHandler {
     inner: UnboundedReceiver<ObjectTransferStatus>,
     pub source: u64,
     pub receiver: u64,
@@ -51,7 +51,7 @@ pub struct ObjectTransferHandle {
     start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
-impl Stream for ObjectTransferHandle {
+impl Stream for ObjectTransferHandler {
     type Item = ObjectTransferStatus;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -59,7 +59,7 @@ impl Stream for ObjectTransferHandle {
     }
 }
 
-impl ObjectTransferHandle {
+impl ObjectTransferHandler {
     pub fn new(
         source: u64,
         receiver: u64,

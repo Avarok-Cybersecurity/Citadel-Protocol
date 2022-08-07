@@ -43,3 +43,37 @@ impl Encoder<Bytes> for BytesCodec {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::constants::CODEC_BUFFER_CAPACITY;
+    use crate::proto::codec::BytesCodec;
+    use bytes::{BufMut, Bytes, BytesMut};
+    use tokio_util::codec::{Decoder, Encoder};
+
+    #[test]
+    fn test_bytes_codec() {
+        lusna_logging::setup_log();
+
+        let mut codec = BytesCodec::new(CODEC_BUFFER_CAPACITY);
+        let mut buf = BytesMut::new();
+
+        let mut ret = BytesMut::new();
+
+        for x in 0..(CODEC_BUFFER_CAPACITY * 2) {
+            let val = (x % 255) as u8;
+            ret.put_u8(val);
+
+            let slice = &[val];
+            let data = Bytes::copy_from_slice(slice as &[u8]);
+            codec.encode(data, &mut buf).unwrap();
+        }
+
+        if let Ok(Some(data)) = codec.decode(&mut buf) {
+            assert_eq!(data, ret);
+            assert!(codec.decode(&mut buf).unwrap().is_none());
+        } else {
+            panic!("Failed test");
+        }
+    }
+}

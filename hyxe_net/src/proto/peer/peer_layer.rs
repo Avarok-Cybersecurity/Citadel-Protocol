@@ -1,12 +1,12 @@
 use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
-use crate::proto::hdp_node::Ticket;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::message_group::{
     GroupType, MessageGroup, MessageGroupKey, MessageGroupOptions, MessageGroupPeer,
 };
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
+use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
 use futures::task::AtomicWaker;
 use futures::task::{Context, Poll};

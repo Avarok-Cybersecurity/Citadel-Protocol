@@ -1,7 +1,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::proto::hdp_node::SecrecyMode;
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::node::SecrecyMode;
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_processor::primary_group_packet::{
     attempt_kem_as_alice_finish, attempt_kem_as_bob, get_proper_hyper_ratchet,
     get_resp_target_cid_from_header, ToolsetUpdate,
@@ -63,7 +63,7 @@ pub fn process_rekey(
                         ),
                         "Unable to attempt KEM as Bob"
                     );
-                    let packet = hdp_packet_crafter::do_drill_update::craft_stage1(
+                    let packet = packet_crafter::do_drill_update::craft_stage1(
                         &hyper_ratchet,
                         status,
                         timestamp,
@@ -122,7 +122,7 @@ pub fn process_rekey(
                     )
                     .unwrap_or(RatchetType::Default(hyper_ratchet))
                     .assume_default());
-                    let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(
+                    let truncate_packet = packet_crafter::do_drill_update::craft_truncate(
                         &latest_hr,
                         needs_truncate,
                         resp_target_cid,
@@ -199,7 +199,7 @@ pub fn process_rekey(
             // If we didn't have to deregister, then our job is done. alice does not need to hear from Bob
             // But, if deregistration occured, we need to alert alice that way she can unlock hers
             if let Some(truncate_vers) = truncate_packet.truncate_version {
-                let truncate_ack = hdp_packet_crafter::do_drill_update::craft_truncate_ack(
+                let truncate_ack = packet_crafter::do_drill_update::craft_truncate_ack(
                     &hyper_ratchet,
                     truncate_vers,
                     resp_target_cid,

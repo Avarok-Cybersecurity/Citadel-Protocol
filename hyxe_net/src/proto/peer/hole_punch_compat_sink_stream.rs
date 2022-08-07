@@ -56,7 +56,7 @@ impl ReliableOrderedCompatStream {
 #[async_trait]
 impl ReliableOrderedStreamToTarget for ReliableOrderedCompatStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-        let packet = crate::proto::hdp_packet_crafter::hole_punch::generate_packet(
+        let packet = crate::proto::packet_crafter::hole_punch::generate_packet(
             &self.hr,
             input,
             self.security_level,

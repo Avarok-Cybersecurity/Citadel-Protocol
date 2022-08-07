@@ -1,8 +1,9 @@
 use crate::error::NetworkError;
-use crate::prelude::{MessageGroupKey, NodeRemote, SecBuffer, Ticket};
-use crate::proto::hdp_session::SessionRequest;
+use crate::prelude::{MessageGroupKey, SecBuffer};
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::session::SessionRequest;
 use futures::Stream;
 use hyxe_user::re_imports::__private::Formatter;
 use std::fmt::Debug;
