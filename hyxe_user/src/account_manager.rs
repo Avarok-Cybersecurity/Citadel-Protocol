@@ -345,6 +345,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     }
 
     /// Returns the persistence handler
+    #[doc(hidden)]
     pub fn get_persistence_handler(&self) -> &PersistenceHandler<R, Fcm> {
         &self.persistence_handler
     }

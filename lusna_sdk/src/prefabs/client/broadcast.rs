@@ -76,7 +76,7 @@ where
         tracing::instrument(target = "lusna", skip_all, ret, err(Debug))
     )]
     async fn on_c2s_channel_received(
-        connect_success: ConnectSuccess,
+        connect_success: ConnectionSuccess,
         mut remote: ClientServerRemote,
         arg: GroupInitRequestType,
         fx: Self::UserLevelInputFunction,
@@ -162,7 +162,10 @@ where
             }
         };
 
-        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, request);
+        let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+            implicated_cid: implicated_cid,
+            command: request,
+        });
 
         let mut subscription = remote.inner.send_callback_subscription(request).await?;
 
@@ -209,12 +212,16 @@ where
         while let Some(event) = subscription.next().await {
             log::trace!(target: "lusna", "{:?} *recv* {:?}", implicated_cid, event);
             match map_errors(event)? {
-                NodeResult::GroupChannelCreated(_, channel) => {
+                NodeResult::GroupChannelCreated(GroupChannelCreated { ticket: _, channel }) => {
                     // in either case, whether owner or not, we get a channel
                     return tokio::try_join!((fx)(channel, remote), acceptor_task).map(|_| ());
                 }
 
-                NodeResult::GroupEvent(_, _, GroupBroadcast::CreateResponse(None)) => {
+                NodeResult::GroupEvent(GroupEvent {
+                    implicated_cid: _,
+                    ticket: _,
+                    event: GroupBroadcast::CreateResponse(None),
+                }) => {
                     return Err(NetworkError::InternalError(
                         "Unable to create a message group",
                     ))
@@ -252,7 +259,11 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
     }
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
-        if let NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(..), _) = &message {
+        if let NodeResult::PeerEvent(PeerEvent {
+            event: ps @ PeerSignal::PostRegister(..),
+            ticket: _,
+        }) = &message
+        {
             if self.shared.route_registers.load(Ordering::Relaxed) {
                 return self
                     .shared
@@ -276,11 +287,12 @@ mod tests {
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::PrefabFunctions;
+    use crate::prelude::*;
     use crate::prelude::{ProtocolRemoteTargetExt, UserIdentifier};
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
-    use hyxe_net::prelude::{GroupBroadcast, NetworkError, NodeResult};
+    use hyxe_net::prelude::{GroupBroadcast, NetworkError};
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use uuid::Uuid;
@@ -429,7 +441,11 @@ mod tests {
                         while let Some(evt) = signals.recv().await {
                             log::info!(target: "lusna", "Received unprocessed signal: {:?}", evt);
                             match evt {
-                                NodeResult::GroupEvent(_, _, GroupBroadcast::Invitation(_key)) => {
+                                NodeResult::GroupEvent(GroupEvent {
+                                    implicated_cid: _,
+                                    ticket: _,
+                                    event: GroupBroadcast::Invitation(_key),
+                                }) => {
                                     let _ = crate::responses::group_invite(
                                         evt,
                                         true,
@@ -438,7 +454,10 @@ mod tests {
                                     .await?;
                                 }
 
-                                NodeResult::GroupChannelCreated(_, _chan) => {
+                                NodeResult::GroupChannelCreated(GroupChannelCreated {
+                                    ticket: _,
+                                    channel: _chan,
+                                }) => {
                                     receiver_success.store(true, Ordering::Relaxed);
                                     log::trace!(target: "lusna", "***PEER {} CONNECT***", uuid);
                                     wait_for_peers().await;

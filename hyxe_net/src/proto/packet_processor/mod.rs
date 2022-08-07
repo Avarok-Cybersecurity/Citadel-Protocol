@@ -22,11 +22,11 @@ pub mod includes {
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
     pub use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
-    pub use crate::proto::hdp_node::NodeResult;
-    pub(crate) use crate::proto::hdp_packet::packet_flags;
-    pub use crate::proto::hdp_packet::{HdpHeader, HdpPacket};
-    pub use crate::proto::hdp_session::{HdpSession, HdpSessionInner, SessionState};
-    pub(crate) use crate::proto::{hdp_packet_crafter, validation};
+    pub use crate::proto::node_result::NodeResult;
+    pub(crate) use crate::proto::packet::packet_flags;
+    pub use crate::proto::packet::{HdpHeader, HdpPacket};
+    pub use crate::proto::session::{HdpSession, HdpSessionInner, SessionState};
+    pub(crate) use crate::proto::{packet_crafter, validation};
 
     pub use super::super::state_container::VirtualConnectionType;
     pub use super::PrimaryProcessorResult;

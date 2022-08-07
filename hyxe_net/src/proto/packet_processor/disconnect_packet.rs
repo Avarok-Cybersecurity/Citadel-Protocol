@@ -36,7 +36,7 @@ pub fn process_disconnect(
     match header.cmd_aux {
         packet_flags::cmd::aux::do_disconnect::STAGE0 => {
             log::trace!(target: "lusna", "STAGE 0 DISCONNECT PACKET RECEIVED");
-            let packet = hdp_packet_crafter::do_disconnect::craft_final(
+            let packet = packet_crafter::do_disconnect::craft_final(
                 &hyper_ratchet,
                 ticket,
                 timestamp,

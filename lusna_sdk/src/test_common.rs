@@ -40,7 +40,7 @@ pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
     opts: impl FnOnce(&mut NodeBuilder),
 ) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
 where
-    F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     let port = get_unused_tcp_port();

@@ -1,6 +1,6 @@
 use crate::error::NetworkError;
-use crate::proto::hdp_session::SessionState;
 use crate::proto::packet_processor::includes::Duration;
+use crate::proto::session::SessionState;
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;

@@ -13,8 +13,7 @@ use hyxe_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
-use crate::proto::hdp_node::Ticket;
-use crate::proto::hdp_session_manager::HdpSessionManager;
+use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet_processor::includes::*;
 use crate::proto::packet_processor::peer::group_broadcast;
@@ -31,6 +30,8 @@ use crate::proto::peer::peer_layer::{
     HyperNodePeerLayerInner, HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
     UdpMode,
 };
+use crate::proto::remote::Ticket;
+use crate::proto::session_manager::HdpSessionManager;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 
@@ -153,7 +154,10 @@ pub async fn process_peer_cmd(
                                 log::warn!(target: "lusna", "Vconn already removed");
                             }
 
-                            session.send_to_kernel(NodeResult::PeerEvent(signal, ticket))?;
+                            session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                                event: signal,
+                                ticket: ticket,
+                            }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
@@ -177,10 +181,10 @@ pub async fn process_peer_cmd(
                                 log::warn!(target: "lusna", "Unable to remove hyperlan peer {}", peer_cid);
                             }
 
-                            kernel_tx.unbounded_send(NodeResult::PeerEvent(
-                                PeerSignal::DeregistrationSuccess(*peer_cid),
-                                ticket,
-                            ))?;
+                            kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerEvent {
+                                event: PeerSignal::DeregistrationSuccess(*peer_cid),
+                                ticket: ticket,
+                            }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
@@ -207,24 +211,24 @@ pub async fn process_peer_cmd(
                             {
                                 Ok(_) => {
                                     log::trace!(target: "lusna", "Success registering at endpoints");
-                                    to_kernel.unbounded_send(NodeResult::PeerEvent(
-                                        PeerSignal::PostRegister(
+                                    to_kernel.unbounded_send(NodeResult::PeerEvent(PeerEvent {
+                                        event: PeerSignal::PostRegister(
                                             *vconn,
                                             peer_username.clone(),
                                             None,
                                             *ticket0,
                                             Some(PeerResponse::Accept(Some(peer_username.clone()))),
                                         ),
-                                        ticket,
-                                    ))?;
+                                        ticket: ticket,
+                                    }))?;
                                 }
 
                                 Err(err) => {
                                     log::error!(target: "lusna", "Unable to register at endpoints: {:?}", &err);
-                                    to_kernel.unbounded_send(NodeResult::PeerEvent(
-                                        PeerSignal::SignalError(ticket, err.into_string()),
-                                        ticket,
-                                    ))?;
+                                    to_kernel.unbounded_send(NodeResult::PeerEvent(PeerEvent {
+                                        event: PeerSignal::SignalError(ticket, err.into_string()),
+                                        ticket: ticket,
+                                    }))?;
                                 }
                             }
 
@@ -308,7 +312,7 @@ pub async fn process_peer_cmd(
                                                 );
 
                                                 let stage0_peer_kem =
-                                                    hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                                                    packet_crafter::peer_cmd::craft_peer_signal(
                                                         &sess_hyper_ratchet,
                                                         signal,
                                                         ticket,
@@ -380,14 +384,13 @@ pub async fn process_peer_cmd(
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
 
-                                    let stage1_kem =
-                                        hdp_packet_crafter::peer_cmd::craft_peer_signal(
-                                            &sess_hyper_ratchet,
-                                            signal,
-                                            ticket,
-                                            timestamp,
-                                            security_level,
-                                        );
+                                    let stage1_kem = packet_crafter::peer_cmd::craft_peer_signal(
+                                        &sess_hyper_ratchet,
+                                        signal,
+                                        ticket,
+                                        timestamp,
+                                        security_level,
+                                    );
                                     log::trace!(target: "lusna", "Sent stage 1 peer KEM");
                                     Ok(PrimaryProcessorResult::ReplyToSender(stage1_kem))
                                 }
@@ -501,7 +504,7 @@ pub async fn process_peer_cmd(
 
                                         // we need to use the session pqc since this signal needs to get processed by the center node
                                         let stage2_kem_packet =
-                                            hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                                            packet_crafter::peer_cmd::craft_peer_signal(
                                                 &sess_hyper_ratchet,
                                                 signal,
                                                 ticket,
@@ -523,11 +526,12 @@ pub async fn process_peer_cmd(
                                         )
                                     };
 
-                                    let channel_signal = NodeResult::PeerChannelCreated(
-                                        ticket_for_chan.unwrap_or(ticket),
-                                        channel,
-                                        udp_rx_opt,
-                                    );
+                                    let channel_signal =
+                                        NodeResult::PeerChannelCreated(PeerChannelCreated {
+                                            ticket: ticket_for_chan.unwrap_or(ticket),
+                                            channel: channel,
+                                            udp_rx_opt: udp_rx_opt,
+                                        });
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!(target: "lusna", "This p2p connection requires TURN-like routing");
@@ -646,11 +650,12 @@ pub async fn process_peer_cmd(
                                         )
                                     };
 
-                                    let channel_signal = NodeResult::PeerChannelCreated(
-                                        ticket_for_chan.unwrap_or(ticket),
-                                        channel,
-                                        udp_rx_opt,
-                                    );
+                                    let channel_signal =
+                                        NodeResult::PeerChannelCreated(PeerChannelCreated {
+                                            ticket: ticket_for_chan.unwrap_or(ticket),
+                                            channel: channel,
+                                            udp_rx_opt: udp_rx_opt,
+                                        });
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!(target: "lusna", "This p2p connection requires TURN-like routing");
@@ -718,7 +723,10 @@ pub async fn process_peer_cmd(
                     log::trace!(target: "lusna", "Forwarding PEER signal to kernel ...");
                     session
                         .kernel_tx
-                        .unbounded_send(NodeResult::PeerEvent(signal, ticket))?;
+                        .unbounded_send(NodeResult::PeerEvent(PeerEvent {
+                            event: signal,
+                            ticket: ticket,
+                        }))?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
                     process_signal_command_as_server(
@@ -798,7 +806,7 @@ async fn process_signal_command_as_server(
             let res = sess_mgr.send_signal_to_peer_direct(
                 conn.get_original_target_cid(),
                 move |peer_hyper_ratchet| {
-                    hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                    packet_crafter::peer_cmd::craft_peer_signal(
                         peer_hyper_ratchet,
                         signal_to,
                         ticket,
@@ -907,7 +915,7 @@ async fn process_signal_command_as_server(
                                 Some(accept),
                             );
 
-                            let rebound_accept = hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                            let rebound_accept = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
                                 cmd,
                                 ticket,
@@ -1008,7 +1016,7 @@ async fn process_signal_command_as_server(
 
                             // now, send a success packet to the client
                             let success_cmd = PeerSignal::DeregistrationSuccess(target_cid);
-                            let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                            let rebound_packet = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
                                 success_cmd,
                                 ticket,
@@ -1022,7 +1030,7 @@ async fn process_signal_command_as_server(
                             log::error!(target: "lusna", "Unable to find peer");
                             // unable to find the peer
                             let error_signal = PeerSignal::SignalError(ticket, err.into_string());
-                            let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                            let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
                                 error_signal,
                                 ticket,
@@ -1192,7 +1200,7 @@ async fn process_signal_command_as_server(
                                 target_cid,
                                 move |peer_hyper_ratchet| {
                                     // send signal to peer
-                                    hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                                    packet_crafter::peer_cmd::craft_peer_signal(
                                         peer_hyper_ratchet,
                                         signal_to_peer,
                                         ticket,
@@ -1310,17 +1318,22 @@ async fn process_signal_command_as_server(
 
         PeerSignal::SignalError(ticket, err) => {
             // in this case, we delegate the error to the higher-level kernel to determine what to do
-            session.kernel_tx.unbounded_send(NodeResult::PeerEvent(
-                PeerSignal::SignalError(ticket, err),
-                ticket,
-            ))?;
+            session
+                .kernel_tx
+                .unbounded_send(NodeResult::PeerEvent(PeerEvent {
+                    event: PeerSignal::SignalError(ticket, err),
+                    ticket: ticket,
+                }))?;
             Ok(PrimaryProcessorResult::Void)
         }
 
         PeerSignal::SignalReceived(ticket) => {
             session
                 .kernel_tx
-                .unbounded_send(NodeResult::PeerEvent(signal, ticket))?;
+                .unbounded_send(NodeResult::PeerEvent(PeerEvent {
+                    event: signal,
+                    ticket: ticket,
+                }))?;
             Ok(PrimaryProcessorResult::Void)
         }
 
@@ -1343,7 +1356,7 @@ fn reply_to_sender(
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(
+    let packet = packet_crafter::peer_cmd::craft_peer_signal(
         hyper_ratchet,
         signal,
         ticket,
@@ -1373,7 +1386,7 @@ fn construct_error_signal<E: ToString>(
     security_level: SecurityLevel,
 ) -> BytesMut {
     let err_signal = PeerSignal::SignalError(ticket, err.to_string());
-    hdp_packet_crafter::peer_cmd::craft_peer_signal(
+    packet_crafter::peer_cmd::craft_peer_signal(
         hyper_ratchet,
         err_signal,
         ticket,
@@ -1400,12 +1413,12 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
 
     // Give the target_cid 10 seconds to respond
     let res = sess_mgr.route_signal_primary(peer_layer, implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
-        hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp, security_level)
+        packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
         // TODO: Use latest ratchet, otherwise, may expire
         log::warn!(target: "lusna", "Running timeout closure. Sending error message to {}", implicated_cid);
-        let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet_2, stale_signal, ticket, timestamp, security_level);
+        let error_packet = packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet_2, stale_signal, ticket, timestamp, security_level);
         let _ = to_primary_stream.unbounded_send(error_packet);
     }).await;
 
@@ -1448,7 +1461,7 @@ pub(crate) async fn route_signal_response(
             ticket,
             peer_layer,
             move |peer_hyper_ratchet| {
-                hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                packet_crafter::peer_cmd::craft_peer_signal(
                     peer_hyper_ratchet,
                     signal,
                     ticket,

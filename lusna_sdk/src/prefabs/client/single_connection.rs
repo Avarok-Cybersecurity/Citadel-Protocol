@@ -1,5 +1,5 @@
 use crate::prefabs::ClientServerRemote;
-use crate::remote_ext::ConnectSuccess;
+use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
 use futures::Future;
 use hyxe_net::auth::AuthenticationRequest;
@@ -45,7 +45,7 @@ pub(crate) enum ConnectionType {
 
 impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
 where
-    F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send,
+    F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     /// Creates a new connection with a central server entailed by the user information
@@ -168,7 +168,7 @@ where
 #[async_trait]
 impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
 where
-    F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send,
+    F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
@@ -289,7 +289,7 @@ mod tests {
     )]
     async fn on_server_received_conn(
         udp_mode: UdpMode,
-        conn: ConnectSuccess,
+        conn: ConnectionSuccess,
         _remote: ClientServerRemote,
     ) -> Result<(), NetworkError> {
         crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
@@ -302,7 +302,7 @@ mod tests {
     )]
     async fn default_server_harness(
         udp_mode: UdpMode,
-        conn: ConnectSuccess,
+        conn: ConnectionSuccess,
         remote: ClientServerRemote,
         server_success: &AtomicBool,
     ) -> Result<(), NetworkError> {
@@ -449,6 +449,81 @@ mod tests {
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
                 remote.deregister().await?;
+                client_success.store(true, Ordering::Relaxed);
+                wait_for_peers().await;
+                remote.shutdown_kernel().await
+            },
+        );
+
+        let client = NodeBuilder::default().build(client_kernel).unwrap();
+
+        let joined = futures::future::try_join(server, client);
+
+        let _ = joined.await.unwrap();
+
+        assert!(client_success.load(Ordering::Relaxed));
+        assert!(server_success.load(Ordering::Relaxed));
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_backend_store_c2s() {
+        let _ = lusna_logging::setup_log();
+        TestBarrier::setup(2);
+
+        let udp_mode = UdpMode::Disabled;
+
+        let client_success = &AtomicBool::new(false);
+        let server_success = &AtomicBool::new(false);
+        let (server, server_addr) = server_info_reactive(
+            |conn, remote| async move {
+                default_server_harness(udp_mode, conn, remote, server_success).await
+            },
+            |_| (),
+        );
+
+        let uuid = Uuid::new_v4();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+            uuid,
+            server_addr,
+            udp_mode,
+            Default::default(),
+            |channel, mut remote| async move {
+                log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                wait_for_peers().await;
+                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
+
+                const KEY: &'static str = "HELLO_WORLD";
+                const KEY2: &'static str = "HELLO_WORLD2";
+                let value: Vec<u8> = Vec::from("Hello, world!");
+                let value2: Vec<u8> = Vec::from("Hello, world!2");
+
+                assert_eq!(remote.set(KEY, value.clone()).await?.as_deref(), None);
+                assert_eq!(remote.get(KEY).await?.as_deref(), Some(value.as_slice()));
+
+                assert_eq!(remote.set(KEY2, value2.clone()).await?.as_deref(), None);
+                assert_eq!(remote.get(KEY2).await?.as_deref(), Some(value2.as_slice()));
+
+                let map = remote.get_all().await?;
+                assert_eq!(map.get(KEY).as_deref(), Some(&value));
+                assert_eq!(map.get(KEY2).as_deref(), Some(&value2));
+
+                assert_eq!(
+                    remote.remove(KEY2).await?.as_deref(),
+                    Some(value2.as_slice())
+                );
+
+                assert_eq!(remote.remove(KEY2).await?.as_deref(), None);
+
+                let map = remote.remove_all().await?;
+                assert_eq!(map.get(KEY).as_deref(), Some(&value));
+                assert_eq!(map.get(KEY2), None);
+
+                assert_eq!(remote.get_all().await?.len(), 0);
+                assert_eq!(remote.remove_all().await?.len(), 0);
+
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
                 remote.shutdown_kernel().await

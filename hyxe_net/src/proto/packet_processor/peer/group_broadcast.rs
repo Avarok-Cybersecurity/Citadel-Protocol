@@ -1,10 +1,11 @@
 use super::super::includes::*;
 use crate::error::NetworkError;
 use crate::functional::*;
-use crate::proto::hdp_node::Ticket;
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::peer::message_group::{MessageGroupKey, MessageGroupOptions};
+use crate::proto::remote::Ticket;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
@@ -85,7 +86,7 @@ pub async fn process_group_broadcast(
                 )
                 .await;
             let signal = GroupBroadcast::CreateResponse(key);
-            let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+            let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
                 sess_hyper_ratchet,
                 &signal,
                 ticket,
@@ -112,37 +113,35 @@ pub async fn process_group_broadcast(
                         // group does not exist. Send error packet
                         log::warn!(target: "lusna", "Group {:?} does not exist", key);
                         let error = GroupBroadcast::GroupNonExists(key);
-                        let return_packet =
-                            hdp_packet_crafter::peer_cmd::craft_group_message_packet(
-                                sess_hyper_ratchet,
-                                &error,
-                                ticket,
-                                C2S_ENCRYPTION_ONLY,
-                                timestamp,
-                                security_level,
-                            );
+                        let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                            sess_hyper_ratchet,
+                            &error,
+                            ticket,
+                            C2S_ENCRYPTION_ONLY,
+                            timestamp,
+                            security_level,
+                        );
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
                     }
 
                     Some(true) => {
                         // user has been automatically added to the group via auto-accept.
                         let success = GroupBroadcast::AcceptMembershipResponse(key, true);
-                        let return_packet =
-                            hdp_packet_crafter::peer_cmd::craft_group_message_packet(
-                                sess_hyper_ratchet,
-                                &success,
-                                ticket,
-                                C2S_ENCRYPTION_ONLY,
-                                timestamp,
-                                security_level,
-                            );
+                        let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                            sess_hyper_ratchet,
+                            &success,
+                            ticket,
+                            C2S_ENCRYPTION_ONLY,
+                            timestamp,
+                            security_level,
+                        );
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
                     }
 
                     Some(false) => {
                         // auto-accept is not enabled. Relay signal to owner
                         let res = session.session_manager.route_packet_to(key.cid, |peer_hr| {
-                            hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                            packet_crafter::peer_cmd::craft_group_message_packet(
                                 peer_hr,
                                 &GroupBroadcast::RequestJoin(key),
                                 ticket,
@@ -153,15 +152,14 @@ pub async fn process_group_broadcast(
                         });
 
                         let signal = GroupBroadcast::SignalResponse(res);
-                        let return_packet =
-                            hdp_packet_crafter::peer_cmd::craft_group_message_packet(
-                                sess_hyper_ratchet,
-                                &signal,
-                                ticket,
-                                C2S_ENCRYPTION_ONLY,
-                                timestamp,
-                                security_level,
-                            );
+                        let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                            sess_hyper_ratchet,
+                            &signal,
+                            ticket,
+                            C2S_ENCRYPTION_ONLY,
+                            timestamp,
+                            security_level,
+                        );
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
                     }
                 }
@@ -177,7 +175,7 @@ pub async fn process_group_broadcast(
                 .await
                 .unwrap_or_default();
             let signal = GroupBroadcast::ListResponse(message_groups);
-            let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+            let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
                 sess_hyper_ratchet,
                 &signal,
                 ticket,
@@ -209,7 +207,7 @@ pub async fn process_group_broadcast(
                 .remove_message_group(implicated_cid, timestamp, ticket, key, security_level)
                 .await;
             let signal = GroupBroadcast::EndResponse(key, success);
-            let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+            let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
                 sess_hyper_ratchet,
                 &signal,
                 ticket,
@@ -263,7 +261,7 @@ pub async fn process_group_broadcast(
                     .await
                     .unwrap_or(false);
                 let resp = GroupBroadcast::MessageResponse(key, success);
-                let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                     sess_hyper_ratchet,
                     &resp,
                     ticket,
@@ -320,7 +318,7 @@ pub async fn process_group_broadcast(
 
             // tell the user who accepted the membership
             let signal = GroupBroadcast::AcceptMembershipResponse(key, success);
-            let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+            let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                 sess_hyper_ratchet,
                 &signal,
                 ticket,
@@ -372,7 +370,7 @@ pub async fn process_group_broadcast(
                 )
             };
             let signal = GroupBroadcast::LeaveRoomResponse(key, success, message);
-            let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+            let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                 sess_hyper_ratchet,
                 &signal,
                 ticket,
@@ -432,7 +430,7 @@ pub async fn process_group_broadcast(
                     .if_false_then(|| Some(peers_failed));
 
                 let signal = GroupBroadcast::AddResponse(key, peers_failed);
-                let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                     sess_hyper_ratchet,
                     &signal,
                     ticket,
@@ -444,7 +442,7 @@ pub async fn process_group_broadcast(
             } else {
                 // Send error message
                 let signal = GroupBroadcast::GroupNonExists(key);
-                let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                     sess_hyper_ratchet,
                     &signal,
                     ticket,
@@ -480,7 +478,7 @@ pub async fn process_group_broadcast(
                 .ok()
                 .unwrap_or(false);
             let resp = GroupBroadcast::KickResponse(key, success);
-            let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+            let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                 sess_hyper_ratchet,
                 &resp,
                 ticket,
@@ -530,7 +528,10 @@ fn create_group_channel(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
-    session.send_to_kernel(NodeResult::GroupChannelCreated(ticket, channel))?;
+    session.send_to_kernel(NodeResult::GroupChannelCreated(GroupChannelCreated {
+        ticket: ticket,
+        channel: channel,
+    }))?;
     Ok(PrimaryProcessorResult::Void)
 }
 
@@ -569,7 +570,11 @@ fn forward_signal(
 
     // send to kernel
     session
-        .send_to_kernel(NodeResult::GroupEvent(implicated_cid, ticket, broadcast))
+        .send_to_kernel(NodeResult::GroupEvent(GroupEvent {
+            implicated_cid: implicated_cid,
+            ticket: ticket,
+            event: broadcast,
+        }))
         .map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {:?}", err)))?;
     Ok(PrimaryProcessorResult::Void)
 }

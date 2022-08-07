@@ -25,20 +25,20 @@ use crate::constants::{
     KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME,
 };
 use crate::error::NetworkError;
-use crate::proto::hdp_packet::{packet_flags, HdpPacket};
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
+use crate::proto::packet::{packet_flags, HdpPacket};
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
 use hyxe_user::backend::utils::VirtualObjectMetadata;
 //use futures_codec::Framed;
-use crate::proto::hdp_node::{ConnectMode, NodeRemote, NodeResult, Ticket};
-use crate::proto::hdp_session_manager::HdpSessionManager;
 use crate::proto::misc;
 use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
+use crate::proto::node::ConnectMode;
 use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
+use crate::proto::session_manager::HdpSessionManager;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::kernel::RuntimeFuture;
@@ -77,6 +77,9 @@ use hyxe_wire::exports::NewConnection;
 use hyxe_wire::nat_identification::NatType;
 use std::ops::Deref;
 use std::pin::Pin;
+//use futures_codec::Framed;
+use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
+use crate::proto::remote::{NodeRemote, Ticket};
 
 //use crate::define_struct;
 
@@ -585,7 +588,7 @@ impl HdpSession {
                 let transfer = alice_constructor.stage0_alice();
 
                 let stage0_register_packet =
-                    crate::proto::hdp_packet_crafter::do_register::craft_stage0(
+                    crate::proto::packet_crafter::do_register::craft_stage0(
                         session_security_settings.crypto_params.into(),
                         timestamp,
                         transfer,
@@ -671,7 +674,7 @@ impl HdpSession {
         }
 
         // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-        let syn = hdp_packet_crafter::pre_connect::craft_syn(
+        let syn = packet_crafter::pre_connect::craft_syn(
             static_aux_hr,
             transfer,
             nat_type,
@@ -1013,7 +1016,10 @@ impl HdpSession {
     ) -> Result<(), NetworkError> {
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
             kernel_tx
-                .unbounded_send(NodeResult::InternalServerError(ticket, err.to_string()))
+                .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                    ticket_opt: ticket,
+                    message: err.to_string(),
+                }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
             Err(NetworkError::InternalError("Primary stream closed"))
         } else {
@@ -1211,7 +1217,7 @@ impl HdpSession {
                             HDP_HEADER_BYTE_LEN,
                             target_cid,
                             group_id_start,
-                            hdp_packet_crafter::group::craft_wave_payload_packet_into,
+                            packet_crafter::group::craft_wave_payload_packet_into,
                         )
                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
@@ -1227,7 +1233,7 @@ impl HdpSession {
                         // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                         let amt_to_reserve = groups_needed - 1;
                         crypt_container.rolling_group_id += amt_to_reserve as u64;
-                        let file_header = hdp_packet_crafter::file::craft_file_header_packet(
+                        let file_header = packet_crafter::file::craft_file_header_packet(
                             &latest_hr,
                             group_id_start,
                             ticket,
@@ -1286,7 +1292,7 @@ impl HdpSession {
                                     HDP_HEADER_BYTE_LEN,
                                     target_cid,
                                     start_group_id,
-                                    hdp_packet_crafter::group::craft_wave_payload_packet_into,
+                                    packet_crafter::group::craft_wave_payload_packet_into,
                                 )
                                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
@@ -1299,16 +1305,15 @@ impl HdpSession {
                                     group_count: groups_needed,
                                 };
 
-                                let file_header =
-                                    hdp_packet_crafter::file::craft_file_header_packet(
-                                        latest_usable_ratchet,
-                                        start_group_id,
-                                        ticket,
-                                        security_level,
-                                        virtual_target,
-                                        file_metadata,
-                                        timestamp,
-                                    );
+                                let file_header = packet_crafter::file::craft_file_header_packet(
+                                    latest_usable_ratchet,
+                                    start_group_id,
+                                    ticket,
+                                    security_level,
+                                    virtual_target,
+                                    file_metadata,
+                                    timestamp,
+                                );
 
                                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                                 let amt_to_reserve = groups_needed - 1;
@@ -1525,7 +1530,10 @@ impl HdpSession {
                                                     log::warn!(target: "lusna", "Attempted to remove {:?}, but was already absent from map", &file_key);
                                                 }
 
-                                                if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
+                                                if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                                    ticket_opt: Some(ticket),
+                                                    message: format!("Timeout on ticket {}", ticket)
+                                                })) {
                                                     log::error!(target: "lusna", "[File] Unable to send kernel error signal. Ending session");
                                                     QueueWorkerResult::EndSession
                                                 } else {
@@ -1563,8 +1571,10 @@ impl HdpSession {
                                 kernel_tx
                                     .clone()
                                     .unbounded_send(NodeResult::InternalServerError(
-                                        Some(ticket),
-                                        err.to_string(),
+                                        InternalServerError {
+                                            ticket_opt: Some(ticket),
+                                            message: err.to_string(),
+                                        },
                                     ));
                         }
                     }
@@ -1615,8 +1625,10 @@ impl HdpSession {
                             ) {
                                 to_kernel_tx
                                     .unbounded_send(NodeResult::InternalServerError(
-                                        Some(ticket),
-                                        err.into_string(),
+                                        InternalServerError {
+                                            ticket_opt: Some(ticket),
+                                            message: err.into_string(),
+                                        },
                                     ))
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?
                             }
@@ -1628,8 +1640,10 @@ impl HdpSession {
                             {
                                 to_kernel_tx
                                     .unbounded_send(NodeResult::InternalServerError(
-                                        Some(ticket),
-                                        err.into_string(),
+                                        InternalServerError {
+                                            ticket_opt: Some(ticket),
+                                            message: err.into_string(),
+                                        },
                                     ))
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?
                             }
@@ -1707,7 +1721,7 @@ impl HdpSession {
                 .peer_session_crypto
                 .get_hyper_ratchet(None)
                 .unwrap();
-            let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(
+            let packet = super::packet_crafter::peer_cmd::craft_peer_signal(
                 hyper_ratchet,
                 signal_processed,
                 ticket,
@@ -1762,7 +1776,7 @@ impl HdpSession {
         while let Some((cmd_aux, packet)) = receiver.next().await {
             let send_addr = hole_punched_addr.send_address;
             let packet = peer_session_accessor.borrow_hr(None, |hr, _| {
-                hdp_packet_crafter::udp::craft_udp_packet(
+                packet_crafter::udp::craft_udp_packet(
                     hr,
                     cmd_aux,
                     packet,
@@ -1863,7 +1877,7 @@ impl HdpSession {
                     .unwrap();
                 let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
                 let ref to_kernel_tx = session.kernel_tx;
-                let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(
+                let disconnect_stage0_packet = packet_crafter::do_disconnect::craft_stage0(
                     hr,
                     ticket,
                     timestamp,
@@ -1931,8 +1945,11 @@ impl HdpSessionInner {
                 Ok(_) => Ok(()),
 
                 Err(err) => {
-                    self.send_to_kernel(NodeResult::InternalServerError(ticket, err.to_string()))
-                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
+                        ticket_opt: ticket,
+                        message: err.to_string(),
+                    }))
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
                     Err(NetworkError::InternalError(
                         "Unable to send through primary stream",
                     ))
@@ -1951,8 +1968,11 @@ impl HdpSessionInner {
     ) -> Result<T, NetworkError> {
         match (fx)().map_err(|err| NetworkError::Generic(err.to_string())) {
             Err(err) => {
-                self.send_to_kernel(NodeResult::InternalServerError(ticket, err.to_string()))
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
+                    ticket_opt: ticket,
+                    message: err.to_string(),
+                }))
+                .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 Err(err)
             }
 
@@ -1983,7 +2003,7 @@ impl HdpSessionInner {
                 .clone()
                 .unwrap();
             let stage0_packet =
-                hdp_packet_crafter::do_deregister::craft_stage0(hr, timestamp, security_level);
+                packet_crafter::do_deregister::craft_stage0(hr, timestamp, security_level);
 
             state_container.deregister_state.on_init(timestamp, ticket);
             self.send_to_primary_stream(Some(ticket), stage0_packet)
@@ -2007,16 +2027,13 @@ impl HdpSessionInner {
         msg: T,
     ) {
         if let Some(tx) = self.dc_signal_sender.take() {
-            let _ = tx.unbounded_send(NodeResult::Disconnect(
-                ticket.unwrap_or_else(|| self.kernel_ticket.get()),
-                self.implicated_cid
-                    .get()
-                    .map(|r| r as _)
-                    .unwrap_or_else(|| self.kernel_ticket.get().0),
-                disconnect_success,
-                None,
-                msg.into(),
-            ));
+            let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
+                ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
+                cid_opt: self.implicated_cid.get(),
+                success: disconnect_success,
+                v_conn_type: None,
+                message: msg.into(),
+            }));
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::error::NetworkError;
-use crate::proto::hdp_node::TlsDomain;
+use crate::proto::node::TlsDomain;
 use hyxe_user::re_imports::__private::Formatter;
 use hyxe_wire::exports::{Certificate, PrivateKey};
 use hyxe_wire::tls::TLSQUICInterop;
