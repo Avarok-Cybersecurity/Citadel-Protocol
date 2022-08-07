@@ -1,6 +1,6 @@
 //use futures::channel::mpsc::{UnboundedSender, SendError, UnboundedReceiver, TrySendError};
 use crate::error::NetworkError;
-use crate::proto::hdp_packet::packet_flags;
+use crate::proto::packet::packet_flags;
 use bytes::{Bytes, BytesMut};
 use futures::task::{Context, Poll};
 use futures::Sink;

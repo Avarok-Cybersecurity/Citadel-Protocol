@@ -1,10 +1,7 @@
 use crate::prefabs::client::PrefabFunctions;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
-use crate::prelude::{
-    ConnectSuccess, NetKernel, NetworkError, NodeRemote, NodeResult, ObjectTransferHandle,
-    ObjectTransferOrientation, ProtocolRemoteExt, ProtocolRemoteTargetExt, UserIdentifier,
-};
+use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
@@ -37,7 +34,7 @@ pub struct Shared {
 struct PeerContext {
     #[allow(dead_code)]
     conn_type: PeerConnectionType,
-    send_file_transfer_tx: UnboundedSender<ObjectTransferHandle>,
+    send_file_transfer_tx: UnboundedSender<ObjectTransferHandler>,
 }
 
 #[async_trait]
@@ -52,7 +49,7 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            NodeResult::ObjectTransferHandle(_, handle) => {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
                 let v_conn = if handle.orientation == ObjectTransferOrientation::Receiver {
                     PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.receiver, handle.source)
                 } else {
@@ -71,7 +68,13 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
                 Ok(())
             }
 
-            NodeResult::Disconnect(_, _, _, Some(v_conn), ..) => {
+            NodeResult::Disconnect(Disconnect {
+                ticket: _,
+                cid_opt: _,
+                success: _,
+                v_conn_type: Some(v_conn),
+                ..
+            }) => {
                 if let Some(v_conn) = v_conn.try_as_peer_connection() {
                     let mut active_peers = self.shared.active_peer_conns.lock();
                     let _ = active_peers.remove(&v_conn);
@@ -222,7 +225,7 @@ where
         tracing::instrument(target = "lusna", skip_all, ret, err(Debug))
     )]
     async fn on_c2s_channel_received(
-        connect_success: ConnectSuccess,
+        connect_success: ConnectionSuccess,
         cls_remote: ClientServerRemote,
         peers_to_connect: T,
         f: Self::UserLevelInputFunction,

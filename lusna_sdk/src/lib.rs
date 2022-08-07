@@ -122,13 +122,17 @@
 
 /// Convenience import for building applications
 pub mod prelude {
+    pub use crate::backend_kv_store::BackendHandler;
     pub use crate::builder::node_builder::*;
     pub use crate::prefabs::client::PrefabFunctions;
+    pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;
     pub use hyxe_net::prelude::*;
 }
 
+/// Store data to the backend using this library
+pub mod backend_kv_store;
 mod builder;
 /// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
 pub mod prefabs;

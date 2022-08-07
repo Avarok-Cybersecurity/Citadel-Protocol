@@ -59,7 +59,7 @@ pub async fn process_keep_alive(
                     async move {
                         tokio::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS)).await;
                         accessor.borrow_hr(None, |hr, _| {
-                            let next_ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(
+                            let next_ka = packet_crafter::keep_alive::craft_keep_alive_packet(
                                 hr,
                                 current_timestamp_ns + DELTA_NS,
                                 security_level,

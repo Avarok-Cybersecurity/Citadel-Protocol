@@ -1,5 +1,5 @@
-use crate::proto::hdp_node::TlsDomain;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
+use crate::proto::node::TlsDomain;
 use crate::proto::peer::peer_layer::UdpMode;
 use hyxe_wire::nat_identification::NatType;
 use serde::{Deserialize, Serialize};

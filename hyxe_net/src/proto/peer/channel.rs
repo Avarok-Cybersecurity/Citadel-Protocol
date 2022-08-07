@@ -1,10 +1,11 @@
 use crate::error::NetworkError;
-use crate::proto::hdp_node::{NodeRemote, NodeRequest, Ticket};
-use crate::proto::hdp_packet_crafter::SecureProtocolPacket;
-use crate::proto::hdp_session::SessionRequest;
+use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, Sender, UnboundedReceiver};
+use crate::proto::packet_crafter::SecureProtocolPacket;
 use crate::proto::packet_processor::raw_primary_packet::ReceivePortType;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
+use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::session::SessionRequest;
 use crate::proto::state_container::VirtualConnectionType;
 use futures::task::{Context, Poll};
 use futures::Stream;
@@ -198,19 +199,19 @@ impl Drop for PeerChannelRecvHalf {
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
                         self.is_alive.store(false, Ordering::SeqCst);
-                        NodeRequest::PeerCommand(
-                            local_cid,
-                            PeerSignal::Disconnect(
+                        NodeRequest::PeerCommand(PeerCommand {
+                            implicated_cid: local_cid,
+                            command: PeerSignal::Disconnect(
                                 PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid),
                                 None,
                             ),
-                        )
+                        })
                     }
 
-                    ReceivePortType::UnorderedUnreliable => NodeRequest::PeerCommand(
-                        local_cid,
-                        PeerSignal::DisconnectUDP(self.vconn_type),
-                    ),
+                    ReceivePortType::UnorderedUnreliable => NodeRequest::PeerCommand(PeerCommand {
+                        implicated_cid: local_cid,
+                        command: PeerSignal::DisconnectUDP(self.vconn_type),
+                    }),
                 };
 
                 if let Err(err) = self.server_remote.try_send(command) {

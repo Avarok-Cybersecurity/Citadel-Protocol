@@ -1,12 +1,13 @@
 use crate::error::NetworkError;
 use crate::prelude::{
-    PeerConnectionType, PeerResponse, PeerSignal, SessionSecuritySettings, Ticket, UdpMode,
+    PeerConnectionType, PeerResponse, PeerSignal, SessionSecuritySettings, UdpMode,
 };
-use crate::proto::hdp_session::HdpSession;
 use crate::proto::packet_processor::includes::VirtualConnectionType;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::HyperNodePeerLayerInner;
+use crate::proto::remote::Ticket;
+use crate::proto::session::HdpSession;
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
