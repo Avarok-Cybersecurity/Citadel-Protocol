@@ -60,7 +60,7 @@ impl<T, R> CallbackChannel<T, R> {
             .send((payload, Some(tx)))
             .await
             .map_err(|err| CallbackError::SendError(err.0 .0))?;
-        Ok(rx.await.map_err(|_| CallbackError::RecvError)?)
+        rx.await.map_err(|_| CallbackError::RecvError)
     }
 
     pub async fn send_no_callback(&self, payload: T) -> Result<(), CallbackError<T>> {
