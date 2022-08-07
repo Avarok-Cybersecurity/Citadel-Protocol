@@ -6,8 +6,8 @@ use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
-use crate::proto::hdp_node::Ticket;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
+use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualTargetType;
 use hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
 use hyxe_crypt::secure_buffer::sec_packet::SecureMessagePacket;
@@ -225,11 +225,11 @@ pub(crate) mod group {
     use hyxe_crypt::prelude::*;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_node::Ticket;
-    use crate::proto::hdp_packet::packet_sizes;
-    use crate::proto::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
-    use crate::proto::hdp_packet_crafter::GroupTransmitter;
+    use crate::proto::packet::packet_sizes;
+    use crate::proto::packet::packet_sizes::GROUP_HEADER_ACK_LEN;
+    use crate::proto::packet::{packet_flags, HdpHeader};
+    use crate::proto::packet_crafter::GroupTransmitter;
+    use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use crate::proto::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
@@ -424,7 +424,7 @@ pub(crate) mod do_connect {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::MailboxTransfer;
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
@@ -572,7 +572,7 @@ pub(crate) mod keep_alive {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
@@ -608,7 +608,7 @@ pub(crate) mod do_register {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
@@ -806,8 +806,8 @@ pub mod do_disconnect {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_node::Ticket;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
+    use crate::proto::remote::Ticket;
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
@@ -877,7 +877,7 @@ pub(crate) mod do_drill_update {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, packet_sizes, HdpHeader};
+    use crate::proto::packet::{packet_flags, packet_sizes, HdpHeader};
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
@@ -1040,7 +1040,7 @@ pub(crate) mod do_deregister {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
@@ -1115,10 +1115,10 @@ pub(crate) mod pre_connect {
     use hyxe_wire::hypernode_type::NodeType;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_node::ConnectMode;
-    use crate::proto::hdp_packet::packet_flags::payload_identifiers;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
     use crate::proto::misc::session_security_settings::SessionSecuritySettings;
+    use crate::proto::node::ConnectMode;
+    use crate::proto::packet::packet_flags::payload_identifiers;
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::UdpMode;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
@@ -1363,10 +1363,10 @@ pub(crate) mod pre_connect {
 
 pub(crate) mod peer_cmd {
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_node::Ticket;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
     use crate::proto::peer::peer_layer::ChannelPacket;
+    use crate::proto::remote::Ticket;
     use bytes::BytesMut;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use hyxe_crypt::prelude::SecurityLevel;
@@ -1530,8 +1530,8 @@ pub(crate) mod peer_cmd {
 
 pub(crate) mod file {
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_node::Ticket;
     use crate::proto::packet_processor::includes::{packet_flags, HdpHeader, SecurityLevel};
+    use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use bytes::{BufMut, BytesMut};
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
@@ -1624,7 +1624,7 @@ pub(crate) mod file {
 
 pub(crate) mod udp {
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::BytesMut;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
@@ -1665,7 +1665,7 @@ pub(crate) mod udp {
 
 pub(crate) mod hole_punch {
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::hdp_packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::{BufMut, BytesMut};
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;

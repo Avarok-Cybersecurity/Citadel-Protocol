@@ -1,6 +1,6 @@
 use tokio::time::Instant;
 
-use crate::proto::hdp_packet::packet_flags;
+use crate::proto::packet::packet_flags;
 use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 

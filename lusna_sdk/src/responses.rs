@@ -6,9 +6,7 @@
 //! [`PeerConnectionType`] data must be `.reverse()`'d. Finally, some response types
 //! require the manual input of usernames, and as such, this helper library enforces
 //! all these requirements
-use crate::prelude::{
-    GroupBroadcast, NetworkError, NodeRequest, NodeResult, PeerResponse, PeerSignal, Remote, Ticket,
-};
+use crate::prelude::*;
 
 /// Given the `input_signal` from the peer, this function sends a register response to the target peer
 pub async fn peer_register(
@@ -42,7 +40,13 @@ pub async fn peer_register(
             Some(resp),
         );
         remote
-            .send_with_custom_ticket(ticket, NodeRequest::PeerCommand(this_cid, signal))
+            .send_with_custom_ticket(
+                ticket,
+                NodeRequest::PeerCommand(PeerCommand {
+                    implicated_cid: this_cid,
+                    command: signal,
+                }),
+            )
             .await
             .map(|_| ticket)
     } else {
@@ -68,16 +72,16 @@ pub async fn peer_connect(
             PeerResponse::Decline
         };
 
-        let signal = NodeRequest::PeerCommand(
-            this_cid,
-            PeerSignal::PostConnect(
+        let signal = NodeRequest::PeerCommand(PeerCommand {
+            implicated_cid: this_cid,
+            command: PeerSignal::PostConnect(
                 v_conn.reverse(),
                 Some(ticket),
                 Some(resp),
                 sess_sec,
                 udp_mode,
             ),
-        );
+        });
         remote
             .send_with_custom_ticket(ticket, signal)
             .await
@@ -95,14 +99,22 @@ pub async fn group_invite(
     accept: bool,
     remote: &mut impl Remote,
 ) -> Result<Ticket, NetworkError> {
-    if let NodeResult::GroupEvent(cid, ticket, GroupBroadcast::Invitation(key)) = invite_signal {
+    if let NodeResult::GroupEvent(GroupEvent {
+        implicated_cid: cid,
+        ticket,
+        event: GroupBroadcast::Invitation(key),
+    }) = invite_signal
+    {
         let resp = if accept {
             GroupBroadcast::AcceptMembership(key)
         } else {
             GroupBroadcast::DeclineMembership(key)
         };
 
-        let request = NodeRequest::GroupBroadcastCommand(cid, resp);
+        let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+            implicated_cid: cid,
+            command: resp,
+        });
         remote
             .send_with_custom_ticket(ticket, request)
             .await

@@ -1,5 +1,6 @@
 use crate::error::NetworkError;
-use crate::proto::hdp_node::{NodeResult, Ticket};
+use crate::proto::node_result::NodeResult;
+use crate::proto::remote::Ticket;
 use futures::{Future, Stream};
 use parking_lot::Mutex;
 use std::collections::HashMap;

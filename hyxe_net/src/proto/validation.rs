@@ -2,7 +2,7 @@ pub(crate) mod do_connect {
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::error::NetworkError;
-    use crate::proto::hdp_packet_crafter::do_connect::{
+    use crate::proto::packet_crafter::do_connect::{
         DoConnectFinalStatusPacket, DoConnectStage0Packet,
     };
     use hyxe_user::serialization::SyncIO;
@@ -36,7 +36,7 @@ pub(crate) mod group {
 
     use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
 
-    use crate::proto::hdp_packet_crafter::SecureProtocolPacket;
+    use crate::proto::packet_crafter::SecureProtocolPacket;
     use crate::proto::state_container::VirtualTargetType;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
@@ -122,8 +122,8 @@ pub(crate) mod do_register {
     use std::net::SocketAddr;
     use zerocopy::LayoutVerified;
 
-    use crate::proto::hdp_packet::HdpHeader;
-    use crate::proto::hdp_packet_crafter::do_register::{DoRegisterStage0, DoRegisterStage2Packet};
+    use crate::proto::packet::HdpHeader;
+    use crate::proto::packet_crafter::do_register::{DoRegisterStage0, DoRegisterStage2Packet};
     use bytes::BytesMut;
     use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
@@ -176,7 +176,7 @@ pub(crate) mod do_register {
 
 pub(crate) mod do_drill_update {
 
-    use crate::proto::hdp_packet_crafter::do_drill_update::{
+    use crate::proto::packet_crafter::do_drill_update::{
         Stage1UpdatePacket, TruncateAckPacket, TruncatePacket,
     };
     use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
@@ -205,13 +205,13 @@ pub(crate) mod pre_connect {
     use hyxe_wire::hypernode_type::NodeType;
 
     use crate::error::NetworkError;
-    use crate::proto::hdp_node::ConnectMode;
-    use crate::proto::hdp_packet::HdpPacket;
-    use crate::proto::hdp_packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
-    use crate::proto::hdp_session_manager::HdpSessionManager;
     use crate::proto::misc::session_security_settings::SessionSecuritySettings;
-    use crate::proto::packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
+    use crate::proto::node::ConnectMode;
+    use crate::proto::packet::HdpPacket;
+    use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
+    use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use crate::proto::peer::peer_layer::UdpMode;
+    use crate::proto::session_manager::HdpSessionManager;
     use hyxe_crypt::stacked_ratchet::constructor::{
         BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
     };
@@ -345,7 +345,7 @@ pub(crate) mod pre_connect {
 }
 
 pub(crate) mod file {
-    use crate::proto::hdp_packet::HdpHeader;
+    use crate::proto::packet::HdpHeader;
     use crate::proto::packet_processor::includes::LayoutVerified;
     use crate::proto::state_container::VirtualTargetType;
     use hyxe_user::backend::utils::VirtualObjectMetadata;
@@ -386,7 +386,7 @@ pub(crate) mod aead {
     use bytes::{Bytes, BytesMut};
     use zerocopy::LayoutVerified;
 
-    use crate::proto::hdp_packet::HdpHeader;
+    use crate::proto::packet::HdpHeader;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM or chacha-poly

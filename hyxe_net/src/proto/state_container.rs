@@ -23,19 +23,19 @@ use crate::constants::{
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
 use crate::prelude::MessageGroupKey;
-use crate::proto::hdp_node::{NodeRemote, NodeResult, SecrecyMode, Ticket};
-use crate::proto::hdp_packet::packet_flags;
-use crate::proto::hdp_packet::HdpHeader;
-use crate::proto::hdp_packet_crafter;
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::hdp_packet_crafter::{
-    GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket,
-};
-use crate::proto::hdp_session::SessionState;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::ordered_channel::OrderedChannel;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
+use crate::proto::node::SecrecyMode;
+use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
+use crate::proto::packet::packet_flags;
+use crate::proto::packet::HdpHeader;
+use crate::proto::packet_crafter;
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::{
+    GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket,
+};
 use crate::proto::packet_processor::includes::{HdpSession, Instant, SocketAddr};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
@@ -43,6 +43,8 @@ use crate::proto::peer::channel::{PeerChannel, UdpChannel};
 use crate::proto::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
 use crate::proto::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::proto::peer::peer_layer::{PeerConnectionType, UdpMode};
+use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::session::SessionState;
 use crate::proto::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHandle};
 use crate::proto::state_subcontainers::connect_state_container::ConnectState;
 use crate::proto::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -1057,7 +1059,7 @@ impl StateContainerInner {
             };
 
             self.inbound_files.insert(key, entry);
-            let (handle, tx_status) = ObjectTransferHandle::new(
+            let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
                 ObjectTransferOrientation::Receiver,
@@ -1070,14 +1072,17 @@ impl StateContainerInner {
             // finally, alert the kernel (receiver)
             let _ = self
                 .kernel_tx
-                .unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle));
+                .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                    ticket,
+                    handle,
+                }));
 
             let task = async move {
                 let res = start_recv_rx.await;
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender
                 // to ensure the sender knows if the user accepted or not
-                let file_header_ack = hdp_packet_crafter::file::craft_file_header_ack_packet(
+                let file_header_ack = packet_crafter::file::craft_file_header_ack_packet(
                     &hyper_ratchet,
                     accepted,
                     object_id,
@@ -1173,7 +1178,7 @@ impl StateContainerInner {
             if let Some(file_transfer) = self.outbound_files.get_mut(&key) {
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
-                let (handle, tx) = ObjectTransferHandle::new(
+                let (handle, tx) = ObjectTransferHandler::new(
                     implicated_cid,
                     receiver_cid,
                     ObjectTransferOrientation::Sender,
@@ -1185,7 +1190,10 @@ impl StateContainerInner {
                     .insert(key, crate::proto::outbound_sender::UnboundedSender(tx));
                 // alert the kernel that file transfer has begun
                 self.kernel_tx
-                    .unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle))
+                    .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                        ticket,
+                        handle,
+                    }))
                     .ok()?;
             } else {
                 log::error!(target: "lusna", "Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
@@ -1379,7 +1387,7 @@ impl StateContainerInner {
         }
 
         if send_wave_ack {
-            let wave_ack = hdp_packet_crafter::group::craft_wave_ack(
+            let wave_ack = packet_crafter::group::craft_wave_ack(
                 hr,
                 header.context_info.get() as u32,
                 get_resp_target_cid_from_header(header),
@@ -1908,8 +1916,14 @@ impl StateContainerInner {
         ticket: Option<Ticket>,
     ) -> Result<(), NetworkError> {
         if !self.meta_expiry_state.expired() {
-            log::trace!(target: "lusna", "Drill update will be omitted since packets are being sent");
+            log::trace!(target: "lusna", "Rekey will be omitted since packets are being sent");
             return Ok(());
+        }
+
+        if self.state.load(Ordering::Relaxed) != SessionState::Connected {
+            return Err(NetworkError::InvalidRequest(
+                "Cannot initiate rekey since the session is not connected",
+            ));
         }
 
         let session_security_settings = self.session_security_settings.clone().unwrap();
@@ -1930,7 +1944,7 @@ impl StateContainerInner {
                 match crypt_container.get_next_constructor(false) {
                     Some(alice_constructor) => {
                         let ratchet = crypt_container.get_hyper_ratchet(None).unwrap();
-                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(
+                        let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
                             ratchet,
                             alice_constructor.stage0_alice(),
                             timestamp,
@@ -1976,7 +1990,7 @@ impl StateContainerInner {
                         let to_primary_stream_preferred = endpoint_container
                             .get_direct_p2p_primary_stream()
                             .unwrap_or_else(|| default_primary_stream);
-                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(
+                        let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
                             &latest_hyper_ratchet,
                             alice_constructor.stage0_alice(),
                             timestamp,
@@ -2043,16 +2057,14 @@ impl StateContainerInner {
             | GroupBroadcast::AcceptMembership(_)
             | GroupBroadcast::RequestJoin(..)
             | GroupBroadcast::ListGroupsFor(..)
-            | GroupBroadcast::LeaveRoom(_) => {
-                hdp_packet_crafter::peer_cmd::craft_group_message_packet(
-                    hyper_ratchet,
-                    command,
-                    ticket,
-                    C2S_ENCRYPTION_ONLY,
-                    timestamp,
-                    security_level,
-                )
-            }
+            | GroupBroadcast::LeaveRoom(_) => packet_crafter::peer_cmd::craft_group_message_packet(
+                hyper_ratchet,
+                command,
+                ticket,
+                C2S_ENCRYPTION_ONLY,
+                timestamp,
+                security_level,
+            ),
 
             n => {
                 return Err(NetworkError::Generic(format!(
