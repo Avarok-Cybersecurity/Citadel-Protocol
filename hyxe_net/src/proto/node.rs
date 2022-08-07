@@ -1,50 +1,41 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
-use futures::channel::mpsc::TrySendError;
-use futures::{Sink, SinkExt, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 use tokio::task::LocalSet;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
-use hyxe_user::auth::proposed_credentials::ProposedCredentials;
-use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_user::external_services::ServicesObject;
 use hyxe_wire::hypernode_type::NodeType;
 use hyxe_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 
-use crate::auth::AuthenticationRequest;
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
-use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
+use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
-use crate::proto::hdp_session::{HdpSession, HdpSessionInitMode};
-use crate::proto::hdp_session_manager::HdpSessionManager;
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
 };
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::misc::underlying_proto::UnderlyingProtocol;
+use crate::proto::node_request::{
+    ConnectToHypernode, DeregisterFromHypernode, DisconnectFromHypernode, GroupBroadcastCommand,
+    NodeRequest, PeerCommand, ReKey, RegisterToHypernode, SendObject,
+};
+use crate::proto::node_result::{InternalServerError, NodeResult, SessionList};
 use crate::proto::outbound_sender::{unbounded, BoundedReceiver, BoundedSender, UnboundedSender};
 use crate::proto::packet_processor::includes::Duration;
-use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::proto::peer::channel::{PeerChannel, UdpChannel};
-use crate::proto::peer::group_channel::GroupChannel;
 use crate::proto::peer::p2p_conn_handler::generic_error;
-use crate::proto::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
-use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
-use hyxe_crypt::prelude::SecBuffer;
-use hyxe_crypt::streaming_crypt_scrambler::ObjectSource;
-use hyxe_user::backend::utils::ObjectTransferHandle;
+use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::session::{HdpSession, HdpSessionInitMode};
+use crate::proto::session_manager::HdpSessionManager;
 use hyxe_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
 use hyxe_wire::exports::Endpoint;
 use hyxe_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
@@ -644,12 +635,14 @@ impl HdpServer {
 
                         Err(err) => {
                             to_kernel.unbounded_send(NodeResult::InternalServerError(
-                                None,
-                                format!(
-                                    "HDP Server dropping connection to {}. Reason: {}",
-                                    peer_addr,
-                                    err.to_string()
-                                ),
+                                InternalServerError {
+                                    ticket_opt: None,
+                                    message: format!(
+                                        "HDP Server dropping connection to {}. Reason: {}",
+                                        peer_addr,
+                                        err.to_string()
+                                    ),
+                                },
                             ))?;
                         }
                     }
@@ -704,10 +697,12 @@ impl HdpServer {
 
         let send_error = |ticket_id: Ticket, err: NetworkError| {
             let err = err.into_string();
-            if let Err(_) = to_kernel_tx.unbounded_send(NodeResult::InternalServerError(
-                Some(ticket_id),
-                err.clone(),
-            )) {
+            if let Err(_) =
+                to_kernel_tx.unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                    ticket_opt: Some(ticket_id),
+                    message: err.clone(),
+                }))
+            {
                 log::error!(target: "lusna", "TO_KERNEL_TX Error: {:?}", err);
                 return Err(NetworkError::InternalError(
                     "kernel disconnected from hypernode instance",
@@ -719,7 +714,10 @@ impl HdpServer {
 
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
             match outbound_request {
-                NodeRequest::GroupBroadcastCommand(implicated_cid, cmd) => {
+                NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+                    implicated_cid,
+                    command: cmd,
+                }) => {
                     if let Err(err) = session_manager.process_outbound_broadcast_command(
                         ticket_id,
                         implicated_cid,
@@ -729,7 +727,11 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::RegisterToHypernode(peer_addr, credentials, security_settings) => {
+                NodeRequest::RegisterToHypernode(RegisterToHypernode {
+                    remote_addr: peer_addr,
+                    proposed_credentials: credentials,
+                    static_security_settings: security_settings,
+                }) => {
                     match session_manager
                         .initiate_connection(
                             local_node_type,
@@ -757,13 +759,13 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::ConnectToHypernode(
-                    authentication_request,
+                NodeRequest::ConnectToHypernode(ConnectToHypernode {
+                    auth_request: authentication_request,
                     connect_mode,
                     udp_mode,
                     keep_alive_timeout,
-                    security_settings,
-                ) => {
+                    session_security_settings: security_settings,
+                }) => {
                     match session_manager
                         .initiate_connection(
                             local_node_type,
@@ -791,7 +793,10 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::DisconnectFromHypernode(implicated_cid, target) => {
+                NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode {
+                    implicated_cid,
+                    v_conn_type: target,
+                }) => {
                     if let Err(err) =
                         session_manager.initiate_disconnect(implicated_cid, target, ticket_id)
                     {
@@ -799,7 +804,9 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::ReKey(virtual_target) => {
+                NodeRequest::ReKey(ReKey {
+                    v_conn_type: virtual_target,
+                }) => {
                     if let Err(err) =
                         session_manager.initiate_update_drill_subroutine(virtual_target, ticket_id)
                     {
@@ -807,7 +814,10 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::DeregisterFromHypernode(implicated_cid, virtual_connection_type) => {
+                NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
+                    implicated_cid,
+                    v_conn_type: virtual_connection_type,
+                }) => {
                     if let Err(err) = session_manager.initiate_deregistration_subroutine(
                         implicated_cid,
                         virtual_connection_type,
@@ -818,7 +828,10 @@ impl HdpServer {
                 }
 
                 // TODO: Update this to include security levels (FCM conflicts though)
-                NodeRequest::PeerCommand(implicated_cid, peer_command) => {
+                NodeRequest::PeerCommand(PeerCommand {
+                    implicated_cid,
+                    command: peer_command,
+                }) => {
                     if let Err(err) = session_manager
                         .dispatch_peer_command(
                             implicated_cid,
@@ -832,7 +845,12 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::SendObject(path, chunk_size, implicated_cid, virtual_target) => {
+                NodeRequest::SendObject(SendObject {
+                    source: path,
+                    chunk_size,
+                    implicated_cid,
+                    v_conn_type: virtual_target,
+                }) => {
                     if let Err(err) = session_manager.process_outbound_file(
                         ticket_id,
                         chunk_size,
@@ -846,10 +864,12 @@ impl HdpServer {
                 }
 
                 NodeRequest::GetActiveSessions => {
-                    if let Err(err) = to_kernel_tx.unbounded_send(NodeResult::SessionList(
-                        ticket_id,
-                        session_manager.get_active_sessions(),
-                    )) {
+                    if let Err(err) =
+                        to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {
+                            ticket: ticket_id,
+                            sessions: session_manager.get_active_sessions(),
+                        }))
+                    {
                         send_error(ticket_id, NetworkError::Generic(err.to_string()))?;
                     }
                 }
@@ -864,303 +884,10 @@ impl HdpServer {
     }
 }
 
-/// allows convenient communication with the server
-#[derive(Clone)]
-pub struct NodeRemote {
-    outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
-    inner: Arc<HdpServerRemoteInner>,
-}
-
-struct HdpServerRemoteInner {
-    callback_handler: KernelAsyncCallbackHandler,
-    node_type: NodeType,
-    account_manager: AccountManager,
-}
-
-#[async_trait::async_trait]
-#[auto_impl::auto_impl(Box, &mut)]
-pub trait Remote: Clone + Send {
-    async fn send(&mut self, request: NodeRequest) -> Result<Ticket, NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.send_with_custom_ticket(ticket, request)
-            .await
-            .map(|_| ticket)
-    }
-
-    async fn send_with_custom_ticket(
-        &mut self,
-        ticket: Ticket,
-        request: NodeRequest,
-    ) -> Result<(), NetworkError>;
-    async fn send_callback_subscription(
-        &mut self,
-        request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError>;
-    async fn send_callback(&mut self, request: NodeRequest) -> Result<NodeResult, NetworkError>;
-    fn account_manager(&self) -> &AccountManager;
-    fn get_next_ticket(&self) -> Ticket;
-}
-
-#[async_trait::async_trait]
-impl Remote for NodeRemote {
-    async fn send(&mut self, request: NodeRequest) -> Result<Ticket, NetworkError> {
-        NodeRemote::send(self, request).await
-    }
-
-    async fn send_with_custom_ticket(
-        &mut self,
-        ticket: Ticket,
-        request: NodeRequest,
-    ) -> Result<(), NetworkError> {
-        NodeRemote::send_with_custom_ticket(self, ticket, request).await
-    }
-
-    async fn send_callback_subscription(
-        &mut self,
-        request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
-        NodeRemote::send_callback_subscription(self, request).await
-    }
-
-    async fn send_callback(&mut self, request: NodeRequest) -> Result<NodeResult, NetworkError> {
-        NodeRemote::send_callback(self, request).await
-    }
-
-    fn account_manager(&self) -> &AccountManager {
-        NodeRemote::account_manager(self)
-    }
-
-    fn get_next_ticket(&self) -> Ticket {
-        NodeRemote::get_next_ticket(self)
-    }
-}
-
-impl Debug for NodeRemote {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HdpServerRemote")
-    }
-}
-
-impl NodeRemote {
-    /// Creates a new [HdpServerRemote]
-    pub(crate) fn new(
-        outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
-        callback_handler: KernelAsyncCallbackHandler,
-        account_manager: AccountManager,
-        node_type: NodeType,
-    ) -> Self {
-        // starts at 1. Ticket 0 is for reserved
-        Self {
-            outbound_send_request_tx,
-            inner: Arc::new(HdpServerRemoteInner {
-                callback_handler,
-                account_manager,
-                node_type,
-            }),
-        }
-    }
-
-    /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
-    pub async fn send_with_custom_ticket(
-        &mut self,
-        ticket: Ticket,
-        request: NodeRequest,
-    ) -> Result<(), NetworkError> {
-        self.outbound_send_request_tx.send((request, ticket)).await
-    }
-
-    /// Sends a request to the HDP server. This should always be used to communicate with the server
-    /// in order to obtain a ticket
-    pub async fn send(&mut self, request: NodeRequest) -> Result<Ticket, NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.send_with_custom_ticket(ticket, request)
-            .await
-            .map(|_| ticket)
-    }
-
-    /// Returns an error if the ticket is already registered for a callback
-    pub async fn send_callback_custom_ticket(
-        &mut self,
-        request: NodeRequest,
-        ticket: Ticket,
-    ) -> Result<NodeResult, NetworkError> {
-        let rx = self.inner.callback_handler.register_future(ticket)?;
-        match self.send_with_custom_ticket(ticket, request).await {
-            Ok(_) => rx
-                .await
-                .map_err(|err| NetworkError::Generic(err.to_string())),
-
-            Err(err) => {
-                self.inner.callback_handler.remove_listener(ticket);
-                Err(err)
-            }
-        }
-    }
-
-    /// Returns an error if the ticket is already registered for a stream-callback
-    pub(crate) async fn send_callback_subscription_custom_ticket(
-        &mut self,
-        request: NodeRequest,
-        ticket: Ticket,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
-        let rx = self.inner.callback_handler.register_stream(ticket)?;
-        match self.send_with_custom_ticket(ticket, request).await {
-            Ok(_) => Ok(rx),
-
-            Err(err) => {
-                self.inner.callback_handler.remove_listener(ticket);
-                Err(err)
-            }
-        }
-    }
-
-    /// Convenience method for sending and awaiting for a response for the related ticket
-    pub async fn send_callback_subscription(
-        &mut self,
-        request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.send_callback_subscription_custom_ticket(request, ticket)
-            .await
-    }
-
-    /// Convenience method for sending and awaiting for a response for the related ticket
-    pub async fn send_callback(
-        &mut self,
-        request: NodeRequest,
-    ) -> Result<NodeResult, NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.send_callback_custom_ticket(request, ticket).await
-    }
-
-    /// Convenience method for sending and awaiting for a response for the related ticket (with a timeout)
-    pub async fn send_callback_timeout(
-        &mut self,
-        request: NodeRequest,
-        timeout: Duration,
-    ) -> Result<NodeResult, NetworkError> {
-        tokio::time::timeout(timeout, self.send_callback(request))
-            .await
-            .map_err(|_| NetworkError::Timeout(0))?
-    }
-
-    /// Safely shutsdown the internal server
-    pub async fn shutdown(&mut self) -> Result<(), NetworkError> {
-        let _ = self.send(NodeRequest::Shutdown).await?;
-        self.outbound_send_request_tx.close().await
-    }
-
-    // Note: when two nodes create a ticket, there may be equivalent values
-    // Thus, use UUID's instead
-    pub fn get_next_ticket(&self) -> Ticket {
-        uuid::Uuid::new_v4().as_u128().into()
-    }
-
-    pub fn try_send_with_custom_ticket(
-        &mut self,
-        ticket: Ticket,
-        request: NodeRequest,
-    ) -> Result<(), TrySendError<(NodeRequest, Ticket)>> {
-        self.outbound_send_request_tx.try_send((request, ticket))
-    }
-
-    pub fn try_send(
-        &mut self,
-        request: NodeRequest,
-    ) -> Result<(), TrySendError<(NodeRequest, Ticket)>> {
-        let ticket = self.get_next_ticket();
-        self.outbound_send_request_tx.try_send((request, ticket))
-    }
-
-    pub fn local_node_type(&self) -> &NodeType {
-        &self.inner.node_type
-    }
-
-    pub fn account_manager(&self) -> &AccountManager {
-        &self.inner.account_manager
-    }
-}
-
-impl Unpin for NodeRemote {}
-
-impl Sink<(Ticket, NodeRequest)> for NodeRemote {
-    type Error = NetworkError;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <Self as Sink<NodeRequest>>::poll_ready(self, cx)
-    }
-
-    fn start_send(
-        mut self: Pin<&mut Self>,
-        item: (Ticket, NodeRequest),
-    ) -> Result<(), Self::Error> {
-        Pin::new(&mut self.outbound_send_request_tx).start_send((item.1, item.0))
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <Self as Sink<NodeRequest>>::poll_flush(self, cx)
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <Self as Sink<NodeRequest>>::poll_close(self, cx)
-    }
-}
-
-impl Sink<NodeRequest> for NodeRemote {
-    type Error = NetworkError;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.outbound_send_request_tx).poll_ready(cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: NodeRequest) -> Result<(), Self::Error> {
-        let ticket = self.get_next_ticket();
-        Pin::new(&mut self.outbound_send_request_tx).start_send((item, ticket))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.outbound_send_request_tx)
-            .poll_flush(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.outbound_send_request_tx)
-            .poll_close(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-}
-
-/// These are sent down the stack into the server. Most of the requests expect a ticket ID
-/// in order for processes sitting above the [Kernel] to know how the request went
-#[allow(variant_size_differences)]
-pub enum NodeRequest {
-    /// Sends a request to the underlying HdpSessionManager to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, SessionSecuritySettings),
-    /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
-    PeerCommand(u64, PeerSignal),
-    /// For submitting a de-register request
-    DeregisterFromHypernode(u64, VirtualConnectionType),
-    /// Implicated CID, creds, connect mode, fcm keys, TCP/TLS only, keep alive timeout, security settings
-    ConnectToHypernode(
-        AuthenticationRequest,
-        ConnectMode,
-        UdpMode,
-        Option<u64>,
-        SessionSecuritySettings,
-    ),
-    /// Updates the drill for the given CID
-    ReKey(VirtualTargetType),
-    /// Send a file
-    SendObject(Box<dyn ObjectSource>, Option<usize>, u64, VirtualTargetType),
-    /// A group-message related command
-    GroupBroadcastCommand(u64, GroupBroadcast),
-    /// Tells the server to disconnect a session (implicated cid, target_cid)
-    DisconnectFromHypernode(u64, VirtualConnectionType),
-    /// Returns a list of connected sessions
-    GetActiveSessions,
-    /// shutdown signal
-    Shutdown,
+pub(crate) struct HdpServerRemoteInner {
+    pub callback_handler: KernelAsyncCallbackHandler,
+    pub node_type: NodeType,
+    pub account_manager: AccountManager,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
@@ -1174,117 +901,6 @@ pub enum ConnectMode {
 impl Default for ConnectMode {
     fn default() -> Self {
         Self::Standard { force_login: false }
-    }
-}
-
-/// This type is for relaying results between the lower-level server and the higher-level kernel
-/// TODO: Convert to enum structs
-#[derive(Debug)]
-pub enum NodeResult {
-    /// Returns the CNAC which was created during the registration process
-    RegisterOkay(Ticket, ClientNetworkAccount, Vec<u8>),
-    /// The registration was a failure
-    RegisterFailure(Ticket, String),
-    /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
-    DeRegistration(u64, Option<Ticket>, bool),
-    /// Connection succeeded for the cid self.0. bool is "is personal"
-    ConnectSuccess(
-        Ticket,
-        u64,
-        SocketAddr,
-        bool,
-        VirtualConnectionType,
-        ServicesObject,
-        String,
-        PeerChannel,
-        Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
-    ),
-    /// The connection was a failure
-    ConnectFail(Ticket, Option<u64>, String),
-    /// The outbound request was rejected
-    OutboundRequestRejected(Ticket, Option<Vec<u8>>),
-    /// For file transfers. Implicated CID, Peer/Target CID, object ID
-    ObjectTransferHandle(Ticket, ObjectTransferHandle),
-    /// Data has been delivered for implicated cid self.0. The original outbound send request's ticket
-    /// will be returned in the delivery, thus enabling higher-level abstractions to listen for data
-    /// returns
-    MessageDelivery(Ticket, u64, SecBuffer),
-    MessageDelivered(Ticket),
-    /// Mailbox
-    MailboxDelivery(u64, Option<Ticket>, MailboxTransfer),
-    /// Peer result
-    PeerEvent(PeerSignal, Ticket),
-    /// For denoting a channel was created
-    GroupChannelCreated(Ticket, GroupChannel),
-    /// for group-related events. Implicated cid, ticket, group info
-    GroupEvent(u64, Ticket, GroupBroadcast),
-    /// vt-cxn-type is optional, because it may have only been a provisional connection
-    Disconnect(Ticket, u128, bool, Option<VirtualConnectionType>, String),
-    /// An internal error occured
-    InternalServerError(Option<Ticket>, String),
-    /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
-    PeerChannelCreated(
-        Ticket,
-        PeerChannel,
-        Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
-    ),
-    /// A list of running sessions
-    SessionList(Ticket, Vec<u64>),
-    /// For shutdowns
-    Shutdown,
-}
-
-impl NodeResult {
-    pub fn is_connect_success_type(&self) -> bool {
-        match self {
-            NodeResult::ConnectSuccess(..) => true,
-            _ => false,
-        }
-    }
-
-    pub fn ticket(&self) -> Option<Ticket> {
-        match self {
-            NodeResult::RegisterOkay(t, _, _) => Some(*t),
-            NodeResult::RegisterFailure(t, _) => Some(*t),
-            NodeResult::DeRegistration(_, t, ..) => t.clone(),
-            NodeResult::ConnectSuccess(t, ..) => Some(*t),
-            NodeResult::ConnectFail(t, _, _) => Some(*t),
-            NodeResult::OutboundRequestRejected(t, _) => Some(*t),
-            NodeResult::ObjectTransferHandle(t, ..) => Some(*t),
-            NodeResult::MessageDelivery(t, _, _) => Some(*t),
-            NodeResult::MessageDelivered(t) => Some(*t),
-            NodeResult::MailboxDelivery(_, t, _) => t.clone(),
-            NodeResult::PeerEvent(_, t) => Some(*t),
-            NodeResult::GroupEvent(_, t, _) => Some(*t),
-            NodeResult::PeerChannelCreated(t, ..) => Some(*t),
-            NodeResult::GroupChannelCreated(t, _) => Some(*t),
-            NodeResult::Disconnect(t, _, _, _, _) => Some(*t),
-            NodeResult::InternalServerError(t, _) => t.clone(),
-            NodeResult::SessionList(t, _) => Some(*t),
-            NodeResult::Shutdown => None,
-        }
-    }
-}
-
-/// A type sent through the server when a request is made
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub struct Ticket(pub u128);
-
-impl Into<Ticket> for u128 {
-    fn into(self) -> Ticket {
-        Ticket(self)
-    }
-}
-
-impl Into<Ticket> for usize {
-    fn into(self) -> Ticket {
-        (self as u128).into()
-    }
-}
-
-impl Display for Ticket {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 

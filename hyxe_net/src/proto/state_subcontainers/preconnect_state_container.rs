@@ -1,6 +1,6 @@
-use crate::proto::hdp_node::Ticket;
 use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::channel::UdpChannel;
+use crate::proto::remote::Ticket;
 use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_wire::hypernode_type::NodeType;

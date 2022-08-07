@@ -20,7 +20,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
     fn get_shared_bundle(&self) -> Self::SharedBundle;
 
     async fn on_c2s_channel_received(
-        connect_success: ConnectSuccess,
+        connect_success: ConnectionSuccess,
         remote: ClientServerRemote,
         arg: Arg,
         fx: Self::UserLevelInputFunction,

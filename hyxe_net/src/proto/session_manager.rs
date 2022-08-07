@@ -20,13 +20,13 @@ use crate::error::NetworkError;
 use crate::kernel::RuntimeFuture;
 use crate::macros::SyncContextRequirements;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
-use crate::proto::hdp_node::{ConnectMode, HdpServer, NodeRemote, NodeResult, Ticket};
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::misc::underlying_proto::UnderlyingProtocol;
+use crate::proto::node::{ConnectMode, HdpServer};
+use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::{
     GroupBroadcast, GroupMemberAlterMode, MemberState,
@@ -37,6 +37,8 @@ use crate::proto::peer::peer_layer::{
     HyperNodePeerLayer, HyperNodePeerLayerInner, MailboxTransfer, PeerConnectionType, PeerResponse,
     PeerSignal, UdpMode,
 };
+use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::session::{HdpSession, HdpSessionInitMode};
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use hyxe_crypt::streaming_crypt_scrambler::ObjectSource;
 use hyxe_wire::exports::tokio_rustls::rustls;
@@ -392,7 +394,7 @@ impl HdpSessionManager {
                                     let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
                                     let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
                                     if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                                        super::hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
+                                        super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
                                     }) {
                                         //log::error!(target: "lusna", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
                                     }
@@ -708,7 +710,7 @@ impl HdpSessionManager {
             let this = inner!(self);
             if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                 let signal = GroupBroadcast::Invitation(key);
-                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                super::packet_crafter::peer_cmd::craft_group_message_packet(
                     peer_hyper_ratchet,
                     &signal,
                     ticket,
@@ -742,7 +744,7 @@ impl HdpSessionManager {
                     if let Err(err) =
                         this.send_signal_to_peer_direct(*peer_cid, |peer_hyper_ratchet| {
                             let signal = GroupBroadcast::Disconnected(key);
-                            super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                            super::packet_crafter::peer_cmd::craft_group_message_packet(
                                 peer_hyper_ratchet,
                                 &signal,
                                 ticket,
@@ -897,7 +899,7 @@ impl HdpSessionManager {
                 let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
                 return accessor
                     .borrow_hr(None, |hr, _| {
-                        let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(
+                        let packet = super::packet_crafter::peer_cmd::craft_peer_signal(
                             hr,
                             signal,
                             ticket,
@@ -1098,7 +1100,7 @@ impl HdpSessionManager {
                 if is_registered {
                     if this
                         .send_signal_to_peer_direct(peer, |peer_hyper_ratchet| {
-                            super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(
+                            super::packet_crafter::peer_cmd::craft_group_message_packet(
                                 peer_hyper_ratchet,
                                 &signal,
                                 ticket,

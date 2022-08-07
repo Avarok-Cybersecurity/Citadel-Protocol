@@ -1,5 +1,6 @@
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::proto::node_result::{RegisterFailure, RegisterOkay};
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::stacked_ratchet::constructor::{
     BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
@@ -55,7 +56,7 @@ pub async fn process_register(
                                         .allow_passwordless
                                     {
                                         // passwordless is not allowed on this node
-                                        let err = hdp_packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
+                                        let err = packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
                                         return Ok(PrimaryProcessorResult::ReplyToSender(err));
                                     }
                                 }
@@ -79,13 +80,12 @@ pub async fn process_register(
                                         "Unable to advance past stage0-bob"
                                     );
 
-                                    let stage1_packet =
-                                        hdp_packet_crafter::do_register::craft_stage1(
-                                            algorithm,
-                                            timestamp,
-                                            transfer,
-                                            header.session_cid.get(),
-                                        );
+                                    let stage1_packet = packet_crafter::do_register::craft_stage1(
+                                        algorithm,
+                                        timestamp,
+                                        transfer,
+                                        header.session_cid.get(),
+                                    );
 
                                     let mut state_container =
                                         inner_mut_state!(session.state_container);
@@ -159,7 +159,7 @@ pub async fn process_register(
                             "Unable to load proposed credentials"
                         );
 
-                        let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(
+                        let stage2_packet = packet_crafter::do_register::craft_stage2(
                             &new_hyper_ratchet,
                             algorithm,
                             timestamp,
@@ -226,7 +226,7 @@ pub async fn process_register(
                                         log::trace!(target: "lusna", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_cid());
                                         let success_message =
                                             session.create_register_success_message();
-                                        let packet = hdp_packet_crafter::do_register::craft_success(
+                                        let packet = packet_crafter::do_register::craft_success(
                                             &hyper_ratchet,
                                             algorithm,
                                             timestamp,
@@ -239,7 +239,7 @@ pub async fn process_register(
                                     Err(err) => {
                                         let err = err.into_string();
                                         log::error!(target: "lusna", "Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
-                                        let packet = hdp_packet_crafter::do_register::craft_failure(
+                                        let packet = packet_crafter::do_register::craft_failure(
                                             algorithm,
                                             timestamp,
                                             err,
@@ -326,9 +326,11 @@ pub async fn process_register(
                                                 .session_manager
                                                 .clear_provisional_session(&remote_addr);
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(
-                                                reg_ticket.get(),
-                                                new_cnac,
-                                                success_message,
+                                                RegisterOkay {
+                                                    ticket: reg_ticket.get(),
+                                                    cnac: new_cnac,
+                                                    welcome_message: success_message,
+                                                },
                                             ))?;
                                             session.shutdown();
                                             Ok(PrimaryProcessorResult::Void)
@@ -337,8 +339,10 @@ pub async fn process_register(
 
                                     Err(err) => {
                                         kernel_tx.unbounded_send(NodeResult::RegisterFailure(
-                                            reg_ticket.get(),
-                                            err.into_string(),
+                                            RegisterFailure {
+                                                ticket: reg_ticket.get(),
+                                                error_message: err.into_string(),
+                                            },
                                         ))?;
                                         Ok(PrimaryProcessorResult::EndSession(
                                             "Registration subroutine ended (STATUS: ERR)",
@@ -371,11 +375,11 @@ pub async fn process_register(
                     if let Some(error_message) =
                         validation::do_register::validate_failure(header, &payload[..])
                     {
-                        session.send_to_kernel(NodeResult::RegisterFailure(
-                            session.kernel_ticket.get(),
-                            String::from_utf8(error_message)
+                        session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
+                            ticket: session.kernel_ticket.get(),
+                            error_message: String::from_utf8(error_message)
                                 .unwrap_or("Non-UTF8 error message".to_string()),
-                        ))?;
+                        }))?;
                         //session.needs_close_message.set(false);
                         session.shutdown();
                     } else {

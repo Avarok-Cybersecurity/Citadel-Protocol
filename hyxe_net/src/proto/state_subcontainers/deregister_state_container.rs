@@ -1,4 +1,4 @@
-use crate::proto::hdp_node::Ticket;
+use crate::proto::remote::Ticket;
 
 /// For keeping track of deregistration processes
 pub struct DeRegisterState {

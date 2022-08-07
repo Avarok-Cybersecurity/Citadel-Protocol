@@ -5,16 +5,17 @@ use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
 use crate::error::NetworkError;
-use crate::proto::hdp_packet::packet_flags::payload_identifiers;
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::misc::udp_internal_interface::{
     QuicUdpSocketConnector, RawUdpSocketConnector, UdpSplittableTypes,
 };
+use crate::proto::packet::packet_flags::payload_identifiers;
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::peer_layer::UdpMode;
 use crate::proto::state_container::{StateContainerInner, VirtualTargetType};
 
 use super::includes::*;
+use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_wire::exports::NewConnection;
@@ -95,7 +96,7 @@ pub async fn process_preconnect(
 
                             // here, we also send the peer's external address to itself
                             // Also, we use the security level that was created on init b/c the other side still uses the static aux ratchet
-                            let syn_ack = hdp_packet_crafter::pre_connect::craft_syn_ack(
+                            let syn_ack = packet_crafter::pre_connect::craft_syn_ack(
                                 &static_aux_ratchet,
                                 transfer,
                                 session.local_nat_type.clone(),
@@ -116,7 +117,7 @@ pub async fn process_preconnect(
 
                         Err(err) => {
                             log::error!(target: "lusna", "Invalid SYN packet received: {:?}", &err);
-                            let packet = hdp_packet_crafter::pre_connect::craft_halt(
+                            let packet = packet_crafter::pre_connect::craft_halt(
                                 &header_if_err_occurs,
                                 err.into_string(),
                             );
@@ -126,7 +127,7 @@ pub async fn process_preconnect(
                 } else {
                     let bad_cid = header.session_cid.get();
                     let error = format!("CID {} is not registered to this node", bad_cid);
-                    let packet = hdp_packet_crafter::pre_connect::craft_halt(&*header, &error);
+                    let packet = packet_crafter::pre_connect::craft_halt(&*header, &error);
                     return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                 }
             }
@@ -170,7 +171,7 @@ pub async fn process_preconnect(
 
                             if state_container.udp_mode == UdpMode::Disabled {
                                 let stage0_preconnect_packet =
-                                    hdp_packet_crafter::pre_connect::craft_stage0(
+                                    packet_crafter::pre_connect::craft_stage0(
                                         &new_hyper_ratchet,
                                         timestamp,
                                         local_node_type,
@@ -202,7 +203,7 @@ pub async fn process_preconnect(
                             }
 
                             let stage0_preconnect_packet =
-                                hdp_packet_crafter::pre_connect::craft_stage0(
+                                packet_crafter::pre_connect::craft_stage0(
                                     &new_hyper_ratchet,
                                     timestamp,
                                     local_node_type,
@@ -303,7 +304,7 @@ pub async fn process_preconnect(
                                 // since this node is the server, send a BEGIN CONNECT signal to alice
                                 // We have to modify the state to ensure that this node can receive a DO_CONNECT packet
                                 state_container.pre_connect_state.success = true;
-                                let packet = hdp_packet_crafter::pre_connect::craft_begin_connect(
+                                let packet = packet_crafter::pre_connect::craft_begin_connect(
                                     &hyper_ratchet,
                                     timestamp,
                                     security_level,
@@ -400,7 +401,7 @@ pub async fn process_preconnect(
                     // if we are using tcp_only, skip the rest and go straight to sending the packet
                     if tcp_only {
                         log::warn!(target: "lusna", "Received signal to fall-back to TCP only mode");
-                        let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(
+                        let begin_connect = packet_crafter::pre_connect::craft_begin_connect(
                             &hyper_ratchet,
                             timestamp,
                             security_level,
@@ -432,16 +433,16 @@ pub async fn process_preconnect(
                             .unwrap_or_else(|| session.kernel_ticket.get());
                         std::mem::drop(state_container);
                         //session.needs_close_message.set(false);
-                        session.send_to_kernel(NodeResult::ConnectFail(
-                            ticket,
-                            Some(cnac.get_cid()),
-                            "Preconnect stage failed".to_string(),
-                        ))?;
+                        session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                            ticket: ticket,
+                            cid_opt: Some(cnac.get_cid()),
+                            error_message: "Preconnect stage failed".to_string(),
+                        }))?;
                         Ok(PrimaryProcessorResult::EndSession(
                             "Failure packet received",
                         ))
                     } else {
-                        let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(
+                        let begin_connect = packet_crafter::pre_connect::craft_begin_connect(
                             &hyper_ratchet,
                             timestamp,
                             security_level,
@@ -487,11 +488,11 @@ pub async fn process_preconnect(
             packet_flags::cmd::aux::do_preconnect::HALT => {
                 let message = String::from_utf8(payload.to_vec()).unwrap_or("INVALID UTF-8".into());
                 let ticket = session.kernel_ticket.get();
-                session.send_to_kernel(NodeResult::ConnectFail(
-                    ticket,
-                    Some(header.session_cid.get()),
-                    message,
-                ))?;
+                session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                    ticket: ticket,
+                    cid_opt: Some(header.session_cid.get()),
+                    error_message: message,
+                }))?;
                 //session.needs_close_message.set(false);
                 Ok(PrimaryProcessorResult::EndSession(
                     "Preconnect signalled to halt",
@@ -521,7 +522,7 @@ fn begin_connect_process(
         "Proposed creds not loaded"
     );
 
-    let stage0_connect_packet = crate::proto::hdp_packet_crafter::do_connect::craft_stage0_packet(
+    let stage0_connect_packet = crate::proto::packet_crafter::do_connect::craft_stage0_packet(
         &hyper_ratchet,
         proposed_credentials,
         timestamp,
@@ -551,7 +552,7 @@ fn send_success_as_initiator(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let _ = handle_success_as_receiver(udp_splittable, session, implicated_cid, state_container)?;
 
-    let success_packet = hdp_packet_crafter::pre_connect::craft_stage_final(
+    let success_packet = packet_crafter::pre_connect::craft_stage_final(
         hyper_ratchet,
         true,
         false,
@@ -609,7 +610,7 @@ pub(crate) fn generate_hole_punch_crypt_container(
 
     EncryptedConfigContainer::new(
         move |plaintext| {
-            hdp_packet_crafter::hole_punch::generate_packet(
+            packet_crafter::hole_punch::generate_packet(
                 &hyper_ratchet,
                 plaintext,
                 security_level,
@@ -617,7 +618,7 @@ pub(crate) fn generate_hole_punch_crypt_container(
             )
         },
         move |packet| {
-            hdp_packet_crafter::hole_punch::decrypt_packet(
+            packet_crafter::hole_punch::decrypt_packet(
                 &hyper_ratchet_cloned,
                 packet,
                 security_level,

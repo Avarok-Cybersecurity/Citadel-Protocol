@@ -11,10 +11,12 @@ use crate::error::NetworkError;
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::{KernelExecutorSettings, RuntimeFuture};
-use crate::proto::hdp_node::{HdpServer, NodeRemote, NodeResult};
 use crate::proto::misc::underlying_proto::UnderlyingProtocol;
+use crate::proto::node::HdpServer;
+use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::proto::packet_processor::includes::Duration;
+use crate::proto::remote::NodeRemote;
 use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
 

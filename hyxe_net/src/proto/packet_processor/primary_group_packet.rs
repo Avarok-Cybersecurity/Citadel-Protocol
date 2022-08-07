@@ -3,8 +3,9 @@ use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
-use crate::proto::hdp_node::SecrecyMode;
-use crate::proto::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::node::SecrecyMode;
+use crate::proto::node_result::OutboundRequestRejected;
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::peer::peer_layer::UdpMode;
 use crate::proto::session_queue_handler::QueueWorkerResult;
 use crate::proto::state_container::{FileKey, GroupKey, StateContainerInner};
@@ -143,7 +144,7 @@ pub fn process_primary_packet(
                                 }
 
                                 let group_header_ack =
-                                    hdp_packet_crafter::group::craft_group_header_ack(
+                                    packet_crafter::group::craft_group_header_ack(
                                         &hyper_ratchet,
                                         object_id,
                                         header.group.get(),
@@ -234,7 +235,7 @@ pub fn process_primary_packet(
                                         }
 
                                         let group_header_ack =
-                                            hdp_packet_crafter::group::craft_group_header_ack(
+                                            packet_crafter::group::craft_group_header_ack(
                                                 &hyper_ratchet,
                                                 object_id,
                                                 header.group.get(),
@@ -321,7 +322,7 @@ pub fn process_primary_packet(
                                                 C2S_ENCRYPTION_ONLY
                                             };
                                             let truncate_packet =
-                                                hdp_packet_crafter::do_drill_update::craft_truncate(
+                                                packet_crafter::do_drill_update::craft_truncate(
                                                     &hyper_ratchet,
                                                     needs_truncate,
                                                     target_cid,
@@ -373,10 +374,12 @@ pub fn process_primary_packet(
                                         log::trace!(target: "lusna", "Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
                                         session.send_to_kernel(
                                             NodeResult::OutboundRequestRejected(
-                                                ticket.into(),
-                                                Some(Vec::from(
-                                                    "Adjacent node unable to accept request",
-                                                )),
+                                                OutboundRequestRejected {
+                                                    ticket: ticket.into(),
+                                                    message_opt: Some(Vec::from(
+                                                        "Adjacent node unable to accept request",
+                                                    )),
+                                                },
                                             ),
                                         )?;
                                     }
