@@ -1,5 +1,6 @@
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::proto::node_result::DeRegistration;
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use std::sync::atomic::Ordering;
@@ -66,7 +67,11 @@ pub async fn process_deregister(
                     return_if_none!(session.implicated_cid.get(), "implicated CID not loaded");
                 session
                     .kernel_tx
-                    .unbounded_send(NodeResult::DeRegistration(cid, ticket, false))?;
+                    .unbounded_send(NodeResult::DeRegistration(DeRegistration {
+                        implicated_cid: cid,
+                        ticket_opt: ticket,
+                        success: false,
+                    }))?;
                 log::error!(target: "lusna", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
                 Ok(PrimaryProcessorResult::EndSession(
                     "Deregistration failure. Closing connection anyways",
@@ -103,7 +108,7 @@ async fn deregister_client_from_self(
     let (ret, success) = match acc_mgr.delete_client_by_cid(implicated_cid).await {
         Ok(_) => {
             log::trace!(target: "lusna", "Successfully purged account {} locally!", implicated_cid);
-            let stage_success_packet = hdp_packet_crafter::do_deregister::craft_final(
+            let stage_success_packet = packet_crafter::do_deregister::craft_final(
                 hyper_ratchet,
                 true,
                 timestamp,
@@ -118,7 +123,7 @@ async fn deregister_client_from_self(
 
         Err(err) => {
             log::error!(target: "lusna", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin ({:?})", implicated_cid, err);
-            let stage_failure_packet = hdp_packet_crafter::do_deregister::craft_final(
+            let stage_failure_packet = packet_crafter::do_deregister::craft_final(
                 hyper_ratchet,
                 false,
                 timestamp,
@@ -133,7 +138,11 @@ async fn deregister_client_from_self(
 
     let session = session_ref;
 
-    session.send_to_kernel(NodeResult::DeRegistration(implicated_cid, ticket, success))?;
+    session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
+        implicated_cid: implicated_cid,
+        ticket_opt: ticket,
+        success: success,
+    }))?;
 
     // This ensures no further packets are processed
     session
@@ -174,11 +183,11 @@ async fn deregister_from_hyperlan_server_as_client(
         }
     };
 
-    session.send_to_kernel(NodeResult::DeRegistration(
-        implicated_cid,
-        dereg_ticket,
-        true,
-    ))?;
+    session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
+        implicated_cid: implicated_cid,
+        ticket_opt: dereg_ticket,
+        success: true,
+    }))?;
 
     session.send_session_dc_signal(
         dereg_ticket,

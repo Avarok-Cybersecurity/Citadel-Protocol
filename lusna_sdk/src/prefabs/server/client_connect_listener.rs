@@ -1,5 +1,5 @@
 use crate::prefabs::ClientServerRemote;
-use crate::prelude::{ConnectSuccess, NetKernel, NetworkError, NodeRemote, NodeResult};
+use crate::prelude::*;
 use futures::Future;
 use hyxe_net::prelude::async_trait;
 use std::marker::PhantomData;
@@ -14,7 +14,7 @@ pub struct ClientConnectListenerKernel<F, Fut> {
 
 impl<F, Fut> ClientConnectListenerKernel<F, Fut>
 where
-    F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     pub fn new(on_channel_received: F) -> Self {
@@ -29,7 +29,7 @@ where
 #[async_trait]
 impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
 where
-    F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
@@ -43,24 +43,24 @@ where
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            NodeResult::ConnectSuccess(
-                _,
-                cid,
-                _,
-                _,
-                conn_type,
+            NodeResult::ConnectSuccess(ConnectSuccess {
+                ticket: _,
+                implicated_cid: cid,
+                remote_addr: _,
+                is_personal: _,
+                v_conn_type: conn_type,
                 services,
-                _,
+                welcome_message: _,
                 channel,
-                udp_channel_rx,
-            ) => {
+                udp_rx_opt: udp_channel_rx,
+            }) => {
                 let client_server_remote = ClientServerRemote {
                     inner: self.node_remote.clone().unwrap(),
                     unprocessed_signals_rx: Default::default(),
                     conn_type,
                 };
                 (self.on_channel_received)(
-                    ConnectSuccess {
+                    ConnectionSuccess {
                         channel,
                         udp_channel_rx,
                         services,

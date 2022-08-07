@@ -3,15 +3,14 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use bitvec::vec::BitVec;
-use byteorder::{BigEndian, ReadBytesExt};
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 
 use crate::drill::Drill;
-use crate::packet_vector::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
+use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::{CryptError, SecurityLevel};
-use crate::stacked_ratchet::{Ratchet, StackedRatchet};
+use crate::stacked_ratchet::Ratchet;
 use rayon::iter::IndexedParallelIterator;
 use rayon::prelude::*;
 
@@ -458,53 +457,6 @@ impl GroupReceiverConfig {
             max_packets_per_wave,
             packets_in_last_wave,
         }
-    }
-
-    /// Returns None if the input length is not equal to GROUP_RECEIVER_INSCRIBE_LEN
-    pub fn try_from_bytes<T: AsRef<[u8]>>(input: T) -> Option<Self> {
-        let input = input.as_ref();
-        if input.len() != GROUP_RECEIVER_INSCRIBE_LEN {
-            return None;
-        }
-
-        let mut reader = input.reader();
-
-        let packets_needed = reader.read_u64::<BigEndian>().ok()? as usize;
-        let max_packets_per_wave = reader.read_u64::<BigEndian>().ok()? as usize;
-        let plaintext_length = reader.read_u64::<BigEndian>().ok()? as usize;
-        let max_payload_size = reader.read_u64::<BigEndian>().ok()? as usize;
-        let last_payload_size = reader.read_u64::<BigEndian>().ok()? as usize;
-        let wave_count = reader.read_u64::<BigEndian>().ok()? as usize;
-        let max_plaintext_wave_length = reader.read_u64::<BigEndian>().ok()? as usize;
-        let last_plaintext_wave_length = reader.read_u64::<BigEndian>().ok()? as usize;
-        let packets_in_last_wave = reader.read_u64::<BigEndian>().ok()? as usize;
-
-        Some(Self {
-            packets_in_last_wave,
-            group_id: 0,
-            header_size_bytes: 0,
-            packets_needed,
-            plaintext_length,
-            max_payload_size,
-            last_payload_size,
-            wave_count,
-            max_plaintext_wave_length,
-            last_plaintext_wave_length,
-            max_packets_per_wave,
-        })
-    }
-
-    /// Inscribes the configuration into a buffer. This should be inscribed into the payload of a group-header
-    pub fn inscribe_into<B: BufMut>(&self, mut packet: B) {
-        packet.put_u64(self.packets_needed as u64);
-        packet.put_u64(self.max_packets_per_wave as u64);
-        packet.put_u64(self.plaintext_length as u64);
-        packet.put_u64(self.max_payload_size as u64);
-        packet.put_u64(self.last_payload_size as u64);
-        packet.put_u64(self.wave_count as u64);
-        packet.put_u64(self.max_plaintext_wave_length as u64);
-        packet.put_u64(self.last_plaintext_wave_length as u64);
-        packet.put_u64(self.packets_in_last_wave as u64);
     }
 
     /// Returns the number of packets in a given wave by id. TODO: Clean this up
@@ -984,63 +936,6 @@ impl<const N: usize> GroupSenderDevice<N> {
         self.packets_received == self.receiver_config.packets_needed
     }
 
-    /// This node is the sender, Alice. Bob timed out for a certain wave, and now is requesting a set of packets
-    pub fn on_do_wave_retransmission_received(
-        &self,
-        hyper_ratchet: &StackedRatchet,
-        wave_id: u32,
-        payload: &[u8],
-    ) -> Option<Vec<PacketCoordinate>> {
-        // use the scramble ordering
-        let scramble_drill = hyper_ratchet.get_scramble_drill();
-
-        let (missing_packet_count, rem) = payload.len().div_rem(&4);
-
-        if missing_packet_count == 0 || rem != 0 {
-            return None;
-        }
-
-        let start_idx = (wave_id as usize) * self.receiver_config.max_packets_per_wave;
-        let packets_in_wave = self.get_packets_in_wave(wave_id);
-        let end_idx = start_idx + packets_in_wave;
-
-        let mut missing_coords = Vec::with_capacity(missing_packet_count);
-        //let payload = drill.decrypt_to_vec(payload, 0, SecurityLevel::LOW).ok()?;
-
-        let mut cursor = std::io::Cursor::new(payload);
-
-        for _ in 0..missing_packet_count {
-            let src_port = cursor.read_u16::<BigEndian>().ok()?;
-            let remote_port = cursor.read_u16::<BigEndian>().ok()?;
-            //log::trace!(target: "lusna", "Obtained src/remote port: {} -> {}", src_port, remote_port);
-            // The below line ensures that the provided coordinate is valid
-            let _vector =
-                generate_packet_coordinates_inv(wave_id, src_port, remote_port, scramble_drill)?;
-
-            let start_count = missing_coords.len();
-            'cur_wave: for idx in start_idx..end_idx {
-                let coord = self.packets_in_ram.get(&idx)?;
-                if coord.vector.wave_id != wave_id {
-                    // Could mean the wave has already been cleared by a WAVE_TAIL received
-                    return None;
-                }
-
-                if coord.vector.local_port == src_port && coord.vector.remote_port == remote_port {
-                    missing_coords.push(coord.clone());
-                    // Exit the for loop
-                    break 'cur_wave;
-                }
-            }
-
-            if missing_coords.len() == start_count {
-                log::error!(target: "lusna", "Possibly invalid src/dest port combo listed");
-                return None;
-            }
-        }
-
-        Some(missing_coords)
-    }
-
     /// Gets a range of packets. Returns None if the count obtained is not equal to the count requested
     pub fn get_next_packets(&mut self, count: usize) -> Option<Vec<PacketCoordinate>> {
         let start = self.packets_sent;
@@ -1066,11 +961,6 @@ impl<const N: usize> GroupSenderDevice<N> {
     /// clones the receiver config
     pub fn get_receiver_config(&self) -> GroupReceiverConfig {
         self.receiver_config.clone()
-    }
-
-    /// Inscribes the receiver config into a packet. Treats all the values as if they were u64's
-    pub fn inscribe_receiver_config_into<B: BufMut>(&self, packet: B) {
-        self.receiver_config.inscribe_into(packet)
     }
 
     /// Returns the number of packets sent (but NOT necessarily received!)

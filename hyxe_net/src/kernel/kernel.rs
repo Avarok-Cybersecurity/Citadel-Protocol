@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 
 use crate::error::NetworkError;
-use crate::proto::hdp_node::{NodeRemote, NodeResult};
+use crate::proto::node_result::NodeResult;
+use crate::proto::remote::NodeRemote;
 use auto_impl::auto_impl;
 
 /// The [NetKernel] is the thread-safe interface between the single-threaded OR multi-threaded async

@@ -1,4 +1,4 @@
-use crate::proto::hdp_node::SecrecyMode;
+use crate::proto::node::SecrecyMode;
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 use hyxe_crypt::drill::SecurityLevel;
 use serde::{Deserialize, Serialize};

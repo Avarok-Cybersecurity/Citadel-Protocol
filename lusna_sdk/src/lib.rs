@@ -125,6 +125,7 @@ pub mod prelude {
     pub use crate::backend_kv_store::BackendHandler;
     pub use crate::builder::node_builder::*;
     pub use crate::prefabs::client::PrefabFunctions;
+    pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;
     pub use hyxe_net::prelude::*;

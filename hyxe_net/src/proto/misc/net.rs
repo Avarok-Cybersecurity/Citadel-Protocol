@@ -16,7 +16,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::codec::LengthDelimitedCodec;
 //use tokio_native_tls::native_tls::{Identity, Certificate};
 use crate::error::NetworkError;
-use crate::proto::hdp_node::TlsDomain;
+use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use hyxe_user::re_imports::__private::Formatter;
 use hyxe_user::serialization::SyncIO;

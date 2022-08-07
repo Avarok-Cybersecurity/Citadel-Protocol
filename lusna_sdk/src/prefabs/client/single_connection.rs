@@ -1,5 +1,5 @@
 use crate::prefabs::ClientServerRemote;
-use crate::remote_ext::ConnectSuccess;
+use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
 use futures::Future;
 use hyxe_net::auth::AuthenticationRequest;
@@ -45,7 +45,7 @@ pub(crate) enum ConnectionType {
 
 impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
 where
-    F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send,
+    F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     /// Creates a new connection with a central server entailed by the user information
@@ -168,7 +168,7 @@ where
 #[async_trait]
 impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
 where
-    F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send,
+    F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
@@ -289,7 +289,7 @@ mod tests {
     )]
     async fn on_server_received_conn(
         udp_mode: UdpMode,
-        conn: ConnectSuccess,
+        conn: ConnectionSuccess,
         _remote: ClientServerRemote,
     ) -> Result<(), NetworkError> {
         crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
@@ -302,7 +302,7 @@ mod tests {
     )]
     async fn default_server_harness(
         udp_mode: UdpMode,
-        conn: ConnectSuccess,
+        conn: ConnectionSuccess,
         remote: ClientServerRemote,
         server_success: &AtomicBool,
     ) -> Result<(), NetworkError> {

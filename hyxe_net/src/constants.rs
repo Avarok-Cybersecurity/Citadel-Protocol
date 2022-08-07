@@ -1,4 +1,4 @@
-use crate::proto::hdp_packet::HdpHeader;
+use crate::proto::packet::HdpHeader;
 use crate::proto::peer::peer_layer::UdpMode;
 
 pub const BUILD_VERSION: usize = 7463;

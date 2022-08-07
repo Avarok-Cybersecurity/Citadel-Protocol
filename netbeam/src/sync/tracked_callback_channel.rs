@@ -116,7 +116,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
             .map_err(|err| TrackedCallbackError::SendError(err.0.payload))
     }
 
-    pub async fn reply(
+    pub fn try_reply(
         &self,
         payload: TrackedCallbackChannelPayload<R, T>,
     ) -> Result<(), TrackedCallbackError<R>> {
@@ -147,21 +147,22 @@ impl<T, R> Stream for CallbackReceiver<T, R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::sync::tracked_callback_channel::TrackedCallbackChannel;
+    use crate::sync::tracked_callback_channel::{TrackedCallbackChannel, TrackedCallbackError};
     use futures::StreamExt;
 
     #[tokio::test]
-    async fn main() {
+    async fn test_tracked_callback() {
         lusna_logging::setup_log();
         let (tx0, mut rx) = TrackedCallbackChannel::<u32, u64>::new(10);
         let tx1 = tx0.clone();
 
-        const COUNT: u32 = 100000;
+        const COUNT: u32 = 10000;
 
         let server = async move {
             while let Some(val) = rx.next().await {
+                assert!(val.expects_response());
                 let input = val.payload;
-                tx0.reply(val.new((input + 1) as u64)).await.unwrap();
+                tx0.try_reply(val.new((input + 1) as u64)).unwrap();
 
                 if input == COUNT {
                     return;
@@ -179,5 +180,46 @@ mod tests {
         let client = tokio::spawn(client);
 
         let (_, _) = tokio::join!(server, client);
+    }
+
+    #[tokio::test]
+    async fn test_tracked_callback_no_response() {
+        lusna_logging::setup_log();
+        let (tx0, mut rx) = TrackedCallbackChannel::<u32, u64>::new(10);
+        let tx1 = tx0.clone();
+
+        const COUNT: u32 = 10000;
+
+        let server = async move {
+            while let Some(val) = rx.next().await {
+                assert!(!val.expects_response());
+                let input = val.payload;
+                assert!(tx0.try_reply(val.new((input + 1) as u64)).is_err());
+
+                if input == COUNT {
+                    return;
+                }
+            }
+        };
+
+        let client = async move {
+            for x in 0..=COUNT {
+                tx1.send_no_callback(x).await.unwrap();
+            }
+        };
+
+        let server = tokio::spawn(server);
+        let client = tokio::spawn(client);
+
+        let (_, _) = tokio::join!(server, client);
+    }
+
+    #[test]
+    fn test_error() {
+        // to please codecov
+        let err0 = TrackedCallbackError::SendError(0u8);
+        let err1 = TrackedCallbackError::<u8>::RecvError;
+        let err2 = TrackedCallbackError::<u8>::InternalError("other");
+        let _data = format!("{:?} {:?} {:?}", err0, err1, err2);
     }
 }
