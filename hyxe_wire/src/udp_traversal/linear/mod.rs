@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 
-use async_trait::async_trait;
 use either::Either;
 use igd::PortMappingProtocol;
 use tokio::net::UdpSocket;
@@ -283,28 +282,6 @@ impl MethodType {
             _ => None,
         }
     }
-}
-
-#[async_trait]
-pub trait LinearUdpHolePunchImpl {
-    /// Passes the outbound sender to the hole puncher. Supplied by hyxe_net.
-    /// This should be ran on its own async task to not block
-    ///
-    /// Returns the first successful hole-punched UDP socket
-    ///
-    /// `endpoint`: is the initial send location
-    /// `sockets`: Must be the same length as the base_local_ports
-    async fn execute(
-        &self,
-        socket: &UdpSocket,
-        endpoints: &Vec<SocketAddr>,
-    ) -> Result<TargettedSocketAddr, FirewallError>;
-    /// used during "recovery mode" (when one side completes, but the other does not
-    fn get_peer_external_addr_from_peer_hole_punch_id(
-        &self,
-        id: HolePunchID,
-    ) -> Option<TargettedSocketAddr>;
-    fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID>;
 }
 
 pub mod nat_payloads {
