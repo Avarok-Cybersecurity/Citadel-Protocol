@@ -1,3 +1,6 @@
+use crate::proto::packet::HdpHeader;
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::state_container::VirtualConnectionType;
 use bytes::BytesMut;
 use hyxe_user::re_imports::__private::Formatter;
 
@@ -86,5 +89,17 @@ impl std::fmt::Debug for PrimaryProcessorResult {
                 )
             }
         }
+    }
+}
+
+/// should only be called by the receiver of a packet
+pub(crate) fn header_to_vconn_type(header: &HdpHeader) -> VirtualConnectionType {
+    let session_cid = header.session_cid.get();
+    let target_cid = header.target_cid.get();
+    if target_cid != C2S_ENCRYPTION_ONLY {
+        // the peer_cid and implicated cid must be flipped
+        VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, session_cid)
+    } else {
+        VirtualConnectionType::HyperLANPeerToHyperLANServer(session_cid)
     }
 }

@@ -672,4 +672,82 @@ mod tests {
         assert!(receiver_success.load(Ordering::Relaxed));
         Ok(())
     }
+
+    #[rstest]
+    #[case(2)]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_peer_to_peer_rekey(
+        #[case] peer_count: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        assert!(peer_count > 1);
+        let _ = lusna_logging::setup_log();
+        TestBarrier::setup(peer_count);
+
+        let client_success = &AtomicUsize::new(0);
+        let (server, server_addr) = server_info();
+
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count)
+            .into_iter()
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
+
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers
+                .clone()
+                .into_iter()
+                .filter(|r| r != &uuid)
+                .map(UserIdentifier::from)
+                .collect::<Vec<UserIdentifier>>();
+
+            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+                uuid,
+                server_addr,
+                peers,
+                move |mut results, remote| async move {
+                    let mut success = 0;
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
+
+                    while let Some(conn) = results.recv().await {
+                        log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
+                        let mut conn = conn?;
+                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
+
+                        if idx == 0 {
+                            for x in 1..10 {
+                                assert_eq!(conn.remote.rekey().await?, Some(x));
+                            }
+                        }
+
+                        success += 1;
+                        if success == peer_count - 1 {
+                            break;
+                        }
+                    }
+
+                    log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                    let _ = client_success.fetch_add(1, Ordering::Relaxed);
+                    wait_for_peers().await;
+                    remote.shutdown_kernel().await
+                },
+            );
+
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move { client.await.map(|_| ()) });
+        }
+
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
+
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            };
+        }
+
+        assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
+    }
 }
