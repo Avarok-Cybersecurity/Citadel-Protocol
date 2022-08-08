@@ -4,14 +4,14 @@ comment:
   require_changes: false
 
 coverage:
-  range: "70..90"
+  range: "80..90"
   round: down
   precision: 4
   status:
     project:
       default:
         # basic
-        target: 70%
+        target: 80%
         # advanced settings
         #if_ci_failed: error
         informational: false
