@@ -32,7 +32,6 @@ jobs:
         run: |
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
-          rm -f ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
+          rm -f ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}lcov.info
           git commit -am "cleanup old codecov file"
           git push --force
-
