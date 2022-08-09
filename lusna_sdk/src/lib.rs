@@ -28,8 +28,7 @@
 //!
 //!
 //! # Post-quantum key encapsulation mechanisms
-//! The user may also select a KEM before a session to either a central server or peer begins (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder)). Each KEM has variants that alter the degree of security
-//! - Supersingular isogeny key exchange (SIKE)
+//! The user may also select a KEM family before a session to either a central server or peer begins (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder)). Each KEM has variants that alter the degree of security
 //! - Saber (default: Firesaber)
 //! - NTRU
 //! - Kyber

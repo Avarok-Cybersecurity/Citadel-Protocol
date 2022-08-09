@@ -663,22 +663,6 @@ pub mod algorithm_dictionary {
             NtruHps4096821 = 8,
             #[strum(ascii_case_insensitive)]
             NtruHrss701 = 9,
-            #[strum(ascii_case_insensitive)]
-            SikeP434 = 10,
-            #[strum(ascii_case_insensitive)]
-            SikeP434Compressed = 11,
-            #[strum(ascii_case_insensitive)]
-            SikeP503 = 12,
-            #[strum(ascii_case_insensitive)]
-            SikeP503Compressed = 13,
-            #[strum(ascii_case_insensitive)]
-            SikeP610 = 14,
-            #[strum(ascii_case_insensitive)]
-            SikeP610Compressed = 15,
-            #[strum(ascii_case_insensitive)]
-            SikeP751 = 16,
-            #[strum(ascii_case_insensitive)]
-            SikeP751Compressed = 17,
         }
     }
 
@@ -722,14 +706,6 @@ pub mod algorithm_dictionary {
                 KemAlgorithm::NtruHps2048677 => oqs::kem::Algorithm::NtruHps2048677,
                 KemAlgorithm::NtruHps4096821 => oqs::kem::Algorithm::NtruHps4096821,
                 KemAlgorithm::NtruHrss701 => oqs::kem::Algorithm::NtruHrss701,
-                KemAlgorithm::SikeP434 => oqs::kem::Algorithm::SikeP434,
-                KemAlgorithm::SikeP434Compressed => oqs::kem::Algorithm::SikeP434Compressed,
-                KemAlgorithm::SikeP503 => oqs::kem::Algorithm::SikeP503,
-                KemAlgorithm::SikeP503Compressed => oqs::kem::Algorithm::SikeP503Compressed,
-                KemAlgorithm::SikeP610 => oqs::kem::Algorithm::SikeP610,
-                KemAlgorithm::SikeP610Compressed => oqs::kem::Algorithm::SikeP610Compressed,
-                KemAlgorithm::SikeP751 => oqs::kem::Algorithm::SikeP751,
-                KemAlgorithm::SikeP751Compressed => oqs::kem::Algorithm::SikeP751Compressed,
             }
         }
     }
