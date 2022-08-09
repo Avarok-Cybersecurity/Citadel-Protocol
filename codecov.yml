@@ -1,6 +1,3 @@
-codecov:
-  disable_default_path_fixes: true
-
 comment:
   layout: "reach, diff, flags, files"
   behavior: default
