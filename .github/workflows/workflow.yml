@@ -223,22 +223,6 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
-      - name: Commit codecov report to branch
-        run: |
-          git config --global user.name "tbraun96"
-          git config --global user.email "thomas.braun@avarok.net"
-          git fetch
-          git checkout coverage_files
-          mv ${HOME}/lcov.info ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
-          git add ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info
-          git commit -m "add coverage report"
-      - name: Push codecov to branch
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-#          branch: ${{ github.head_ref }}
-          branch: coverage_files
-          force: true
       - uses: actions/github-script@v6
         if: failure()
         with:
