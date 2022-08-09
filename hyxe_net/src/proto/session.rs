@@ -65,8 +65,8 @@ use crate::proto::state_container::{
     FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer, StateContainer,
     StateContainerInner, VirtualConnectionType, VirtualTargetType,
 };
-use crate::proto::state_subcontainers::drill_update_container::calculate_update_frequency;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
+use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
 use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
 use hyxe_crypt::prelude::ConstructorOpts;

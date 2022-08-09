@@ -22,7 +22,7 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::MessageGroupKey;
+use crate::prelude::{MessageGroupKey, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::ordered_channel::OrderedChannel;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
@@ -48,11 +48,11 @@ use crate::proto::session::SessionState;
 use crate::proto::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHandle};
 use crate::proto::state_subcontainers::connect_state_container::ConnectState;
 use crate::proto::state_subcontainers::deregister_state_container::DeRegisterState;
-use crate::proto::state_subcontainers::drill_update_container::RatchetUpdateState;
 use crate::proto::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use crate::proto::state_subcontainers::preconnect_state_container::PreConnectState;
 use crate::proto::state_subcontainers::register_state_container::RegisterState;
+use crate::proto::state_subcontainers::rekey_container::RatchetUpdateState;
 use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
 use bytes::Bytes;
@@ -246,7 +246,7 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
 }
 
 /// For determining the nature of a [VirtualConnection]
-#[derive(PartialEq, Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug, Hash, Serialize, Deserialize)]
 pub enum VirtualConnectionType {
     // A peer in the HyperLAN is connected to a peer in the HyperLAN. Contains the target CID
     HyperLANPeerToHyperLANPeer(u64, u64),
@@ -1915,10 +1915,22 @@ impl StateContainerInner {
         virtual_target: VirtualTargetType,
         ticket: Option<Ticket>,
     ) -> Result<(), NetworkError> {
-        if !self.meta_expiry_state.expired() {
+        fn return_already_in_progress(
+            kernel_tx: &UnboundedSender<NodeResult>,
+            ticket: Ticket,
+        ) -> Result<(), NetworkError> {
+            kernel_tx
+                .unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
+                    ticket,
+                    status: ReKeyReturnType::AlreadyInProgress,
+                }))
+                .map_err(|err| NetworkError::Generic(err.to_string()))
+        }
+
+        /*if !self.meta_expiry_state.expired() {
             log::trace!(target: "lusna", "Rekey will be omitted since packets are being sent");
             return Ok(());
-        }
+        }*/
 
         if self.state.load(Ordering::Relaxed) != SessionState::Connected {
             return Err(NetworkError::InvalidRequest(
@@ -1952,6 +1964,14 @@ impl StateContainerInner {
                             security_level,
                         );
                         self.ratchet_update_state.alice_hyper_ratchet = Some(alice_constructor);
+                        if let Some(ticket) = ticket {
+                            // this request requires tracking
+                            let _ = self
+                                .ratchet_update_state
+                                .current_local_requests
+                                .insert(virtual_target, ticket);
+                        }
+
                         let to_primary_stream = self.get_primary_stream().unwrap();
                         let kernel_tx = &self.kernel_tx;
                         HdpSession::send_to_primary_stream_closure(
@@ -1963,8 +1983,12 @@ impl StateContainerInner {
                     }
 
                     None => {
-                        log::trace!(target: "lusna", "Won't perform update b/c concurrent update occurring");
-                        Ok(())
+                        log::trace!(target: "lusna", "Won't perform update b/c concurrent c2s update occurring");
+                        if let Some(ticket) = ticket {
+                            return_already_in_progress(&self.kernel_tx, ticket)
+                        } else {
+                            Ok(())
+                        }
                     }
                 }
             }
@@ -2010,13 +2034,25 @@ impl StateContainerInner {
                             log::error!(target: "lusna", "Overwrote pre-existing peer kem. Report to developers");
                         }
 
+                        if let Some(ticket) = ticket {
+                            // this request requires tracking
+                            let _ = self
+                                .ratchet_update_state
+                                .current_local_requests
+                                .insert(virtual_target, ticket);
+                        }
+
                         // to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))
                         Ok(())
                     }
 
                     None => {
                         log::trace!(target: "lusna", "Won't perform update b/c concurrent update occurring");
-                        Ok(())
+                        if let Some(ticket) = ticket {
+                            return_already_in_progress(&self.kernel_tx, ticket)
+                        } else {
+                            Ok(())
+                        }
                     }
                 }
             }
