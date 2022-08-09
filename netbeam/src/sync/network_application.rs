@@ -47,14 +47,14 @@ pub struct PostActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
 
 impl<K: MultiplexedConnKey> PostActionChannel<K> {
     pub(crate) async fn send(&self, id: K) -> Result<(), anyhow::Error> {
-        Ok(self
+        self
             .tx
             .lock()
             .await
             .remove(&id)
             .ok_or_else(|| anyhow::Error::msg("TX Channel does not exist (x0)"))?
             .send(())
-            .map_err(|_| anyhow::Error::msg("Post-action channel for symmetric conv died"))?)
+            .map_err(|_| anyhow::Error::msg("Post-action channel for symmetric conv died"))
     }
 
     pub(crate) async fn recv(&self, id: K) -> Result<(), anyhow::Error> {

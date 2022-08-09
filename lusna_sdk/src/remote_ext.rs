@@ -715,6 +715,32 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         ))
     }
 
+    /// Begins a re-key, updating the container in the process.
+    /// Returns the new key matrix version. Does not return the new key version
+    /// if the rekey fails, or, if a current rekey is already executing
+    async fn rekey(&mut self) -> Result<Option<u32>, NetworkError> {
+        let request = NodeRequest::ReKey(ReKey {
+            v_conn_type: self.user().clone(),
+        });
+        let mut subscription = self.remote().send_callback_subscription(request).await?;
+
+        while let Some(evt) = subscription.next().await {
+            if let NodeResult::ReKeyResult(result) = evt {
+                return match result.status {
+                    ReKeyReturnType::Success { version } => Ok(Some(version)),
+                    ReKeyReturnType::AlreadyInProgress => Ok(None),
+                    ReKeyReturnType::Failure => {
+                        Err(NetworkError::InternalError("The rekey request failed"))
+                    }
+                };
+            }
+        }
+
+        Err(NetworkError::InternalError(
+            "List_members ended unexpectedly",
+        ))
+    }
+
     #[doc(hidden)]
     async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {

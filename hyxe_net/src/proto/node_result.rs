@@ -50,7 +50,14 @@ pub struct ConnectFail {
 #[derive(Debug)]
 pub struct ReKeyResult {
     pub ticket: Ticket,
-    pub success: bool,
+    pub status: ReKeyReturnType,
+}
+
+#[derive(Debug)]
+pub enum ReKeyReturnType {
+    Success { version: u32 },
+    AlreadyInProgress,
+    Failure,
 }
 
 #[derive(Debug)]

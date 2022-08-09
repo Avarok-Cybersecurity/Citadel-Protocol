@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex as TokioMutex;
@@ -10,7 +9,6 @@ use tokio::time::Duration;
 use crate::error::FirewallError;
 use crate::socket_helpers::ensure_ipv6;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use crate::udp_traversal::linear::LinearUdpHolePunchImpl;
 use crate::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use crate::udp_traversal::HolePunchID;
 use netbeam::sync::RelativeNodeType;
@@ -47,6 +45,27 @@ impl Method3 {
             unique_id,
             observed_addrs_on_syn: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) async fn execute(
+        &self,
+        socket: &UdpSocket,
+        endpoints: &Vec<SocketAddr>,
+    ) -> Result<TargettedSocketAddr, FirewallError> {
+        match self.this_node_type {
+            RelativeNodeType::Initiator => self.execute_either(socket, endpoints).await,
+
+            RelativeNodeType::Receiver => self.execute_either(socket, endpoints).await,
+        }
+    }
+
+    pub(crate) fn get_peer_external_addr_from_peer_hole_punch_id(
+        &self,
+        id: HolePunchID,
+    ) -> Option<TargettedSocketAddr> {
+        let lock = self.observed_addrs_on_syn.lock();
+        log::trace!(target: "lusna", "Recv'd SYNS: {:?}", &*lock);
+        lock.get(&id).copied()
     }
 
     /// The initiator must pass a vector correlating to the target endpoints. Each provided socket will attempt to reach out to the target endpoint (1-1)
@@ -277,34 +296,6 @@ impl Method3 {
         }
 
         Err(FirewallError::HolePunch("Socket recv error".to_string()))
-    }
-}
-
-#[async_trait]
-impl LinearUdpHolePunchImpl for Method3 {
-    async fn execute(
-        &self,
-        socket: &UdpSocket,
-        endpoints: &Vec<SocketAddr>,
-    ) -> Result<TargettedSocketAddr, FirewallError> {
-        match self.this_node_type {
-            RelativeNodeType::Initiator => self.execute_either(socket, endpoints).await,
-
-            RelativeNodeType::Receiver => self.execute_either(socket, endpoints).await,
-        }
-    }
-
-    fn get_peer_external_addr_from_peer_hole_punch_id(
-        &self,
-        id: HolePunchID,
-    ) -> Option<TargettedSocketAddr> {
-        let lock = self.observed_addrs_on_syn.lock();
-        log::trace!(target: "lusna", "Recv'd SYNS: {:?}", &*lock);
-        lock.get(&id).copied()
-    }
-
-    fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID> {
-        self.observed_addrs_on_syn.lock().keys().copied().collect()
     }
 }
 
