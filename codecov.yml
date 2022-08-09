@@ -1,3 +1,6 @@
+codecov:
+  disable_default_path_fixes: true
+
 comment:
   layout: "reach, diff, flags, files"
   behavior: default
@@ -11,7 +14,7 @@ coverage:
     project:
       default:
         # basic
-        target: 80%
+        target: 70%
         # advanced settings
         #if_ci_failed: error
         informational: false
