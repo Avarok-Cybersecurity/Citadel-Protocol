@@ -1,34 +1,32 @@
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches:
       - master
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  # 40 MiB stack
+  RUST_MIN_STACK: 40971520
+  RUST_LOG: "lusna=warn"
+
 jobs:
-  coverage_upload:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: github.event.pull_request.merged == true
+  coverage:
+    runs-on: macos-latest
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v3
-        with:
-          ref: 'coverage_files'
-      - run: mv ${GITHUB_WORKSPACE}/lcov-${GITHUB_HEAD_REF}.info ${HOME}/lcov.info
-      - uses: actions/checkout@v3
-        with:
-          ref: 'master'
-      - run: mv ${HOME}/lcov.info ${GITHUB_WORKSPACE}/lcov.info
+      - name: Install Rust
+        run: rustup toolchain install stable --component llvm-tools-preview
+      - uses: taiki-e/install-action@nextest
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v1
+      - name: Run llvm-cov nextest
+        env:
+          SKIP_EXT_BACKENDS: "true"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded --package lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam,async_ip --lcov --output-path ${HOME}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|lusna_sdk/src/test_common.rs|hyxe_wire/src/upnp_handler.rs"
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
-          fail_ci_if_error: true
-          override_branch: 'master'
-      - name: Cleanup codecov file
-        if: success()
-        run: |
-          git config --global user.name "tbraun96"
-          git config --global user.email "thomas.braun@avarok.net"
-          rm -f ${GITHUB_WORKSPACE}/lcov.info
-          git commit -am "cleanup old codecov file"
-          git push --force
