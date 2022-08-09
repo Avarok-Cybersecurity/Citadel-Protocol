@@ -286,7 +286,7 @@ fn wrap_return<R>(
 ) -> NetSelectOkResult<R> {
     NetSelectOkResult {
         result: if did_win {
-            result.map(|r| r.ok()).flatten()
+            result.and_then(|r| r.ok())
         } else {
             None
         },

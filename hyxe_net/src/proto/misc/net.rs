@@ -29,6 +29,7 @@ use std::path::Path;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop
+#[doc(hidden)]
 pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements>(
     stream: S,
 ) -> (

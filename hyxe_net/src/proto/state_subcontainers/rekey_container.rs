@@ -5,6 +5,9 @@ use crate::constants::{
     DRILL_UPDATE_FREQUENCY_LOW_BASE, DRILL_UPDATE_FREQUENCY_MEDIUM_BASE,
     DRILL_UPDATE_FREQUENCY_ULTRA_BASE,
 };
+use crate::error::NetworkError;
+use crate::prelude::{NodeResult, ReKeyResult, ReKeyReturnType, Ticket, VirtualTargetType};
+use crate::proto::outbound_sender::UnboundedSender;
 use crate::proto::transfer_stats::TransferStats;
 use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use std::collections::HashMap;
@@ -13,6 +16,26 @@ use std::collections::HashMap;
 pub struct RatchetUpdateState {
     pub alice_hyper_ratchet: Option<StackedRatchetConstructor>,
     pub p2p_updates: HashMap<u64, StackedRatchetConstructor>,
+    // if this is present (in the case of manual mode), an alert will be sent
+    // to the kernel once the re-key has finished
+    pub current_local_requests: HashMap<VirtualTargetType, Ticket>,
+}
+
+impl RatchetUpdateState {
+    pub(crate) fn on_complete(
+        &mut self,
+        v_conn_type: VirtualTargetType,
+        to_kernel_tx: &UnboundedSender<NodeResult>,
+        status: ReKeyReturnType,
+    ) -> Result<(), NetworkError> {
+        if let Some(ticket) = self.current_local_requests.remove(&v_conn_type) {
+            to_kernel_tx
+                .unbounded_send(NodeResult::ReKeyResult(ReKeyResult { ticket, status }))
+                .map_err(|err| NetworkError::Generic(err.to_string()))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Calculates the frequency, in nanoseconds per update
