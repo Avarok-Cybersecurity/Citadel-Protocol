@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AliceToBobTransferParameters {
     pub alice_pk: Arc<oqs::kem::PublicKey>,
     pub alice_pk_sig: Arc<oqs::sig::PublicKey>,
@@ -10,7 +10,7 @@ pub struct AliceToBobTransferParameters {
     pub kem_scheme: oqs::kem::Algorithm,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BobToAliceTransferParameters {
     pub bob_ciphertext: Arc<oqs::kem::Ciphertext>,
     pub bob_signature: oqs::sig::Signature,

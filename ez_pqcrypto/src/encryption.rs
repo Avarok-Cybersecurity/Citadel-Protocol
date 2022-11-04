@@ -2,7 +2,11 @@ use crate::ez_error::EzError;
 use aes_gcm_siv::aead::Buffer;
 
 pub trait AeadModule: Send + Sync {
-    fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError>;
+    fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
+        let mut ret = Vec::from(input);
+        self.encrypt_in_place(nonce, &[], &mut ret)?;
+        Ok(ret)
+    }
     fn encrypt_in_place(
         &self,
         nonce: &[u8],
@@ -15,22 +19,21 @@ pub trait AeadModule: Send + Sync {
         ad: &[u8],
         input: &mut dyn Buffer,
     ) -> Result<(), EzError>;
-    fn decrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError>;
+    fn decrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
+        let mut ret = Vec::from(input);
+        self.decrypt_in_place(nonce, &[], &mut ret)?;
+        Ok(ret)
+    }
 }
 
 pub(crate) mod aes_impl {
     use crate::encryption::AeadModule;
     use crate::ez_error::EzError;
     use aes_gcm_siv::aead::generic_array::GenericArray;
-    use aes_gcm_siv::aead::{Aead, AeadInPlace, Buffer};
+    use aes_gcm_siv::aead::{AeadInPlace, Buffer};
     use aes_gcm_siv::Aes256GcmSiv;
 
     impl AeadModule for Aes256GcmSiv {
-        fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
-            <Self as Aead>::encrypt(self, GenericArray::from_slice(nonce), input)
-                .map_err(|_| EzError::EncryptionFailure)
-        }
-
         fn encrypt_in_place(
             &self,
             nonce: &[u8],
@@ -59,11 +62,6 @@ pub(crate) mod aes_impl {
                 input,
             )
             .map_err(|_| EzError::EncryptionFailure)
-        }
-
-        fn decrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
-            <Self as Aead>::decrypt(self, GenericArray::from_slice(nonce), input)
-                .map_err(|_| EzError::DecryptionFailure)
         }
     }
 }
@@ -73,15 +71,10 @@ pub(crate) mod chacha_impl {
     use crate::ez_error::EzError;
     use aes_gcm_siv::aead::Buffer;
     use chacha20poly1305::aead::generic_array::GenericArray;
-    use chacha20poly1305::aead::{Aead, AeadInPlace};
+    use chacha20poly1305::aead::AeadInPlace;
     use chacha20poly1305::XChaCha20Poly1305;
 
     impl AeadModule for XChaCha20Poly1305 {
-        fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
-            <Self as Aead>::encrypt(self, GenericArray::from_slice(nonce), input)
-                .map_err(|_| EzError::EncryptionFailure)
-        }
-
         fn encrypt_in_place(
             &self,
             nonce: &[u8],
@@ -110,11 +103,6 @@ pub(crate) mod chacha_impl {
                 input,
             )
             .map_err(|_| EzError::EncryptionFailure)
-        }
-
-        fn decrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
-            <Self as Aead>::decrypt(self, GenericArray::from_slice(nonce), input)
-                .map_err(|_| EzError::DecryptionFailure)
         }
     }
 }
@@ -137,11 +125,6 @@ pub(crate) mod kyber_module {
     }
 
     impl AeadModule for KyberModule {
-        fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
-            let local_pk = &*self.pk_kem_local;
-            encrypt_pke(self.kem_alg, local_pk, &input, &nonce)
-        }
-
         fn encrypt_in_place(
             &self,
             nonce: &[u8],
@@ -156,6 +139,8 @@ pub(crate) mod kyber_module {
             let signature = sig
                 .sign(ad, self.sk_sig_local.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
+            // append the signature of the header onto the plaintext
+            log::error!(target: "lusna", "sig len = {} || {}", signature.len(), sig.length_signature());
             input
                 .extend_from_slice(signature.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
@@ -168,6 +153,8 @@ pub(crate) mod kyber_module {
             input
                 .extend_from_slice(output.as_slice())
                 .map_err(|err| EzError::Other(err.to_string()))?;
+
+            log::error!(target: "lusna", "output len = {}", input.len());
 
             Ok(())
         }
@@ -182,19 +169,20 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.sk_kem_local.as_ref();
             // decrypt
-            let plaintext = decrypt_pke(self.kem_alg, local_sk, &input)?;
+            let plaintext_and_signature = decrypt_pke(self.kem_alg, local_sk, &input)?;
             // the plaintext is the normal plaintext + signature of the header. Extract the signature
             let signature_len = sig.length_signature();
-            let signature_start = plaintext.len() - signature_len;
-            let plaintext_range = 0..signature_start;
-            let signature = &plaintext[signature_start..];
-            let plaintext = &plaintext[plaintext_range];
+            // TODO: Why is length_signature() different than actual signature length?
+            log::error!(target: "lusna", "pt len = {} | sig len = {}", plaintext_and_signature.len(), signature_len);
+            let signature_start = plaintext_and_signature.len() - signature_len;
+            let signature = &plaintext_and_signature[signature_start..];
+            let plaintext = &plaintext_and_signature[..signature_start];
 
             let pk_sig_remote = &*self.pk_sig_remote;
 
-            // TODO: use zero-copy, will need PR fork
-            let signature: Signature =
-                bincode2::deserialize(signature).map_err(|err| EzError::Other(err.to_string()))?;
+            let signature = sig
+                .signature_from_bytes(signature)
+                .ok_or(EzError::Generic("Bad signature length"))?;
 
             // verify the signature of the header. If header was changed in transit, this step
             // will fail
@@ -208,12 +196,6 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
 
             Ok(())
-        }
-
-        fn decrypt(&self, _nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
-            let local_sk = &*self.sk_kem_local;
-            // TODO: make sure the kem keys == pke keys ?! Get rid of oqs kem?
-            decrypt_pke(self.kem_alg, local_sk, &input)
         }
     }
 
