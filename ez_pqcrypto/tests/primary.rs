@@ -25,13 +25,17 @@ mod tests {
             kem_algorithm + encryption_algorithm,
         )))
         .unwrap();
+
+        let tx_params = alice_container.generate_alice_to_bob_transfer().unwrap();
         let bob_container = PostQuantumContainer::new_bob(
             ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
-            alice_container.get_public_key(),
+            tx_params,
         )
         .unwrap();
+
+        let tx_params = bob_container.generate_bob_to_alice_transfer().unwrap();
         alice_container
-            .alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap())
+            .alice_on_receive_ciphertext(tx_params)
             .unwrap();
         (alice_container, bob_container)
     }
@@ -54,24 +58,26 @@ mod tests {
         )))
         .unwrap();
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
-        let alice_public_key = alice_container.get_public_key();
+        let tx_params = alice_container.generate_alice_to_bob_transfer().unwrap();
         //
         // Then, Bob gets the public key. To process it, he must create a PostQuantumContainer for himself
         let bob_container = PostQuantumContainer::new_bob(
             ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
-            alice_public_key,
+            tx_params.clone(),
         )?;
         let eve_container = PostQuantumContainer::new_bob(
             ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
-            alice_public_key,
+            tx_params,
         )?;
         // Internally, this computes the CipherText. The next step is to send this CipherText back over to alice
         let bob_ciphertext = bob_container.get_ciphertext().unwrap();
-        let _eve_ciphertext = eve_container.get_ciphertext().unwrap();
+        let eve_ciphertext = eve_container.get_ciphertext().unwrap();
+        assert_ne!(bob_ciphertext, eve_ciphertext);
         //
         // Next, alice received Bob's ciphertext. She must now run an update on her internal data in order to get the shared secret
+        let tx_params = bob_container.generate_bob_to_alice_transfer().unwrap();
         alice_container
-            .alice_on_receive_ciphertext(bob_ciphertext)
+            .alice_on_receive_ciphertext(tx_params)
             .unwrap();
 
         let alice_ss = alice_container.get_shared_secret().unwrap();
@@ -264,17 +270,20 @@ mod tests {
     }
 
     #[test]
+    fn test_kyber() {
+        lusna_logging::setup_log();
+        run(KemAlgorithm::Kyber1024.into(), EncryptionAlgorithm::Kyber).unwrap()
+    }
+
+    #[test]
     fn parse() {
-        assert_eq!(
-            KemAlgorithm::Kyber1024_90s,
-            KemAlgorithm::try_from(5).unwrap()
-        );
+        assert_eq!(KemAlgorithm::Kyber1024, KemAlgorithm::try_from(5).unwrap());
     }
 
     #[test]
     fn test_serialize_deserialize() {
         lusna_logging::setup_log();
-        let kem_algorithm = KemAlgorithm::Kyber1024_90s;
+        let kem_algorithm = KemAlgorithm::Kyber1024;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
