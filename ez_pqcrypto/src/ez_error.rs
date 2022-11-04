@@ -6,20 +6,23 @@ pub enum EzError {
     /// The shared secret is not loaded
     SharedSecretNotLoaded,
     /// Failed to encrypt the data
-    AesGcmEncryptionFailure,
+    EncryptionFailure,
     /// Failed to decrypt the data
-    AesGcmDecryptionFailure,
-    /// For all other error types
+    DecryptionFailure,
+    /// For generic error types
     Generic(&'static str),
+    /// For message types requiring heap
+    Other(String),
 }
 
 impl Display for EzError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let val = match *self {
+        let val = match self {
             EzError::SharedSecretNotLoaded => "Shared secret not loaded",
-            EzError::AesGcmEncryptionFailure => "AES-GCM Encryption Failure",
-            EzError::AesGcmDecryptionFailure => "AES-GCM Decryption Failure",
+            EzError::EncryptionFailure => "AES-GCM Encryption Failure",
+            EzError::DecryptionFailure => "AES-GCM Decryption Failure",
             EzError::Generic(val) => val,
+            EzError::Other(val) => val.as_str(),
         };
 
         write!(f, "{}", val)
