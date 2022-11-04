@@ -122,6 +122,7 @@ pub(crate) mod chacha_impl {
 pub(crate) mod kyber_module {
     use crate::{AeadModule, EzError, KemAlgorithm, SigAlgorithm};
     use aes_gcm_siv::aead::Buffer;
+    use oqs::sig::Signature;
     use std::sync::Arc;
 
     pub struct KyberModule {
@@ -164,7 +165,9 @@ pub(crate) mod kyber_module {
             // now, encrypt the input
             let output = encrypt_pke(self.kem_alg, pk_kem_local, input.as_ref(), &nonce)?;
             input.truncate(0);
-            input.extend_from_slice(output.as_slice());
+            input
+                .extend_from_slice(output.as_slice())
+                .map_err(|err| EzError::Other(err.to_string()))?;
 
             Ok(())
         }
@@ -179,7 +182,7 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.sk_kem_local.as_ref();
             // decrypt
-            let plaintext = decrypt_pke(self.kem_alg, local_sk, input)?;
+            let plaintext = decrypt_pke(self.kem_alg, local_sk, &input)?;
             // the plaintext is the normal plaintext + signature of the header. Extract the signature
             let signature_len = sig.length_signature();
             let signature_start = plaintext.len() - signature_len;
@@ -189,14 +192,20 @@ pub(crate) mod kyber_module {
 
             let pk_sig_remote = &*self.pk_sig_remote;
 
+            // TODO: use zero-copy, will need PR fork
+            let signature: Signature =
+                bincode2::deserialize(signature).map_err(|err| EzError::Other(err.to_string()))?;
+
             // verify the signature of the header. If header was changed in transit, this step
             // will fail
-            sig.verify(ad, signature, pk_sig_remote)
+            sig.verify(ad, &signature, pk_sig_remote)
                 .map_err(|_| EzError::DecryptionFailure)?;
 
             // HACK. Insert the plaintext
             input.truncate(0);
-            input.extend_from_slice(plaintext);
+            input
+                .extend_from_slice(plaintext)
+                .map_err(|err| EzError::Other(err.to_string()))?;
 
             Ok(())
         }
