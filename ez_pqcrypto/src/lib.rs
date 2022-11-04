@@ -138,6 +138,14 @@ impl PostQuantumContainer {
         })
     }
 
+    pub fn generate_alice_to_bob_transfer(&self) -> Result<AliceToBobTransferParameters, Error> {
+        self.data.generate_alice_to_bob_transfer()
+    }
+
+    pub fn generate_bob_to_alice_transfer(&self) -> Result<BobToAliceTransferParameters, Error> {
+        self.data.generate_bob_to_alice_transfer()
+    }
+
     /// Creates a new [PostQuantumContainer] for Bob. This will panic if the algorithm is
     /// invalid
     pub fn new_bob(
@@ -759,9 +767,9 @@ pub mod algorithm_dictionary {
         }
     }
 
-    impl Into<u8> for EncryptionAlgorithm {
-        fn into(self) -> u8 {
-            self as u8
+    impl From<EncryptionAlgorithm> for u8 {
+        fn from(val: EncryptionAlgorithm) -> Self {
+            val as u8
         }
     }
 
@@ -916,7 +924,7 @@ impl PostQuantumMetaKem {
         let public_key_alice = params.alice_pk;
 
         sig_alg.verify(
-            params.alice_pk.deref().as_ref(),
+            public_key_alice.deref().as_ref(),
             &params.alice_sig,
             params.alice_pk_sig.as_ref(),
         )?;
