@@ -33,6 +33,7 @@ oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-fe
 kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", branch = "master" }
 #pqcrypto = { git = "https://github.com/rustpq/pqcrypto.git", default-features = false, features = ["pqcrypto-saber", "pqcrypto-kyber", "pqcrypto-ntru"]}
 #typetag = "0.1.8"
+byteorder = "1.4.3"
 
 [dev-dependencies]
 rand = "0.8.4"
