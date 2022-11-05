@@ -96,6 +96,13 @@ mod tests {
 
         //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
         let decrypted_len = bob_container.decrypt_in_place(&mut ptr, nonce).unwrap();
+        debug_assert_eq!(plaintext, &ptr[..decrypted_len]);
+
+        let mut ciphertext = bob_container.encrypt(plaintext, nonce).unwrap();
+        let mut ptr = &mut ciphertext[..];
+
+        //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
+        let decrypted_len = alice_container.decrypt_in_place(&mut ptr, nonce).unwrap();
 
         debug_assert_eq!(plaintext, &ptr[..decrypted_len]);
         Ok(())
