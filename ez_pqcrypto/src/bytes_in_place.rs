@@ -81,7 +81,9 @@ impl AsRef<[u8]> for InPlaceByteSliceMut<'_> {
 impl Buffer for InPlaceByteSliceMut<'_> {
     fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), Error> {
         if self.inner.len() >= other.len() {
-            self.inner.copy_from_slice(other);
+            self.inner[..other.len()].copy_from_slice(other);
+            // hack for ByteSliceMut only:
+            self.truncated_len = other.len();
             Ok(())
         } else {
             Err(Error)

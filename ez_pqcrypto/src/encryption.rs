@@ -108,9 +108,9 @@ pub(crate) mod chacha_impl {
 }
 
 pub(crate) mod kyber_module {
-    use crate::{AeadModule, EzError, KemAlgorithm, SigAlgorithm};
+    use crate::{AeadModule, EzError, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES};
     use aes_gcm_siv::aead::Buffer;
-    use oqs::sig::Signature;
+    use byteorder::{ByteOrder, NetworkEndian};
     use std::sync::Arc;
 
     pub struct KyberModule {
@@ -122,6 +122,8 @@ pub(crate) mod kyber_module {
         pub pk_sig_remote: Arc<oqs::sig::PublicKey>,
         pub sk_sig_local: Arc<oqs::sig::SecretKey>,
         pub pk_sig_local: Arc<oqs::sig::PublicKey>,
+        pub symmetric_key_local: Box<dyn AeadModule>,
+        pub symmetric_key_remote: Box<dyn AeadModule>,
     }
 
     impl AeadModule for KyberModule {
@@ -136,32 +138,40 @@ pub(crate) mod kyber_module {
             // encrypting the input ciphertext + the signature ensures ciphertext works
             let sig = oqs::sig::Sig::new(self.sig_alg.into())
                 .map_err(|err| EzError::Other(err.to_string()))?;
+
+            // include ratcheted symmetric key into equation by encrypting null input
+            let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
+            let x_key = self.symmetric_key_local.encrypt(aes_nonce, &[])?;
+            // append the x-key, that way the post-quantum signature includes it
+            input
+                .extend_from_slice(&x_key)
+                .map_err(|err| EzError::Other(err.to_string()))?;
+
             let signature = sig
                 .sign(ad, self.sk_sig_local.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
             // append the signature of the header onto the plaintext
-            log::error!(target: "lusna", "sig len = {} || {}", signature.len(), sig.length_signature());
             input
                 .extend_from_slice(signature.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
+            let len_bytes = &(signature.len() as u64).to_be_bytes();
+            input.extend_from_slice(len_bytes).unwrap();
 
-            let pk_kem_local = self.pk_kem_local.as_ref();
+            let remote_public_key = &*self.pk_kem_remote;
 
             // now, encrypt the input
-            let output = encrypt_pke(self.kem_alg, pk_kem_local, input.as_ref(), &nonce)?;
+            let output = encrypt_pke(self.kem_alg, remote_public_key, input.as_ref(), &nonce)?;
             input.truncate(0);
             input
                 .extend_from_slice(output.as_slice())
                 .map_err(|err| EzError::Other(err.to_string()))?;
-
-            log::error!(target: "lusna", "output len = {}", input.len());
 
             Ok(())
         }
 
         fn decrypt_in_place(
             &self,
-            _nonce: &[u8],
+            nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), EzError> {
@@ -169,12 +179,21 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.sk_kem_local.as_ref();
             // decrypt
-            let plaintext_and_signature = decrypt_pke(self.kem_alg, local_sk, &input)?;
+            let mut plaintext_and_signature = decrypt_pke(self.kem_alg, local_sk, &input)?;
+            let total_len = plaintext_and_signature.len();
+            let sig_size_bytes = &plaintext_and_signature[total_len.saturating_sub(8)..];
+            // TODO: bounds checks
+            let sig_len = NetworkEndian::read_u64(sig_size_bytes) as usize;
+
+            if sig_len > sig.length_signature() {
+                return Err(EzError::Generic(
+                    "The inscribed signature length is too large",
+                ));
+            }
+
+            plaintext_and_signature.truncate(total_len.saturating_sub(8));
             // the plaintext is the normal plaintext + signature of the header. Extract the signature
-            let signature_len = sig.length_signature();
-            // TODO: Why is length_signature() different than actual signature length?
-            log::error!(target: "lusna", "pt len = {} | sig len = {}", plaintext_and_signature.len(), signature_len);
-            let signature_start = plaintext_and_signature.len() - signature_len;
+            let signature_start = plaintext_and_signature.len().saturating_sub(sig_len);
             let signature = &plaintext_and_signature[signature_start..];
             let plaintext = &plaintext_and_signature[..signature_start];
 
@@ -189,6 +208,12 @@ pub(crate) mod kyber_module {
             sig.verify(ad, &signature, pk_sig_remote)
                 .map_err(|_| EzError::DecryptionFailure)?;
 
+            // additionally, verify the x-key
+            let split_pt = plaintext.len() - 16; // 128-bit block size gcm
+            let (plaintext, x_key) = plaintext.split_at(split_pt);
+            let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
+            let _ = self.symmetric_key_remote.decrypt(aes_nonce, x_key)?;
+
             // HACK. Insert the plaintext
             input.truncate(0);
             input
@@ -199,7 +224,7 @@ pub(crate) mod kyber_module {
         }
     }
 
-    fn encrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
+    pub fn encrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
         _: KemAlgorithm,
         local_pk: T,
         plaintext: R,
@@ -208,7 +233,7 @@ pub(crate) mod kyber_module {
         kyber_pke::encrypt(local_pk, plaintext, nonce).map_err(|_| EzError::EncryptionFailure)
     }
 
-    fn decrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>>(
+    pub fn decrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>>(
         _: KemAlgorithm,
         local_sk: T,
         ciphertext: R,
@@ -219,6 +244,38 @@ pub(crate) mod kyber_module {
 
 #[cfg(test)]
 mod tests {
+    use crate::KemAlgorithm;
+    use oqs::kem::Algorithm;
+
     #[test]
-    fn test_aead_module_aes() {}
+    fn test_kyber_with_oqs() {
+        let kem = oqs::kem::Kem::new(Algorithm::Kyber1024).unwrap();
+        let (pk_alice, sk_alice) = kem.keypair().unwrap();
+        let (pk_bob, sk_bob) = kem.keypair().unwrap();
+        let (ct, ss_bob) = kem.encapsulate(&pk_alice).unwrap();
+        let ss_alice = kem.decapsulate(&sk_alice, &ct).unwrap();
+        assert_eq!(ss_alice, ss_bob);
+        let message = b"Hello, world!" as &[u8];
+        // TODO: the problem is that local_sk is not mathematically tethered to bob/alice pair.
+        // THIS test proves this works, we just need to make sure in lib.rs implementation, it works
+        let nonce = (0..32).into_iter().map(|r| r as u8).collect::<Vec<u8>>();
+        // alice uses bob's public key to encrypt
+        let ciphertext =
+            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber1024, &pk_bob, message, &nonce)
+                .unwrap();
+        // bob uses his secret key to decrypt
+        let recovered =
+            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber1024, sk_bob, ciphertext).unwrap();
+        assert_eq!(message, recovered);
+
+        // bob uses alice's public key to encrypt
+        let ciphertext =
+            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber1024, &pk_alice, message, &nonce)
+                .unwrap();
+        // alice uses her secret key to decrypt
+        let recovered =
+            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber1024, sk_alice, ciphertext)
+                .unwrap();
+        assert_eq!(message, recovered);
+    }
 }

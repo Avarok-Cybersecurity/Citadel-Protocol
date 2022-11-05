@@ -120,6 +120,16 @@ pub(crate) fn keys_to_aead_store(
             let kem_alg = params.kem_algorithm;
             let sig_alg = params.sig_algorithm;
 
+            let symmetric_key_local = match pq_node {
+                PQNode::Alice => Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice)),
+                PQNode::Bob => Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob)),
+            };
+
+            let symmetric_key_remote = match pq_node {
+                PQNode::Alice => Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob)),
+                PQNode::Bob => Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice)),
+            };
+
             let keys = Box::new(KyberModule {
                 kem_alg,
                 sig_alg,
@@ -129,6 +139,8 @@ pub(crate) fn keys_to_aead_store(
                 pk_sig_remote,
                 sk_sig_local,
                 pk_sig_local,
+                symmetric_key_local,
+                symmetric_key_remote,
             }) as Box<dyn AeadModule>;
 
             // TODO: multi-modal ratcheted encryption
