@@ -24,11 +24,13 @@ pub const AES_GCM_GHASH_OVERHEAD: usize = 16;
 
 /// Returns the max packet size based on security level
 pub fn get_max_packet_size(
-    starting_max_packet_size: usize,
+    enx: EncryptionAlgorithm,
+    sig_alg: SigAlgorithm,
     security_level: SecurityLevel,
 ) -> usize {
     const BASE: usize = 2;
     let security_exponent = security_level.value() as u32;
+    let starting_max_packet_size = enx.max_ciphertext_len(MAX_WAVEFORM_PACKET_SIZE, sig_alg);
     std::cmp::max(
         starting_max_packet_size / (BASE.pow(security_exponent)),
         get_aes_gcm_overhead(),
@@ -39,16 +41,13 @@ pub(crate) const fn get_aes_gcm_overhead() -> usize {
     AES_GCM_GHASH_OVERHEAD
 }
 
-/// Calculates the length of the expected ciphertext
-pub fn calculate_aes_gcm_output_length(plaintext_length: usize) -> usize {
-    get_aes_gcm_overhead() + plaintext_length
-}
-
 /// Calculates the expected plaintext length of a ciphertext with ciphertext_length bytes
 pub fn calculate_aes_gcm_plaintext_length_from_ciphertext_length(
-    ciphertext_length: usize,
-) -> usize {
-    ciphertext_length - get_aes_gcm_overhead()
+    ciphertext: &[u8],
+    enx: EncryptionAlgorithm,
+) -> Option<usize> {
+    //ciphertext_length - get_aes_gcm_overhead()
+    enx.plaintext_length(ciphertext)
 }
 
 #[inline]
@@ -67,14 +66,14 @@ pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
     }
 }
 
-#[inline]
 pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     msg_drill: &Drill,
     plain_text: T,
     header_size_bytes: usize,
     security_level: SecurityLevel,
     group_id: u64,
-    starting_max_packet_size: usize,
+    enx: EncryptionAlgorithm,
+    sig_alg: SigAlgorithm,
 ) -> Result<GroupReceiverConfig, CryptError<String>> {
     let plain_text = plain_text.as_ref();
 
@@ -82,13 +81,12 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
         return Err(CryptError::Encrypt("Empty input".to_string()));
     }
 
-    let max_packet_payload_size = get_max_packet_size(starting_max_packet_size, security_level);
+    let max_packet_payload_size = get_max_packet_size(enx, sig_alg, security_level);
     let max_packets_per_wave = msg_drill.get_multiport_width();
-    let aes_gcm_overhead = get_aes_gcm_overhead();
+    //let aes_gcm_overhead = get_aes_gcm_overhead();
     // the below accounts for the stretch in size as we map n plaintext bytes to calculate_aes_gcm_output_length(n) bytes
     // Since we run the encryption algorithm once per wave, to get the number of plaintext bytes per wave we need, multiple the above by the max packets per wave and subtract
-    let max_plaintext_bytes_per_wave =
-        (max_packet_payload_size * max_packets_per_wave) - aes_gcm_overhead; // We encrypt this many bytes per wave
+    let max_plaintext_bytes_per_wave = max_packet_payload_size * max_packets_per_wave;
 
     // the "number_of_waves" is the number of full waves plus partial waves (max n=1 partial waves)
     let (number_of_full_waves, number_of_partial_waves, bytes_in_last_wave) =
@@ -111,10 +109,10 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
             )
         };
 
-    let number_of_waves = number_of_full_waves + number_of_partial_waves;
     // calculate buffer of last wave. In the case of plain_text.len() == max_plaintext_bytes, we have 1 wave.
     let ciphertext_len_last_wave = if number_of_partial_waves != 0 {
-        calculate_aes_gcm_output_length(bytes_in_last_wave)
+        //calculate_aes_gcm_output_length(bytes_in_last_wave)
+        enx.max_ciphertext_len(bytes_in_last_wave, sig_alg)
     } else {
         // this will ensure that the calculation below is adjusted for the equals case
         // Also, adjust the bytes in the last wave. Since there is no partial wave, but n full waves, the last
@@ -123,34 +121,20 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
         0
     };
 
-    let packets_in_last_wave =
-        num_integer::Integer::div_ceil(&ciphertext_len_last_wave, &max_packet_payload_size);
-
-    let (_normal_packets_in_last_wave, mut debug_last_payload_size) =
-        ciphertext_len_last_wave.div_rem(&max_packet_payload_size);
-    if debug_last_payload_size == 0 {
-        debug_last_payload_size = max_packet_payload_size;
-    }
-
-    let packets_needed = if number_of_full_waves != 0 {
-        (number_of_full_waves * max_packets_per_wave) + packets_in_last_wave
-    } else {
-        packets_in_last_wave
-    };
-
-    Ok(GroupReceiverConfig::new(
-        group_id as usize,
-        packets_needed,
+    let cfg = GroupReceiverConfig::new_refresh(
+        group_id,
         header_size_bytes,
-        plain_text.len(),
+        plain_text,
         max_packet_payload_size,
-        debug_last_payload_size,
-        number_of_waves,
+        number_of_full_waves,
+        number_of_partial_waves,
         max_plaintext_bytes_per_wave,
         bytes_in_last_wave,
         max_packets_per_wave,
-        packets_in_last_wave,
-    ))
+        ciphertext_len_last_wave,
+    );
+
+    Ok(cfg)
 }
 
 fn get_scramble_encrypt_config<'a, R: Ratchet>(
@@ -159,7 +143,6 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     header_size_bytes: usize,
     security_level: SecurityLevel,
     group_id: u64,
-    starting_max_packet_size: usize,
 ) -> Result<
     (
         GroupReceiverConfig,
@@ -177,69 +160,21 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         header_size_bytes,
         security_level,
         group_id,
-        starting_max_packet_size,
+        msg_pqc.params.encryption_algorithm,
+        msg_pqc.params.sig_algorithm,
     )?;
     Ok((cfg, msg_drill, msg_pqc, scramble_drill))
 }
 
 /// Each packet contains an empty array open to inscription of a header coupled with a ciphertext
 /// The vector contains the orientation data
+/// TODO: Arc<Mutex the packet to reduce long cloning
 #[derive(Clone)]
 pub struct PacketCoordinate {
     /// The encrypted packet
     pub packet: BytesMut,
     /// The coordinate data of the packet along the wave
     pub vector: PacketVector,
-}
-
-/// header_size_bytes: This size (in bytes) of each packet's header
-/// TODO: Handle max_plaintext_bytes_per_wave observed overflow errors. This function is unstable
-#[allow(unused_results)]
-pub fn scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(
-    plain_text: T,
-    security_level: SecurityLevel,
-    hyper_ratchet: &R,
-    header_size_bytes: usize,
-    target_cid: u64,
-    object_id: u32,
-    group_id: u64,
-    ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync,
-) -> Result<GroupSenderDevice<0>, CryptError<String>> {
-    let plain_text = plain_text.as_ref();
-    let (cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(
-        hyper_ratchet,
-        plain_text,
-        header_size_bytes,
-        security_level,
-        group_id,
-        MAX_WAVEFORM_PACKET_SIZE,
-    )?;
-
-    let packets = plain_text
-        .chunks(cfg.max_plaintext_wave_length)
-        .enumerate()
-        .map(|(wave_idx, bytes_to_encrypt_for_this_wave)| {
-            scramble_encrypt_wave(
-                wave_idx,
-                bytes_to_encrypt_for_this_wave,
-                &cfg,
-                msg_drill,
-                msg_pqc,
-                scramble_drill,
-                target_cid,
-                object_id,
-                header_size_bytes,
-                header_inscriber,
-            )
-        })
-        .flatten()
-        .collect::<HashMap<usize, PacketCoordinate>>();
-
-    debug_assert_ne!(cfg.last_plaintext_wave_length, 0);
-    debug_assert_eq!(cfg.packets_needed, packets.len());
-    //let group_receiver_config = GroupReceiverConfig::new(group_id as usize, packets.len(), header_size_bytes, plain_text.len(), max_packet_payload_size, debug_last_payload_size, number_of_waves, max_plaintext_bytes_per_wave, bytes_in_last_wave, max_packets_per_wave, packets_in_last_wave);
-
-    Ok(GroupSenderDevice::<0>::new(cfg, packets))
 }
 
 /// header_size_bytes: This size (in bytes) of each packet's header
@@ -259,13 +194,12 @@ where
     F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync,
 {
     let plain_text = plain_text.as_ref();
-    let (cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(
+    let (mut cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(
         hyper_ratchet,
         plain_text,
         header_size_bytes,
         security_level,
         group_id,
-        1024 * 8,
     )?;
 
     let packets = plain_text
@@ -289,8 +223,28 @@ where
         .collect::<HashMap<usize, PacketCoordinate>>();
 
     debug_assert_ne!(cfg.last_plaintext_wave_length, 0);
-    debug_assert_eq!(cfg.packets_needed, packets.len());
-    //let group_receiver_config = GroupReceiverConfig::new(group_id as usize, packets.len(), header_size_bytes, plain_text.len(), max_packet_payload_size, debug_last_payload_size, number_of_waves, max_plaintext_bytes_per_wave, bytes_in_last_wave, max_packets_per_wave, packets_in_last_wave);
+
+    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::Kyber {
+        debug_assert_eq!(cfg.packets_needed, packets.len());
+    } else {
+        // Kyber encryptions have a non-deterministic output length sometimes. Update the cfg
+        let ciphertext_len: usize = packets.values().map(|r| r.packet.len() - N).sum();
+        cfg = GroupReceiverConfig::new_refresh(
+            cfg.group_id as u64,
+            cfg.header_size_bytes,
+            plain_text,
+            cfg.max_payload_size,
+            cfg.number_of_full_waves,
+            cfg.number_of_partial_waves,
+            cfg.max_plaintext_wave_length,
+            cfg.last_plaintext_wave_length,
+            cfg.max_packets_per_wave,
+            ciphertext_len,
+        );
+    }
+    // TODO: since ciphertext output is not deterministic, either A: pad signature bytes to max sig len in ez_pqcrypto,
+    // OR, try updating the parameters here in the code (though, this may not work since enx already happened)
+    // OR, try fixing the prediction, since ciphertext output is empirically constant
 
     Ok(GroupSenderDevice::new(cfg, packets))
 }
@@ -308,13 +262,15 @@ fn scramble_encrypt_wave(
     header_size_bytes: usize,
     header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
-    let mut packets = msg_drill
+    let ciphertext = msg_drill
         .aes_gcm_encrypt(
             calculate_nonce_version(wave_idx, cfg.group_id as u64),
             msg_pqc,
             bytes_to_encrypt_for_this_wave,
         )
-        .unwrap()
+        .unwrap();
+
+    let mut packets = ciphertext
         .chunks(cfg.max_payload_size)
         .enumerate()
         .map(|(relative_packet_idx, ciphertext_packet_bytes)| {
@@ -347,6 +303,8 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
         len,
         len,
         len,
+        0,
+        1,
         1,
         len,
         len,
@@ -404,6 +362,7 @@ pub struct GroupReceiver {
 }
 
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
+use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, SigAlgorithm};
 use ez_pqcrypto::PostQuantumContainer;
 use serde::{Deserialize, Serialize};
 
@@ -417,6 +376,8 @@ pub struct GroupReceiverConfig {
     pub plaintext_length: usize,
     pub max_payload_size: usize,
     pub last_payload_size: usize,
+    pub number_of_full_waves: usize,
+    pub number_of_partial_waves: usize,
     pub wave_count: usize,
     pub max_plaintext_wave_length: usize,
     pub last_plaintext_wave_length: usize,
@@ -438,6 +399,8 @@ impl GroupReceiverConfig {
         plaintext_length: usize,
         max_payload_size: usize,
         last_payload_size: usize,
+        number_of_full_waves: usize,
+        number_of_partial_waves: usize,
         wave_count: usize,
         max_plaintext_wave_length: usize,
         last_plaintext_wave_length: usize,
@@ -451,12 +414,58 @@ impl GroupReceiverConfig {
             plaintext_length,
             max_payload_size,
             last_payload_size,
+            number_of_full_waves,
+            number_of_partial_waves,
             wave_count,
             max_plaintext_wave_length,
             last_plaintext_wave_length,
             max_packets_per_wave,
             packets_in_last_wave,
         }
+    }
+
+    pub fn new_refresh(
+        group_id: u64,
+        header_size_bytes: usize,
+        plain_text: &[u8],
+        max_packet_payload_size: usize,
+        number_of_full_waves: usize,
+        number_of_partial_waves: usize,
+        max_plaintext_bytes_per_wave: usize,
+        bytes_in_last_wave: usize,
+        max_packets_per_wave: usize,
+        ciphertext_len_last_wave: usize,
+    ) -> Self {
+        let number_of_waves = number_of_full_waves + number_of_partial_waves;
+        let packets_in_last_wave =
+            num_integer::Integer::div_ceil(&ciphertext_len_last_wave, &max_packet_payload_size);
+
+        let (_normal_packets_in_last_wave, mut debug_last_payload_size) =
+            ciphertext_len_last_wave.div_rem(&max_packet_payload_size);
+
+        if debug_last_payload_size == 0 {
+            // the last payload size is equal to the max payload size
+            // since the last payload is a whole payload
+            debug_last_payload_size = max_packet_payload_size;
+        }
+
+        let packets_needed = (number_of_full_waves * max_packets_per_wave) + packets_in_last_wave;
+
+        GroupReceiverConfig::new(
+            group_id as usize,
+            packets_needed,
+            header_size_bytes,
+            plain_text.len(),
+            max_packet_payload_size,
+            debug_last_payload_size,
+            number_of_full_waves,
+            number_of_partial_waves,
+            number_of_waves,
+            max_plaintext_bytes_per_wave,
+            bytes_in_last_wave,
+            max_packets_per_wave,
+            packets_in_last_wave,
+        )
     }
 
     /// Returns the number of packets in a given wave by id. TODO: Clean this up
@@ -484,6 +493,7 @@ impl GroupReceiverConfig {
 struct TempWaveStore {
     packets_received: usize,
     packets_in_wave: usize,
+    bytes_written: usize,
     #[allow(dead_code)]
     last_packet_recv_time: Option<Instant>,
     ciphertext_buffer: Vec<u8>,
@@ -545,6 +555,7 @@ impl GroupReceiver {
             };
             let ciphertext_buffer = vec![0u8; ciphertext_buffer_alloc_size_for_single_wave];
             let tmp_wave_store_container = TempWaveStore {
+                bytes_written: 0,
                 packets_received: 0,
                 packets_in_wave,
                 last_packet_recv_time,
@@ -621,18 +632,19 @@ impl GroupReceiver {
             //let packet_bytes = packet.bytes();
             let packet_bytes = packet;
 
-            debug_assert_eq!(packet_bytes.len(), dest_bytes.len());
-
-            for (idx, dest_byte) in dest_bytes.iter_mut().enumerate() {
-                *dest_byte = packet_bytes[idx];
+            if packet_bytes.len() != dest_bytes.len() {
+                debug_assert!(packet_bytes.len() < dest_bytes.len())
             }
 
+            dest_bytes[..packet_bytes.len()].copy_from_slice(packet_bytes);
+
             wave_store.packets_received += 1;
+            wave_store.bytes_written += packet_bytes.len();
             wave_store.last_packet_recv_time = Some(Instant::now());
             self.packets_received_order.set(true_sequence, true);
-
             if wave_store.packets_received == wave_store.packets_in_wave {
-                let ciphertext_bytes_for_this_wave = &wave_store.ciphertext_buffer[..];
+                let ciphertext_bytes_for_this_wave =
+                    &wave_store.ciphertext_buffer[..wave_store.bytes_written];
                 let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
 
                 match msg_drill.aes_gcm_decrypt(
@@ -646,7 +658,7 @@ impl GroupReceiver {
                         let plaintext_insert_index =
                             Self::get_plaintext_buffer_insertion_range_by_wave_id(
                                 wave_id,
-                                ciphertext_bytes_for_this_wave.len(),
+                                plaintext,
                                 self.max_plaintext_wave_length,
                             );
                         let dest_bytes =
@@ -745,11 +757,9 @@ impl GroupReceiver {
         group_id: u64,
         hyper_ratchet: &R,
     ) -> Option<Vec<PacketVector>> {
-        //println!("Getting retransmission vectors for {} ofr group {}", wave_id, group_id);
         let drill = hyper_ratchet.get_scramble_drill();
         let wave_store = self.temp_wave_store.get(&(wave_id as usize))?;
         let packets_missing = wave_store.packets_in_wave - wave_store.packets_received;
-        //println!("Packets missing: {}", packets_missing);
         // Are there packets missing?
         if packets_missing != 0 {
             /*
@@ -805,23 +815,21 @@ impl GroupReceiver {
             let len = store.ciphertext_buffer.capacity();
             let start_idx = len - last_payload_size;
             let end_idx = len;
-            //println!("(LAST) Getting {}..{}", start_idx, end_idx);
             start_idx..end_idx
         } else {
             let start_idx = max_payload_size * packet_idx_relative_to_wave;
             let end_idx = max_payload_size + start_idx;
-            //println!("Getting {}..{}", start_idx, end_idx);
             start_idx..end_idx
         }
     }
 
     fn get_plaintext_buffer_insertion_range_by_wave_id(
         wave_id: u32,
-        ciphertext_wave_length: usize,
+        plaintext: &[u8],
         max_plaintext_wave_length: usize,
     ) -> Range<usize> {
-        let plaintext_length =
-            calculate_aes_gcm_plaintext_length_from_ciphertext_length(ciphertext_wave_length);
+        // TODO!!!!! remove unwrap
+        let plaintext_length = plaintext.len();
         let start_idx = wave_id as usize * max_plaintext_wave_length;
         let end_idx = start_idx + plaintext_length;
         start_idx..end_idx

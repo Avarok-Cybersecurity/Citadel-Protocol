@@ -837,7 +837,7 @@ impl HdpServer {
                             implicated_cid,
                             ticket_id,
                             peer_command,
-                            SecurityLevel::LOW,
+                            SecurityLevel::DEFAULT,
                         )
                         .await
                     {
@@ -857,7 +857,7 @@ impl HdpServer {
                         path,
                         implicated_cid,
                         virtual_target,
-                        SecurityLevel::LOW,
+                        SecurityLevel::DEFAULT,
                     ) {
                         send_error(ticket_id, err)?;
                     }

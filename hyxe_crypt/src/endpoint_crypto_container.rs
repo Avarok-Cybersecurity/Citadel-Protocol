@@ -242,13 +242,13 @@ pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
         cid: u64,
         new_drill_vers: u32,
         opts: Vec<ConstructorOpts>,
-        transfer: AliceToBobTransferType<'_>,
+        transfer: AliceToBobTransferType,
     ) -> Option<Self>
     where
         Self: Sized;
-    fn stage0_alice(&self) -> AliceToBobTransferType<'_>;
+    fn stage0_alice(&self) -> Option<AliceToBobTransferType>;
     fn stage0_bob(&self) -> Option<BobToAliceTransferType>;
-    fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()>;
+    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()>;
 
     fn update_version(&mut self, version: u32) -> Option<()>;
     fn finish_with_custom_cid(self, cid: u64) -> Option<R>;

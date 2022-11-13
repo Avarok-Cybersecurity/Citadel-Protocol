@@ -6,7 +6,7 @@ mod tests {
 
     use enum_primitive::FromPrimitive;
     use ez_pqcrypto::algorithm_dictionary::{
-        EncryptionAlgorithm, KemAlgorithm, KEM_ALGORITHM_COUNT,
+        CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm, KEM_ALGORITHM_COUNT,
     };
     use ez_pqcrypto::bytes_in_place::EzBuffer;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
@@ -14,6 +14,7 @@ mod tests {
     use ez_pqcrypto::PostQuantumContainer;
     use lusna_logging::setup_log;
     use std::convert::TryFrom;
+    use std::fmt::Debug;
     use std::iter::FromIterator;
 
     fn gen(
@@ -43,7 +44,7 @@ mod tests {
     #[test]
     fn runit() {
         run(0, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
-        run(0, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap()
+        run(0, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap();
     }
 
     fn run(
@@ -88,56 +89,97 @@ mod tests {
         assert_ne!(eve_ss, alice_ss);
         assert_ne!(eve_ss, bob_ss);
 
-        let plaintext = b"Hello, world!";
-        let nonce = &Vec::from_iter(0..(encryption_algorithm.nonce_len()) as u8);
+        let mut plaintext = vec![];
+        for x in 0..256 {
+            if x != 0 {
+                plaintext.push((x % 256) as u8)
+            }
 
-        let mut ciphertext = alice_container.encrypt(plaintext, nonce).unwrap();
-        let mut ptr = &mut ciphertext[..];
+            let nonce = &Vec::from_iter(0..(encryption_algorithm.nonce_len()) as u8);
 
-        //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
-        let decrypted_len = bob_container.decrypt_in_place(&mut ptr, nonce).unwrap();
-        debug_assert_eq!(plaintext, &ptr[..decrypted_len]);
+            let mut ciphertext = alice_container
+                .encrypt(plaintext.as_slice(), nonce)
+                .unwrap();
+            let mut ptr = &mut ciphertext[..];
 
-        let mut ciphertext = bob_container.encrypt(plaintext, nonce).unwrap();
-        let mut ptr = &mut ciphertext[..];
+            //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
+            let decrypted = bob_container.decrypt(&mut ptr, nonce).unwrap();
+            assert_eq!(plaintext.as_slice(), decrypted);
 
-        //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
-        let decrypted_len = alice_container.decrypt_in_place(&mut ptr, nonce).unwrap();
+            let mut ciphertext = bob_container.encrypt(plaintext.as_slice(), nonce).unwrap();
+            let mut ptr = &mut ciphertext[..];
 
-        debug_assert_eq!(plaintext, &ptr[..decrypted_len]);
+            //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
+            let decrypted = alice_container.decrypt(&mut ptr, nonce).unwrap();
+
+            assert_eq!(plaintext.as_slice(), decrypted);
+        }
+
         Ok(())
     }
 
     #[test]
     fn in_place_sequential() {
         const HEADER_LEN: usize = 50;
-        const TOTAL_LEN: usize = HEADER_LEN;
 
         let kem_algorithm = KemAlgorithm::Firesaber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
-        let nonce_len = encryption_algorithm.nonce_len();
+
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
-        let mut buf = BytesMut::with_capacity(TOTAL_LEN);
-        for x in 0..TOTAL_LEN {
+        for x in 0..256 {
+            run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
+            run_protection::<BytesMut>(&alice_container, &bob_container, HEADER_LEN, x);
+        }
+    }
+
+    #[test]
+    fn in_place_sequential_kyber() {
+        const HEADER_LEN: usize = 50;
+
+        let kem_algorithm = KemAlgorithm::Kyber1024;
+        let encryption_algorithm = EncryptionAlgorithm::Kyber;
+
+        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+
+        for x in 0..256 {
+            run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
+            run_protection::<BytesMut>(&alice_container, &bob_container, HEADER_LEN, x);
+        }
+    }
+
+    fn run_protection<T: EzBuffer + Default + Clone + Debug + PartialEq>(
+        alice_container: &PostQuantumContainer,
+        bob_container: &PostQuantumContainer,
+        header_len: usize,
+        payload_len: usize,
+    ) {
+        let nonce_len = alice_container.params.encryption_algorithm.nonce_len();
+        let total_len = header_len + payload_len;
+        let mut buf = T::default();
+        for x in 0..total_len {
             buf.put_u8(x as u8);
         }
 
-        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
+        let original = buf.clone();
+
+        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf.as_ref()[..]);
         let nonce = Vec::from_iter(0..nonce_len as u8);
         alice_container
-            .protect_packet_in_place(HEADER_LEN, &mut buf, &nonce)
+            .protect_packet_in_place(header_len, &mut buf, &nonce)
             .unwrap();
 
-        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
-        let mut header = buf.split_to(HEADER_LEN);
+        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf.as_ref()[..]);
+        let mut header = buf.split_to(header_len);
         bob_container
             .validate_packet_in_place(&header, &mut buf, &nonce)
             .unwrap();
         header.unsplit(buf);
         let buf = header;
 
-        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
+        assert_eq!(buf, original);
+
+        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf.as_ref()[..]);
     }
 
     #[test]
@@ -247,25 +289,6 @@ mod tests {
             .is_err());
     }
 
-    /*
-    #[test]
-    // for asymmetric crypto (public crypto)
-    fn signing() {
-        use pqcrypto::traits::sign::SignedMessage;
-
-        let (public_key, secret_key) = pqcrypto::sign::falcon512::keypair();
-        let message = b"Hello, world!";
-        let signed_message = pqcrypto::sign::falcon512::sign(message, &secret_key);
-        let signed_message = signed_message.as_bytes();
-        debug_assert_ne!(signed_message, message);
-
-        log::trace!(target: "lusna", "Unsigned len: {}\nSigned len: {}", message.len(), signed_message.len());
-
-        let signed_message_received = pqcrypto::sign::falcon512::SignedMessage::from_bytes(signed_message).unwrap();
-        let opened_message = pqcrypto::sign::falcon512::open(&signed_message_received, &public_key).unwrap();
-        debug_assert_eq!(opened_message.as_slice(), message);
-    }*/
-
     #[test]
     fn test_all_kems() {
         lusna_logging::setup_log();
@@ -343,5 +366,25 @@ mod tests {
         let decr_bob = pqq_alice.decrypt(&enc2, &nonce).unwrap();
 
         assert_eq!(decr_alice, decr_bob);
+    }
+
+    #[test]
+    fn test_params() {
+        fn serialize(params: CryptoParameters) -> CryptoParameters {
+            let packed = params.into();
+            CryptoParameters::try_from(packed).unwrap()
+        }
+
+        for enx in EncryptionAlgorithm::list() {
+            for kex in KemAlgorithm::list() {
+                for sig in SigAlgorithm::list() {
+                    let mut params = serialize(enx + kex + sig);
+
+                    assert_eq!(params.encryption_algorithm, enx);
+                    assert_eq!(params.kem_algorithm, kex);
+                    assert_eq!(params.sig_algorithm, sig);
+                }
+            }
+        }
     }
 }

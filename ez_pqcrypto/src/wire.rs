@@ -1,19 +1,31 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct AliceToBobTransferParameters {
-    pub alice_pk: Arc<oqs::kem::PublicKey>,
-    pub alice_pk_sig: Arc<oqs::sig::PublicKey>,
-    pub alice_sig: oqs::sig::Signature,
-    pub sig_scheme: oqs::sig::Algorithm,
-    pub kem_scheme: oqs::kem::Algorithm,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum AliceToBobTransferParameters {
+    MixedAsymmetric {
+        alice_pk: Arc<oqs::kem::PublicKey>,
+        alice_pk_sig: Arc<oqs::sig::PublicKey>,
+        alice_sig: oqs::sig::Signature,
+        sig_scheme: oqs::sig::Algorithm,
+        kem_scheme: oqs::kem::Algorithm,
+    },
+    PureSymmetric {
+        alice_pk: Arc<oqs::kem::PublicKey>,
+        kem_scheme: oqs::kem::Algorithm,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct BobToAliceTransferParameters {
-    pub bob_ciphertext: Arc<oqs::kem::Ciphertext>,
-    pub bob_signature: oqs::sig::Signature,
-    pub bob_pk_sig: Arc<oqs::sig::PublicKey>,
-    pub bob_pk: Arc<oqs::kem::PublicKey>,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum BobToAliceTransferParameters {
+    MixedAsymmetric {
+        bob_ciphertext: Arc<oqs::kem::Ciphertext>,
+        bob_signature: oqs::sig::Signature,
+        bob_pk_sig: Arc<oqs::sig::PublicKey>,
+        bob_pk: Arc<oqs::kem::PublicKey>,
+    },
+    PureSymmetric {
+        bob_ciphertext: Arc<oqs::kem::Ciphertext>,
+        bob_pk: Arc<oqs::kem::PublicKey>,
+    },
 }

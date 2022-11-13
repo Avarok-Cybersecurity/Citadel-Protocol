@@ -7,7 +7,7 @@ use hyxe_crypt::stacked_ratchet::constructor::{
 };
 use std::sync::atomic::Ordering;
 
-/// This will handle an HDP registration packet
+/// This will handle a registration packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_register(
     session_ref: &HdpSession,
@@ -145,7 +145,7 @@ pub async fn process_register(
                         let security_level = transfer.security_level;
                         return_if_none!(
                             alice_constructor
-                                .stage1_alice(&BobToAliceTransferType::Default(transfer)),
+                                .stage1_alice(BobToAliceTransferType::Default(transfer)),
                             "Unable to advance past stage1_alice"
                         );
                         let new_hyper_ratchet = return_if_none!(
