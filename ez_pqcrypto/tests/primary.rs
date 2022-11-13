@@ -4,14 +4,13 @@ mod tests {
     use rand::prelude::ThreadRng;
     use rand::RngCore;
 
-    use enum_primitive::FromPrimitive;
     use ez_pqcrypto::algorithm_dictionary::{
-        CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm, KEM_ALGORITHM_COUNT,
+        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
     };
     use ez_pqcrypto::bytes_in_place::EzBuffer;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
     use ez_pqcrypto::replay_attack_container::HISTORY_LEN;
-    use ez_pqcrypto::PostQuantumContainer;
+    use ez_pqcrypto::{validate_crypto_params, PostQuantumContainer};
     use lusna_logging::setup_log;
     use std::convert::TryFrom;
     use std::fmt::Debug;
@@ -20,16 +19,17 @@ mod tests {
     fn gen(
         kem_algorithm: KemAlgorithm,
         encryption_algorithm: EncryptionAlgorithm,
+        sig_alg: SigAlgorithm,
     ) -> (PostQuantumContainer, PostQuantumContainer) {
         log::trace!(target: "lusna", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
-            kem_algorithm + encryption_algorithm,
+            kem_algorithm + encryption_algorithm + sig_alg,
         )))
         .unwrap();
 
         let tx_params = alice_container.generate_alice_to_bob_transfer().unwrap();
         let bob_container = PostQuantumContainer::new_bob(
-            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
+            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm + sig_alg)),
             tx_params,
         )
         .unwrap();
@@ -43,19 +43,25 @@ mod tests {
 
     #[test]
     fn runit() {
-        run(0, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
-        run(0, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap();
+        run(0, EncryptionAlgorithm::AES_GCM_256_SIV, SigAlgorithm::None).unwrap();
+        run(
+            0,
+            EncryptionAlgorithm::Xchacha20Poly_1305,
+            SigAlgorithm::None,
+        )
+        .unwrap();
     }
 
     fn run(
         algorithm: u8,
         encryption_algorithm: EncryptionAlgorithm,
+        signature_algorithm: SigAlgorithm,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
-        log::trace!(target: "lusna", "Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
+        log::trace!(target: "lusna", "Test: {:?} w/ {:?} w/ {:?}", kem_algorithm, encryption_algorithm, signature_algorithm);
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
-            kem_algorithm + encryption_algorithm,
+            kem_algorithm + encryption_algorithm + signature_algorithm,
         )))
         .unwrap();
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
@@ -63,11 +69,15 @@ mod tests {
         //
         // Then, Bob gets the public key. To process it, he must create a PostQuantumContainer for himself
         let bob_container = PostQuantumContainer::new_bob(
-            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
+            ConstructorOpts::new_init(Some(
+                kem_algorithm + encryption_algorithm + signature_algorithm,
+            )),
             tx_params.clone(),
         )?;
         let eve_container = PostQuantumContainer::new_bob(
-            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)),
+            ConstructorOpts::new_init(Some(
+                kem_algorithm + encryption_algorithm + signature_algorithm,
+            )),
             tx_params,
         )?;
         // Internally, this computes the CipherText. The next step is to send this CipherText back over to alice
@@ -122,10 +132,12 @@ mod tests {
     fn in_place_sequential() {
         const HEADER_LEN: usize = 50;
 
-        let kem_algorithm = KemAlgorithm::Firesaber;
+        let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let signature_algorithm = SigAlgorithm::None;
 
-        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+        let (alice_container, bob_container) =
+            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
 
         for x in 0..256 {
             run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
@@ -137,10 +149,12 @@ mod tests {
     fn in_place_sequential_kyber() {
         const HEADER_LEN: usize = 50;
 
-        let kem_algorithm = KemAlgorithm::Kyber1024;
+        let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::Kyber;
+        let signature_algorithm = SigAlgorithm::Falcon1024;
 
-        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+        let (alice_container, bob_container) =
+            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
 
         for x in 0..256 {
             run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
@@ -188,10 +202,13 @@ mod tests {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
-        let kem_algorithm = KemAlgorithm::Firesaber;
+        let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let signature_algorithm = SigAlgorithm::None;
+
         let nonce_len = encryption_algorithm.nonce_len() as u8;
-        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+        let (alice_container, bob_container) =
+            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
         let mut zeroth = Vec::<u8>::default();
         let mut zeroth_nonce = Vec::<u8>::from_iter(0..nonce_len);
         for y in 0..(HISTORY_LEN + 10) {
@@ -260,10 +277,12 @@ mod tests {
 
         lusna_logging::setup_log();
 
-        let kem_algorithm = KemAlgorithm::Firesaber;
+        let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let signature_algorithm = SigAlgorithm::None;
         let nonce_len = encryption_algorithm.nonce_len();
-        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+        let (alice_container, bob_container) =
+            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
 
         let mut packet0 = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
         let nonce = Vec::from_iter(0..nonce_len as u8);
@@ -292,30 +311,63 @@ mod tests {
     #[test]
     fn test_all_kems() {
         lusna_logging::setup_log();
-        for algorithm in 0..KEM_ALGORITHM_COUNT {
-            log::trace!(target: "lusna", "About to test {:?}", KemAlgorithm::try_from(algorithm).unwrap());
-            run(algorithm, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
-            run(algorithm, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap();
+        for algorithm in KemAlgorithm::list() {
+            log::trace!(target: "lusna", "About to test {:?}", algorithm);
+            run(
+                algorithm.as_u8(),
+                EncryptionAlgorithm::AES_GCM_256_SIV,
+                SigAlgorithm::None,
+            )
+            .unwrap();
+            run(
+                algorithm.as_u8(),
+                EncryptionAlgorithm::Xchacha20Poly_1305,
+                SigAlgorithm::None,
+            )
+            .unwrap();
+            run(
+                algorithm.as_u8(),
+                EncryptionAlgorithm::Kyber,
+                SigAlgorithm::Falcon1024,
+            )
+            .unwrap();
         }
     }
 
     #[test]
     fn test_kyber() {
         lusna_logging::setup_log();
-        run(KemAlgorithm::Kyber1024.into(), EncryptionAlgorithm::Kyber).unwrap()
+        run(
+            KemAlgorithm::Kyber.as_u8(),
+            EncryptionAlgorithm::Kyber,
+            SigAlgorithm::Falcon1024,
+        )
+        .unwrap()
     }
 
     #[test]
     fn parse() {
-        assert_eq!(KemAlgorithm::Kyber1024, KemAlgorithm::try_from(5).unwrap());
+        fn test<T: AlgorithmsExt + Copy + PartialEq>() {
+            let values = T::list();
+            for value in values {
+                let u8_repr = value.as_u8();
+                assert_eq!(T::from_u8(u8_repr).unwrap(), value);
+            }
+        }
+
+        test::<KemAlgorithm>();
+        test::<SigAlgorithm>();
+        test::<EncryptionAlgorithm>();
     }
 
     #[test]
     fn test_serialize_deserialize() {
         lusna_logging::setup_log();
-        let kem_algorithm = KemAlgorithm::Kyber1024;
+        let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
-        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+        let signature_algorithm = SigAlgorithm::None;
+        let (alice_container, bob_container) =
+            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
 
         let nonce = &mut [0u8; 12];
         ThreadRng::default().fill_bytes(nonce);
@@ -369,16 +421,16 @@ mod tests {
     }
 
     #[test]
-    fn test_params() {
+    fn test_params_parse() {
         fn serialize(params: CryptoParameters) -> CryptoParameters {
-            let packed = params.into();
+            let packed: u8 = params.into();
             CryptoParameters::try_from(packed).unwrap()
         }
 
         for enx in EncryptionAlgorithm::list() {
             for kex in KemAlgorithm::list() {
                 for sig in SigAlgorithm::list() {
-                    let mut params = serialize(enx + kex + sig);
+                    let params = serialize(enx + kex + sig);
 
                     assert_eq!(params.encryption_algorithm, enx);
                     assert_eq!(params.kem_algorithm, kex);
@@ -386,5 +438,11 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_bad_crypto_params() {
+        let bad_params = EncryptionAlgorithm::Kyber + KemAlgorithm::Kyber;
+        assert!(validate_crypto_params(&bad_params).is_err());
     }
 }

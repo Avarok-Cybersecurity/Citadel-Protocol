@@ -15,7 +15,7 @@ pub mod prelude {
     pub use ez_pqcrypto::constructor_opts::ConstructorOpts;
     pub use ez_pqcrypto::{algorithm_dictionary, bytes_in_place::EzBuffer, PostQuantumContainer};
 
-    pub use crate::drill::{Drill, SecurityLevel};
+    pub use crate::entropy_bank::{EntropyBank, SecurityLevel};
     pub use crate::misc::CryptError;
     pub use crate::packet_vector::PacketVector;
     pub use crate::secure_buffer::sec_bytes::SecBuffer;
@@ -25,10 +25,10 @@ pub mod prelude {
 
 /// For argon-related functionality
 pub mod argon;
-/// Organizes the different types of drills that can be used. Currently, there is only one: The Standard Drill
-pub mod drill;
 /// An abstraction binding the drill and the PQC
 pub mod endpoint_crypto_container;
+/// Organizes the different types of drills that can be used. Currently, there is only one: The Standard Drill
+pub mod entropy_bank;
 /// Contains the cryptographic primitives for handling FCM interactions on the network
 pub mod fcm;
 /// Error type

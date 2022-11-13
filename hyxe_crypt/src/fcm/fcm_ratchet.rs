@@ -1,5 +1,5 @@
-use crate::drill::{Drill, SecurityLevel};
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::misc::CryptError;
 use crate::net::crypt_splitter::calculate_nonce_version;
 use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
@@ -30,7 +30,7 @@ impl ThinRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt(
+        drill.decrypt(
             calculate_nonce_version(wave_id as usize, group_id),
             pqc,
             contents,
@@ -45,7 +45,7 @@ impl ThinRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_encrypt(
+        drill.encrypt(
             calculate_nonce_version(wave_id as usize, group),
             pqc,
             contents,
@@ -56,7 +56,7 @@ impl ThinRatchet {
 #[derive(Serialize, Deserialize)]
 ///
 pub struct ThinRatchetInner {
-    drill: Drill,
+    drill: EntropyBank,
     pqc: PostQuantumContainer,
 }
 
@@ -83,11 +83,11 @@ impl Ratchet for ThinRatchet {
         SecurityLevel::DEFAULT
     }
 
-    fn message_pqc_drill(&self, _idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
+    fn message_pqc_drill(&self, _idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
         (&self.inner.pqc, &self.inner.drill)
     }
 
-    fn get_scramble_drill(&self) -> &Drill {
+    fn get_scramble_drill(&self) -> &EntropyBank {
         &self.inner.drill
     }
 
@@ -124,7 +124,7 @@ impl Ratchet for ThinRatchet {
 pub struct ThinRatchetConstructor {
     params: CryptoParameters,
     pqc: PostQuantumContainer,
-    drill: Option<Drill>,
+    drill: Option<EntropyBank>,
     nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
     cid: u64,
     version: u32,
@@ -218,7 +218,7 @@ impl ThinRatchetConstructor {
             params,
             pqc,
             drill: None,
-            nonce: Drill::generate_public_nonce(params.encryption_algorithm),
+            nonce: EntropyBank::generate_public_nonce(params.encryption_algorithm),
             cid,
             version,
         })
@@ -228,7 +228,8 @@ impl ThinRatchetConstructor {
     pub fn new_bob(opts: ConstructorOpts, transfer: FcmAliceToBobTransfer) -> Option<Self> {
         let params = transfer.params;
         let pqc = PostQuantumContainer::new_bob(opts, transfer.transfer_params).ok()?;
-        let drill = Drill::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;
+        let drill =
+            EntropyBank::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;
 
         Some(Self {
             params,
@@ -272,7 +273,7 @@ impl ThinRatchetConstructor {
             .pqc
             .decrypt(&transfer.encrypted_drill_bytes, &self.nonce)
             .ok()?;
-        let drill = Drill::deserialize_from(&bytes[..]).ok()?;
+        let drill = EntropyBank::deserialize_from(&bytes[..]).ok()?;
         self.drill = Some(drill);
         Some(())
     }

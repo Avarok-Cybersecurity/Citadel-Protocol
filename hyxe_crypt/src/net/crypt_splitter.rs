@@ -7,7 +7,7 @@ use bytes::{BufMut, BytesMut};
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 
-use crate::drill::Drill;
+use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::{CryptError, SecurityLevel};
 use crate::stacked_ratchet::Ratchet;
@@ -67,7 +67,7 @@ pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
 }
 
 pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
-    msg_drill: &Drill,
+    msg_drill: &EntropyBank,
     plain_text: T,
     header_size_bytes: usize,
     security_level: SecurityLevel,
@@ -146,9 +146,9 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
 ) -> Result<
     (
         GroupReceiverConfig,
-        &'a Drill,
+        &'a EntropyBank,
         &'a PostQuantumContainer,
-        &'a Drill,
+        &'a EntropyBank,
     ),
     CryptError<String>,
 > {
@@ -191,7 +191,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     ref header_inscriber: F,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>>
 where
-    F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync,
+    F: Fn(&PacketVector, &EntropyBank, u32, u64, &mut BytesMut) + Send + Sync,
 {
     let plain_text = plain_text.as_ref();
     let (mut cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(
@@ -254,16 +254,16 @@ fn scramble_encrypt_wave(
     wave_idx: usize,
     bytes_to_encrypt_for_this_wave: &[u8],
     cfg: &GroupReceiverConfig,
-    msg_drill: &Drill,
+    msg_drill: &EntropyBank,
     msg_pqc: &PostQuantumContainer,
-    scramble_drill: &Drill,
+    scramble_drill: &EntropyBank,
     target_cid: u64,
     object_id: u32,
     header_size_bytes: usize,
-    header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync,
+    header_inscriber: impl Fn(&PacketVector, &EntropyBank, u32, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
     let ciphertext = msg_drill
-        .aes_gcm_encrypt(
+        .encrypt(
             calculate_nonce_version(wave_idx, cfg.group_id as u64),
             msg_pqc,
             bytes_to_encrypt_for_this_wave,
@@ -647,7 +647,7 @@ impl GroupReceiver {
                     &wave_store.ciphertext_buffer[..wave_store.bytes_written];
                 let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
 
-                match msg_drill.aes_gcm_decrypt(
+                match msg_drill.decrypt(
                     calculate_nonce_version(wave_id as usize, group_id),
                     msg_pqc,
                     ciphertext_bytes_for_this_wave,

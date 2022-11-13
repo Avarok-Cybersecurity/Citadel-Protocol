@@ -18,7 +18,7 @@ pub const BYTES_PER_STORE: usize = 256;
 /// The default endianness for byte storage
 pub type DrillEndian = BigEndian;
 
-impl Drill {
+impl EntropyBank {
     /// Creates a new drill
     pub fn new(
         cid: u64,
@@ -28,7 +28,7 @@ impl Drill {
         Self::generate_raw_3d_array().map(|bytes| {
             let port_mappings = create_port_mapping();
 
-            Drill {
+            EntropyBank {
                 algorithm,
                 version,
                 cid,
@@ -49,13 +49,6 @@ impl Drill {
             base.push(rng.gen())
         }
         base
-    }
-
-    /// The nonce is 96 bits or 12 bytes in size. We assume each nonce version is unique
-    pub fn get_aes_gcm_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
-        let nonce = self.get_nonce(nonce_version);
-        log::trace!(target: "lusna", "Generated nonce v{}: {:?}", nonce_version, &nonce);
-        nonce
     }
 
     #[inline]
@@ -88,35 +81,27 @@ impl Drill {
     }
 
     /// Returns the length of the ciphertext
-    pub fn aes_gcm_encrypt<T: AsRef<[u8]>>(
+    pub fn encrypt<T: AsRef<[u8]>>(
         &self,
         nonce_version: usize,
         quantum_container: &PostQuantumContainer,
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.aes_gcm_encrypt_custom_nonce(
-            &self.get_aes_gcm_nonce(nonce_version),
-            quantum_container,
-            input,
-        )
+        self.encrypt_custom_nonce(&self.get_nonce(nonce_version), quantum_container, input)
     }
 
     /// Returns the plaintext if successful
-    pub fn aes_gcm_decrypt<T: AsRef<[u8]>>(
+    pub fn decrypt<T: AsRef<[u8]>>(
         &self,
         nonce_version: usize,
         quantum_container: &PostQuantumContainer,
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.aes_gcm_decrypt_custom_nonce(
-            &self.get_aes_gcm_nonce(nonce_version),
-            quantum_container,
-            input,
-        )
+        self.decrypt_custom_nonce(&self.get_nonce(nonce_version), quantum_container, input)
     }
 
     /// Returns the length of the ciphertext
-    pub fn aes_gcm_encrypt_custom_nonce<T: AsRef<[u8]>>(
+    pub fn encrypt_custom_nonce<T: AsRef<[u8]>>(
         &self,
         nonce: &[u8],
         quantum_container: &PostQuantumContainer,
@@ -128,7 +113,7 @@ impl Drill {
     }
 
     /// Returns the plaintext if successful
-    pub fn aes_gcm_decrypt_custom_nonce<T: AsRef<[u8]>>(
+    pub fn decrypt_custom_nonce<T: AsRef<[u8]>>(
         &self,
         nonce: &[u8],
         quantum_container: &PostQuantumContainer,
@@ -147,7 +132,7 @@ impl Drill {
         header_len_bytes: usize,
         full_packet: &mut T,
     ) -> Result<(), CryptError<String>> {
-        let nonce = &self.get_aes_gcm_nonce(0);
+        let nonce = &self.get_nonce(0);
         quantum_container
             .protect_packet_in_place(header_len_bytes, full_packet, nonce)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
@@ -160,7 +145,7 @@ impl Drill {
         header: H,
         payload: &mut T,
     ) -> Result<(), CryptError<String>> {
-        let nonce = &self.get_aes_gcm_nonce(0);
+        let nonce = &self.get_nonce(0);
         let header = header.as_ref();
         quantum_container
             .validate_packet_in_place(header, payload, nonce)
@@ -213,8 +198,8 @@ impl Drill {
 pub enum SecurityLevel {
     #[default]
     DEFAULT,
+    REINFORCED,
     HIGH,
-    SUPER,
     ULTRA,
     EXTREME,
     CUSTOM(u8),
@@ -225,8 +210,8 @@ impl SecurityLevel {
     pub fn value(self) -> u8 {
         match self {
             SecurityLevel::DEFAULT => 0,
-            SecurityLevel::HIGH => 1,
-            SecurityLevel::SUPER => 2,
+            SecurityLevel::REINFORCED => 1,
+            SecurityLevel::HIGH => 2,
             SecurityLevel::ULTRA => 3,
             SecurityLevel::EXTREME => 4,
             SecurityLevel::CUSTOM(val) => val,
@@ -243,8 +228,8 @@ impl From<u8> for SecurityLevel {
     fn from(val: u8) -> Self {
         match val {
             0 => SecurityLevel::DEFAULT,
-            1 => SecurityLevel::HIGH,
-            2 => SecurityLevel::SUPER,
+            1 => SecurityLevel::REINFORCED,
+            2 => SecurityLevel::HIGH,
             3 => SecurityLevel::ULTRA,
             4 => SecurityLevel::EXTREME,
             n => SecurityLevel::CUSTOM(n),
@@ -259,7 +244,7 @@ use serde_big_array::BigArray;
 
 /// A drill is a fundamental encryption dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
-pub struct Drill {
+pub struct EntropyBank {
     pub(super) algorithm: EncryptionAlgorithm,
     pub(super) version: u32,
     pub(super) cid: u64,
@@ -273,7 +258,7 @@ pub const fn get_approx_serialized_drill_len() -> usize {
     4 + 8 + BYTES_PER_STORE + (PORT_RANGE * 16 * 2)
 }
 
-impl Debug for Drill {
+impl Debug for EntropyBank {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         writeln!(
             f,
