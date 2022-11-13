@@ -1,6 +1,5 @@
-use crate::misc::{bytes_to_3d_array, create_port_mapping, CryptError};
+use crate::misc::{create_port_mapping, CryptError};
 use byteorder::BigEndian;
-use rand::distributions::Distribution;
 use rand::{thread_rng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -12,40 +11,9 @@ use std::ops::Div;
 use ez_pqcrypto::{PostQuantumContainer, LARGEST_NONCE_LEN};
 use rand::prelude::ThreadRng;
 
-/// Index for the set of data that obscures the port-send-order
-pub const PORT_COMBOS_INDEX: usize = 0;
-/// Index for the set of data corresponding to C values
-pub const C_RAND_INDEX: usize = 1;
-/// Index for the set of data corresponding to K values
-pub const K_RAND_INDEX: usize = 2;
-/// Index for the set of data corresponding to the implicit values within waves
-pub const AMPLITUDE_DIFFERENTIALS_KEY_INDEX: usize = 3;
-/// Unlike C_RAND and K_RAND values, `DELTA_RAND` helps scramble the array of bytes significantly by adding instead of Xor'ing.
-/// This is needed as bytes alone have a small range of [0,255]
-pub const DELTA_RAND: usize = 4;
-/// Index for the set of data corresponding to the virtual temporal index of any given wave
-pub const VIRTUAL_TIME_INDEX: usize = 5;
-/// Index for the set of data that is used for applying multiple layers of encryption
-pub const E_OF_X_START_INDEX: usize = 6;
-
 /// This should be configured by the server admin, but it is HIGHLY ADVISED NOT TO CHANGE THIS due to possible discrepancies when connecting between HyperVPN's
 pub const PORT_RANGE: usize = 14;
-/// We limit the number of ports in order. See the explanation for this value within the `byte_count` subroutine of Drill's implementation
-pub const MAX_PORT_RANGE: usize = 352;
-
-/// 1*(s*p_r)
-pub const BYTES_IN_LOW: usize = E_OF_X_START_INDEX * PORT_RANGE;
-/// 2*(s*p_r)
-pub const BYTES_IN_MEDIUM: usize = 2 * BYTES_IN_LOW;
-/// 4*(s*p_r)
-pub const BYTES_IN_HIGH: usize = 2 * BYTES_IN_MEDIUM;
-/// 8*(s*p_r)
-pub const BYTES_IN_ULTRA: usize = 2 * BYTES_IN_HIGH;
-/// 16*(s*p_r)
-pub const BYTES_IN_DIVINE: usize = 2 * BYTES_IN_ULTRA;
-/// 31*(s*p_r)
-//pub const BYTES_PER_3D_ARRAY: usize = 31 * E_OF_X_START_INDEX * PORT_RANGE;
-pub const BYTES_PER_3D_ARRAY: usize = 256;
+pub const BYTES_PER_STORE: usize = 256;
 
 /// The default endianness for byte storage
 pub type DrillEndian = BigEndian;
@@ -108,7 +76,7 @@ impl Drill {
 
                 base.push(
                     bytes[y]
-                        .wrapping_add(self.entropy[outer_idx % BYTES_PER_3D_ARRAY])
+                        .wrapping_add(self.entropy[outer_idx % BYTES_PER_STORE])
                         .wrapping_add(nonce_version as u8),
                 );
 
@@ -145,19 +113,6 @@ impl Drill {
             quantum_container,
             input,
         )
-    }
-
-    /// Returns the new length if successful
-    pub fn aes_gcm_decrypt_in_place<T: AsMut<[u8]>>(
-        &self,
-        nonce_version: usize,
-        quantum_container: &PostQuantumContainer,
-        input: T,
-    ) -> Result<usize, CryptError<String>> {
-        let nonce = self.get_aes_gcm_nonce(nonce_version);
-        quantum_container
-            .decrypt_in_place(input, &nonce)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
     /// Returns the length of the ciphertext
@@ -228,15 +183,12 @@ impl Drill {
     }
 
     /// Downloads the data necessary to create a drill
-    fn generate_raw_3d_array() -> Result<[u8; BYTES_PER_3D_ARRAY], CryptError<String>> {
-        let bytes: &mut [u8; BYTES_PER_3D_ARRAY] = &mut [0; BYTES_PER_3D_ARRAY];
+    fn generate_raw_3d_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
+        let mut bytes: [u8; BYTES_PER_STORE] = [0u8; BYTES_PER_STORE];
         let mut trng = thread_rng();
-        let _ = rand::distributions::Bernoulli::new(0.5)
-            .unwrap()
-            .sample(&mut trng);
-        trng.fill_bytes(bytes);
-        let bytes = bytes.to_vec();
-        Ok(bytes_to_3d_array(bytes))
+        trng.fill_bytes(&mut bytes);
+
+        Ok(bytes)
     }
 
     /// Gets randmonized port mappings which contain the true information. Other ports may get bogons
@@ -257,31 +209,26 @@ impl Drill {
 }
 
 /// Provides the enumeration forall security levels
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
 pub enum SecurityLevel {
-    LOW,
-    MEDIUM,
+    #[default]
+    DEFAULT,
     HIGH,
+    SUPER,
     ULTRA,
-    DIVINE,
+    EXTREME,
     CUSTOM(u8),
-}
-
-impl Default for SecurityLevel {
-    fn default() -> Self {
-        Self::LOW
-    }
 }
 
 impl SecurityLevel {
     /// Returns byte representation of self
     pub fn value(self) -> u8 {
         match self {
-            SecurityLevel::LOW => 0,
-            SecurityLevel::MEDIUM => 1,
-            SecurityLevel::HIGH => 2,
+            SecurityLevel::DEFAULT => 0,
+            SecurityLevel::HIGH => 1,
+            SecurityLevel::SUPER => 2,
             SecurityLevel::ULTRA => 3,
-            SecurityLevel::DIVINE => 4,
+            SecurityLevel::EXTREME => 4,
             SecurityLevel::CUSTOM(val) => val,
         }
     }
@@ -295,11 +242,11 @@ impl SecurityLevel {
 impl From<u8> for SecurityLevel {
     fn from(val: u8) -> Self {
         match val {
-            0 => SecurityLevel::LOW,
-            1 => SecurityLevel::MEDIUM,
-            2 => SecurityLevel::HIGH,
+            0 => SecurityLevel::DEFAULT,
+            1 => SecurityLevel::HIGH,
+            2 => SecurityLevel::SUPER,
             3 => SecurityLevel::ULTRA,
-            4 => SecurityLevel::DIVINE,
+            4 => SecurityLevel::EXTREME,
             n => SecurityLevel::CUSTOM(n),
         }
     }
@@ -311,20 +258,19 @@ use ez_pqcrypto::bytes_in_place::EzBuffer;
 use serde_big_array::BigArray;
 
 /// A drill is a fundamental encryption dataset that continually morphs into new future sets
-#[repr(C)]
 #[derive(Serialize, Deserialize)]
 pub struct Drill {
     pub(super) algorithm: EncryptionAlgorithm,
     pub(super) version: u32,
     pub(super) cid: u64,
     #[serde(with = "BigArray")]
-    pub(super) entropy: [u8; BYTES_PER_3D_ARRAY],
+    pub(super) entropy: [u8; BYTES_PER_STORE],
     pub(super) scramble_mappings: Vec<(u16, u16)>,
 }
 
 /// Returns the approximate number of bytes needed to serialize a Drill
 pub const fn get_approx_serialized_drill_len() -> usize {
-    4 + 8 + BYTES_PER_3D_ARRAY + (PORT_RANGE * 16 * 2)
+    4 + 8 + BYTES_PER_STORE + (PORT_RANGE * 16 * 2)
 }
 
 impl Debug for Drill {

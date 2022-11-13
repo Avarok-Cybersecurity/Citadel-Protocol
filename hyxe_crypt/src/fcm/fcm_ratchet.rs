@@ -8,6 +8,7 @@ use arrayvec::ArrayVec;
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::constructor_opts::ConstructorOpts;
+use ez_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
 use ez_pqcrypto::PostQuantumContainer;
 use ez_pqcrypto::LARGEST_NONCE_LEN;
 use serde::{Deserialize, Serialize};
@@ -79,7 +80,7 @@ impl Ratchet for ThinRatchet {
     }
 
     fn get_default_security_level(&self) -> SecurityLevel {
-        SecurityLevel::LOW
+        SecurityLevel::DEFAULT
     }
 
     fn message_pqc_drill(&self, _idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
@@ -143,7 +144,7 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         _cid: u64,
         _new_drill_vers: u32,
         mut opts: Vec<ConstructorOpts>,
-        transfer: AliceToBobTransferType<'_>,
+        transfer: AliceToBobTransferType,
     ) -> Option<Self> {
         match transfer {
             AliceToBobTransferType::Fcm(transfer) => {
@@ -157,15 +158,15 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         }
     }
 
-    fn stage0_alice(&self) -> AliceToBobTransferType<'_> {
-        AliceToBobTransferType::Fcm(self.stage0_alice())
+    fn stage0_alice(&self) -> Option<AliceToBobTransferType> {
+        Some(AliceToBobTransferType::Fcm(self.stage0_alice()?))
     }
 
     fn stage0_bob(&self) -> Option<BobToAliceTransferType> {
         Some(BobToAliceTransferType::Fcm(self.stage0_bob()?))
     }
 
-    fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
+    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
         match transfer {
             BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer),
 
@@ -191,8 +192,8 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
 
 #[derive(Serialize, Deserialize)]
 ///
-pub struct FcmAliceToBobTransfer<'a> {
-    pk: &'a [u8],
+pub struct FcmAliceToBobTransfer {
+    transfer_params: AliceToBobTransferParameters,
     pub params: CryptoParameters,
     nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
     /// the declared cid
@@ -203,7 +204,7 @@ pub struct FcmAliceToBobTransfer<'a> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FcmBobToAliceTransfer {
-    ct: Vec<u8>,
+    params_tx: BobToAliceTransferParameters,
     encrypted_drill_bytes: Vec<u8>,
 }
 
@@ -224,9 +225,9 @@ impl ThinRatchetConstructor {
     }
 
     ///
-    pub fn new_bob(opts: ConstructorOpts, transfer: FcmAliceToBobTransfer<'_>) -> Option<Self> {
+    pub fn new_bob(opts: ConstructorOpts, transfer: FcmAliceToBobTransfer) -> Option<Self> {
         let params = transfer.params;
-        let pqc = PostQuantumContainer::new_bob(opts, transfer.pk).ok()?;
+        let pqc = PostQuantumContainer::new_bob(opts, transfer.transfer_params).ok()?;
         let drill = Drill::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;
 
         Some(Self {
@@ -240,21 +241,21 @@ impl ThinRatchetConstructor {
     }
 
     ///
-    pub fn stage0_alice(&self) -> FcmAliceToBobTransfer<'_> {
-        let pk = self.pqc.get_public_key();
-        FcmAliceToBobTransfer {
+    pub fn stage0_alice(&self) -> Option<FcmAliceToBobTransfer> {
+        let pk = self.pqc.generate_alice_to_bob_transfer().ok()?;
+        Some(FcmAliceToBobTransfer {
             params: self.params,
-            pk,
+            transfer_params: pk,
             nonce: self.nonce.clone(),
             cid: self.cid,
             version: self.version,
-        }
+        })
     }
 
     ///
     pub fn stage0_bob(&self) -> Option<FcmBobToAliceTransfer> {
         Some(FcmBobToAliceTransfer {
-            ct: self.pqc.get_ciphertext().ok()?.to_vec(),
+            params_tx: self.pqc.generate_bob_to_alice_transfer().ok()?,
             encrypted_drill_bytes: self
                 .pqc
                 .encrypt(self.drill.as_ref()?.serialize_to_vec().ok()?, &self.nonce)
@@ -263,9 +264,9 @@ impl ThinRatchetConstructor {
     }
 
     ///
-    pub fn stage1_alice(&mut self, transfer: &FcmBobToAliceTransfer) -> Option<()> {
+    pub fn stage1_alice(&mut self, transfer: FcmBobToAliceTransfer) -> Option<()> {
         self.pqc
-            .alice_on_receive_ciphertext(transfer.ct.as_slice())
+            .alice_on_receive_ciphertext(transfer.params_tx)
             .ok()?;
         let bytes = self
             .pqc

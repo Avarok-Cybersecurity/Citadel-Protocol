@@ -678,7 +678,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
     match transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(mut constructor) = constructor {
-                if let None = constructor.stage1_alice(&transfer) {
+                if let None = constructor.stage1_alice(transfer) {
                     log::error!(target: "lusna", "Unable to construct hyper ratchet");
                     return Err(()); // return true, otherwise, the session ends
                 }
@@ -737,7 +737,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
 pub(crate) fn attempt_kem_as_bob(
     resp_target_cid: u64,
     header: &LayoutVerified<&[u8], HdpHeader>,
-    transfer: Option<AliceToBobTransferType<'_>>,
+    transfer: Option<AliceToBobTransferType>,
     state_container: &mut StateContainerInner,
     hr: &StackedRatchet,
 ) -> Option<KemTransferStatus> {
@@ -773,7 +773,7 @@ pub(crate) fn attempt_kem_as_bob(
 
 pub(crate) fn update_toolset_as_bob(
     mut update_method: ToolsetUpdate<'_>,
-    transfer: AliceToBobTransferType<'_>,
+    transfer: AliceToBobTransferType,
     hr: &StackedRatchet,
 ) -> Option<KemTransferStatus> {
     let cid = update_method.get_local_cid();

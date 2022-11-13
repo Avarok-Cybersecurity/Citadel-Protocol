@@ -1,4 +1,4 @@
-use crate::drill::{BYTES_PER_3D_ARRAY, PORT_RANGE};
+use crate::drill::PORT_RANGE;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use std::fmt::Formatter;
@@ -80,20 +80,6 @@ pub fn create_port_mapping() -> Vec<(u16, u16)> {
     }
 
     output_vec
-}
-
-#[inline]
-/// Converts a downloaded vector into the format necessary to create a drill
-pub fn bytes_to_3d_array<T: AsRef<[u8]>>(input: T) -> [u8; BYTES_PER_3D_ARRAY] {
-    let input = input.as_ref();
-    debug_assert_eq!(input.len(), BYTES_PER_3D_ARRAY);
-
-    let mut ret = [0u8; BYTES_PER_3D_ARRAY];
-    ret.iter_mut().zip(input.iter()).for_each(|(out, val)| {
-        *out = *val;
-    });
-
-    ret
 }
 
 #[cfg(not(target_os = "windows"))]

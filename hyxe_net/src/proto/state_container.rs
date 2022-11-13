@@ -1958,7 +1958,9 @@ impl StateContainerInner {
                         let ratchet = crypt_container.get_hyper_ratchet(None).unwrap();
                         let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
                             ratchet,
-                            alice_constructor.stage0_alice(),
+                            alice_constructor
+                                .stage0_alice()
+                                .ok_or(NetworkError::InternalError("Alice Construcion failed"))?,
                             timestamp,
                             C2S_ENCRYPTION_ONLY,
                             security_level,
@@ -2014,13 +2016,16 @@ impl StateContainerInner {
                         let to_primary_stream_preferred = endpoint_container
                             .get_direct_p2p_primary_stream()
                             .unwrap_or_else(|| default_primary_stream);
-                        let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
-                            &latest_hyper_ratchet,
-                            alice_constructor.stage0_alice(),
-                            timestamp,
-                            peer_cid,
-                            security_level,
-                        );
+                        let stage0_packet =
+                            packet_crafter::do_drill_update::craft_stage0(
+                                &latest_hyper_ratchet,
+                                alice_constructor.stage0_alice().ok_or(
+                                    NetworkError::InternalError("Alice constructor (2) failed"),
+                                )?,
+                                timestamp,
+                                peer_cid,
+                                security_level,
+                            );
 
                         to_primary_stream_preferred
                             .unbounded_send(stage0_packet)
