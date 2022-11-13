@@ -108,20 +108,18 @@ pub(crate) mod chacha_impl {
 }
 
 pub(crate) mod kyber_module {
-    use crate::{AeadModule, EzError, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES};
+    use crate::{
+        AeadModule, EzError, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
+        AES_GCM_NONCE_LENGTH_BYTES,
+    };
     use aes_gcm_siv::aead::Buffer;
     use sha3::Digest;
-    use std::sync::Arc;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,
         pub sig_alg: SigAlgorithm,
-        pub pk_kem_remote: Arc<oqs::kem::PublicKey>,
-        pub pk_kem_local: Arc<oqs::kem::PublicKey>,
-        pub sk_kem_local: Arc<oqs::kem::SecretKey>,
-        pub pk_sig_remote: Arc<oqs::sig::PublicKey>,
-        pub sk_sig_local: Arc<oqs::sig::SecretKey>,
-        pub pk_sig_local: Arc<oqs::sig::PublicKey>,
+        pub kex: PostQuantumMetaKex,
+        pub sig: PostQuantumMetaSig,
         pub symmetric_key_local: Box<dyn AeadModule>,
         pub symmetric_key_remote: Box<dyn AeadModule>,
     }
@@ -136,8 +134,9 @@ pub(crate) mod kyber_module {
             // sign the header only, append, then encrypt
             // signing the header ensures header does not change
             // encrypting the input ciphertext + the signature ensures ciphertext works
-            let sig = oqs::sig::Sig::new(self.sig_alg.into())
-                .map_err(|err| EzError::Other(err.to_string()))?;
+            let sig_alg = self.sig.sig_alg;
+
+            let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
 
             // include ratcheted symmetric key into equation by encrypting null input
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
@@ -148,7 +147,7 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
 
             let signature = sig
-                .sign(ad, self.sk_sig_local.as_ref())
+                .sign(ad, self.sig.sig_private_key.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
             // append the signature of the header onto the plaintext
             input
@@ -157,12 +156,12 @@ pub(crate) mod kyber_module {
             let len_bytes = &(signature.len() as u64).to_be_bytes();
             input.extend_from_slice(len_bytes).unwrap();
 
-            let remote_public_key = &*self.pk_kem_remote;
+            let remote_public_key = &*self.kex.remote_public_key.as_ref().unwrap();
 
             // now, encrypt the input
             // TODO: figure out why 1351 bytes gets mapped to only 3144?
             // Answer: bad in-place ez buffer implementation
-            let output = encrypt_pke(self.kem_alg, remote_public_key, input.as_ref(), &nonce)?;
+            let output = encrypt_pke(self.kem_alg, &**remote_public_key, input.as_ref(), &nonce)?;
             input.truncate(0);
             input
                 .extend_from_slice(output.as_slice())
@@ -177,9 +176,9 @@ pub(crate) mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), EzError> {
-            let sig = oqs::sig::Sig::new(self.sig_alg.into())
-                .map_err(|err| EzError::Other(err.to_string()))?;
-            let local_sk = self.sk_kem_local.as_ref();
+            let sig_alg = self.sig.sig_alg;
+            let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
+            let local_sk = self.kex.secret_key.as_deref().unwrap();
             // decrypt
 
             let mut plaintext_and_signature = decrypt_pke(self.kem_alg, local_sk, &input)?;
@@ -206,7 +205,7 @@ pub(crate) mod kyber_module {
             let signature_start = plaintext_and_signature.len().saturating_sub(sig_len);
             let (plaintext, signature) = plaintext_and_signature.split_at(signature_start);
 
-            let pk_sig_remote = &*self.pk_sig_remote;
+            let pk_sig_remote = &*self.sig.remote_sig_public_key.as_deref().unwrap();
 
             let signature = sig
                 .signature_from_bytes(signature)
@@ -268,11 +267,10 @@ pub(crate) mod kyber_module {
 #[cfg(test)]
 mod tests {
     use crate::KemAlgorithm;
-    use oqs::kem::Algorithm;
 
     #[test]
     fn test_kyber_with_oqs() {
-        let kem = oqs::kem::Kem::new(Algorithm::Kyber1024_90s).unwrap();
+        let kem = oqs::kem::Kem::new(KemAlgorithm::Kyber.into()).unwrap();
         let (pk_alice, sk_alice) = kem.keypair().unwrap();
         let (pk_bob, sk_bob) = kem.keypair().unwrap();
         let (ct, ss_bob) = kem.encapsulate(&pk_alice).unwrap();
@@ -282,21 +280,20 @@ mod tests {
         let nonce = (0..32).into_iter().map(|r| r as u8).collect::<Vec<u8>>();
         // alice uses bob's public key to encrypt
         let ciphertext =
-            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber1024, &pk_bob, message, &nonce)
+            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber, &pk_bob, message, &nonce)
                 .unwrap();
         // bob uses his secret key to decrypt
         let recovered =
-            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber1024, sk_bob, ciphertext).unwrap();
+            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber, sk_bob, ciphertext).unwrap();
         assert_eq!(message, recovered);
 
         // bob uses alice's public key to encrypt
         let ciphertext =
-            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber1024, &pk_alice, message, &nonce)
+            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber, &pk_alice, message, &nonce)
                 .unwrap();
         // alice uses her secret key to decrypt
         let recovered =
-            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber1024, sk_alice, ciphertext)
-                .unwrap();
+            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber, sk_alice, ciphertext).unwrap();
         assert_eq!(message, recovered);
     }
 }

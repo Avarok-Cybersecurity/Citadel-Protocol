@@ -150,7 +150,7 @@ mod tests {
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256_SIV,
             EncryptionAlgorithm::Xchacha20Poly_1305
@@ -214,7 +214,7 @@ mod tests {
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber1024)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
         let _ = lusna_logging::setup_log();
@@ -274,7 +274,7 @@ mod tests {
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256_SIV,
             EncryptionAlgorithm::Xchacha20Poly_1305

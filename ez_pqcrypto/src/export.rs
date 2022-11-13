@@ -1,22 +1,17 @@
 use crate::algorithm_dictionary::EncryptionAlgorithm;
 use crate::encryption::kyber_module::KyberModule;
 use crate::encryption::AeadModule;
-use crate::{CryptoParameters, KeyStore, PQNode};
+use crate::{CryptoParameters, KeyStore, PQNode, PostQuantumMetaKex, PostQuantumMetaSig};
 use aes_gcm_siv::KeyInit;
 use generic_array::GenericArray;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
 struct KeyStoreIntermediate {
     alice_key: GenericArray<u8, generic_array::typenum::U32>,
     bob_key: GenericArray<u8, generic_array::typenum::U32>,
-    pk_local: Arc<oqs::kem::PublicKey>,
-    pk_remote: Arc<oqs::kem::PublicKey>,
-    sk_local: Arc<oqs::kem::SecretKey>,
-    pk_sig_remote: Arc<oqs::sig::PublicKey>,
-    sk_sig_local: Arc<oqs::sig::SecretKey>,
-    pk_sig_local: Arc<oqs::sig::PublicKey>,
+    kex: PostQuantumMetaKex,
+    sig: Option<PostQuantumMetaSig>,
     pq_node: PQNode,
     params: CryptoParameters,
 }
@@ -34,12 +29,8 @@ pub(crate) mod custom_serde {
             let intermediate_form = KeyStoreIntermediate {
                 alice_key: self.alice_key,
                 bob_key: self.bob_key,
-                pk_local: self.pk_local.clone(),
-                pk_remote: self.pk_remote.clone(),
-                sk_local: self.sk_local.clone(),
-                pk_sig_remote: self.pk_sig_remote.clone(),
-                sk_sig_local: self.sk_sig_local.clone(),
-                pk_sig_local: self.pk_sig_local.clone(),
+                kex: self.kex.clone(),
+                sig: self.sig.clone(),
                 pq_node: self.pq_node,
                 params: self.params,
             };
@@ -66,13 +57,9 @@ impl From<KeyStoreIntermediate> for KeyStore {
         let (alice_symmetric_key, bob_symmetric_key) = keys_to_aead_store(
             &int.alice_key,
             &int.bob_key,
-            int.pk_local.clone(),
-            int.pk_remote.clone(),
-            int.sk_local.clone(),
+            &int.kex,
             int.params,
-            int.pk_sig_remote.clone(),
-            int.sk_sig_local.clone(),
-            int.pk_sig_local.clone(),
+            int.sig.as_ref(),
             int.pq_node,
         );
 
@@ -81,12 +68,8 @@ impl From<KeyStoreIntermediate> for KeyStore {
             bob_module: bob_symmetric_key,
             alice_key: int.alice_key,
             bob_key: int.bob_key,
-            pk_local: int.pk_local,
-            pk_remote: int.pk_remote,
-            sk_local: int.sk_local,
-            pk_sig_remote: int.pk_sig_remote,
-            sk_sig_local: int.sk_sig_local,
-            pk_sig_local: int.pk_sig_local,
+            kex: int.kex,
+            sig: int.sig,
             pq_node: PQNode::Alice,
             params: int.params,
         }
@@ -96,13 +79,9 @@ impl From<KeyStoreIntermediate> for KeyStore {
 pub(crate) fn keys_to_aead_store(
     alice: &GenericArray<u8, generic_array::typenum::U32>,
     bob: &GenericArray<u8, generic_array::typenum::U32>,
-    pk_local: Arc<oqs::kem::PublicKey>,
-    pk_remote: Arc<oqs::kem::PublicKey>,
-    sk_local: Arc<oqs::kem::SecretKey>,
+    kex: &PostQuantumMetaKex,
     params: CryptoParameters,
-    pk_sig_remote: Arc<oqs::sig::PublicKey>,
-    sk_sig_local: Arc<oqs::sig::SecretKey>,
-    pk_sig_local: Arc<oqs::sig::PublicKey>,
+    sig: Option<&PostQuantumMetaSig>,
     pq_node: PQNode,
 ) -> (Option<Box<dyn AeadModule>>, Option<Box<dyn AeadModule>>) {
     match params.encryption_algorithm {
@@ -133,12 +112,8 @@ pub(crate) fn keys_to_aead_store(
             let keys = Box::new(KyberModule {
                 kem_alg,
                 sig_alg,
-                pk_kem_remote: pk_remote,
-                pk_kem_local: pk_local,
-                sk_kem_local: sk_local,
-                pk_sig_remote,
-                sk_sig_local,
-                pk_sig_local,
+                kex: kex.clone(),
+                sig: sig.cloned().unwrap(),
                 symmetric_key_local,
                 symmetric_key_remote,
             }) as Box<dyn AeadModule>;

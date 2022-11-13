@@ -51,7 +51,7 @@ impl SessionSecuritySettingsBuilder {
     /// use hyxe_net::prelude::SessionSecuritySettingsBuilder;
     /// use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Firesaber)
+    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Kyber)
     /// .build();
     /// ```
     pub fn with_crypto_params(mut self, params: impl Into<CryptoParameters>) -> Self {

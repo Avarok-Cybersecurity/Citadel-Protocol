@@ -12,7 +12,6 @@ use crate::ez_error::EzError;
 use crate::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
 use generic_array::GenericArray;
 use oqs::Error;
-use packed_struct::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::fmt::Debug;
@@ -105,12 +104,8 @@ pub(crate) struct KeyStore {
     bob_module: Option<Box<dyn AeadModule>>,
     alice_key: GenericArray<u8, generic_array::typenum::U32>,
     bob_key: GenericArray<u8, generic_array::typenum::U32>,
-    pk_local: Arc<oqs::kem::PublicKey>,
-    pk_remote: Arc<oqs::kem::PublicKey>,
-    sk_local: Arc<oqs::kem::SecretKey>,
-    pk_sig_remote: Arc<oqs::sig::PublicKey>,
-    sk_sig_local: Arc<oqs::sig::SecretKey>,
-    pk_sig_local: Arc<oqs::sig::PublicKey>,
+    kex: PostQuantumMetaKex,
+    sig: Option<PostQuantumMetaSig>,
     pq_node: PQNode,
     params: CryptoParameters,
 }
@@ -120,10 +115,12 @@ impl PostQuantumContainer {
     /// invalid
     ///
     /// `algorithm`: If this is None, a random algorithm will be used
-    pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
+    pub fn new_alice(opts: ConstructorOpts) -> Result<Self, EzError> {
         let params = opts.cryptography.unwrap_or_default();
+        validate_crypto_params(&params)?;
         let previous_symmetric_key = opts.chain;
-        let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)?;
+        let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
+            .map_err(|err| EzError::Other(err.to_string()))?;
         let aes_gcm_key = None;
         log::trace!(target: "lusna", "Success creating new ALICE container");
 
@@ -150,33 +147,28 @@ impl PostQuantumContainer {
     pub fn new_bob(
         opts: ConstructorOpts,
         tx_params: AliceToBobTransferParameters,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, EzError> {
         let pq_node = PQNode::Bob;
         let params = opts.cryptography.unwrap_or_default();
+        validate_crypto_params(&params)?;
+
         let chain = opts.chain;
 
-        let data = Self::create_new_bob(tx_params)?;
+        let data =
+            Self::create_new_bob(tx_params).map_err(|err| EzError::Other(err.to_string()))?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap().clone();
-        let pk_local = data.get_public_key().clone();
-        let pk_remote = data.get_public_key_remote().unwrap().clone();
-        let sk_local = data.get_secret_key()?.clone();
-        let pk_sig_remote = data.remote_sig_public_key.as_ref().unwrap().clone();
-        let sk_sig_local = data.sig_private_key.clone();
-        let pk_sig_local = data.sig_public_key.clone();
+        let kex = data.kex().clone();
+        let sig = data.sig().cloned();
 
-        let (chain, keys) = Self::generate_recursive_keystore(
-            pq_node,
-            params,
-            pk_sig_remote,
-            sk_sig_local,
-            pk_sig_local,
-            ss,
-            chain.as_ref(),
-            pk_local,
-            pk_remote,
-            sk_local,
-        )?;
+        let (chain, keys) =
+            Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex)
+                .map_err(|err| {
+                    EzError::Other(format!(
+                        "Error while calculating recursive keystore: {:?}",
+                        err
+                    ))
+                })?;
 
         let keys = Some(keys);
 
@@ -194,14 +186,10 @@ impl PostQuantumContainer {
     fn generate_recursive_keystore(
         pq_node: PQNode,
         params: CryptoParameters,
-        pk_sig_remote: Arc<oqs::sig::PublicKey>,
-        sk_sig_local: Arc<oqs::sig::SecretKey>,
-        pk_sig_local: Arc<oqs::sig::PublicKey>,
+        sig: Option<PostQuantumMetaSig>,
         ss: Arc<oqs::kem::SharedSecret>,
         previous_chain: Option<&RecursiveChain>,
-        pk_local: Arc<oqs::kem::PublicKey>,
-        pk_remote: Arc<oqs::kem::PublicKey>,
-        sk_local: Arc<oqs::kem::SecretKey>,
+        kex: PostQuantumMetaKex,
     ) -> Result<(RecursiveChain, KeyStore), Error> {
         let (chain, alice_key, bob_key) = if let Some(prev) = previous_chain {
             // prev = C_n
@@ -305,18 +293,8 @@ impl PostQuantumContainer {
             (chain, alice_key, bob_key)
         };
 
-        let (alice_symmetric_key, bob_symmetric_key) = keys_to_aead_store(
-            &alice_key,
-            &bob_key,
-            pk_local.clone(),
-            pk_remote.clone(),
-            sk_local.clone(),
-            params,
-            pk_sig_remote.clone(),
-            sk_sig_local.clone(),
-            pk_sig_local.clone(),
-            pq_node,
-        );
+        let (alice_symmetric_key, bob_symmetric_key) =
+            keys_to_aead_store(&alice_key, &bob_key, &kex, params, sig.as_ref(), pq_node);
 
         Ok((
             chain,
@@ -325,12 +303,8 @@ impl PostQuantumContainer {
                 bob_module: bob_symmetric_key,
                 alice_key,
                 bob_key,
-                pk_local,
-                pk_remote,
-                sk_local,
-                pk_sig_remote,
-                sk_sig_local,
-                pk_sig_local,
+                sig,
+                kex,
                 pq_node,
                 params,
             },
@@ -367,27 +341,13 @@ impl PostQuantumContainer {
     fn load_symmetric_keys(&mut self) -> Result<(), Error> {
         let pq_node = self.node;
         let params = self.params;
-        let pk_sig_remote = self.data.remote_sig_public_key.clone().unwrap();
-        let sk_sig_local = self.data.sig_private_key.clone();
-        let pk_sig_local = self.data.sig_public_key.clone();
+        let sig = self.data.sig().cloned();
         let ss = self.get_shared_secret()?.clone();
-        let pk_local = self.get_public_key().clone();
-        let pk_remote = self.get_public_key_remote().clone();
-        let sk_local = self.get_secret_key()?.clone();
+        let kex = self.data.kex().clone();
         let prev_symmetric_key = self.chain.as_ref();
 
-        let (chain, key) = Self::generate_recursive_keystore(
-            pq_node,
-            params,
-            pk_sig_remote,
-            sk_sig_local,
-            pk_sig_local,
-            ss,
-            prev_symmetric_key,
-            pk_local,
-            pk_remote,
-            sk_local,
-        )?;
+        let (chain, key) =
+            Self::generate_recursive_keystore(pq_node, params, sig, ss, prev_symmetric_key, kex)?;
 
         self.key_store = Some(key);
         self.chain = Some(chain);
@@ -593,11 +553,14 @@ impl Clone for PostQuantumContainer {
 #[allow(missing_docs)]
 pub mod algorithm_dictionary {
     use crate::{
-        EzError, AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
+        validate_crypto_params, EzError, AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES,
+        KYBER_NONCE_LENGTH_BYTES,
     };
     use enum_primitive::*;
+    use packed_struct::prelude::*;
     use serde::{Deserialize, Serialize};
-    use std::convert::{TryFrom, TryInto};
+    use std::convert::TryFrom;
+    use std::fmt::Debug;
     use std::ops::Add;
     use strum::EnumCount;
     use strum::ParseError;
@@ -627,7 +590,10 @@ pub mod algorithm_dictionary {
 
         fn try_from(value: u8) -> Result<Self, Self::Error> {
             let value: [u8; 1] = [value];
-            CryptoParameters::unpack(value).map_err(|err| EzError::Other(err.to_string()))
+            let this: CryptoParameters =
+                CryptoParameters::unpack(&value).map_err(|err| EzError::Other(err.to_string()))?;
+            validate_crypto_params(&this)?;
+            Ok(this)
         }
     }
 
@@ -664,14 +630,24 @@ pub mod algorithm_dictionary {
         }
     }
 
-    enum_from_primitive! {
-        #[derive(PrimitiveEnum_u8, Default, Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, strum::EnumIter)]
-        pub enum EncryptionAlgorithm {
-            #[default]
-            AES_GCM_256_SIV = 0,
-            Xchacha20Poly_1305 = 1,
-            Kyber = 2
-        }
+    #[derive(
+        PrimitiveEnum_u8,
+        Default,
+        Copy,
+        Clone,
+        Debug,
+        Eq,
+        PartialEq,
+        Serialize,
+        Deserialize,
+        strum::EnumString,
+        strum::EnumIter,
+    )]
+    pub enum EncryptionAlgorithm {
+        #[default]
+        AES_GCM_256_SIV = 0,
+        Xchacha20Poly_1305 = 1,
+        Kyber = 2,
     }
 
     impl EncryptionAlgorithm {
@@ -694,12 +670,15 @@ pub mod algorithm_dictionary {
                 Self::Kyber => {
                     const X_KEY_LEN: usize = SYMMETRIC_CIPHER_OVERHEAD;
                     const LENGTH_FIELD: usize = 8;
-                    let kyber_input_len = X_KEY_LEN
-                        + oqs::sig::Sig::new(sig_alg.into())
-                            .unwrap()
-                            .length_signature()
-                        + LENGTH_FIELD
-                        + plaintext_length;
+                    let sig_alg: Option<oqs::sig::Algorithm> = sig_alg.into();
+                    let signature_len = if let Some(sig_alg) = sig_alg {
+                        oqs::sig::Sig::new(sig_alg).unwrap().length_signature()
+                    } else {
+                        0
+                    };
+
+                    let kyber_input_len =
+                        X_KEY_LEN + signature_len + LENGTH_FIELD + plaintext_length;
                     kyber_pke::ct_len(kyber_input_len)
                 }
             }
@@ -712,50 +691,46 @@ pub mod algorithm_dictionary {
                 Self::Kyber => kyber_pke::plaintext_len(ciphertext),
             }
         }
-
-        pub fn list() -> Vec<EncryptionAlgorithm> {
-            use strum::IntoEnumIterator;
-            EncryptionAlgorithm::iter().collect()
-        }
-    }
-
-    impl TryFrom<u8> for EncryptionAlgorithm {
-        type Error = ();
-
-        fn try_from(value: u8) -> Result<Self, Self::Error> {
-            EncryptionAlgorithm::from_u8(value).ok_or(())
-        }
-    }
-
-    impl From<EncryptionAlgorithm> for u8 {
-        fn from(val: EncryptionAlgorithm) -> Self {
-            val as u8
-        }
-    }
-
-    enum_from_primitive! {
-        #[derive(PrimitiveEnum_u8, Default, Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, strum::EnumString, strum::EnumIter, strum::EnumCount)]
-        pub enum KemAlgorithm {
-            #[strum(ascii_case_insensitive)]
-            Kyber = 0
-        }
     }
 
     #[derive(
-        PrimitiveEnum_u8, strum::EnumIter, Default, Serialize, Deserialize, Copy, Clone, Debug,
+        PrimitiveEnum_u8,
+        Default,
+        Copy,
+        Clone,
+        Debug,
+        Eq,
+        PartialEq,
+        Serialize,
+        Deserialize,
+        strum::EnumString,
+        strum::EnumIter,
+        strum::EnumCount,
+    )]
+    pub enum KemAlgorithm {
+        #[strum(ascii_case_insensitive)]
+        #[default]
+        Kyber = 0,
+    }
+
+    #[derive(
+        PrimitiveEnum_u8,
+        strum::EnumString,
+        strum::EnumIter,
+        Default,
+        Serialize,
+        Deserialize,
+        Copy,
+        Clone,
+        Debug,
+        Eq,
+        PartialEq,
     )]
     pub enum SigAlgorithm {
         #[default]
         #[doc(hidden)]
         None = 0,
         Falcon1024 = 1,
-    }
-
-    impl SigAlgorithm {
-        pub fn list() -> Vec<KemAlgorithm> {
-            use strum::IntoEnumIterator;
-            KemAlgorithm::iter().collect()
-        }
     }
 
     impl From<SigAlgorithm> for Option<oqs::sig::Algorithm> {
@@ -767,31 +742,39 @@ pub mod algorithm_dictionary {
         }
     }
 
-    impl KemAlgorithm {
-        pub fn list() -> Vec<KemAlgorithm> {
-            use strum::IntoEnumIterator;
-            KemAlgorithm::iter().collect()
+    pub trait AlgorithmsExt:
+        strum::IntoEnumIterator + for<'a> TryFrom<&'a str> + Debug + PrimitiveEnum<Primitive = u8>
+    {
+        fn list() -> Vec<Self> {
+            Self::iter().collect()
         }
 
-        pub fn try_from_str<R: AsRef<str>>(t: R) -> Result<Self, ParseError> {
-            use std::str::FromStr;
-            KemAlgorithm::from_str(t.as_ref())
+        fn try_from_str<R: AsRef<str>>(t: R) -> Result<Self, ParseError> {
+            Self::try_from(t.as_ref()).map_err(|_| ParseError::VariantNotFound)
         }
 
-        pub fn names() -> Vec<String> {
-            use strum::IntoEnumIterator;
-            KemAlgorithm::iter()
+        fn names() -> Vec<String> {
+            Self::iter()
                 .map(|r| format!("{:?}", r).to_lowercase())
                 .collect()
         }
+
+        fn from_u8(input: u8) -> Option<Self> {
+            Self::from_primitive(input)
+        }
+
+        fn as_u8(&self) -> u8 {
+            self.to_primitive()
+        }
     }
 
-    impl TryFrom<u8> for KemAlgorithm {
-        type Error = ();
-
-        fn try_from(value: u8) -> Result<Self, Self::Error> {
-            KemAlgorithm::from_u8(value).ok_or(())
-        }
+    impl<
+            T: strum::IntoEnumIterator
+                + for<'a> TryFrom<&'a str>
+                + Debug
+                + PrimitiveEnum<Primitive = u8>,
+        > AlgorithmsExt for T
+    {
     }
 
     impl From<KemAlgorithm> for oqs::kem::Algorithm {
@@ -801,16 +784,10 @@ pub mod algorithm_dictionary {
             }
         }
     }
-
-    impl Into<u8> for KemAlgorithm {
-        fn into(self) -> u8 {
-            self as u8
-        }
-    }
 }
 
-#[derive(Serialize, Deserialize)]
-struct PostQuantumMetaKex {
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PostQuantumMetaKex {
     /// The public key of remote
     remote_public_key: Option<Arc<oqs::kem::PublicKey>>,
     /// The public key. Both Alice and Bob get this
@@ -825,8 +802,8 @@ struct PostQuantumMetaKex {
     kem_alg: oqs::kem::Algorithm,
 }
 
-#[derive(Serialize, Deserialize)]
-struct PostQuantumMetaSig {
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PostQuantumMetaSig {
     sig_public_key: Arc<oqs::sig::PublicKey>,
     sig_private_key: Arc<oqs::sig::SecretKey>,
     remote_sig_public_key: Option<Arc<oqs::sig::PublicKey>>,
@@ -904,7 +881,7 @@ impl PostQuantumMeta {
 
         let kem_alg = oqs::kem::Kem::new(kem_scheme)?;
         let (kem_pk_bob, kem_sk_bob) = kem_alg.keypair()?;
-        let (ciphertext, shared_secret) = kem_alg.encapsulate(&*pk_alice)?;
+        let (ciphertext, shared_secret) = kem_alg.encapsulate(&**pk_alice)?;
         let public_key = Arc::new(kem_pk_bob);
         let secret_key = Some(Arc::new(kem_sk_bob));
         let shared_secret = Some(Arc::new(shared_secret));
@@ -979,8 +956,8 @@ impl PostQuantumMeta {
 
         let kem_alg = oqs::kem::Kem::new(kem_alg)?;
         let secret_key = self.get_secret_key()?;
-        let shared_secret = kem_alg.decapsulate(&**secret_key, &*bob_ciphertext)?;
-        self.kem.shared_secret = Some(Arc::new(shared_secret));
+        let shared_secret = kem_alg.decapsulate(&**secret_key, &**bob_ciphertext)?;
+        self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret));
 
         match params {
             BobToAliceTransferParameters::MixedAsymmetric {
@@ -996,17 +973,17 @@ impl PostQuantumMeta {
                     bob_pk_sig.as_ref(),
                 )?;
 
-                self.kem.remote_public_key = Some(bob_pk);
-                self.sig.remote_sig_public_key = Some(bob_pk_sig);
-                self.kem.ciphertext = Some(bob_ciphertext);
+                self.get_kex_mut().remote_public_key = Some(bob_pk);
+                self.get_sig_mut().unwrap().remote_sig_public_key = Some(bob_pk_sig);
+                self.get_kex_mut().ciphertext = Some(bob_ciphertext);
                 Ok(())
             }
             BobToAliceTransferParameters::PureSymmetric {
                 bob_ciphertext,
                 bob_pk,
             } => {
-                self.kem.remote_public_key = Some(bob_pk);
-                self.kem.ciphertext = Some(bob_ciphertext);
+                self.get_kex_mut().remote_public_key = Some(bob_pk);
+                self.get_kex_mut().ciphertext = Some(bob_ciphertext);
                 Ok(())
             }
         }
@@ -1021,7 +998,7 @@ impl PostQuantumMeta {
                 let alice_sig =
                     sig_alg.sign(alice_pk.deref().as_ref(), sig.sig_private_key.as_ref())?;
                 let sig_scheme = sig.sig_alg;
-                let kem_scheme = kem.kem_alg;
+                let kem_scheme = kex.kem_alg;
 
                 Ok(AliceToBobTransferParameters::MixedAsymmetric {
                     alice_pk,
@@ -1044,21 +1021,32 @@ impl PostQuantumMeta {
     }
 
     fn generate_bob_to_alice_transfer(&self) -> Result<BobToAliceTransferParameters, Error> {
-        let sig_alg = oqs::sig::Sig::new(self.sig_alg)?;
-        let bob_ciphertext = self.ciphertext.clone().ok_or(Error::Error)?;
-        let bob_signature = sig_alg.sign(
-            bob_ciphertext.deref().as_ref(),
-            self.sig_private_key.as_ref(),
-        )?;
-        let bob_pk_sig = self.sig_public_key.clone();
-        let bob_pk = self.public_key.clone();
+        let bob_ciphertext = self.get_ciphertext().cloned()?;
+        let bob_pk = self.get_public_key().clone();
+        match self {
+            PostQuantumMeta::PureSymmetricEncryption { .. } => {
+                Ok(BobToAliceTransferParameters::PureSymmetric {
+                    bob_ciphertext,
+                    bob_pk,
+                })
+            }
+            PostQuantumMeta::MixedAsymmetric { sig, .. } => {
+                let sig_alg = oqs::sig::Sig::new(sig.sig_alg)?;
+                let bob_signature = sig_alg.sign(
+                    bob_ciphertext.deref().as_ref(),
+                    sig.sig_private_key.as_ref(),
+                )?;
 
-        Ok(BobToAliceTransferParameters {
-            bob_ciphertext,
-            bob_signature,
-            bob_pk_sig,
-            bob_pk,
-        })
+                let bob_pk_sig = sig.sig_public_key.clone();
+
+                Ok(BobToAliceTransferParameters::MixedAsymmetric {
+                    bob_ciphertext,
+                    bob_signature,
+                    bob_pk_sig,
+                    bob_pk,
+                })
+            }
+        }
     }
 
     fn get_kem_algorithm(&self) -> oqs::kem::Algorithm {
@@ -1070,8 +1058,36 @@ impl PostQuantumMeta {
 
     fn get_sig_algorithm(&self) -> Option<oqs::sig::Algorithm> {
         match self {
-            PostQuantumMeta::PureSymmetricEncryption { kex } => None,
+            PostQuantumMeta::PureSymmetricEncryption { .. } => None,
             PostQuantumMeta::MixedAsymmetric { sig, .. } => Some(sig.sig_alg),
+        }
+    }
+
+    fn kex(&self) -> &PostQuantumMetaKex {
+        match self {
+            PostQuantumMeta::PureSymmetricEncryption { kex }
+            | PostQuantumMeta::MixedAsymmetric { kex, .. } => kex,
+        }
+    }
+
+    fn sig(&self) -> Option<&PostQuantumMetaSig> {
+        match self {
+            PostQuantumMeta::PureSymmetricEncryption { .. } => None,
+            PostQuantumMeta::MixedAsymmetric { sig, .. } => Some(sig),
+        }
+    }
+
+    fn get_kex_mut(&mut self) -> &mut PostQuantumMetaKex {
+        match self {
+            PostQuantumMeta::PureSymmetricEncryption { kex }
+            | PostQuantumMeta::MixedAsymmetric { kex, .. } => kex,
+        }
+    }
+
+    fn get_sig_mut(&mut self) -> Option<&mut PostQuantumMetaSig> {
+        match self {
+            PostQuantumMeta::PureSymmetricEncryption { .. } => None,
+            PostQuantumMeta::MixedAsymmetric { sig, .. } => Some(sig),
         }
     }
 
@@ -1137,4 +1153,27 @@ impl Debug for PostQuantumContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "PQC {:?} | {:?}", self.node, self.params)
     }
+}
+
+pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), EzError> {
+    if params.encryption_algorithm == EncryptionAlgorithm::Kyber
+        && params.kem_algorithm != KemAlgorithm::Kyber
+    {
+        return Err(EzError::Generic(
+            "Invalid crypto parameter combination. Kyber encryption must be paired with Kyber KEM",
+        ));
+    }
+
+    if params.encryption_algorithm == EncryptionAlgorithm::Kyber
+        && params.kem_algorithm == KemAlgorithm::Kyber
+        && params.sig_algorithm == SigAlgorithm::None
+    {
+        return Err(EzError::Generic(
+            "A post-quantum signature scheme must be selected when using Kyber encryption + KEM",
+        ));
+    }
+
+    // NOTE: it's okay to have a sig scheme defined with no Kyber. That just means every packet gets non-repudiation endowed onto its security
+
+    Ok(())
 }
