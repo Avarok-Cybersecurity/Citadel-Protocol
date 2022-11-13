@@ -23,7 +23,7 @@ impl SessionSecuritySettingsBuilder {
     /// use hyxe_net::prelude::SessionSecuritySettingsBuilder;
     /// use hyxe_crypt::drill::SecurityLevel;
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_security_level(SecurityLevel::LOW)
+    /// .with_security_level(SecurityLevel::DEFAULT)
     /// .build();
     /// ```
     pub fn with_security_level(mut self, security_level: SecurityLevel) -> Self {
@@ -62,7 +62,7 @@ impl SessionSecuritySettingsBuilder {
     /// Constructs the [`SessionSecuritySettings`]
     pub fn build(self) -> SessionSecuritySettings {
         SessionSecuritySettings {
-            security_level: self.security_level.unwrap_or(SecurityLevel::LOW),
+            security_level: self.security_level.unwrap_or(SecurityLevel::DEFAULT),
             secrecy_mode: self.secrecy_mode.unwrap_or(SecrecyMode::BestEffort),
             crypto_params: self.crypto_params.unwrap_or_default(),
         }

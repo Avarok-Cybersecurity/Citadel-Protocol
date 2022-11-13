@@ -110,7 +110,7 @@ pub(crate) mod chacha_impl {
 pub(crate) mod kyber_module {
     use crate::{AeadModule, EzError, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES};
     use aes_gcm_siv::aead::Buffer;
-    use byteorder::{ByteOrder, NetworkEndian};
+    use sha3::Digest;
     use std::sync::Arc;
 
     pub struct KyberModule {
@@ -160,6 +160,8 @@ pub(crate) mod kyber_module {
             let remote_public_key = &*self.pk_kem_remote;
 
             // now, encrypt the input
+            // TODO: figure out why 1351 bytes gets mapped to only 3144?
+            // Answer: bad in-place ez buffer implementation
             let output = encrypt_pke(self.kem_alg, remote_public_key, input.as_ref(), &nonce)?;
             input.truncate(0);
             input
@@ -179,11 +181,19 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.sk_kem_local.as_ref();
             // decrypt
+
             let mut plaintext_and_signature = decrypt_pke(self.kem_alg, local_sk, &input)?;
             let total_len = plaintext_and_signature.len();
             let sig_size_bytes = &plaintext_and_signature[total_len.saturating_sub(8)..];
-            // TODO: bounds checks
-            let sig_len = NetworkEndian::read_u64(sig_size_bytes) as usize;
+
+            if sig_size_bytes.len() != 8 {
+                return Err(EzError::Generic("Bad sig_size_bytes length"));
+            }
+
+            let mut len_buf = [0u8; 8];
+            len_buf.copy_from_slice(sig_size_bytes);
+
+            let sig_len = u64::from_be_bytes(len_buf) as usize;
 
             if sig_len > sig.length_signature() {
                 return Err(EzError::Generic(
@@ -194,8 +204,7 @@ pub(crate) mod kyber_module {
             plaintext_and_signature.truncate(total_len.saturating_sub(8));
             // the plaintext is the normal plaintext + signature of the header. Extract the signature
             let signature_start = plaintext_and_signature.len().saturating_sub(sig_len);
-            let signature = &plaintext_and_signature[signature_start..];
-            let plaintext = &plaintext_and_signature[..signature_start];
+            let (plaintext, signature) = plaintext_and_signature.split_at(signature_start);
 
             let pk_sig_remote = &*self.pk_sig_remote;
 
@@ -206,7 +215,7 @@ pub(crate) mod kyber_module {
             // verify the signature of the header. If header was changed in transit, this step
             // will fail
             sig.verify(ad, &signature, pk_sig_remote)
-                .map_err(|_| EzError::DecryptionFailure)?;
+                .map_err(|err| EzError::Other(format!("Sig Verification failed: {:?}", err)))?;
 
             // additionally, verify the x-key
             let split_pt = plaintext.len() - 16; // 128-bit block size gcm
@@ -238,7 +247,21 @@ pub(crate) mod kyber_module {
         local_sk: T,
         ciphertext: R,
     ) -> Result<Vec<u8>, EzError> {
-        kyber_pke::decrypt(local_sk, ciphertext).map_err(|_| EzError::DecryptionFailure)
+        kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| EzError::Other(format!("{:?}", err)))
+    }
+
+    // TODO: create buffer of hash(AD + encrypted output). Use this buffer as input to signature.
+    // append signature to end of payload coupled with signature len
+    // Then, to decrypt: get signature len, extract signature. Compute hash(AD + encrypted output).
+    // Verify signature of that hash. Then, decrypt
+    fn sha256(ad: &[u8], payload: &[u8]) -> [u8; 32] {
+        let mut ret = [0u8; 32];
+        let mut hasher = sha3::Sha3_256::default();
+        hasher.update(ad);
+        hasher.update(payload);
+        let out = hasher.finalize();
+        ret.copy_from_slice(out.as_slice());
+        ret
     }
 }
 
@@ -249,15 +272,13 @@ mod tests {
 
     #[test]
     fn test_kyber_with_oqs() {
-        let kem = oqs::kem::Kem::new(Algorithm::Kyber1024).unwrap();
+        let kem = oqs::kem::Kem::new(Algorithm::Kyber1024_90s).unwrap();
         let (pk_alice, sk_alice) = kem.keypair().unwrap();
         let (pk_bob, sk_bob) = kem.keypair().unwrap();
         let (ct, ss_bob) = kem.encapsulate(&pk_alice).unwrap();
         let ss_alice = kem.decapsulate(&sk_alice, &ct).unwrap();
         assert_eq!(ss_alice, ss_bob);
         let message = b"Hello, world!" as &[u8];
-        // TODO: the problem is that local_sk is not mathematically tethered to bob/alice pair.
-        // THIS test proves this works, we just need to make sure in lib.rs implementation, it works
         let nonce = (0..32).into_iter().map(|r| r as u8).collect::<Vec<u8>>();
         // alice uses bob's public key to encrypt
         let ciphertext =

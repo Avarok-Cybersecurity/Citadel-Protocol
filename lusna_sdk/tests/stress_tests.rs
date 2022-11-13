@@ -150,7 +150,7 @@ mod tests {
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768_90s)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256_SIV,
             EncryptionAlgorithm::Xchacha20Poly_1305
@@ -211,10 +211,70 @@ mod tests {
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
+    async fn stress_test_c2s_messaging_kyber(
+        #[case] message_count: usize,
+        #[case] secrecy_mode: SecrecyMode,
+        #[values(KemAlgorithm::Kyber1024)] kem: KemAlgorithm,
+        #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
+    ) {
+        let _ = lusna_logging::setup_log();
+        lusna_sdk::test_common::TestBarrier::setup(2);
+        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
+        static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
+        CLIENT_SUCCESS.store(false, Ordering::Relaxed);
+        SERVER_SUCCESS.store(false, Ordering::Relaxed);
+
+        let (server, server_addr) = lusna_sdk::test_common::server_info_reactive(
+            move |conn, remote| async move {
+                log::trace!(target: "lusna", "*** SERVER RECV CHANNEL ***");
+                handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
+                log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
+                SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+            |_| {},
+        );
+
+        let uuid = Uuid::new_v4();
+        let session_security = SessionSecuritySettingsBuilder::default()
+            .with_secrecy_mode(secrecy_mode)
+            .with_crypto_params(kem + enx)
+            .build();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+            uuid,
+            server_addr,
+            UdpMode::Enabled,
+            session_security,
+            move |connection, remote| async move {
+                log::trace!(target: "lusna", "*** CLIENT RECV CHANNEL ***");
+                handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
+                log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
+                CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            },
+        );
+
+        let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = tokio::spawn(server);
+
+        let joined = futures::future::try_join(server, client);
+
+        let (_res0, _res1) = joined.await.unwrap();
+
+        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
+        assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
+    }
+
+    #[rstest]
+    #[case(500, SecrecyMode::Perfect)]
+    #[case(500, SecrecyMode::BestEffort)]
+    #[timeout(std::time::Duration::from_secs(240))]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768_90s)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Firesaber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256_SIV,
             EncryptionAlgorithm::Xchacha20Poly_1305

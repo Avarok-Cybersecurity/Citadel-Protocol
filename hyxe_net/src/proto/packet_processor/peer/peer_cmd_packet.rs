@@ -285,7 +285,10 @@ pub async fn process_peer_cmd(
                                                         )
                                                     )
                                                 );
-                                                let transfer = alice_constructor.stage0_alice();
+                                                let transfer = return_if_none!(
+                                                    alice_constructor.stage0_alice(),
+                                                    "AliceConstructor None"
+                                                );
                                                 //log::trace!(target: "lusna", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
                                                 let msg_bytes =
                                                     return_if_none!(transfer.serialize_to_vec());
@@ -430,7 +433,7 @@ pub async fn process_peer_cmd(
                                             "bad deser"
                                         );
                                         alice_constructor
-                                            .stage1_alice(&BobToAliceTransferType::Default(deser))
+                                            .stage1_alice(BobToAliceTransferType::Default(deser))
                                             .ok_or_else(|| {
                                                 NetworkError::InvalidPacket("stage 1 alice failed")
                                             })?;
@@ -498,7 +501,7 @@ pub async fn process_peer_cmd(
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
                                                 endpoint_hyper_ratchet,
-                                                SecurityLevel::LOW,
+                                                SecurityLevel::DEFAULT,
                                                 peer_cid,
                                             );
 
@@ -670,7 +673,7 @@ pub async fn process_peer_cmd(
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
                                                 endpoint_hyper_ratchet,
-                                                SecurityLevel::LOW,
+                                                SecurityLevel::DEFAULT,
                                                 peer_cid,
                                             );
                                         let diff = Duration::from_nanos(i64::abs(

@@ -552,7 +552,7 @@ impl HdpSession {
 
         match state {
             SessionState::NeedsRegister => {
-                log::trace!(target: "lusna", "Beginning registration subroutine!");
+                log::trace!(target: "lusna", "Beginning registration subroutine");
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
                 let session_security_settings =
@@ -585,7 +585,12 @@ impl HdpSession {
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "lusna", "Running stage0 alice");
-                let transfer = alice_constructor.stage0_alice();
+                let transfer =
+                    alice_constructor
+                        .stage0_alice()
+                        .ok_or(NetworkError::InternalError(
+                            "Unable to construct AliceToBob transfer",
+                        ))?;
 
                 let stage0_register_packet =
                     crate::proto::packet_crafter::do_register::craft_stage0(
@@ -664,7 +669,11 @@ impl HdpSession {
         .ok_or(NetworkError::InternalError(
             "Unable to construct Alice ratchet",
         ))?;
-        let transfer = alice_constructor.stage0_alice();
+        let transfer = alice_constructor
+            .stage0_alice()
+            .ok_or(NetworkError::InternalError(
+                "Failed to construct AliceToBobTransfer",
+            ))?;
         // encrypts the entire connect process with the highest possible security level
         let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session_ref.local_nat_type.clone();
@@ -872,7 +881,17 @@ impl HdpSession {
     ) -> Result<(), NetworkError> {
         primary_outbound_rx
             .0
-            .map(|r| Ok(r.freeze()))
+            .map(|r| {
+                #[cfg_attr(
+                    feature = "localhost-testing",
+                    tracing::instrument(target = "lusna", skip_all, fields(packet_length = r.len()))
+                )]
+                fn process_outbound_packet(r: BytesMut) -> Bytes {
+                    r.freeze()
+                }
+
+                Ok(process_outbound_packet(r))
+            })
             .forward(writer)
             .map_err(|err| NetworkError::Generic(err.to_string()))
             .await
@@ -1781,7 +1800,7 @@ impl HdpSession {
                     cmd_aux,
                     packet,
                     target_cid,
-                    SecurityLevel::LOW,
+                    SecurityLevel::DEFAULT,
                 )
             })?;
             log::trace!(target: "lusna", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);

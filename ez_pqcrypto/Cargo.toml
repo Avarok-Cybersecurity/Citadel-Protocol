@@ -29,11 +29,11 @@ parking_lot = { version = "0.12.0", features = ["serde"] }
 log = "0.4.8"
 strum = { version = "0.24.0", features = ["derive"] }
 sha3 = "0.10.1"
-oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["std", "serde", "saber", "kyber", "ntru", "falcon"] }
-kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", branch = "master" }
+oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["std", "serde", "kyber", "falcon"] }
+kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", branch = "master", features=["90s"] }
 #pqcrypto = { git = "https://github.com/rustpq/pqcrypto.git", default-features = false, features = ["pqcrypto-saber", "pqcrypto-kyber", "pqcrypto-ntru"]}
 #typetag = "0.1.8"
-byteorder = "1.4.3"
+packed_struct = { version = "0.10.0", features = ["serde"] }
 
 [dev-dependencies]
 rand = "0.8.4"
