@@ -320,7 +320,7 @@ mod tests {
         lusna_logging::setup_log();
         for level in 0..10u8 {
             let level = SecurityLevel::from(level);
-            let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Firesaber, level, 0, None);
+            let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Kyber, level, 0, None);
             let mut endpoint_alice = PeerSessionCrypto::new(Toolset::new(0, hr_alice), true);
             let mut endpoint_bob = PeerSessionCrypto::new(Toolset::new(0, hr_bob), false);
 

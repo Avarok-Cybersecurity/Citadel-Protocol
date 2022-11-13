@@ -1,4 +1,4 @@
-use crate::drill::Drill;
+use crate::entropy_bank::EntropyBank;
 
 /// The `scrambled_sequence` that is returned by `get_packet_coordinates` is scrambled; the true value of the sequence
 /// is NOT given, because it is expected that the values be imprinted upon the packet header and thus are public-facing
@@ -24,7 +24,11 @@ pub struct PacketVector {
 use num_integer::Integer;
 
 /// The true sequence should just be the exact order of the data without any consideration of sequence nor wave-ID
-pub fn generate_packet_vector(true_sequence: usize, group_id: u64, drill: &Drill) -> PacketVector {
+pub fn generate_packet_vector(
+    true_sequence: usize,
+    group_id: u64,
+    drill: &EntropyBank,
+) -> PacketVector {
     // To get the wave_id, we must floor divide the true sequence by the port range. The remainder is the sequence
     let port_range = &drill.get_multiport_width();
     let (true_wave_id, relative_sequence) = true_sequence.div_mod_floor(port_range);
@@ -46,7 +50,7 @@ pub fn generate_packet_coordinates_inv(
     wave_id: u32,
     src_port: u16,
     local_port: u16,
-    scramble_drill: &Drill,
+    scramble_drill: &EntropyBank,
 ) -> Option<usize> {
     for (idx, (in_port, out_port)) in scramble_drill.scramble_mappings.iter().enumerate() {
         if *in_port == src_port && *out_port == local_port {

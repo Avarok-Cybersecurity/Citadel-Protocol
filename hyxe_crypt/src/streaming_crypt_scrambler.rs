@@ -6,7 +6,7 @@ use tokio::macros::support::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 
-use crate::drill::{Drill, SecurityLevel};
+use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::net::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 use crate::packet_vector::PacketVector;
 
@@ -38,11 +38,14 @@ impl FixedSizedStream for std::fs::File {
 
 /// Generic function for inscribing headers on packets
 pub trait HeaderInscriberFn:
-    for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static
+    for<'a> Fn(&'a PacketVector, &'a EntropyBank, u32, u64, &'a mut BytesMut) + Send + Sync + 'static
 {
 }
 impl<
-        T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static,
+        T: for<'a> Fn(&'a PacketVector, &'a EntropyBank, u32, u64, &'a mut BytesMut)
+            + Send
+            + Sync
+            + 'static,
     > HeaderInscriberFn for T
 {
 }

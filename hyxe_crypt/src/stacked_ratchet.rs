@@ -1,5 +1,5 @@
-use crate::drill::{Drill, SecurityLevel};
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
 use crate::net::crypt_splitter::calculate_nonce_version;
@@ -30,8 +30,8 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
     fn has_verified_packets(&self) -> bool;
     fn reset_ara(&self);
     fn get_default_security_level(&self) -> SecurityLevel;
-    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
-    fn get_scramble_drill(&self) -> &Drill;
+    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank);
+    fn get_scramble_drill(&self) -> &EntropyBank;
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts>;
 
@@ -101,11 +101,11 @@ impl Ratchet for StackedRatchet {
         self.get_default_security_level()
     }
 
-    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
+    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
         self.message_pqc_drill(idx)
     }
 
-    fn get_scramble_drill(&self) -> &Drill {
+    fn get_scramble_drill(&self) -> &EntropyBank {
         self.get_scramble_drill()
     }
 
@@ -177,7 +177,7 @@ impl StackedRatchet {
 
     /// returns the message pqc and drill. Panics if idx is OOB
     #[inline]
-    pub fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
+    pub fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
         let idx = idx.unwrap_or(0);
         (
             &self.inner.message.inner[idx].pqc,
@@ -187,7 +187,7 @@ impl StackedRatchet {
 
     /// returns the message pqc and drill
     #[inline]
-    pub fn scramble_pqc_drill(&self) -> (&PostQuantumContainer, &Drill) {
+    pub fn scramble_pqc_drill(&self) -> (&PostQuantumContainer, &EntropyBank) {
         (&self.inner.scramble.pqc, &self.inner.scramble.drill)
     }
 
@@ -270,7 +270,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_encrypt(
+        drill.encrypt(
             calculate_nonce_version(wave_id as usize, group),
             pqc,
             contents,
@@ -293,7 +293,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_encrypt(
+        drill.encrypt(
             calculate_nonce_version(wave_id as usize, group),
             pqc,
             contents,
@@ -313,7 +313,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt(
+        drill.decrypt(
             calculate_nonce_version(wave_id as usize, group_id),
             pqc,
             contents,
@@ -336,7 +336,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_decrypt(
+        drill.decrypt(
             calculate_nonce_version(wave_id as usize, group_id),
             pqc,
             contents,
@@ -344,7 +344,7 @@ impl StackedRatchet {
     }
 
     /// Returns the message drill
-    pub fn get_message_drill(&self, idx: Option<usize>) -> &Drill {
+    pub fn get_message_drill(&self, idx: Option<usize>) -> &EntropyBank {
         &self.inner.message.inner[idx.unwrap_or(0)].drill
     }
 
@@ -354,7 +354,7 @@ impl StackedRatchet {
     }
 
     /// Returns the scramble drill
-    pub fn get_scramble_drill(&self) -> &Drill {
+    pub fn get_scramble_drill(&self) -> &EntropyBank {
         &self.inner.scramble.drill
     }
 
@@ -390,14 +390,14 @@ pub(crate) struct MessageRatchet {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchetInner {
-    pub(crate) drill: Drill,
+    pub(crate) drill: EntropyBank,
     pub(crate) pqc: PostQuantumContainer,
 }
 
 ///
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ScrambleRatchet {
-    pub(crate) drill: Drill,
+    pub(crate) drill: EntropyBank,
     pub(crate) pqc: PostQuantumContainer,
 }
 
@@ -411,8 +411,8 @@ impl From<StackedRatchetInner> for StackedRatchet {
 
 /// For constructing the StackedRatchet during KEM stage
 pub mod constructor {
-    use crate::drill::{Drill, SecurityLevel};
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+    use crate::entropy_bank::{EntropyBank, SecurityLevel};
     use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
     use crate::stacked_ratchet::{Ratchet, StackedRatchet};
     use arrayvec::ArrayVec;
@@ -667,8 +667,8 @@ pub mod constructor {
                     pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params)))
                         .ok()?,
                 },
-                nonce_message: Drill::generate_public_nonce(params.encryption_algorithm),
-                nonce_scramble: Drill::generate_public_nonce(params.encryption_algorithm),
+                nonce_message: EntropyBank::generate_public_nonce(params.encryption_algorithm),
+                nonce_scramble: EntropyBank::generate_public_nonce(params.encryption_algorithm),
                 cid,
                 new_version,
                 security_level,
@@ -692,7 +692,8 @@ pub mod constructor {
                 .filter_map(|(params_tx, opts)| {
                     Some(MessageRatchetConstructorInner {
                         drill: Some(
-                            Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?,
+                            EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm)
+                                .ok()?,
                         ),
                         pqc: PostQuantumContainer::new_bob(opts, params_tx).ok()?,
                     })
@@ -708,7 +709,9 @@ pub mod constructor {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
                 scramble: ScrambleRatchetConstructor {
-                    drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?),
+                    drill: Some(
+                        EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm).ok()?,
+                    ),
                     pqc: PostQuantumContainer::new_bob(
                         ConstructorOpts::new_init(Some(params)),
                         transfer.scramble_alice_params,
@@ -835,7 +838,8 @@ pub mod constructor {
                         .pqc
                         .decrypt(&transfer.encrypted_msg_drills.get(idx)?[..], nonce_msg)
                         .ok()?;
-                    container.drill = Some(Drill::deserialize_from(&decrypted_msg_drill[..]).ok()?);
+                    container.drill =
+                        Some(EntropyBank::deserialize_from(&decrypted_msg_drill[..]).ok()?);
                 }
 
                 let nonce_scramble = &self.nonce_scramble;
@@ -850,7 +854,7 @@ pub mod constructor {
                     .decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble)
                     .ok()?;
                 self.scramble.drill =
-                    Some(Drill::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
+                    Some(EntropyBank::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
 
                 // version check
                 if self.scramble.drill.as_ref()?.version
@@ -908,13 +912,13 @@ pub mod constructor {
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct MessageRatchetConstructorInner {
-        pub(super) drill: Option<Drill>,
+        pub(super) drill: Option<EntropyBank>,
         pub(super) pqc: PostQuantumContainer,
     }
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct ScrambleRatchetConstructor {
-        pub(super) drill: Option<Drill>,
+        pub(super) drill: Option<EntropyBank>,
         pub(super) pqc: PostQuantumContainer,
     }
 }
