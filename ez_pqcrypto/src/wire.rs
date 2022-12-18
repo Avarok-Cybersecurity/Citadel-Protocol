@@ -51,7 +51,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         let mut rng = rand::thread_rng();
         let mut mapping: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
         for x in 0..BLOCK_SIZE {
-            mapping[x] = (x % BLOCK_SIZE) as u8;
+            mapping[x] = x as u8;
         }
 
         mapping.shuffle(&mut rng);
