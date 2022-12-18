@@ -17,8 +17,8 @@ pub mod includes {
     pub use zerocopy::LayoutVerified;
 
     pub use ez_pqcrypto::PostQuantumContainer;
-    pub use hyxe_crypt::drill::Drill;
-    pub use hyxe_crypt::drill::SecurityLevel;
+    pub use hyxe_crypt::entropy_bank::EntropyBank;
+    pub use hyxe_crypt::entropy_bank::SecurityLevel;
     pub use hyxe_crypt::prelude::SecBuffer;
     pub use hyxe_user::client_account::ClientNetworkAccount;
     pub use hyxe_user::misc::AccountError;

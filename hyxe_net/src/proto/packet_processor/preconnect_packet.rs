@@ -215,7 +215,7 @@ pub async fn process_preconnect(
                             );
                             to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
-                            //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::DEFAULT), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
+                            //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::Standard), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
                             let stream = ReliableOrderedCompatStream::new(
                                 to_primary_stream,
                                 &mut *state_container,
@@ -241,7 +241,7 @@ pub async fn process_preconnect(
                 let res = conn
                     .begin_udp_hole_punch(generate_hole_punch_crypt_container(
                         new_hyper_ratchet.clone(),
-                        SecurityLevel::DEFAULT,
+                        SecurityLevel::Standard,
                         C2S_ENCRYPTION_ONLY,
                     ))
                     .await;
@@ -344,7 +344,7 @@ pub async fn process_preconnect(
                 let res = conn
                     .begin_udp_hole_punch(generate_hole_punch_crypt_container(
                         hyper_ratchet.clone(),
-                        SecurityLevel::DEFAULT,
+                        SecurityLevel::Standard,
                         C2S_ENCRYPTION_ONLY,
                     ))
                     .await;

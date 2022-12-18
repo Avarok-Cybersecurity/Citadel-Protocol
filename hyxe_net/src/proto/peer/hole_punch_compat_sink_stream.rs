@@ -3,7 +3,7 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::state_container::StateContainerInner;
 use async_trait::async_trait;
 use bytes::Bytes;
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use netbeam::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
 use std::net::SocketAddr;

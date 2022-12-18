@@ -9,7 +9,7 @@ use crate::proto::session::SessionRequest;
 use crate::proto::state_container::VirtualConnectionType;
 use futures::task::{Context, Poll};
 use futures::Stream;
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::prelude::SecBuffer;
 use hyxe_user::re_imports::__private::Formatter;
 use std::fmt::Debug;

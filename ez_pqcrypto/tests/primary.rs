@@ -430,11 +430,29 @@ mod tests {
         for enx in EncryptionAlgorithm::list() {
             for kex in KemAlgorithm::list() {
                 for sig in SigAlgorithm::list() {
-                    let params = serialize(enx + kex + sig);
+                    fn test_inner(
+                        params: impl Into<CryptoParameters>,
+                        enx: EncryptionAlgorithm,
+                        kex: KemAlgorithm,
+                        sig: SigAlgorithm,
+                    ) {
+                        let params = serialize(params.into());
 
-                    assert_eq!(params.encryption_algorithm, enx);
-                    assert_eq!(params.kem_algorithm, kex);
-                    assert_eq!(params.sig_algorithm, sig);
+                        assert_eq!(params.encryption_algorithm, enx);
+                        assert_eq!(params.kem_algorithm, kex);
+                        assert_eq!(params.sig_algorithm, sig);
+                    }
+
+                    let check_params_3 = enx + kex + sig;
+                    if validate_crypto_params(&check_params_3).is_ok() {
+                        // check all 3-valued combinations
+                        test_inner(enx + kex + sig, enx, kex, sig);
+                        test_inner(enx + sig + kex, enx, kex, sig);
+                        test_inner(kex + enx + sig, enx, kex, sig);
+                        test_inner(kex + sig + enx, enx, kex, sig);
+                        test_inner(sig + enx + kex, enx, kex, sig);
+                        test_inner(sig + kex + enx, enx, kex, sig);
+                    }
                 }
             }
         }

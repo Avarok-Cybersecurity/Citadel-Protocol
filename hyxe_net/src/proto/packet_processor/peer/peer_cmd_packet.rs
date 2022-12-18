@@ -301,7 +301,7 @@ pub async fn process_peer_cmd(
                                                         peer_kem_state_container,
                                                     );
                                                 // finally, prepare the signal and send outbound
-                                                // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &Drill, ticket: Ticket, timestamp: i64
+                                                // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
                                                 let signal = PeerSignal::Kem(
                                                     PeerConnectionType::HyperLANPeerToHyperLANPeer(
                                                         *original_target_cid,
@@ -501,7 +501,7 @@ pub async fn process_peer_cmd(
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
                                                 endpoint_hyper_ratchet,
-                                                SecurityLevel::DEFAULT,
+                                                SecurityLevel::Standard,
                                                 peer_cid,
                                             );
 
@@ -673,7 +673,7 @@ pub async fn process_peer_cmd(
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
                                                 endpoint_hyper_ratchet,
-                                                SecurityLevel::DEFAULT,
+                                                SecurityLevel::Standard,
                                                 peer_cid,
                                             );
                                         let diff = Duration::from_nanos(i64::abs(
