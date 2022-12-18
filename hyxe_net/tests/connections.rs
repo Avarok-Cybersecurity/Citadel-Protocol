@@ -89,10 +89,9 @@ pub mod tests {
                 on_client_received_stream(stream).await
             };
 
-            let (res0, res1) = tokio::join!(server, client);
-            log::trace!("RES: server={:?} | client={:?}", res0, res1);
-            assert!(res0.is_ok());
-            assert!(res1.is_ok());
+            let res = tokio::try_join!(server, client);
+            log::trace!("RES: {:?}", res);
+            let _ = res.unwrap();
             log::trace!(target: "lusna", "Ended");
         }
 
