@@ -80,7 +80,7 @@ impl Ratchet for ThinRatchet {
     }
 
     fn get_default_security_level(&self) -> SecurityLevel {
-        SecurityLevel::DEFAULT
+        SecurityLevel::Standard
     }
 
     fn message_pqc_drill(&self, _idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {

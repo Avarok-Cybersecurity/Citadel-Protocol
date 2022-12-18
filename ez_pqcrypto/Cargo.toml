@@ -34,9 +34,10 @@ kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", branch 
 #pqcrypto = { git = "https://github.com/rustpq/pqcrypto.git", default-features = false, features = ["pqcrypto-saber", "pqcrypto-kyber", "pqcrypto-ntru"]}
 #typetag = "0.1.8"
 packed_struct = { version = "0.10.0", features = ["serde"] }
+rand = "0.8.5"
+serde-big-array = "0.4.1"
 
 [dev-dependencies]
-rand = "0.8.4"
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 
 [lib]

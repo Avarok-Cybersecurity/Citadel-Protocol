@@ -597,39 +597,6 @@ pub mod algorithm_dictionary {
         }
     }
 
-    impl Add<EncryptionAlgorithm> for KemAlgorithm {
-        type Output = CryptoParameters;
-
-        fn add(self, rhs: EncryptionAlgorithm) -> Self::Output {
-            CryptoParameters {
-                kem_algorithm: self,
-                encryption_algorithm: rhs,
-                sig_algorithm: Default::default(),
-            }
-        }
-    }
-
-    impl Add<KemAlgorithm> for EncryptionAlgorithm {
-        type Output = CryptoParameters;
-
-        fn add(self, rhs: KemAlgorithm) -> Self::Output {
-            CryptoParameters {
-                kem_algorithm: rhs,
-                encryption_algorithm: self,
-                sig_algorithm: Default::default(),
-            }
-        }
-    }
-
-    impl Add<SigAlgorithm> for CryptoParameters {
-        type Output = CryptoParameters;
-
-        fn add(mut self, rhs: SigAlgorithm) -> Self::Output {
-            self.sig_algorithm = rhs;
-            self
-        }
-    }
-
     #[derive(
         PrimitiveEnum_u8,
         Default,
@@ -668,7 +635,6 @@ pub mod algorithm_dictionary {
                 Self::Xchacha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
                 // Add 32 for internal apendees
                 Self::Kyber => {
-                    const X_KEY_LEN: usize = SYMMETRIC_CIPHER_OVERHEAD;
                     const LENGTH_FIELD: usize = 8;
                     let sig_alg: Option<oqs::sig::Algorithm> = sig_alg.into();
                     let signature_len = if let Some(sig_alg) = sig_alg {
@@ -677,9 +643,13 @@ pub mod algorithm_dictionary {
                         0
                     };
 
-                    let kyber_input_len =
-                        X_KEY_LEN + signature_len + LENGTH_FIELD + plaintext_length;
-                    kyber_pke::ct_len(kyber_input_len)
+                    let aes_input_len = signature_len + LENGTH_FIELD;
+                    let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
+                    let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
+                    let kyber_output_len = kyber_pke::ct_len(kyber_input_len);
+
+                    // add 8 for the length encoding
+                    aes_output_len + kyber_output_len + LENGTH_FIELD
                 }
             }
         }
@@ -766,15 +736,74 @@ pub mod algorithm_dictionary {
         fn as_u8(&self) -> u8 {
             self.to_primitive()
         }
+
+        fn set_crypto_param(&self, params: &mut CryptoParameters);
     }
 
-    impl<
-            T: strum::IntoEnumIterator
-                + for<'a> TryFrom<&'a str>
-                + Debug
-                + PrimitiveEnum<Primitive = u8>,
-        > AlgorithmsExt for T
-    {
+    impl AlgorithmsExt for KemAlgorithm {
+        fn set_crypto_param(&self, params: &mut CryptoParameters) {
+            params.kem_algorithm = *self;
+        }
+    }
+
+    impl AlgorithmsExt for EncryptionAlgorithm {
+        fn set_crypto_param(&self, params: &mut CryptoParameters) {
+            params.encryption_algorithm = *self;
+        }
+    }
+
+    impl AlgorithmsExt for SigAlgorithm {
+        fn set_crypto_param(&self, params: &mut CryptoParameters) {
+            params.sig_algorithm = *self;
+        }
+    }
+
+    impl<R: AlgorithmsExt> Add<R> for KemAlgorithm {
+        type Output = CryptoParameters;
+
+        fn add(self, rhs: R) -> Self::Output {
+            add_inner(self, rhs)
+        }
+    }
+
+    impl<R: AlgorithmsExt> Add<R> for EncryptionAlgorithm {
+        type Output = CryptoParameters;
+
+        fn add(self, rhs: R) -> Self::Output {
+            add_inner(self, rhs)
+        }
+    }
+
+    impl<R: AlgorithmsExt> Add<R> for SigAlgorithm {
+        type Output = CryptoParameters;
+
+        fn add(self, rhs: R) -> Self::Output {
+            add_inner(self, rhs)
+        }
+    }
+
+    impl<R: AlgorithmsExt> Add<R> for CryptoParameters {
+        type Output = CryptoParameters;
+
+        fn add(mut self, rhs: R) -> Self::Output {
+            rhs.set_crypto_param(&mut self);
+            self
+        }
+    }
+
+    fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoParameters {
+        let mut ret = CryptoParameters::default();
+        lhs.set_crypto_param(&mut ret);
+        rhs.set_crypto_param(&mut ret);
+        ret
+    }
+
+    impl<T: AlgorithmsExt> From<T> for CryptoParameters {
+        fn from(this: T) -> Self {
+            let mut ret = CryptoParameters::default();
+            this.set_crypto_param(&mut ret);
+            ret
+        }
     }
 
     impl From<KemAlgorithm> for oqs::kem::Algorithm {

@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use crate::EzError;
 use aes_gcm_siv::aead::{Buffer, Error};
 use bytes::{BufMut, BytesMut};
 
@@ -65,6 +66,19 @@ pub trait EzBuffer: AsRef<[u8]> + AsMut<[u8]> + BufMut {
     }
     fn subset_mut(&mut self, range: Range<usize>) -> &mut [u8] {
         &mut self.as_mut()[range]
+    }
+
+    fn try_truncate(&mut self, len: usize) -> Result<(), EzError> {
+        if len > self.len() {
+            Err(EzError::Other(format!(
+                "Cannot truncate len={} when buffer len={}",
+                len,
+                self.len()
+            )))
+        } else {
+            self.truncate(len);
+            Ok(())
+        }
     }
 }
 

@@ -193,28 +193,28 @@ impl EntropyBank {
     }
 }
 
-/// Provides the enumeration forall security levels
+/// Provides the enumeration for all security levels
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
 pub enum SecurityLevel {
     #[default]
-    DEFAULT,
-    REINFORCED,
-    HIGH,
-    ULTRA,
-    EXTREME,
-    CUSTOM(u8),
+    Standard,
+    Reinforced,
+    High,
+    Ultra,
+    Extreme,
+    Custom(u8),
 }
 
 impl SecurityLevel {
     /// Returns byte representation of self
     pub fn value(self) -> u8 {
         match self {
-            SecurityLevel::DEFAULT => 0,
-            SecurityLevel::REINFORCED => 1,
-            SecurityLevel::HIGH => 2,
-            SecurityLevel::ULTRA => 3,
-            SecurityLevel::EXTREME => 4,
-            SecurityLevel::CUSTOM(val) => val,
+            SecurityLevel::Standard => 0,
+            SecurityLevel::Reinforced => 1,
+            SecurityLevel::High => 2,
+            SecurityLevel::Ultra => 3,
+            SecurityLevel::Extreme => 4,
+            SecurityLevel::Custom(val) => val,
         }
     }
 
@@ -227,12 +227,12 @@ impl SecurityLevel {
 impl From<u8> for SecurityLevel {
     fn from(val: u8) -> Self {
         match val {
-            0 => SecurityLevel::DEFAULT,
-            1 => SecurityLevel::REINFORCED,
-            2 => SecurityLevel::HIGH,
-            3 => SecurityLevel::ULTRA,
-            4 => SecurityLevel::EXTREME,
-            n => SecurityLevel::CUSTOM(n),
+            0 => SecurityLevel::Standard,
+            1 => SecurityLevel::Reinforced,
+            2 => SecurityLevel::High,
+            3 => SecurityLevel::Ultra,
+            4 => SecurityLevel::Extreme,
+            n => SecurityLevel::Custom(n),
         }
     }
 }
@@ -242,7 +242,7 @@ use ez_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use serde_big_array::BigArray;
 
-/// A drill is a fundamental encryption dataset that continually morphs into new future sets
+/// A entropy bank is a fundamental dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
 pub struct EntropyBank {
     pub(super) algorithm: EncryptionAlgorithm,

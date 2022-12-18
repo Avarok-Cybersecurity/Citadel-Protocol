@@ -150,7 +150,7 @@ mod tests {
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256_SIV,
             EncryptionAlgorithm::Xchacha20Poly_1305
@@ -207,8 +207,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case(500, SecrecyMode::Perfect)]
-    #[case(500, SecrecyMode::BestEffort)]
+    #[case(100, SecrecyMode::Perfect)]
+    #[case(100, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
@@ -238,7 +238,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
-            .with_crypto_params(kem + enx)
+            .with_crypto_params(kem + enx + SigAlgorithm::Falcon1024)
             .build();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
@@ -274,7 +274,7 @@ mod tests {
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber, KemAlgorithm::Kyber768)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256_SIV,
             EncryptionAlgorithm::Xchacha20Poly_1305

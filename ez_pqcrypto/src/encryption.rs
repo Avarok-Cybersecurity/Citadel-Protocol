@@ -108,12 +108,13 @@ pub(crate) mod chacha_impl {
 }
 
 pub(crate) mod kyber_module {
+    use crate::wire::ScramCryptDictionary;
     use crate::{
         AeadModule, EzError, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
         AES_GCM_NONCE_LENGTH_BYTES,
     };
     use aes_gcm_siv::aead::Buffer;
-    use sha3::Digest;
+    use std::convert::TryFrom;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,
@@ -138,14 +139,7 @@ pub(crate) mod kyber_module {
 
             let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
 
-            // include ratcheted symmetric key into equation by encrypting null input
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let x_key = self.symmetric_key_local.encrypt(aes_nonce, &[])?;
-            // append the x-key, that way the post-quantum signature includes it
-            input
-                .extend_from_slice(&x_key)
-                .map_err(|err| EzError::Other(err.to_string()))?;
-
             let signature = sig
                 .sign(ad, self.sig.sig_private_key.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
@@ -153,19 +147,32 @@ pub(crate) mod kyber_module {
             input
                 .extend_from_slice(signature.as_ref())
                 .map_err(|err| EzError::Other(err.to_string()))?;
-            let len_bytes = &(signature.len() as u64).to_be_bytes();
-            input.extend_from_slice(len_bytes).unwrap();
+            encode_length_be_bytes(signature.len(), input)?;
 
+            // encrypt everything so far with AES GCM
+            self.symmetric_key_local
+                .encrypt_in_place(aes_nonce, ad, input)?;
+
+            let pre_scramble_len = input.len();
+            // scramble the AES GCM encrypted ciphertext
+            // use N=32 bytes to ensure that we get only a single output ciphertext block from kyber (~1100 bytes)
+            let scram_crypt_dict = ScramCryptDictionary::<32>::new().unwrap();
+            scram_crypt_dict.scramble_in_place(input);
+            // encode the pre-scramble length
+            encode_length_be_bytes(pre_scramble_len, input)?;
+            // encrypt the 32-byte scramble dict using post-quantum pke
             let remote_public_key = &*self.kex.remote_public_key.as_ref().unwrap();
 
-            // now, encrypt the input
-            // TODO: figure out why 1351 bytes gets mapped to only 3144?
-            // Answer: bad in-place ez buffer implementation
-            let output = encrypt_pke(self.kem_alg, &**remote_public_key, input.as_ref(), &nonce)?;
-            input.truncate(0);
+            let encrypted_scramble_dict = encrypt_pke(
+                self.kem_alg,
+                &**remote_public_key,
+                &scram_crypt_dict.mapping,
+                &nonce,
+            )?;
             input
-                .extend_from_slice(output.as_slice())
+                .extend_from_slice(encrypted_scramble_dict.as_slice())
                 .map_err(|err| EzError::Other(err.to_string()))?;
+            encode_length_be_bytes(encrypted_scramble_dict.len(), input)?;
 
             Ok(())
         }
@@ -179,54 +186,41 @@ pub(crate) mod kyber_module {
             let sig_alg = self.sig.sig_alg;
             let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.kex.secret_key.as_deref().unwrap();
-            // decrypt
+            let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
 
-            let mut plaintext_and_signature = decrypt_pke(self.kem_alg, local_sk, &input)?;
-            let total_len = plaintext_and_signature.len();
-            let sig_size_bytes = &plaintext_and_signature[total_len.saturating_sub(8)..];
+            let encrypted_scramble_dict_len = decode_length(input)?;
+            let split_pt = input.len().saturating_sub(encrypted_scramble_dict_len);
+            let (_, encrypted_scramble_dict) = input.as_ref().split_at(split_pt);
+            let decrypted_scramble_dict =
+                decrypt_pke(self.kem_alg, local_sk, encrypted_scramble_dict)?;
+            let scram_crypt_dict = ScramCryptDictionary::<32>::try_from(decrypted_scramble_dict)?;
 
-            if sig_size_bytes.len() != 8 {
-                return Err(EzError::Generic("Bad sig_size_bytes length"));
-            }
-
-            let mut len_buf = [0u8; 8];
-            len_buf.copy_from_slice(sig_size_bytes);
-
-            let sig_len = u64::from_be_bytes(len_buf) as usize;
-
-            if sig_len > sig.length_signature() {
-                return Err(EzError::Generic(
-                    "The inscribed signature length is too large",
-                ));
-            }
-
-            plaintext_and_signature.truncate(total_len.saturating_sub(8));
-            // the plaintext is the normal plaintext + signature of the header. Extract the signature
-            let signature_start = plaintext_and_signature.len().saturating_sub(sig_len);
-            let (plaintext, signature) = plaintext_and_signature.split_at(signature_start);
-
-            let pk_sig_remote = &*self.sig.remote_sig_public_key.as_deref().unwrap();
-
-            let signature = sig
-                .signature_from_bytes(signature)
-                .ok_or(EzError::Generic("Bad signature length"))?;
-
-            // verify the signature of the header. If header was changed in transit, this step
-            // will fail
-            sig.verify(ad, &signature, pk_sig_remote)
-                .map_err(|err| EzError::Other(format!("Sig Verification failed: {:?}", err)))?;
-
-            // additionally, verify the x-key
-            let split_pt = plaintext.len() - 16; // 128-bit block size gcm
-            let (plaintext, x_key) = plaintext.split_at(split_pt);
+            // remove the encrypted scramble data from the input buf
+            let truncate_point = input.len().saturating_sub(encrypted_scramble_dict_len);
+            input.truncate(truncate_point);
+            // get the pre-scramble length
+            let pre_scramble_length = decode_length(input)?;
+            // descramble
+            scram_crypt_dict.descramble_in_place(input)?;
+            // truncate
+            input.truncate(pre_scramble_length);
+            // with the AES-GCM encrypted ciphertext descrambled, now, decrypt it
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let _ = self.symmetric_key_remote.decrypt(aes_nonce, x_key)?;
+            self.symmetric_key_remote
+                .decrypt_in_place(aes_nonce, ad, input)?;
+            // get the signature
+            let signature_len = decode_length(input)?;
+            let split_pt = input.len().saturating_sub(signature_len);
+            let (_, signature_bytes) = input.as_ref().split_at(split_pt);
+            let signature = sig
+                .signature_from_bytes(signature_bytes)
+                .ok_or(EzError::Generic("Invalid signature len bytes"))?;
+            sig.verify(ad, signature, &**sig_remote_pk).map_err(|err| {
+                EzError::Other(format!("Signature verification failed: {:?}", err))
+            })?;
 
-            // HACK. Insert the plaintext
-            input.truncate(0);
-            input
-                .extend_from_slice(plaintext)
-                .map_err(|err| EzError::Other(err.to_string()))?;
+            // remove the signature from the buffer
+            input.truncate(split_pt);
 
             Ok(())
         }
@@ -249,18 +243,38 @@ pub(crate) mod kyber_module {
         kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| EzError::Other(format!("{:?}", err)))
     }
 
-    // TODO: create buffer of hash(AD + encrypted output). Use this buffer as input to signature.
-    // append signature to end of payload coupled with signature len
-    // Then, to decrypt: get signature len, extract signature. Compute hash(AD + encrypted output).
-    // Verify signature of that hash. Then, decrypt
-    fn sha256(ad: &[u8], payload: &[u8]) -> [u8; 32] {
-        let mut ret = [0u8; 32];
-        let mut hasher = sha3::Sha3_256::default();
-        hasher.update(ad);
-        hasher.update(payload);
-        let out = hasher.finalize();
-        ret.copy_from_slice(out.as_slice());
-        ret
+    fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), EzError> {
+        let bytes_be = (len as u64).to_be_bytes();
+        buf.extend_from_slice(&bytes_be as &[u8])
+            .map_err(|err| EzError::Other(err.to_string()))?;
+        Ok(())
+    }
+
+    fn decode_length(input: &mut dyn Buffer) -> Result<usize, EzError> {
+        let total_len = input.len();
+        let starting_pos = total_len.saturating_sub(8);
+        let len_be_bytes = &input.as_ref()[starting_pos..];
+
+        if len_be_bytes.len() != 8 {
+            return Err(EzError::Generic("Bad sig_size_bytes length"));
+        }
+
+        let mut len_buf = [0u8; 8];
+        len_buf.copy_from_slice(len_be_bytes);
+
+        let object_len = u64::from_be_bytes(len_buf) as usize;
+
+        if object_len > total_len {
+            return Err(EzError::Other(format!(
+                "Decoded length = {}, yet, input buffer's len is only {}",
+                object_len, total_len
+            )));
+        }
+
+        // now, truncate
+        input.truncate(starting_pos);
+
+        Ok(object_len)
     }
 }
 

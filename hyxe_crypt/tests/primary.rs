@@ -13,10 +13,12 @@ mod tests {
     use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use hyxe_crypt::entropy_bank::SecurityLevel;
+    use hyxe_crypt::misc::CryptError;
     use hyxe_crypt::net::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use hyxe_crypt::secure_buffer::sec_bytes::SecBuffer;
     use hyxe_crypt::secure_buffer::sec_string::SecString;
     use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+    use hyxe_crypt::streaming_crypt_scrambler::{FixedSizedStream, ObjectSource};
     use hyxe_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
     use rstest::rstest;
     use std::path::PathBuf;
@@ -38,7 +40,7 @@ mod tests {
     async fn argon() {
         lusna_logging::setup_log();
 
-        // Client config should be a weaker version that the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
+        // Client config should be a weaker version than the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
         let client_config = ArgonSettings::new_gen_salt(
             "Thomas P Braun".as_bytes().to_vec(),
             8,
@@ -260,7 +262,7 @@ mod tests {
     fn hyper_ratchets() {
         lusna_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
-            for sec in 0..SecurityLevel::EXTREME.value() {
+            for sec in 0..SecurityLevel::Extreme.value() {
                 let _ = hyper_ratchet::<StackedRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV,
                     Some(sec.into()),
@@ -279,7 +281,7 @@ mod tests {
     fn hyper_ratchets_fcm() {
         lusna_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
-            for sec in 0..SecurityLevel::EXTREME.value() {
+            for sec in 0..SecurityLevel::Extreme.value() {
                 let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV,
                     Some(sec.into()),
@@ -297,7 +299,7 @@ mod tests {
     #[test]
     fn security_levels() {
         lusna_logging::setup_log();
-        for sec in 0..SecurityLevel::EXTREME.value() {
+        for sec in 0..SecurityLevel::Extreme.value() {
             let ratchet = hyper_ratchet::<StackedRatchet, _>(
                 KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256_SIV,
                 Some(sec.into()),
@@ -307,7 +309,7 @@ mod tests {
                 assert!(ratchet.verify_level(Some(x.into())).is_ok())
             }
 
-            for x in (sec + 1)..SecurityLevel::CUSTOM(255).value() {
+            for x in (sec + 1)..SecurityLevel::Custom(255).value() {
                 assert!(ratchet.verify_level(Some(x.into())).is_err())
             }
         }
@@ -398,7 +400,7 @@ mod tests {
     fn toolset<R: Ratchet>(enx: EncryptionAlgorithm, kem: KemAlgorithm, sig: SigAlgorithm) {
         lusna_logging::setup_log();
         const COUNT: u32 = 100;
-        let security_level = SecurityLevel::DEFAULT;
+        let security_level = SecurityLevel::Standard;
 
         let (alice, _bob) = gen::<R>(0, 0, security_level, enx + kem + sig);
 
@@ -508,7 +510,7 @@ mod tests {
         lusna_logging::setup_log();
         let vers = u32::MAX - 1;
         let cid = 10;
-        let hr = gen::<R>(cid, vers, SecurityLevel::DEFAULT, enx + kem + sig);
+        let hr = gen::<R>(cid, vers, SecurityLevel::Standard, enx + kem + sig);
         let mut toolset = Toolset::new_debug(cid, hr.0, vers, vers);
         let r = toolset.get_hyper_ratchet(vers).unwrap();
         assert_eq!(r.version(), vers);
@@ -522,7 +524,7 @@ mod tests {
             }
 
             toolset
-                .update_from(gen::<R>(cid, cur_vers, SecurityLevel::DEFAULT, enx + kem + sig).0)
+                .update_from(gen::<R>(cid, cur_vers, SecurityLevel::Standard, enx + kem + sig).0)
                 .unwrap();
             let ratchet = toolset.get_hyper_ratchet(cur_vers).unwrap();
             assert_eq!(ratchet.version(), cur_vers);
@@ -575,7 +577,7 @@ mod tests {
     ) {
         lusna_logging::setup_log();
 
-        const SECURITY_LEVEL: SecurityLevel = SecurityLevel::DEFAULT;
+        const SECURITY_LEVEL: SecurityLevel = SecurityLevel::Standard;
         const HEADER_SIZE_BYTES: usize = 44;
 
         let mut data = BytesMut::with_capacity(1500);
@@ -626,146 +628,33 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "filesystem")]
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256_SIV,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
-    fn simulate_packet_loss_all(
+    #[case(
+        EncryptionAlgorithm::Kyber,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::Falcon1024
+    )]
+    #[tokio::test]
+    async fn encrypt_decrypt_test(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        simulate_packet_loss::<StackedRatchet>(enx, kem, sig);
-        #[cfg(feature = "fcm")]
-        simulate_packet_loss::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>(enx, kem, sig);
-    }
-
-    fn simulate_packet_loss<R: Ratchet>(
-        enx: EncryptionAlgorithm,
-        kem: KemAlgorithm,
-        sig: SigAlgorithm,
-    ) {
-        lusna_logging::setup_log();
-        let mut start_data = Vec::with_capacity(4 * 5000);
-        for x in 0..5000i32 {
-            for val in &x.to_be_bytes() {
-                start_data.push(*val);
-            }
-        }
-
-        for lvl in 0..=10 {
-            let security_level: SecurityLevel = SecurityLevel::for_value(lvl).unwrap();
-
-            let (alice_ratchet, bob_ratchet) = gen::<R>(10, 0, security_level, enx + kem + sig);
-            //let input_data: &[u8] = include_bytes!("/Users/nologik/Downloads/TheBridge.pdf");
-            let input_data = &start_data[..];
-            let now = Instant::now();
-            let byte_len = input_data.len();
-
-            const HEADER_SIZE_BYTES: usize = 50;
-
-            let mut scramble_transmitter =
-                par_scramble_encrypt_group::<_, _, _, HEADER_SIZE_BYTES>(
-                    input_data,
-                    security_level,
-                    &alice_ratchet,
-                    HEADER_SIZE_BYTES,
-                    0,
-                    0,
-                    0,
-                    |_vec, _drill, _target_cid, _obj_id, buffer| {
-                        for x in 0..HEADER_SIZE_BYTES {
-                            buffer.put_u8(x as u8)
-                        }
-                    },
-                )
-                .unwrap();
-
-            let delta = now.elapsed();
-            let rate = ((byte_len as f32) / (delta.as_secs_f32())) / 1_000_000f32;
-            println!(
-                "[{:?}] Done cryptscrambling in {}ms (Rate: {}Mb/s)= {}/{}",
-                security_level,
-                delta.as_millis(),
-                rate,
-                byte_len,
-                delta.as_secs_f32()
-            );
-            let config = scramble_transmitter.get_receiver_config();
-            let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
-
-            let mut seq = 0;
-            let now = Instant::now();
-            let mut retransmission_resimulate_container = Vec::new();
-            while let Some(mut packet) = scramble_transmitter.get_next_packet() {
-                //log::trace!(target: "lusna", "Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
-
-                // Don't transmit the 11, 12, 13, 14th packets to simulate packet loss
-                if seq <= 1 || seq > 5 {
-                    let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
-                    let _result = receiver.on_packet_received(
-                        packet.vector.group_id,
-                        packet.vector.true_sequence,
-                        packet.vector.wave_id,
-                        &bob_ratchet,
-                        packet_payload,
-                    );
-                } else {
-                    retransmission_resimulate_container.push(packet);
-                }
-
-                seq += 1;
-            }
-
-            let delta = now.elapsed();
-            let rate = ((byte_len as f32) / (delta.as_secs_f32())) / 1_000_000f32;
-            println!(
-                "[{:?}] Done de-cryptscrambling in {}ms (Rate: {}Mb/s)= {}/{}",
-                security_level,
-                delta.as_millis(),
-                rate,
-                byte_len,
-                delta.as_secs_f32()
-            );
-
-            let packets_lost_vectors = receiver
-                .get_retransmission_vectors_for(0, 0, &bob_ratchet)
-                .unwrap();
-            debug_assert_eq!(packets_lost_vectors.len(), 4);
-
-            // Simulate retransmission
-            for mut packet in retransmission_resimulate_container.into_iter() {
-                let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
-                let _result = receiver.on_packet_received(
-                    packet.vector.group_id,
-                    packet.vector.true_sequence,
-                    packet.vector.wave_id,
-                    &bob_ratchet,
-                    packet_payload,
-                );
-            }
-
-            let decrypted_descrambled_plaintext = receiver.finalize();
-            debug_assert_eq!(decrypted_descrambled_plaintext.as_slice(), input_data);
-        }
-    }
-
-    #[cfg(feature = "filesystem")]
-    #[tokio::test]
-    async fn encrypt_decrypt_test() {
         use bytes::{BufMut, BytesMut};
         use hyxe_crypt::entropy_bank::SecurityLevel;
         use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
 
-        use hyxe_crypt::prelude::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
         use hyxe_crypt::prelude::{EntropyBank, PacketVector};
         use hyxe_crypt::stacked_ratchet::StackedRatchet;
         use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
-
         lusna_logging::setup_log();
         fn header_inscribe(
             _: &PacketVector,
@@ -779,20 +668,23 @@ mod tests {
             }
         }
 
-        let (alice, bob) = gen::<StackedRatchet>(
-            0,
-            0,
-            SecurityLevel::DEFAULT,
-            KemAlgorithm::Kyber + EncryptionAlgorithm::Xchacha20Poly_1305,
-        );
+        let security_level = SecurityLevel::Standard;
 
-        let security_level = SecurityLevel::DEFAULT;
+        let (alice, bob) = gen::<StackedRatchet>(0, 0, security_level, enx + kem + sig);
         const HEADER_LEN: usize = 52;
+
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
+        let source = PathBuf::from("../resources/TheBridge.pdf");
+        // TODO: why does packets needed *JUMP* from 14 to 31 when going from 60000 to 70000 bytes input?
+        /*let cmp = (0..70000)
+            .into_iter()
+            .map(|r| (r % 256) as u8)
+            .collect::<Vec<u8>>();
+        let source = VecWrapper { inner: cmp.clone() };*/
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let (bytes, _num_groups) = scramble_encrypt_source::<_, _, HEADER_LEN>(
-            PathBuf::from("../resources/TheBridge.pdf"),
+            source,
             None,
             99,
             group_sender_tx,
@@ -800,7 +692,7 @@ mod tests {
             security_level,
             alice.clone(),
             HEADER_LEN,
-            9,
+            bob.get_cid(),
             0,
             header_inscribe,
         )
@@ -815,6 +707,7 @@ mod tests {
         while let Some(gs) = group_sender_rx.recv().await {
             let mut gs = gs.unwrap();
             let config = gs.get_receiver_config();
+            log::error!(target: "lusna", "Config: {:?}", config);
             let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
             let group_id = config.group_id;
             let mut _seq = 0;
@@ -832,14 +725,6 @@ mod tests {
                 match result {
                     GroupReceiverStatus::GROUP_COMPLETE(_group_id) => {
                         bytes_ret.extend_from_slice(receiver.finalize().as_slice());
-                        /*
-                        let mut bytes = receiver.finalize();
-                        //let slice = bytes.as_slice();
-                        compressed_len += bytes.len();
-                        //let len = flate2::bufread::DeflateDecoder::new(bytes.as_slice()).read_to_end(&mut bytes_ret).unwrap();
-                        let decompressed = flate3::inflate(bytes.as_slice());
-                        decompressed_len += decompressed.len();
-                        bytes_ret.extend(decompressed.into_iter());*/
                         break 'here;
                     }
 
@@ -861,9 +746,9 @@ mod tests {
         );
 
         assert_eq!(bytes, bytes_ret.len());
-        if bytes_ret.as_slice() != cmp as &[u8] {
-            println!("{:?} != {:?}", &bytes_ret.as_slice()[..10], &cmp[..10]);
-            println!(
+        if bytes_ret.as_slice() != &cmp[..] {
+            log::error!("{:?} != {:?}", &bytes_ret.as_slice()[..10], &cmp[..10]);
+            log::error!(
                 "{:?} != {:?}",
                 &bytes_ret.as_slice()[bytes_ret.len() - 10..],
                 &cmp[cmp.len() - 10..]
@@ -923,7 +808,40 @@ mod tests {
     }
 
     fn test_harness(params: CryptoParameters, fx: impl FnOnce(&StackedRatchet, &StackedRatchet)) {
-        let (hr_alice, hr_bob) = gen::<StackedRatchet>(0, 0, SecurityLevel::HIGH, params);
+        let (hr_alice, hr_bob) = gen::<StackedRatchet>(0, 0, SecurityLevel::High, params);
         (fx)(&hr_alice, &hr_bob);
+    }
+
+    struct VecWrapper {
+        pub inner: Vec<u8>,
+    }
+
+    impl ObjectSource for VecWrapper {
+        fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError> {
+            struct VecReader {
+                len: usize,
+                cursor: std::io::Cursor<Vec<u8>>,
+            }
+
+            impl std::io::Read for VecReader {
+                fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                    self.cursor.read(buf)
+                }
+            }
+
+            impl FixedSizedStream for VecReader {
+                fn length(&self) -> std::io::Result<u64> {
+                    Ok(self.len as u64)
+                }
+            }
+
+            let len = self.inner.len();
+            let cursor = std::io::Cursor::new(self.inner.clone());
+            Ok(Box::new(VecReader { len, cursor }))
+        }
+
+        fn get_source_name(&self) -> Result<String, CryptError> {
+            Ok(String::from("Debug object"))
+        }
     }
 }

@@ -38,8 +38,8 @@ pub(crate) mod group {
 
     use crate::proto::packet_crafter::SecureProtocolPacket;
     use crate::proto::state_container::VirtualTargetType;
-    use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
+    use hyxe_crypt::entropy_bank::SecurityLevel;
     use hyxe_crypt::prelude::SecBuffer;
     use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 use tokio::task::LocalSet;
 
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_wire::hypernode_type::NodeType;
 use hyxe_wire::nat_identification::NatType;
@@ -837,7 +837,7 @@ impl HdpServer {
                             implicated_cid,
                             ticket_id,
                             peer_command,
-                            SecurityLevel::DEFAULT,
+                            SecurityLevel::Standard,
                         )
                         .await
                     {
@@ -857,7 +857,7 @@ impl HdpServer {
                         path,
                         implicated_cid,
                         virtual_target,
-                        SecurityLevel::DEFAULT,
+                        SecurityLevel::Standard,
                     ) {
                         send_error(ticket_id, err)?;
                     }

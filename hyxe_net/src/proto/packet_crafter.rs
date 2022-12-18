@@ -1,6 +1,6 @@
 use bytes::BytesMut;
 
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
 use netbeam::time_tracker::TimeTracker;
 
@@ -352,7 +352,7 @@ pub(crate) mod group {
     #[inline]
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
-        scramble_drill: &Drill,
+        scramble_drill: &EntropyBank,
         object_id: u32,
         target_cid: u64,
         buffer: &mut BytesMut,
@@ -1120,7 +1120,7 @@ pub(crate) mod pre_connect {
     use crate::proto::packet::packet_flags::payload_identifiers;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::UdpMode;
-    use hyxe_crypt::drill::SecurityLevel;
+    use hyxe_crypt::entropy_bank::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
     use hyxe_crypt::toolset::StaticAuxRatchet;
@@ -1625,7 +1625,7 @@ pub(crate) mod udp {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::BytesMut;
-    use hyxe_crypt::drill::SecurityLevel;
+    use hyxe_crypt::entropy_bank::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
     use zerocopy::{U32, U64};
 

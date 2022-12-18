@@ -8,7 +8,7 @@ use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
 
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use hyxe_crypt::stacked_ratchet::Ratchet;
 use hyxe_user::account_manager::AccountManager;
@@ -1800,7 +1800,7 @@ impl HdpSession {
                     cmd_aux,
                     packet,
                     target_cid,
-                    SecurityLevel::DEFAULT,
+                    SecurityLevel::Standard,
                 )
             })?;
             log::trace!(target: "lusna", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
