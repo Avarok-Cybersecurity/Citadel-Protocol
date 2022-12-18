@@ -196,7 +196,7 @@ impl StackedRatchet {
         &self,
         security_level: Option<SecurityLevel>,
     ) -> Result<usize, CryptError<String>> {
-        let security_level = security_level.unwrap_or(SecurityLevel::DEFAULT);
+        let security_level = security_level.unwrap_or(SecurityLevel::Standard);
         if security_level.value() as usize >= self.inner.message.inner.len() {
             log::warn!(target: "lusna", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len() - 1, self.get_default_security_level(), self.version());
             Err(CryptError::OutOfBoundsError)
@@ -214,13 +214,10 @@ impl StackedRatchet {
     ) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
 
-        log::error!(target: "lusna", "Protecting packet. Before: {}", packet.len());
         for n in 0..=idx {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
             drill.protect_packet(pqc, header_len_bytes, packet)?;
         }
-
-        log::error!(target: "lusna", "Protecting packet. After: {}", packet.len());
 
         Ok(())
     }
@@ -640,7 +637,7 @@ pub mod constructor {
             new_version: u32,
             security_level: Option<SecurityLevel>,
         ) -> Option<Self> {
-            let security_level = security_level.unwrap_or(SecurityLevel::DEFAULT);
+            let security_level = security_level.unwrap_or(SecurityLevel::Standard);
             log::trace!(target: "lusna", "[ALICE] creating container with {:?} security level", security_level);
             //let count = security_level.value() as usize + 1;
             let len = opts.len();

@@ -893,6 +893,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "rand",
  "serde",
+ "serde-big-array",
  "sha3",
  "strum",
 ]
