@@ -7,7 +7,7 @@ workspace = "../"
 license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
-default = ["filesystem"]
+default = ["filesystem", "multi-threaded"]
 filesystem = ["hyxe_user/filesystem"]
 multi-threaded = []
 sql = ["hyxe_user/sql"]
