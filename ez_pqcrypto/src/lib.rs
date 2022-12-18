@@ -698,7 +698,6 @@ pub mod algorithm_dictionary {
     )]
     pub enum SigAlgorithm {
         #[default]
-        #[doc(hidden)]
         None = 0,
         Falcon1024 = 1,
     }
