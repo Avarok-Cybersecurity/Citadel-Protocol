@@ -477,7 +477,8 @@ mod tests {
             alice.stage0_alice().unwrap(),
         )
         .unwrap();
-        alice.stage1_alice(bob.stage0_bob().unwrap()).unwrap();
+        let stage0_bob = bob.stage0_bob().unwrap();
+        alice.stage1_alice(stage0_bob).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
     }
 

@@ -114,7 +114,6 @@ pub(crate) mod kyber_module {
         AES_GCM_NONCE_LENGTH_BYTES,
     };
     use aes_gcm_siv::aead::Buffer;
-    use std::convert::TryFrom;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,
@@ -157,18 +156,17 @@ pub(crate) mod kyber_module {
             // scramble the AES GCM encrypted ciphertext
             // use N=32 bytes to ensure that we get only a single output ciphertext block from kyber (~1100 bytes)
             let scram_crypt_dict = ScramCryptDictionary::<32>::new().unwrap();
-            scram_crypt_dict.scramble_in_place(input);
+            scram_crypt_dict.scramble_in_place(input)?;
             // encode the pre-scramble length
             encode_length_be_bytes(pre_scramble_len, input)?;
             // encrypt the 32-byte scramble dict using post-quantum pke
             let remote_public_key = &*self.kex.remote_public_key.as_ref().unwrap();
 
-            let encrypted_scramble_dict = encrypt_pke(
-                self.kem_alg,
-                &**remote_public_key,
-                &scram_crypt_dict.mapping,
-                &nonce,
-            )?;
+            let scram_crypt_ser = bincode2::serialize(&scram_crypt_dict)
+                .map_err(|err| EzError::Other(err.to_string()))?;
+
+            let encrypted_scramble_dict =
+                encrypt_pke(self.kem_alg, &**remote_public_key, &scram_crypt_ser, &nonce)?;
             input
                 .extend_from_slice(encrypted_scramble_dict.as_slice())
                 .map_err(|err| EzError::Other(err.to_string()))?;
@@ -193,8 +191,10 @@ pub(crate) mod kyber_module {
             let (_, encrypted_scramble_dict) = input.as_ref().split_at(split_pt);
             let decrypted_scramble_dict =
                 decrypt_pke(self.kem_alg, local_sk, encrypted_scramble_dict)?;
-            let scram_crypt_dict = ScramCryptDictionary::<32>::try_from(decrypted_scramble_dict)?;
-
+            //let scram_crypt_dict = ScramCryptDictionary::<32>::try_from(decrypted_scramble_dict)?;
+            let scram_crypt_dict: ScramCryptDictionary<32> =
+                bincode2::deserialize(&decrypted_scramble_dict)
+                    .map_err(|err| EzError::Other(err.to_string()))?;
             // remove the encrypted scramble data from the input buf
             let truncate_point = input.len().saturating_sub(encrypted_scramble_dict_len);
             input.truncate(truncate_point);

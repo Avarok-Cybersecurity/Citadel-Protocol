@@ -4,7 +4,6 @@ use rand::prelude::SliceRandom;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -59,7 +58,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         Some(Self { mapping })
     }
 
-    pub fn scramble_in_place<T: Buffer + ?Sized>(&self, buf: &mut T) {
+    pub fn scramble_in_place<T: Buffer + ?Sized>(&self, buf: &mut T) -> Result<(), EzError> {
         if buf.as_mut().len() % BLOCK_SIZE != 0 || buf.as_mut().len() == 0 {
             // pad with random bytes
             let diff = BLOCK_SIZE - (buf.as_mut().len() % BLOCK_SIZE);
@@ -70,8 +69,10 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         }
 
         for chunk in buf.as_mut().chunks_exact_mut(BLOCK_SIZE) {
-            self.swap_in_place(chunk)
+            self.swap_in_place(chunk)?
         }
+
+        Ok(())
     }
 
     pub fn descramble_in_place<T: AsMut<[u8]> + ?Sized>(&self, buf: &mut T) -> Result<(), EzError> {
@@ -86,20 +87,28 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         }
 
         for chunk in buf.chunks_exact_mut(chunk_len) {
-            self.swap_in_place(chunk)
+            self.swap_in_place(chunk)?
         }
 
         Ok(())
     }
 
-    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T) {
+    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T) -> Result<(), EzError> {
         let buf = buf.as_mut();
-        assert_eq!(buf.len(), BLOCK_SIZE);
+        if buf.len() != BLOCK_SIZE {
+            return Err(EzError::Generic("Bad input buffer length"));
+        }
 
         let mut has_swapped = HashSet::new();
 
         for (lhs_idx, rhs_idx) in self.mapping.iter().map(|r| *r as usize).enumerate() {
             if !has_swapped.contains(&lhs_idx) && !has_swapped.contains(&rhs_idx) {
+                if rhs_idx > BLOCK_SIZE || lhs_idx > BLOCK_SIZE {
+                    return Err(EzError::Generic(
+                        "RHS_IDX | LHS_IDX is greater than the block size. Bad deserialization?",
+                    ));
+                }
+
                 // move the rhs into the lhs and vice versa
                 let rhs_val = buf[rhs_idx];
                 let lhs_val = buf[lhs_idx];
@@ -109,9 +118,12 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
                 has_swapped.insert(rhs_idx);
             }
         }
+
+        Ok(())
     }
 }
 
+/*
 impl<const N: usize> TryFrom<Vec<u8>> for ScramCryptDictionary<N> {
     type Error = EzError;
 
@@ -131,6 +143,7 @@ impl<const N: usize> TryFrom<Vec<u8>> for ScramCryptDictionary<N> {
         Ok(Self { mapping })
     }
 }
+*/
 
 #[cfg(test)]
 mod tests {
@@ -149,7 +162,7 @@ mod tests {
 
             let before = buf.clone();
 
-            dict.scramble_in_place(&mut buf);
+            dict.scramble_in_place(&mut buf).unwrap();
             dict.descramble_in_place(&mut buf).unwrap();
 
             // NOTE: the protocol will need to the pre-scramble length encoded
