@@ -324,7 +324,12 @@ pub(crate) mod pre_connect {
 
         let lvl = packet.transfer.security_level;
         log::trace!(target: "lusna", "Session security level based-on returned transfer: {:?}", lvl);
-        alice_constructor.stage1_alice(BobToAliceTransferType::Default(packet.transfer))?;
+        if let Err(err) =
+            alice_constructor.stage1_alice(BobToAliceTransferType::Default(packet.transfer))
+        {
+            log::error!(target: "lusna", "Error on stage1_alice: {:?}", err);
+            return None;
+        }
 
         let new_hyper_ratchet = alice_constructor.finish()?;
         let _ = new_hyper_ratchet.verify_level(lvl.into()).ok()?;

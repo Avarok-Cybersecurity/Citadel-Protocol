@@ -678,8 +678,8 @@ pub(crate) fn attempt_kem_as_alice_finish(
     match transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(mut constructor) = constructor {
-                if let None = constructor.stage1_alice(transfer) {
-                    log::error!(target: "lusna", "Unable to construct hyper ratchet");
+                if let Err(err) = constructor.stage1_alice(transfer) {
+                    log::error!(target: "lusna", "Unable to construct hyper ratchet {:?}", err);
                     return Err(()); // return true, otherwise, the session ends
                 }
 

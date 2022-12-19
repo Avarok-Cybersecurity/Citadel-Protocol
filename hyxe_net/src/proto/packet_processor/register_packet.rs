@@ -143,11 +143,9 @@ pub async fn process_register(
                             "Unable to deserialize BobToAliceTransfer"
                         );
                         let security_level = transfer.security_level;
-                        return_if_none!(
-                            alice_constructor
-                                .stage1_alice(BobToAliceTransferType::Default(transfer)),
-                            "Unable to advance past stage1_alice"
-                        );
+                        alice_constructor
+                            .stage1_alice(BobToAliceTransferType::Default(transfer))
+                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
                         let new_hyper_ratchet = return_if_none!(
                             alice_constructor.finish(),
                             "Unable to finish alice constructor"
