@@ -411,6 +411,7 @@ pub mod constructor {
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
     use crate::entropy_bank::{EntropyBank, SecurityLevel};
     use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
+    use crate::prelude::CryptError;
     use crate::stacked_ratchet::{Ratchet, StackedRatchet};
     use arrayvec::ArrayVec;
     use bytes::BufMut;
@@ -444,7 +445,7 @@ pub mod constructor {
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
             match self {
                 ConstructorType::Default(con) => con.stage1_alice(transfer),
 
@@ -544,7 +545,7 @@ pub mod constructor {
             Some(BobToAliceTransferType::Default(self.stage0_bob()?))
         }
 
-        fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+        fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
             self.stage1_alice(transfer)
         }
 
@@ -813,7 +814,7 @@ pub mod constructor {
         }
 
         /// Returns Some(()) if process succeeded
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
             if let BobToAliceTransferType::Default(transfer) = transfer {
                 let nonce_msg = &self.nonce_message;
 
@@ -826,48 +827,97 @@ pub mod constructor {
                     container
                         .pqc
                         .alice_on_receive_ciphertext(bob_param_tx)
-                        .ok()?;
+                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                 }
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
                     // now, using the message pqc, decrypt the message drill
                     let decrypted_msg_drill = container
                         .pqc
-                        .decrypt(&transfer.encrypted_msg_drills.get(idx)?[..], nonce_msg)
-                        .ok()?;
+                        .decrypt(
+                            &transfer.encrypted_msg_drills.get(idx).ok_or_else(|| {
+                                CryptError::DrillUpdateError(
+                                    "Unable to get encrypted_msg_drills".to_string(),
+                                )
+                            })?[..],
+                            nonce_msg,
+                        )
+                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                     container.drill =
-                        Some(EntropyBank::deserialize_from(&decrypted_msg_drill[..]).ok()?);
+                        Some(EntropyBank::deserialize_from(&decrypted_msg_drill[..])?);
                 }
 
                 let nonce_scramble = &self.nonce_scramble;
                 self.scramble
                     .pqc
                     .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx)
-                    .ok()?;
+                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                 // do the same as above
                 let decrypted_scramble_drill = self
                     .scramble
                     .pqc
                     .decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble)
-                    .ok()?;
-                self.scramble.drill =
-                    Some(EntropyBank::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
+                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+                self.scramble.drill = Some(EntropyBank::deserialize_from(
+                    &decrypted_scramble_drill[..],
+                )?);
 
                 // version check
-                if self.scramble.drill.as_ref()?.version
-                    != self.message.inner[0].drill.as_ref()?.version
+                if self
+                    .scramble
+                    .drill
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CryptError::DrillUpdateError(
+                            "Unable to get encrypted_msg_drills".to_string(),
+                        )
+                    })?
+                    .version
+                    != self.message.inner[0]
+                        .drill
+                        .as_ref()
+                        .ok_or_else(|| {
+                            CryptError::DrillUpdateError(
+                                "Unable to get encrypted_msg_drills".to_string(),
+                            )
+                        })?
+                        .version
                 {
-                    return None;
+                    return Err(CryptError::DrillUpdateError(
+                        "Message drill version != scramble drill version".to_string(),
+                    ));
                 }
 
-                if self.scramble.drill.as_ref()?.cid != self.message.inner[0].drill.as_ref()?.cid {
-                    return None;
+                if self
+                    .scramble
+                    .drill
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CryptError::DrillUpdateError(
+                            "Unable to get encrypted_msg_drills".to_string(),
+                        )
+                    })?
+                    .cid
+                    != self.message.inner[0]
+                        .drill
+                        .as_ref()
+                        .ok_or_else(|| {
+                            CryptError::DrillUpdateError(
+                                "Unable to get encrypted_msg_drills".to_string(),
+                            )
+                        })?
+                        .cid
+                {
+                    return Err(CryptError::DrillUpdateError(
+                        "Message drill cid != scramble drill cid".to_string(),
+                    ));
                 }
 
-                Some(())
+                Ok(())
             } else {
-                log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-40]");
-                None
+                Err(CryptError::DrillUpdateError(format!(
+                    "Incompatible Ratchet Type passed! [X-40]"
+                )))
             }
         }
 

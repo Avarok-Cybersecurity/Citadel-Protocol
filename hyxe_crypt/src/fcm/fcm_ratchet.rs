@@ -166,14 +166,13 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         Some(BobToAliceTransferType::Fcm(self.stage0_bob()?))
     }
 
-    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
         match transfer {
             BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer),
 
-            _ => {
-                log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-44]");
-                None
-            }
+            _ => Err(CryptError::DrillUpdateError(
+                "Incompatible Ratchet Type passed! [X-44]".to_string(),
+            )),
         }
     }
 
@@ -265,17 +264,17 @@ impl ThinRatchetConstructor {
     }
 
     ///
-    pub fn stage1_alice(&mut self, transfer: FcmBobToAliceTransfer) -> Option<()> {
+    pub fn stage1_alice(&mut self, transfer: FcmBobToAliceTransfer) -> Result<(), CryptError> {
         self.pqc
             .alice_on_receive_ciphertext(transfer.params_tx)
-            .ok()?;
+            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
         let bytes = self
             .pqc
             .decrypt(&transfer.encrypted_drill_bytes, &self.nonce)
-            .ok()?;
-        let drill = EntropyBank::deserialize_from(&bytes[..]).ok()?;
+            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+        let drill = EntropyBank::deserialize_from(&bytes[..])?;
         self.drill = Some(drill);
-        Some(())
+        Ok(())
     }
 
     ///

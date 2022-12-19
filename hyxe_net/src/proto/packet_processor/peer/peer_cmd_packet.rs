@@ -434,8 +434,8 @@ pub async fn process_peer_cmd(
                                         );
                                         alice_constructor
                                             .stage1_alice(BobToAliceTransferType::Default(deser))
-                                            .ok_or_else(|| {
-                                                NetworkError::InvalidPacket("stage 1 alice failed")
+                                            .map_err(|err| {
+                                                NetworkError::Generic(err.to_string())
                                             })?;
                                         let hyper_ratchet = return_if_none!(
                                             alice_constructor.finish_with_custom_cid(this_cid)
