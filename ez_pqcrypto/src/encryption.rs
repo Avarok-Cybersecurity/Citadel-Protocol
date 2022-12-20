@@ -172,6 +172,10 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
             encode_length_be_bytes(encrypted_scramble_dict.len(), input)?;
 
+            let sha = sha3_256(input.as_ref());
+            input
+                .extend_from_slice(&sha)
+                .map_err(|err| EzError::Other(err.to_string()))?;
             log::error!(target: "lusna", "output: {:?}", input.as_ref());
             Ok(())
         }
@@ -187,6 +191,18 @@ pub(crate) mod kyber_module {
             let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.kex.secret_key.as_deref().unwrap();
             let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
+
+            let (ciphertext, sha_required) =
+                input.as_ref().split_at(input.len().saturating_sub(32));
+            let sha_ciphertext = sha3_256(ciphertext);
+            if sha_ciphertext != sha_required {
+                return Err(EzError::Other(format!(
+                    "Invalid ciphertext checksum. {:?} != {:?}",
+                    sha_ciphertext, sha_required
+                )));
+            }
+
+            input.truncate(input.len().saturating_sub(32));
 
             let encrypted_scramble_dict_len = decode_length(input)?;
             let split_pt = input.len().saturating_sub(encrypted_scramble_dict_len);
@@ -277,6 +293,13 @@ pub(crate) mod kyber_module {
         input.truncate(starting_pos);
 
         Ok(object_len)
+    }
+
+    fn sha3_256(input: &[u8]) -> [u8; 32] {
+        use sha3::Digest;
+        let mut digest = sha3::Sha3_256::default();
+        digest.update(input);
+        digest.finalize().into()
     }
 }
 
