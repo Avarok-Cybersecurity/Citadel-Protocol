@@ -83,11 +83,9 @@ impl<
     #[allow(unused_results, unused_must_use)]
     fn drop(&mut self) {
         let mut inner = self.inner.take().unwrap();
-
         let drop_future = async move {
             inner.close().await;
         };
-
         spawn!(drop_future);
     }
 }

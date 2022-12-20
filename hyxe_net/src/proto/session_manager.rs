@@ -379,7 +379,7 @@ impl HdpSessionManager {
                     .session_security_settings
                     .clone()
                     .map(|r| r.security_level)
-                    .unwrap_or(SecurityLevel::LOW);
+                    .unwrap_or(SecurityLevel::Standard);
 
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
                     let peer_cid = peer_id;

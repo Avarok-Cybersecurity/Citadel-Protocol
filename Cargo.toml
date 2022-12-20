@@ -17,6 +17,3 @@ members = [
 exclude = [
     "./target/*"
 ]
-
-[profile.dev]
-split-debuginfo = "unpacked"

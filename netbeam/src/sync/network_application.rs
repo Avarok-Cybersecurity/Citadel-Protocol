@@ -47,8 +47,7 @@ pub struct PostActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
 
 impl<K: MultiplexedConnKey> PostActionChannel<K> {
     pub(crate) async fn send(&self, id: K) -> Result<(), anyhow::Error> {
-        self
-            .tx
+        self.tx
             .lock()
             .await
             .remove(&id)
