@@ -172,6 +172,7 @@ pub(crate) mod kyber_module {
                 .map_err(|err| EzError::Other(err.to_string()))?;
             encode_length_be_bytes(encrypted_scramble_dict.len(), input)?;
 
+            log::error!(target: "lusna", "output: {:?}", input.as_ref());
             Ok(())
         }
 
@@ -181,6 +182,7 @@ pub(crate) mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), EzError> {
+            log::error!(target: "lusna", "input: {:?}", input.as_ref());
             let sig_alg = self.sig.sig_alg;
             let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
             let local_sk = self.kex.secret_key.as_deref().unwrap();
