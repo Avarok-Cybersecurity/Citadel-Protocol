@@ -51,6 +51,7 @@ jobs:
           redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --package ez_pqcrypto --package hyxe_crypt
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         env:
@@ -62,7 +63,6 @@ jobs:
         env:
           SKIP_EXT_BACKENDS: "true"
         run: cargo nextest run --package hyxe_user --features localhost-testing
-      - run: cargo nextest run --package ez_pqcrypto --package hyxe_crypt
       - run: cargo nextest run --features=localhost-testing,multi-threaded --package hyxe_net
         env:
           RUST_LOG: lusna=trace
@@ -218,7 +218,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p lusna_sdk -p hyxe_user -p hyxe_crypt -p ez_pqcrypto -p hyxe_wire -p netbeam -p async_ip --lcov --output-path ${HOME}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|lusna_sdk/src/test_common.rs|hyxe_wire/src/upnp_handler.rs"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p lusna_sdk -p hyxe_user -p hyxe_crypt -p ez_pqcrypto -p hyxe_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|lusna_sdk/src/test_common.rs|hyxe_wire/src/upnp_handler.rs"
       - uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -233,29 +233,3 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
- # scanning:
- #   name: GitGuardian scan
- #   runs-on: ubuntu-latest
- #   steps:
- #     - name: Checkout
- #       uses: actions/checkout@v2
- #       with:
- #         fetch-depth: 0 # fetch all history so multiple commits can be scanned
- #     - name: GitGuardian scan
- #       uses: GitGuardian/ggshield-action@master
- #       env:
- #         GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
- #         GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
- #         GITHUB_PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
- #         GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
- #         GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
- #     - uses: actions/github-script@v6
- #       if: failure()
- #       with:
- #         script: |
- #           const { owner, repo } = context.repo
- #           console.log('Cancelling ...');
- #           const run_id = "${{ github.run_id }}";
- #           await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
- #           return 'stop'
- #         result-encoding: string
