@@ -1,4 +1,4 @@
-use crate::EzError;
+use crate::{EzError, KemAlgorithm};
 use aes_gcm_siv::aead::Buffer;
 use rand::prelude::SliceRandom;
 use rand::RngCore;
@@ -9,29 +9,29 @@ use std::sync::Arc;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum AliceToBobTransferParameters {
     MixedAsymmetric {
-        alice_pk: Arc<oqs::kem::PublicKey>,
+        alice_pk: Arc<Vec<u8>>,
         alice_pk_sig: Arc<oqs::sig::PublicKey>,
         alice_sig: oqs::sig::Signature,
         sig_scheme: oqs::sig::Algorithm,
-        kem_scheme: oqs::kem::Algorithm,
+        kem_scheme: KemAlgorithm,
     },
     PureSymmetric {
-        alice_pk: Arc<oqs::kem::PublicKey>,
-        kem_scheme: oqs::kem::Algorithm,
+        alice_pk: Arc<Vec<u8>>,
+        kem_scheme: KemAlgorithm,
     },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum BobToAliceTransferParameters {
     MixedAsymmetric {
-        bob_ciphertext: Arc<oqs::kem::Ciphertext>,
+        bob_ciphertext: Arc<Vec<u8>>,
         bob_signature: oqs::sig::Signature,
         bob_pk_sig: Arc<oqs::sig::PublicKey>,
-        bob_pk: Arc<oqs::kem::PublicKey>,
+        bob_pk: Arc<Vec<u8>>,
     },
     PureSymmetric {
-        bob_ciphertext: Arc<oqs::kem::Ciphertext>,
-        bob_pk: Arc<oqs::kem::PublicKey>,
+        bob_ciphertext: Arc<Vec<u8>>,
+        bob_pk: Arc<Vec<u8>>,
     },
 }
 
