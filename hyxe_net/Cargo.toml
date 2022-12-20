@@ -7,7 +7,7 @@ workspace = "../"
 license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
-default = ["filesystem"]
+default = ["filesystem", "multi-threaded"]
 filesystem = ["hyxe_user/filesystem"]
 multi-threaded = []
 sql = ["hyxe_user/sql"]
@@ -26,7 +26,7 @@ futures = "0.3.12"
 log = "0.4.8"
 async-trait = "0.1.56"
 tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"] }
-tokio = { version = "1.20.1", features = ["full"] }
+tokio = { version = "=1.20.1", features = ["full"] }
 auto_impl = "1.0.1"
 tokio-stream = "0.1.7"
 parking_lot = "0.12.0"
@@ -52,8 +52,6 @@ uuid = { version = "1.0.0-alpha.1", features = ["serde", "v4"] }
 itertools = "0.10.3"
 tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", optional = true }
 #libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
-
-
 
 [dev-dependencies]
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }

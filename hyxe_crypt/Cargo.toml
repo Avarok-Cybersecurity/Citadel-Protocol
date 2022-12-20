@@ -36,7 +36,7 @@ rust-argon2 = "1.0.0"
 sysinfo = "0.23.2"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
-tokio = { version = "1.20.1", features = ["full"] }
+tokio = { version = "=1.20.1", features = ["full"] }
 sha3 = "0.10.1"
 parking_lot = "0.12.1"
 tokio-stream = "0.1.7"
@@ -50,6 +50,7 @@ kernel32-sys = "0.2.2"
 
 [dev-dependencies]
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
+rstest = { git = "https://github.com/la10736/rstest", branch="master" }
 
 
 [lib]

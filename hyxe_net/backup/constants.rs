@@ -4,7 +4,8 @@ pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
 pub const STREAM_RESTART: u8 = 1;
 /// Each [HdpSession] will be polled twice per second to ensure validity of connection
-pub const CONNECTION_HANDLER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
+pub const CONNECTION_HANDLER_POLL_INTERVAL: std::time::Duration =
+    std::time::Duration::from_millis(1000);
 /// If NoDelay is set, then wave packets are sent outbound immediately
 pub const HDP_NODELAY: bool = false;
 /// Id HDP_NODELAY is false, then the payload of a wave is sent after HDP_WAVE_PAYLOAD_DELAY time
@@ -24,9 +25,15 @@ pub const HDP_HEADER_BYTE_LEN: usize = 52; // was 44, moved to 52
 /// Assuming IPv6, this is the smallest MTU possible. HDP uses MTU Clamping over MTU path discovery
 pub const MTU: usize = 1280;
 /// Total length of a packet's header
-pub const BASE_HEADER_LEN_IPV4: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN + LAYER3_IPV4_HEADER_BYTE_LEN + UDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
+pub const BASE_HEADER_LEN_IPV4: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN
+    + LAYER3_IPV4_HEADER_BYTE_LEN
+    + UDP_HEADER_BYTE_LEN
+    + HDP_HEADER_BYTE_LEN;
 /// Total length of a packet's header
-pub const BASE_HEADER_LEN_IPV6: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN + LAYER3_IPV6_HEADER_BYTE_LEN + UDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
+pub const BASE_HEADER_LEN_IPV6: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN
+    + LAYER3_IPV6_HEADER_BYTE_LEN
+    + UDP_HEADER_BYTE_LEN
+    + HDP_HEADER_BYTE_LEN;
 /// This is the maximum size an IPv4's packet can be
 pub const MAX_PAYLOAD_SIZE_IPV4: usize = MTU - BASE_HEADER_LEN_IPV4;
 /// This is the maximum size an IPv6's packet can be
@@ -66,7 +73,7 @@ pub const DO_CONNECT_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::
 pub const UPNP_FIREWALL_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 pub const MULTIPORT_START: u16 = 25000;
 ///
-//pub const MULTIPORT_END: u16 = hyxe_crypt::drill::PORT_RANGE as u16 + MULTIPORT_START;
+//pub const MULTIPORT_END: u16 = hyxe_crypt::entropy_bank::PORT_RANGE as u16 + MULTIPORT_START;
 pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
 ///
 pub const PRIMARY_PORT: u16 = 25021;
@@ -94,4 +101,4 @@ pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from
 /// the preconnect + connect stage will be limited by this duration
 pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(8);
 /// Every 30 minutes, resync the clocks. This was to fix bugs related to long-lasting connections and reconnections
-pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
+pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60 * 30);

@@ -937,18 +937,37 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Kyber,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::Falcon1024
+    )]
     #[tokio::test]
-    async fn test_c2s_file_transfer() {
+    async fn test_c2s_file_transfer(
+        #[case] enx: EncryptionAlgorithm,
+        #[case] kem: KemAlgorithm,
+        #[case] sig: SigAlgorithm,
+    ) {
         let _ = lusna_logging::setup_log();
-
         let ref client_success = AtomicBool::new(false);
         let ref server_success = Arc::new(AtomicBool::new(false));
         let (server, server_addr) = server_info(server_success.clone());
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
+        let session_security_settings = SessionSecuritySettingsBuilder::default()
+            .with_crypto_params(enx + kem + sig)
+            .build();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
             server_addr,
+            UdpMode::Disabled,
+            session_security_settings,
             |_channel, mut remote| async move {
                 log::trace!(target: "lusna", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote

@@ -62,31 +62,4 @@ mod tests {
             .unwrap();
         log::trace!(target: "lusna", "RESP: {}", resp);
     }
-
-    #[allow(dead_code)]
-    fn gen(
-        cid: u64,
-        version: u32,
-        endpoint_bob_cid: Option<u64>,
-        opts: ConstructorOpts,
-    ) -> (StackedRatchet, StackedRatchet) {
-        let mut alice =
-            StackedRatchetConstructor::new_alice(vec![opts.clone()], cid, version, None).unwrap();
-        let bob = StackedRatchetConstructor::new_bob(
-            cid,
-            version,
-            vec![opts.clone()],
-            alice.stage0_alice(),
-        )
-        .unwrap();
-        alice
-            .stage1_alice(&BobToAliceTransferType::Default(bob.stage0_bob().unwrap()))
-            .unwrap();
-        let bob = if let Some(cid) = endpoint_bob_cid {
-            bob.finish_with_custom_cid(cid).unwrap()
-        } else {
-            bob.finish().unwrap()
-        };
-        (alice.finish().unwrap(), bob)
-    }
 }

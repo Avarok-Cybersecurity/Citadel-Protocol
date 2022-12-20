@@ -1,6 +1,6 @@
 use bytes::BytesMut;
 
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
 use netbeam::time_tracker::TimeTracker;
 
@@ -268,7 +268,7 @@ pub(crate) mod group {
                 .hyper_ratchet_container
                 .base_constructor
                 .as_ref()
-                .map(|res| res.stage0_alice());
+                .map(|res| res.stage0_alice().unwrap());
             let expected_len = kem.serialized_size().unwrap();
             packet
                 .write_payload_extension(expected_len as _, |slice| {
@@ -294,6 +294,7 @@ pub(crate) mod group {
                 &mut packet,
             )
             .unwrap();
+
         packet
     }
 
@@ -351,7 +352,7 @@ pub(crate) mod group {
     #[inline]
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
-        scramble_drill: &Drill,
+        scramble_drill: &EntropyBank,
         object_id: u32,
         target_cid: u64,
         buffer: &mut BytesMut,
@@ -617,9 +618,8 @@ pub(crate) mod do_register {
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
-    pub(crate) struct DoRegisterStage0<'a> {
-        #[serde(borrow)]
-        pub(crate) transfer: AliceToBobTransfer<'a>,
+    pub(crate) struct DoRegisterStage0 {
+        pub(crate) transfer: AliceToBobTransfer,
         pub(crate) passwordless: bool,
     }
 
@@ -631,7 +631,7 @@ pub(crate) mod do_register {
     pub(crate) fn craft_stage0(
         algorithm: u8,
         timestamp: i64,
-        transfer: AliceToBobTransfer<'_>,
+        transfer: AliceToBobTransfer,
         passwordless: bool,
         proposed_cid: u64,
     ) -> BytesMut {
@@ -888,7 +888,7 @@ pub(crate) mod do_drill_update {
     #[allow(unused_results)]
     pub(crate) fn craft_stage0(
         hyper_ratchet: &StackedRatchet,
-        transfer: AliceToBobTransfer<'_>,
+        transfer: AliceToBobTransfer,
         timestamp: i64,
         target_cid: u64,
         security_level: SecurityLevel,
@@ -1120,7 +1120,7 @@ pub(crate) mod pre_connect {
     use crate::proto::packet::packet_flags::payload_identifiers;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::UdpMode;
-    use hyxe_crypt::drill::SecurityLevel;
+    use hyxe_crypt::entropy_bank::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
     use hyxe_crypt::toolset::StaticAuxRatchet;
@@ -1130,9 +1130,8 @@ pub(crate) mod pre_connect {
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
-    pub struct SynPacket<'a> {
-        #[serde(borrow)]
-        pub transfer: AliceToBobTransfer<'a>,
+    pub struct SynPacket {
+        pub transfer: AliceToBobTransfer,
         pub session_security_settings: SessionSecuritySettings,
         pub peer_only_connect_protocol: ConnectProtocol,
         pub connect_mode: ConnectMode,
@@ -1143,7 +1142,7 @@ pub(crate) mod pre_connect {
 
     pub(crate) fn craft_syn(
         static_aux_hr: &StaticAuxRatchet,
-        transfer: AliceToBobTransfer<'_>,
+        transfer: AliceToBobTransfer,
         nat_type: NatType,
         udp_mode: UdpMode,
         timestamp: i64,
@@ -1626,7 +1625,7 @@ pub(crate) mod udp {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::BytesMut;
-    use hyxe_crypt::drill::SecurityLevel;
+    use hyxe_crypt::entropy_bank::SecurityLevel;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
     use zerocopy::{U32, U64};
 

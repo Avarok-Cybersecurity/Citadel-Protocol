@@ -242,13 +242,13 @@ pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
         cid: u64,
         new_drill_vers: u32,
         opts: Vec<ConstructorOpts>,
-        transfer: AliceToBobTransferType<'_>,
+        transfer: AliceToBobTransferType,
     ) -> Option<Self>
     where
         Self: Sized;
-    fn stage0_alice(&self) -> AliceToBobTransferType<'_>;
+    fn stage0_alice(&self) -> Option<AliceToBobTransferType>;
     fn stage0_bob(&self) -> Option<BobToAliceTransferType>;
-    fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()>;
+    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError>;
 
     fn update_version(&mut self, version: u32) -> Option<()>;
     fn finish_with_custom_cid(self, cid: u64) -> Option<R>;
@@ -320,7 +320,7 @@ mod tests {
         lusna_logging::setup_log();
         for level in 0..10u8 {
             let level = SecurityLevel::from(level);
-            let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Firesaber, level, 0, None);
+            let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Kyber, level, 0, None);
             let mut endpoint_alice = PeerSessionCrypto::new(Toolset::new(0, hr_alice), true);
             let mut endpoint_bob = PeerSessionCrypto::new(Toolset::new(0, hr_bob), false);
 

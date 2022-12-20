@@ -57,8 +57,8 @@ use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
 use bytes::Bytes;
 use either::Either;
-use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::endpoint_crypto_container::{KemTransferStatus, PeerSessionCrypto};
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::prelude::SecBuffer;
 use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use hyxe_user::backend::utils::*;
@@ -960,6 +960,7 @@ impl StateContainerInner {
         group_receiver_config: GroupReceiverConfig,
         virtual_target: VirtualTargetType,
     ) -> Option<RangeInclusive<u32>> {
+        log::trace!(target: "lusna", "GRC config: {:?}", group_receiver_config);
         let group_id = header.group.get();
         let ticket = header.context_info.get();
         let object_id = header.wave_id.get();
@@ -1263,7 +1264,6 @@ impl StateContainerInner {
         }
 
         let outbound_container = self.outbound_transmitters.get_mut(&key).unwrap();
-
         outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
         // file-transfer, or TCP only mode since next_window is none. Use TCP
         outbound_container
@@ -1373,6 +1373,7 @@ impl StateContainerInner {
 
             GroupReceiverStatus::WAVE_COMPLETE(..) => {
                 // send wave ACK to update progress on adjacent node
+                send_wave_ack = true;
             }
 
             res => {
@@ -1958,7 +1959,9 @@ impl StateContainerInner {
                         let ratchet = crypt_container.get_hyper_ratchet(None).unwrap();
                         let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
                             ratchet,
-                            alice_constructor.stage0_alice(),
+                            alice_constructor
+                                .stage0_alice()
+                                .ok_or(NetworkError::InternalError("Alice Construcion failed"))?,
                             timestamp,
                             C2S_ENCRYPTION_ONLY,
                             security_level,
@@ -2014,13 +2017,16 @@ impl StateContainerInner {
                         let to_primary_stream_preferred = endpoint_container
                             .get_direct_p2p_primary_stream()
                             .unwrap_or_else(|| default_primary_stream);
-                        let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
-                            &latest_hyper_ratchet,
-                            alice_constructor.stage0_alice(),
-                            timestamp,
-                            peer_cid,
-                            security_level,
-                        );
+                        let stage0_packet =
+                            packet_crafter::do_drill_update::craft_stage0(
+                                &latest_hyper_ratchet,
+                                alice_constructor.stage0_alice().ok_or(
+                                    NetworkError::InternalError("Alice constructor (2) failed"),
+                                )?,
+                                timestamp,
+                                peer_cid,
+                                security_level,
+                            );
 
                         to_primary_stream_preferred
                             .unbounded_send(stage0_packet)
