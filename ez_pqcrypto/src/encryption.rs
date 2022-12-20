@@ -302,37 +302,3 @@ pub(crate) mod kyber_module {
         digest.finalize().into()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::KemAlgorithm;
-
-    #[test]
-    fn test_kyber_with_oqs() {
-        let kem = oqs::kem::Kem::new(KemAlgorithm::Kyber.into()).unwrap();
-        let (pk_alice, sk_alice) = kem.keypair().unwrap();
-        let (pk_bob, sk_bob) = kem.keypair().unwrap();
-        let (ct, ss_bob) = kem.encapsulate(&pk_alice).unwrap();
-        let ss_alice = kem.decapsulate(&sk_alice, &ct).unwrap();
-        assert_eq!(ss_alice, ss_bob);
-        let message = b"Hello, world!" as &[u8];
-        let nonce = (0..32).into_iter().map(|r| r as u8).collect::<Vec<u8>>();
-        // alice uses bob's public key to encrypt
-        let ciphertext =
-            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber, &pk_bob, message, &nonce)
-                .unwrap();
-        // bob uses his secret key to decrypt
-        let recovered =
-            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber, sk_bob, ciphertext).unwrap();
-        assert_eq!(message, recovered);
-
-        // bob uses alice's public key to encrypt
-        let ciphertext =
-            super::kyber_module::encrypt_pke(KemAlgorithm::Kyber, &pk_alice, message, &nonce)
-                .unwrap();
-        // alice uses her secret key to decrypt
-        let recovered =
-            super::kyber_module::decrypt_pke(KemAlgorithm::Kyber, sk_alice, ciphertext).unwrap();
-        assert_eq!(message, recovered);
-    }
-}
