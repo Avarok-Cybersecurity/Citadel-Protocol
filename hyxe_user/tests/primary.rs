@@ -1444,15 +1444,16 @@ mod tests {
         endpoint_bob_cid: Option<u64>,
     ) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(
-            Some(KemAlgorithm::Lightsaber + EncryptionAlgorithm::AES_GCM_256_SIV),
+            Some(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256_SIV),
             1,
         );
         let mut alice =
             StackedRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
         let bob =
-            StackedRatchetConstructor::new_bob(cid, version, opts, alice.stage0_alice()).unwrap();
+            StackedRatchetConstructor::new_bob(cid, version, opts, alice.stage0_alice().unwrap())
+                .unwrap();
         alice
-            .stage1_alice(&BobToAliceTransferType::Default(bob.stage0_bob().unwrap()))
+            .stage1_alice(BobToAliceTransferType::Default(bob.stage0_bob().unwrap()))
             .unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid {
             bob.finish_with_custom_cid(cid).unwrap()

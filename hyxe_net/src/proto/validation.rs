@@ -38,8 +38,8 @@ pub(crate) mod group {
 
     use crate::proto::packet_crafter::SecureProtocolPacket;
     use crate::proto::state_container::VirtualTargetType;
-    use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
+    use hyxe_crypt::entropy_bank::SecurityLevel;
     use hyxe_crypt::prelude::SecBuffer;
     use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::stacked_ratchet::StackedRatchet;
@@ -80,11 +80,10 @@ pub(crate) mod group {
         Some(group_header)
     }
 
-    pub(crate) fn validate_message<'a>(
-        payload: &'a mut BytesMut,
-    ) -> Option<(SecBuffer, Option<AliceToBobTransfer<'a>>)> {
+    pub(crate) fn validate_message(
+        payload: &mut BytesMut,
+    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>)> {
         let message = SecureProtocolPacket::extract_message(payload).ok()?;
-        //let deser = bincode2::deserialize(&payload[..]).ok()?;
         let deser = hyxe_user::serialization::SyncIO::deserialize_from_vector(&payload[..]).ok()?;
         Some((message.into(), deser))
     }
@@ -130,7 +129,7 @@ pub(crate) mod do_register {
     use hyxe_user::prelude::ConnectionInfo;
     use hyxe_user::serialization::SyncIO;
 
-    pub(crate) fn validate_stage0<'a>(payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, bool)> {
+    pub(crate) fn validate_stage0(payload: &[u8]) -> Option<(AliceToBobTransfer, bool)> {
         DoRegisterStage0::deserialize_from_vector(payload)
             .ok()
             .map(|r| (r.transfer, r.passwordless))
@@ -182,7 +181,7 @@ pub(crate) mod do_drill_update {
     use hyxe_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use hyxe_user::serialization::SyncIO;
 
-    pub(crate) fn validate_stage0(payload: &[u8]) -> Option<AliceToBobTransfer<'_>> {
+    pub(crate) fn validate_stage0(payload: &[u8]) -> Option<AliceToBobTransfer> {
         AliceToBobTransfer::deserialize_from(payload as &[u8])
     }
 
@@ -325,7 +324,12 @@ pub(crate) mod pre_connect {
 
         let lvl = packet.transfer.security_level;
         log::trace!(target: "lusna", "Session security level based-on returned transfer: {:?}", lvl);
-        alice_constructor.stage1_alice(&BobToAliceTransferType::Default(packet.transfer))?;
+        if let Err(err) =
+            alice_constructor.stage1_alice(BobToAliceTransferType::Default(packet.transfer))
+        {
+            log::error!(target: "lusna", "Error on stage1_alice: {:?}", err);
+            return None;
+        }
 
         let new_hyper_ratchet = alice_constructor.finish()?;
         let _ = new_hyper_ratchet.verify_level(lvl.into()).ok()?;

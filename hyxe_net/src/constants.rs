@@ -68,7 +68,7 @@ pub const DO_CONNECT_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::
 pub const UPNP_FIREWALL_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 pub const MULTIPORT_START: u16 = 25000;
 ///
-//pub const MULTIPORT_END: u16 = hyxe_crypt::drill::PORT_RANGE as u16 + MULTIPORT_START;
+//pub const MULTIPORT_END: u16 = hyxe_crypt::entropy_bank::PORT_RANGE as u16 + MULTIPORT_START;
 pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
 ///
 pub const PRIMARY_PORT: u16 = 25021;

@@ -90,6 +90,7 @@ pub mod tests {
             };
 
             let res = tokio::try_join!(server, client);
+            log::trace!("RES: {:?}", res);
             let _ = res.unwrap();
             log::trace!(target: "lusna", "Ended");
         }
@@ -197,7 +198,9 @@ pub mod tests {
         sink.send(BytesMut::from(&[100u8] as &[u8]).freeze())
             .await?;
         log::trace!(target: "lusna", "Client - sent packet");
-        let packet = stream.next().await.unwrap()?;
+        let packet_opt = stream.next().await;
+        log::trace!(target: "lusna", "Client - next: {:?}", packet_opt);
+        let packet = packet_opt.unwrap()?;
         log::trace!(target: "lusna", "Client - obtained packet");
         assert_eq!(&packet[..], &[100u8]);
         Ok(())

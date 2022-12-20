@@ -8,7 +8,7 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::HyperNodePeerLayerInner;
 use crate::proto::remote::Ticket;
 use crate::proto::session::HdpSession;
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use hyxe_crypt::stacked_ratchet::StackedRatchet;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]

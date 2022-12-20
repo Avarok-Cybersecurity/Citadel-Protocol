@@ -1,5 +1,5 @@
-use crate::drill::{Drill, SecurityLevel};
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
 use crate::net::crypt_splitter::calculate_nonce_version;
@@ -30,8 +30,8 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
     fn has_verified_packets(&self) -> bool;
     fn reset_ara(&self);
     fn get_default_security_level(&self) -> SecurityLevel;
-    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
-    fn get_scramble_drill(&self) -> &Drill;
+    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank);
+    fn get_scramble_drill(&self) -> &EntropyBank;
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts>;
 
@@ -101,11 +101,11 @@ impl Ratchet for StackedRatchet {
         self.get_default_security_level()
     }
 
-    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
+    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
         self.message_pqc_drill(idx)
     }
 
-    fn get_scramble_drill(&self) -> &Drill {
+    fn get_scramble_drill(&self) -> &EntropyBank {
         self.get_scramble_drill()
     }
 
@@ -177,7 +177,7 @@ impl StackedRatchet {
 
     /// returns the message pqc and drill. Panics if idx is OOB
     #[inline]
-    pub fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
+    pub fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
         let idx = idx.unwrap_or(0);
         (
             &self.inner.message.inner[idx].pqc,
@@ -187,7 +187,7 @@ impl StackedRatchet {
 
     /// returns the message pqc and drill
     #[inline]
-    pub fn scramble_pqc_drill(&self) -> (&PostQuantumContainer, &Drill) {
+    pub fn scramble_pqc_drill(&self) -> (&PostQuantumContainer, &EntropyBank) {
         (&self.inner.scramble.pqc, &self.inner.scramble.drill)
     }
 
@@ -196,7 +196,7 @@ impl StackedRatchet {
         &self,
         security_level: Option<SecurityLevel>,
     ) -> Result<usize, CryptError<String>> {
-        let security_level = security_level.unwrap_or(SecurityLevel::LOW);
+        let security_level = security_level.unwrap_or(SecurityLevel::Standard);
         if security_level.value() as usize >= self.inner.message.inner.len() {
             log::warn!(target: "lusna", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len() - 1, self.get_default_security_level(), self.version());
             Err(CryptError::OutOfBoundsError)
@@ -267,7 +267,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_encrypt(
+        drill.encrypt(
             calculate_nonce_version(wave_id as usize, group),
             pqc,
             contents,
@@ -290,7 +290,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_encrypt(
+        drill.encrypt(
             calculate_nonce_version(wave_id as usize, group),
             pqc,
             contents,
@@ -310,7 +310,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt(
+        drill.decrypt(
             calculate_nonce_version(wave_id as usize, group_id),
             pqc,
             contents,
@@ -333,53 +333,7 @@ impl StackedRatchet {
         contents: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_decrypt(
-            calculate_nonce_version(wave_id as usize, group_id),
-            pqc,
-            contents,
-        )
-    }
-
-    /// Decrypts the contents into a Vec<u8>
-    pub fn decrypt_in_place<T: AsMut<[u8]>>(
-        &self,
-        contents: &mut T,
-    ) -> Result<usize, CryptError<String>> {
-        self.decrypt_in_place_custom(0, 0, contents)
-    }
-
-    /// decrypts in place using a custom nonce configuration
-    pub fn decrypt_in_place_custom<T: AsMut<[u8]>>(
-        &self,
-        wave_id: u32,
-        group_id: u64,
-        contents: &mut T,
-    ) -> Result<usize, CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt_in_place(
-            calculate_nonce_version(wave_id as usize, group_id),
-            pqc,
-            contents,
-        )
-    }
-
-    /// Decrypts the contents into a Vec<u8>
-    pub fn decrypt_in_place_scrambler<T: AsMut<[u8]>>(
-        &self,
-        contents: &mut T,
-    ) -> Result<usize, CryptError<String>> {
-        self.decrypt_in_place_custom_scrambler(0, 0, contents)
-    }
-
-    /// decrypts in place using a custom nonce configuration
-    pub fn decrypt_in_place_custom_scrambler<T: AsMut<[u8]>>(
-        &self,
-        wave_id: u32,
-        group_id: u64,
-        contents: &mut T,
-    ) -> Result<usize, CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_decrypt_in_place(
+        drill.decrypt(
             calculate_nonce_version(wave_id as usize, group_id),
             pqc,
             contents,
@@ -387,7 +341,7 @@ impl StackedRatchet {
     }
 
     /// Returns the message drill
-    pub fn get_message_drill(&self, idx: Option<usize>) -> &Drill {
+    pub fn get_message_drill(&self, idx: Option<usize>) -> &EntropyBank {
         &self.inner.message.inner[idx.unwrap_or(0)].drill
     }
 
@@ -397,7 +351,7 @@ impl StackedRatchet {
     }
 
     /// Returns the scramble drill
-    pub fn get_scramble_drill(&self) -> &Drill {
+    pub fn get_scramble_drill(&self) -> &EntropyBank {
         &self.inner.scramble.drill
     }
 
@@ -433,14 +387,14 @@ pub(crate) struct MessageRatchet {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchetInner {
-    pub(crate) drill: Drill,
+    pub(crate) drill: EntropyBank,
     pub(crate) pqc: PostQuantumContainer,
 }
 
 ///
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ScrambleRatchet {
-    pub(crate) drill: Drill,
+    pub(crate) drill: EntropyBank,
     pub(crate) pqc: PostQuantumContainer,
 }
 
@@ -454,15 +408,17 @@ impl From<StackedRatchetInner> for StackedRatchet {
 
 /// For constructing the StackedRatchet during KEM stage
 pub mod constructor {
-    use crate::drill::{Drill, SecurityLevel};
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+    use crate::entropy_bank::{EntropyBank, SecurityLevel};
     use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
+    use crate::prelude::CryptError;
     use crate::stacked_ratchet::{Ratchet, StackedRatchet};
     use arrayvec::ArrayVec;
     use bytes::BufMut;
     use bytes::BytesMut;
     use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
+    use ez_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
     use ez_pqcrypto::PostQuantumContainer;
     use ez_pqcrypto::LARGEST_NONCE_LEN;
     use serde::{Deserialize, Serialize};
@@ -489,7 +445,7 @@ pub mod constructor {
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
-        pub fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
+        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
             match self {
                 ConstructorType::Default(con) => con.stage1_alice(transfer),
 
@@ -539,14 +495,12 @@ pub mod constructor {
 
     /// For denoting the different transfer types that have local lifetimes
     #[derive(Serialize, Deserialize)]
-    pub enum AliceToBobTransferType<'a> {
-        #[serde(borrow)]
-        Default(AliceToBobTransfer<'a>),
-        #[serde(borrow)]
-        Fcm(FcmAliceToBobTransfer<'a>),
+    pub enum AliceToBobTransferType {
+        Default(AliceToBobTransfer),
+        Fcm(FcmAliceToBobTransfer),
     }
 
-    impl AliceToBobTransferType<'_> {
+    impl AliceToBobTransferType {
         pub fn get_declared_new_version(&self) -> u32 {
             match self {
                 AliceToBobTransferType::Default(tx) => tx.new_version,
@@ -569,7 +523,7 @@ pub mod constructor {
             cid: u64,
             new_drill_vers: u32,
             opts: Vec<ConstructorOpts>,
-            transfer: AliceToBobTransferType<'_>,
+            transfer: AliceToBobTransferType,
         ) -> Option<Self> {
             match transfer {
                 AliceToBobTransferType::Default(transfer) => {
@@ -583,15 +537,15 @@ pub mod constructor {
             }
         }
 
-        fn stage0_alice(&self) -> AliceToBobTransferType<'_> {
-            AliceToBobTransferType::Default(self.stage0_alice())
+        fn stage0_alice(&self) -> Option<AliceToBobTransferType> {
+            Some(AliceToBobTransferType::Default(self.stage0_alice()?))
         }
 
         fn stage0_bob(&self) -> Option<BobToAliceTransferType> {
             Some(BobToAliceTransferType::Default(self.stage0_bob()?))
         }
 
-        fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
+        fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
             self.stage1_alice(transfer)
         }
 
@@ -610,13 +564,11 @@ pub mod constructor {
 
     #[derive(Serialize, Deserialize)]
     /// Transferred during KEM
-    pub struct AliceToBobTransfer<'a> {
+    pub struct AliceToBobTransfer {
         ///
         pub params: CryptoParameters,
-        #[serde(borrow)]
-        pks: Vec<&'a [u8]>,
-        #[serde(borrow)]
-        scramble_alice_pk: &'a [u8],
+        params_txs: Vec<AliceToBobTransferParameters>,
+        scramble_alice_params: AliceToBobTransferParameters,
         scramble_nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
         msg_nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
         ///
@@ -628,8 +580,8 @@ pub mod constructor {
     #[derive(Serialize, Deserialize)]
     /// Transferred during KEM
     pub struct BobToAliceTransfer {
-        msg_bob_cts: Vec<Vec<u8>>,
-        scramble_bob_ct: Vec<u8>,
+        msg_bob_params_txs: Vec<BobToAliceTransferParameters>,
+        scramble_bob_params_tx: BobToAliceTransferParameters,
         encrypted_msg_drills: Vec<Vec<u8>>,
         encrypted_scramble_drill: Vec<u8>,
         // the security level
@@ -656,7 +608,7 @@ pub mod constructor {
         }
     }
 
-    impl AliceToBobTransfer<'_> {
+    impl AliceToBobTransfer {
         ///
         pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
             bincode2::serialize(self).ok()
@@ -686,7 +638,7 @@ pub mod constructor {
             new_version: u32,
             security_level: Option<SecurityLevel>,
         ) -> Option<Self> {
-            let security_level = security_level.unwrap_or(SecurityLevel::LOW);
+            let security_level = security_level.unwrap_or(SecurityLevel::Standard);
             log::trace!(target: "lusna", "[ALICE] creating container with {:?} security level", security_level);
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
@@ -713,8 +665,8 @@ pub mod constructor {
                     pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params)))
                         .ok()?,
                 },
-                nonce_message: Drill::generate_public_nonce(params.encryption_algorithm),
-                nonce_scramble: Drill::generate_public_nonce(params.encryption_algorithm),
+                nonce_message: EntropyBank::generate_public_nonce(params.encryption_algorithm),
+                nonce_scramble: EntropyBank::generate_public_nonce(params.encryption_algorithm),
                 cid,
                 new_version,
                 security_level,
@@ -732,15 +684,16 @@ pub mod constructor {
             let count = transfer.security_level.value() as usize + 1;
             let params = transfer.params;
             let keys: Vec<MessageRatchetConstructorInner> = transfer
-                .pks
+                .params_txs
                 .into_iter()
                 .zip(opts.into_iter())
-                .filter_map(|(pk, opts)| {
+                .filter_map(|(params_tx, opts)| {
                     Some(MessageRatchetConstructorInner {
                         drill: Some(
-                            Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?,
+                            EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm)
+                                .ok()?,
                         ),
-                        pqc: PostQuantumContainer::new_bob(opts, pk).ok()?,
+                        pqc: PostQuantumContainer::new_bob(opts, params_tx).ok()?,
                     })
                 })
                 .collect();
@@ -754,10 +707,12 @@ pub mod constructor {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
                 scramble: ScrambleRatchetConstructor {
-                    drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?),
+                    drill: Some(
+                        EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm).ok()?,
+                    ),
                     pqc: PostQuantumContainer::new_bob(
                         ConstructorOpts::new_init(Some(params)),
-                        transfer.scramble_alice_pk,
+                        transfer.scramble_alice_params,
                     )
                     .ok()?,
                 },
@@ -770,15 +725,21 @@ pub mod constructor {
         }
 
         /// Generates the public key for the (message_pk, scramble_pk, nonce)
-        pub fn stage0_alice(&self) -> AliceToBobTransfer<'_> {
+        pub fn stage0_alice(&self) -> Option<AliceToBobTransfer> {
             let pks = self
                 .message
                 .inner
                 .iter()
-                .map(|inner| inner.pqc.get_public_key())
-                .collect();
+                .map(|inner| inner.pqc.generate_alice_to_bob_transfer().ok())
+                .filter(|r| r.is_some())
+                .map(|r| r.unwrap())
+                .collect::<Vec<AliceToBobTransferParameters>>();
 
-            let scramble_alice_pk = self.scramble.pqc.get_public_key();
+            if pks.len() != self.message.inner.len() {
+                return None;
+            }
+
+            let scramble_alice_pk = self.scramble.pqc.generate_alice_to_bob_transfer().ok()?;
             let msg_nonce = self.nonce_message.clone();
             let scramble_nonce = self.nonce_scramble.clone();
             let cid = self.cid;
@@ -786,33 +747,33 @@ pub mod constructor {
             let params = self.params;
             let security_level = self.security_level;
 
-            AliceToBobTransfer {
+            Some(AliceToBobTransfer {
                 params,
-                pks,
-                scramble_alice_pk,
+                params_txs: pks,
+                scramble_alice_params: scramble_alice_pk,
                 msg_nonce,
                 scramble_nonce,
                 security_level,
                 cid,
                 new_version,
-            }
+            })
         }
 
         /// Returns the (message_bob_ct, scramble_bob_ct, msg_drill_serialized, scramble_drill_serialized)
         pub fn stage0_bob(&self) -> Option<BobToAliceTransfer> {
             let expected_count = self.message.inner.len();
             let security_level = self.security_level;
-            let msg_bob_cts: Vec<Vec<u8>> = self
+            let msg_bob_cts: Vec<BobToAliceTransferParameters> = self
                 .message
                 .inner
                 .iter()
-                .filter_map(|inner| Some(inner.pqc.get_ciphertext().ok()?.to_vec()))
+                .filter_map(|inner| inner.pqc.generate_bob_to_alice_transfer().ok())
                 .collect();
             if msg_bob_cts.len() != expected_count {
                 return None;
             }
 
-            let scramble_bob_ct = self.scramble.pqc.get_ciphertext().ok()?.to_vec();
+            let scramble_bob_ct = self.scramble.pqc.generate_bob_to_alice_transfer().ok()?;
             // now, generate the serialized bytes
             let nonce_msg = &self.nonce_message;
             let nonce_scramble = &self.nonce_scramble;
@@ -842,8 +803,8 @@ pub mod constructor {
                 .ok()?;
 
             let transfer = BobToAliceTransfer {
-                msg_bob_cts,
-                scramble_bob_ct,
+                msg_bob_params_txs: msg_bob_cts,
+                scramble_bob_params_tx: scramble_bob_ct,
                 encrypted_msg_drills,
                 encrypted_scramble_drill,
                 security_level,
@@ -853,55 +814,110 @@ pub mod constructor {
         }
 
         /// Returns Some(()) if process succeeded
-        pub fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
+        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
             if let BobToAliceTransferType::Default(transfer) = transfer {
                 let nonce_msg = &self.nonce_message;
 
-                for (idx, container) in self.message.inner.iter_mut().enumerate() {
+                for (container, bob_param_tx) in self
+                    .message
+                    .inner
+                    .iter_mut()
+                    .zip(transfer.msg_bob_params_txs)
+                {
                     container
                         .pqc
-                        .alice_on_receive_ciphertext(&transfer.msg_bob_cts.get(idx)?[..])
-                        .ok()?;
+                        .alice_on_receive_ciphertext(bob_param_tx)
+                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                 }
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
                     // now, using the message pqc, decrypt the message drill
                     let decrypted_msg_drill = container
                         .pqc
-                        .decrypt(&transfer.encrypted_msg_drills.get(idx)?[..], nonce_msg)
-                        .ok()?;
-                    container.drill = Some(Drill::deserialize_from(&decrypted_msg_drill[..]).ok()?);
+                        .decrypt(
+                            &transfer.encrypted_msg_drills.get(idx).ok_or_else(|| {
+                                CryptError::DrillUpdateError(
+                                    "Unable to get encrypted_msg_drills".to_string(),
+                                )
+                            })?[..],
+                            nonce_msg,
+                        )
+                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+                    container.drill =
+                        Some(EntropyBank::deserialize_from(&decrypted_msg_drill[..])?);
                 }
 
                 let nonce_scramble = &self.nonce_scramble;
                 self.scramble
                     .pqc
-                    .alice_on_receive_ciphertext(&transfer.scramble_bob_ct[..])
-                    .ok()?;
+                    .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx)
+                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                 // do the same as above
                 let decrypted_scramble_drill = self
                     .scramble
                     .pqc
                     .decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble)
-                    .ok()?;
-                self.scramble.drill =
-                    Some(Drill::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
+                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+                self.scramble.drill = Some(EntropyBank::deserialize_from(
+                    &decrypted_scramble_drill[..],
+                )?);
 
                 // version check
-                if self.scramble.drill.as_ref()?.version
-                    != self.message.inner[0].drill.as_ref()?.version
+                if self
+                    .scramble
+                    .drill
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CryptError::DrillUpdateError(
+                            "Unable to get encrypted_msg_drills".to_string(),
+                        )
+                    })?
+                    .version
+                    != self.message.inner[0]
+                        .drill
+                        .as_ref()
+                        .ok_or_else(|| {
+                            CryptError::DrillUpdateError(
+                                "Unable to get encrypted_msg_drills".to_string(),
+                            )
+                        })?
+                        .version
                 {
-                    return None;
+                    return Err(CryptError::DrillUpdateError(
+                        "Message drill version != scramble drill version".to_string(),
+                    ));
                 }
 
-                if self.scramble.drill.as_ref()?.cid != self.message.inner[0].drill.as_ref()?.cid {
-                    return None;
+                if self
+                    .scramble
+                    .drill
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CryptError::DrillUpdateError(
+                            "Unable to get encrypted_msg_drills".to_string(),
+                        )
+                    })?
+                    .cid
+                    != self.message.inner[0]
+                        .drill
+                        .as_ref()
+                        .ok_or_else(|| {
+                            CryptError::DrillUpdateError(
+                                "Unable to get encrypted_msg_drills".to_string(),
+                            )
+                        })?
+                        .cid
+                {
+                    return Err(CryptError::DrillUpdateError(
+                        "Message drill cid != scramble drill cid".to_string(),
+                    ));
                 }
 
-                Some(())
+                Ok(())
             } else {
-                log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-40]");
-                None
+                Err(CryptError::DrillUpdateError(format!(
+                    "Incompatible Ratchet Type passed! [X-40]"
+                )))
             }
         }
 
@@ -943,13 +959,13 @@ pub mod constructor {
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct MessageRatchetConstructorInner {
-        pub(super) drill: Option<Drill>,
+        pub(super) drill: Option<EntropyBank>,
         pub(super) pqc: PostQuantumContainer,
     }
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct ScrambleRatchetConstructor {
-        pub(super) drill: Option<Drill>,
+        pub(super) drill: Option<EntropyBank>,
         pub(super) pqc: PostQuantumContainer,
     }
 }

@@ -1,6 +1,6 @@
 use crate::proto::node::SecrecyMode;
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
-use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::entropy_bank::SecurityLevel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
@@ -21,9 +21,9 @@ impl SessionSecuritySettingsBuilder {
     /// Sets the maximum security level for the session, allowing the use of multi-layered encryption on a per-message basis as well as increased difficulty in breaking the recursive chain key (default: low)
     /// ```
     /// use hyxe_net::prelude::SessionSecuritySettingsBuilder;
-    /// use hyxe_crypt::drill::SecurityLevel;
+    /// use hyxe_crypt::entropy_bank::SecurityLevel;
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_security_level(SecurityLevel::LOW)
+    /// .with_security_level(SecurityLevel::Standard)
     /// .build();
     /// ```
     pub fn with_security_level(mut self, security_level: SecurityLevel) -> Self {
@@ -51,7 +51,7 @@ impl SessionSecuritySettingsBuilder {
     /// use hyxe_net::prelude::SessionSecuritySettingsBuilder;
     /// use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Firesaber)
+    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Kyber)
     /// .build();
     /// ```
     pub fn with_crypto_params(mut self, params: impl Into<CryptoParameters>) -> Self {
@@ -62,7 +62,7 @@ impl SessionSecuritySettingsBuilder {
     /// Constructs the [`SessionSecuritySettings`]
     pub fn build(self) -> SessionSecuritySettings {
         SessionSecuritySettings {
-            security_level: self.security_level.unwrap_or(SecurityLevel::LOW),
+            security_level: self.security_level.unwrap_or(SecurityLevel::Standard),
             secrecy_mode: self.secrecy_mode.unwrap_or(SecrecyMode::BestEffort),
             crypto_params: self.crypto_params.unwrap_or_default(),
         }

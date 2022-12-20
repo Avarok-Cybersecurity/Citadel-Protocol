@@ -22,7 +22,7 @@ jwt-testing = []
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
 serde = { version = "1.0.104", features=["rc", "derive"] }
 serde_millis = "0.1.1"
-tokio = "1.20.1"
+tokio = "=1.20.1"
 async-trait = "^0.1.48"
 futures = "0.3.5"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
@@ -49,7 +49,7 @@ tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"], opt
 tokio-stream = { version = "0.1.7", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.20.1", features = ["macros"] }
+tokio = { version = "=1.20.1", features = ["macros"] }
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 dirs2 = "3.0.1"
 rstest = "0.15.0"
