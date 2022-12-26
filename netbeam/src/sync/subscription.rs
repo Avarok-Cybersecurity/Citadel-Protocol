@@ -100,18 +100,18 @@ pub(crate) fn close_sequence_for_multiplexed_bistream<
     id: K,
     ptr: S,
 ) {
-    log::trace!(target: "lusna", "Running DROP on {:?}", id);
+    log::trace!(target: "citadel", "Running DROP on {:?}", id);
 
     fn close<S: Subscribable<ID = K>, K: MultiplexedConnKey>(id: K, ptr: &S) {
         let _ = ptr.subscriptions().write().remove(&id);
-        log::trace!(target: "lusna", "DROPPED id = {:?}", id);
+        log::trace!(target: "citadel", "DROPPED id = {:?}", id);
     }
 
     // the runtime may not exist while dropping
     if let Ok(rt) = tokio::runtime::Handle::try_current() {
         rt.spawn(async move {
             if let Err(err) = PostActionSync::new(&ptr, id).await {
-                log::warn!(target: "lusna", "[MetaActionSync/close] error: {:?}", err.to_string())
+                log::warn!(target: "citadel", "[MetaActionSync/close] error: {:?}", err.to_string())
             }
 
             close(id, &ptr)

@@ -111,7 +111,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         tokio::task::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
-                    log::warn!(target: "lusna", "Unable to forward packet: {:?}", err);
+                    log::warn!(target: "citadel", "Unable to forward packet: {:?}", err);
                 }
             }
         });
@@ -286,7 +286,7 @@ async fn preaction_sync<
                 .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
 
             if recvd_id != next_id {
-                log::error!(target: "lusna", "Invalid sync ID received. {:?} != {:?}", recvd_id, next_id);
+                log::error!(target: "citadel", "Invalid sync ID received. {:?} != {:?}", recvd_id, next_id);
             }
 
             Ok(subscription)
@@ -333,7 +333,7 @@ async fn postaction_sync<'a, S: Subscribable<ID = K> + 'a, K: MultiplexedConnKey
     subscribable: &'a S,
     close_id: K,
 ) -> Result<(), anyhow::Error> {
-    log::trace!(target: "lusna", "[Postaction] on {:?}", subscribable.node_type());
+    log::trace!(target: "citadel", "[Postaction] on {:?}", subscribable.node_type());
     match subscribable.node_type() {
         RelativeNodeType::Receiver => {
             subscribable.send_post_close_signal(close_id).await?;

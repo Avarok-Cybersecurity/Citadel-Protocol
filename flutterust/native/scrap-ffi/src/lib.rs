@@ -2,13 +2,15 @@
 
 use crate::ffi_object::load_and_execute_ffi_static;
 use ffi_helpers::null_pointer_check;
+use hyxewave::app_config::{BackendTomlConfig, HypernodeConfig, TomlConfig};
 use hyxewave::ffi::KernelResponse;
-use hyxewave::re_exports::{AccountManager, BackendType, PRIMARY_PORT, AccountError, AssertSendSafeFuture, ExternalService};
+use hyxewave::re_exports::{
+    AccountError, AccountManager, AssertSendSafeFuture, BackendType, ExternalService, PRIMARY_PORT,
+};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::{ffi::CStr, os::raw};
-use hyxewave::app_config::{TomlConfig, HypernodeConfig, BackendTomlConfig};
 
 const BIND_ADDR: &str = "0.0.0.0";
 
@@ -20,7 +22,7 @@ fn generate_backend_config(url: &str) -> BackendTomlConfig {
         connect_timeout_sec: None,
         idle_timeout_sec: Some(30),
         max_lifetime_sec: Some(30),
-        car_mode: None
+        car_mode: None,
     }
 }
 
@@ -36,12 +38,12 @@ pub(crate) fn generate_app_config(home_dir: &str, database_url: &str) -> TomlCon
         kernel_threads: Some(2),
         daemon_mode: None,
         argon: None,
-        external_services: None
+        external_services: None,
     };
 
     TomlConfig {
         default_node: "default".to_string(),
-        hypernodes: vec![node]
+        hypernodes: vec![node],
     }
 }
 
@@ -116,34 +118,47 @@ pub unsafe extern "C" fn fcm_process(
     let backend_cfg = generate_backend_config(database);
     let backend_type = BackendType::sql_with(&backend_cfg.url, (&backend_cfg).into());
 
-    log::trace!(target: "lusna", "[Rust BG processor] Received packet: {:?}", &packet);
+    log::trace!(target: "citadel", "[Rust BG processor] Received packet: {:?}", &packet);
 
     // if the primary instance is in memory already, don't bother using the account manager. Delegate to "peer fcm-parse <packet/raw>"
     if hyxewave::ffi::ffi_entry::FFI_STATIC.lock().is_some() {
         log::info!(
             "FFI_STATIC exists, therefore, will route packet from BG to primary processor ..."
         );
-        return kernel_response_into_raw(&*("external-process --rtdb --input ".to_string() + packet));
+        return kernel_response_into_raw(
+            &*("external-process --rtdb --input ".to_string() + packet),
+        );
     }
 
     // setup account manager. We MUST reload each time this gets called, because the main instance may have
     // experienced changes that wouldn't otherwise register in this background isolate
-    log::trace!(target: "lusna", "[Rust BG processor] Setting up background processor ...");
+    log::trace!(target: "citadel", "[Rust BG processor] Setting up background processor ...");
 
     let home_dir = home_dir.to_string();
 
     let task = async move {
-        match AccountManager::new(SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),Some(home_dir.to_string()), backend_type, None, None).await {
+        match AccountManager::new(
+            SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
+            Some(home_dir.to_string()),
+            backend_type,
+            None,
+            None,
+        )
+        .await
+        {
             Ok(acc_mgr) => {
-                log::trace!(target: "lusna", "[Rust BG processor] Success setting-up account manager");
-                let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr, ExternalService::Rtdb).await;
+                log::trace!(target: "citadel", "[Rust BG processor] Success setting-up account manager");
+                let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(
+                    packet,
+                    acc_mgr,
+                    ExternalService::Rtdb,
+                )
+                .await;
 
                 KernelResponse::from(fcm_res)
             }
 
-            Err(err) => {
-                KernelResponse::Error(0, err.into_string().into_bytes())
-            }
+            Err(err) => KernelResponse::Error(0, err.into_string().into_bytes()),
         }
     };
 
@@ -153,7 +168,7 @@ pub unsafe extern "C" fn fcm_process(
         Ok(res) => CString::new(res.serialize_json().unwrap())
             .unwrap()
             .into_raw(),
-        Err(err) => response_err(err)
+        Err(err) => response_err(err),
     }
 }
 
@@ -163,14 +178,14 @@ fn response_err(err: AccountError) -> *mut raw::c_char {
             .serialize_json()
             .unwrap(),
     )
-        .unwrap()
-        .into_raw()
+    .unwrap()
+    .into_raw()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn send_to_kernel(packet: *const raw::c_char) -> *mut raw::c_char {
     let packet = CStr::from_ptr(packet).to_str().unwrap();
-    log::trace!(target: "lusna", "[Rust] Received packet: {:?}", &packet);
+    log::trace!(target: "citadel", "[Rust] Received packet: {:?}", &packet);
     //let packet: Vec<u8> = Vec::from(packet);
 
     kernel_response_into_raw(packet)
@@ -181,7 +196,7 @@ fn kernel_response_into_raw(packet: &str) -> *mut raw::c_char {
         hyxewave::ffi::command_handler::on_ffi_bytes_received(packet),
     );
 
-    //log::trace!(target: "lusna", "Kernel response: {:?}", &kernel_response);
+    //log::trace!(target: "citadel", "Kernel response: {:?}", &kernel_response);
     let ret = kernel_response.serialize_json().unwrap();
     let ptr = CString::new(ret).unwrap();
     ptr.into_raw()
@@ -211,6 +226,6 @@ fn start_logger() {
             ),
         );
 
-        log::trace!(target: "lusna", "Starting Android Logger");
+        log::trace!(target: "citadel", "Starting Android Logger");
     }
 }
