@@ -91,7 +91,7 @@ mod tests {
 
     #[tokio::test]
     async fn main() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
         let (tx, mut rx) = CallbackChannel::<u32, u64>::new(10);
 
         const COUNT: u32 = 100000;

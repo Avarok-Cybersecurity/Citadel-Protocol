@@ -190,7 +190,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
 
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
-                log::trace!(target: "lusna", "[Drop] on {:?} | recv_halt: {}", chan.node_type(), recv_halt.load(Ordering::Relaxed));
+                log::trace!(target: "citadel", "[Drop] on {:?} | recv_halt: {}", chan.node_type(), recv_halt.load(Ordering::Relaxed));
                 // if we haven't yet received a halt signal, send signal to parallel side
                 if !recv_halt.load(Ordering::Relaxed) {
                     chan.send_serialized(ChannelPacket::<T>::Halt).await?;
@@ -203,14 +203,14 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
                 // wait for halt verified packet
                 loop {
                     let packet = chan.recv_serialized::<ChannelPacket<T>>().await?;
-                    log::trace!(target: "lusna", "[Drop RECV] on {:?} recv {:?}", chan.node_type(), &packet);
+                    log::trace!(target: "citadel", "[Drop RECV] on {:?} recv {:?}", chan.node_type(), &packet);
                     match packet {
                         ChannelPacket::<T>::HaltVerified => break,
                         _ => {}
                     }
                 }
 
-                log::trace!(target: "lusna", "[Drop] Recv halt-verified on {:?}", chan.node_type());
+                log::trace!(target: "citadel", "[Drop] Recv halt-verified on {:?}", chan.node_type());
                 Ok(()) as std::io::Result<()>
             });
         }
@@ -236,7 +236,7 @@ mod tests {
 
     #[tokio::test]
     async fn bi_channel() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
         let (server, client) = create_streams().await;
 
         let server = tokio::spawn(async move {
@@ -244,12 +244,12 @@ mod tests {
 
             for x in 0..1000 {
                 channel.send_item(x).await.unwrap();
-                log::trace!(target: "lusna", "[S] Send {:?}", x)
+                log::trace!(target: "citadel", "[S] Send {:?}", x)
             }
 
             for x in 0..1000 {
                 assert_eq!(x, channel.next().await.unwrap());
-                log::trace!(target: "lusna", "[S] Recv {:?}", x)
+                log::trace!(target: "citadel", "[S] Recv {:?}", x)
             }
         });
 
@@ -258,12 +258,12 @@ mod tests {
 
             for x in 0..1000 {
                 channel.send_item(x).await.unwrap();
-                log::trace!(target: "lusna", "[C] Send {:?}", x)
+                log::trace!(target: "citadel", "[C] Send {:?}", x)
             }
 
             for x in 0..1000 {
                 assert_eq!(x, channel.next().await.unwrap());
-                log::trace!(target: "lusna", "[C] Send {:?}", x)
+                log::trace!(target: "citadel", "[C] Send {:?}", x)
             }
         });
 

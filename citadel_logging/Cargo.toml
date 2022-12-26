@@ -1,0 +1,13 @@
+[package]
+name = "citadel_logging"
+version = "0.1.0"
+edition = "2021"
+workspace = ".."
+license-file = "../LICENSE-COMMERCIAL-USE.pdf"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", features = ["env-filter"] }
+log = "0.4.17"

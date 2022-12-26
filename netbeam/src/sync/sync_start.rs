@@ -155,36 +155,36 @@ where
 
     match relative_node_type {
         RelativeNodeType::Receiver => {
-            log::trace!(target: "lusna", "[Sync] Receiver sending SYN ...");
+            log::trace!(target: "citadel", "[Sync] Receiver sending SYN ...");
             let now = tt.get_global_time_ns();
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::Syn(payload))
                 .await?;
-            log::trace!(target: "lusna", "[Sync] Receiver awaiting SYN_ACK ...");
+            log::trace!(target: "citadel", "[Sync] Receiver awaiting SYN_ACK ...");
             let payload_recv = conn
                 .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_syn_ack())
                 .await?
                 .payload()?;
             let rtt = tt.get_global_time_ns() - now;
             let sync_time = tt.get_global_time_ns() + rtt;
-            log::trace!(target: "lusna", "[Sync] Receiver sending ACK...");
+            log::trace!(target: "citadel", "[Sync] Receiver sending ACK...");
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time))
                 .await?;
 
             tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
-            log::trace!(target: "lusna", "[Sync] Executing provided subroutine for receiver ...");
+            log::trace!(target: "citadel", "[Sync] Executing provided subroutine for receiver ...");
             Ok((future)(payload_recv).await)
         }
 
         RelativeNodeType::Initiator => {
-            log::trace!(target: "lusna", "[Sync] Initiator awaiting SYN ...");
+            log::trace!(target: "citadel", "[Sync] Initiator awaiting SYN ...");
             let payload_recv = conn
                 .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_syn())
                 .await?
                 .payload()?;
-            log::trace!(target: "lusna", "[Sync] Initiator sending SYN_ACK ...");
+            log::trace!(target: "citadel", "[Sync] Initiator sending SYN_ACK ...");
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::SynAck(payload))
                 .await?;
-            log::trace!(target: "lusna", "[Sync] Initiator awaiting ACK ...");
+            log::trace!(target: "citadel", "[Sync] Initiator awaiting ACK ...");
             let sync_time = conn
                 .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack())
                 .await?
@@ -196,7 +196,7 @@ where
                 tokio::time::sleep(Duration::from_nanos(delta as _)).await;
             }
 
-            log::trace!(target: "lusna", "[Sync] Executing provided subroutine for initiator ...");
+            log::trace!(target: "citadel", "[Sync] Executing provided subroutine for initiator ...");
 
             Ok((future)(payload_recv).await)
         }
@@ -211,7 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_parallel_many() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server, client) = &create_streams().await;
         let (tx, rx) = futures::channel::mpsc::unbounded();
@@ -227,7 +227,7 @@ mod tests {
                     .sync_execute(dummy_function, 100)
                     .await
                     .unwrap();
-                log::trace!(target: "lusna", "Server res: {:?}", res);
+                log::trace!(target: "citadel", "Server res: {:?}", res);
                 res
             };
 
@@ -237,7 +237,7 @@ mod tests {
                     .sync_execute(dummy_function, 99)
                     .await
                     .unwrap();
-                log::trace!(target: "lusna", "Client res: {:?}", res);
+                log::trace!(target: "citadel", "Client res: {:?}", res);
                 res
             };
 
@@ -245,7 +245,7 @@ mod tests {
 
             let joined = futures::future::join(server, client).then(|(res0, res1)| async move {
                 let (res0, res1) = (res0.unwrap(), res1.unwrap());
-                log::trace!(target: "lusna", "res0: {}\nres1: {}\nDelta: {}", res0, res1, res1 - res0);
+                log::trace!(target: "citadel", "res0: {}\nres1: {}\nDelta: {}", res0, res1, res1 - res0);
                 tx.unbounded_send(()).unwrap();
             });
 
@@ -257,19 +257,19 @@ mod tests {
 
     #[tokio::test]
     async fn run_getter() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server, client) = create_streams().await;
 
         let server = async move {
             let res = server.sync_exchange_payload(100).await.unwrap();
-            log::trace!(target: "lusna", "Server res: {:?}", res);
+            log::trace!(target: "citadel", "Server res: {:?}", res);
             res
         };
 
         let client = async move {
             let res = client.sync_exchange_payload(99).await.unwrap();
-            log::trace!(target: "lusna", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {:?}", res);
             res
         };
 

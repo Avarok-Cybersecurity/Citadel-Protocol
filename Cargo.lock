@@ -459,6 +459,203 @@ dependencies = [
 ]
 
 [[package]]
+name = "citadel_crypt"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "async-trait",
+ "auto_impl",
+ "bincode2",
+ "bitvec",
+ "byteorder",
+ "bytes",
+ "citadel_logging",
+ "citadel_pqcrypto",
+ "futures",
+ "kernel32-sys",
+ "libc",
+ "linked-hash-map",
+ "log",
+ "num-integer",
+ "num_cpus",
+ "parking_lot 0.12.1",
+ "rand",
+ "rayon",
+ "rstest 0.16.0",
+ "rust-argon2",
+ "serde",
+ "serde-big-array",
+ "sha3",
+ "sysinfo",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
+name = "citadel_logging"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "citadel_pqcrypto"
+version = "0.1.1"
+dependencies = [
+ "aes-gcm-siv",
+ "bincode2",
+ "bytes",
+ "chacha20poly1305",
+ "citadel_logging",
+ "enum_primitive",
+ "generic-array",
+ "kyber-pke",
+ "lazy_static",
+ "log",
+ "oqs",
+ "packed_struct",
+ "parking_lot 0.12.1",
+ "rand",
+ "serde",
+ "serde-big-array",
+ "sha3",
+ "strum",
+]
+
+[[package]]
+name = "citadel_proto"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "async-trait",
+ "atomic",
+ "auto_impl",
+ "byteorder",
+ "bytes",
+ "citadel_crypt",
+ "citadel_logging",
+ "citadel_pqcrypto",
+ "citadel_user",
+ "citadel_wire",
+ "either",
+ "futures",
+ "itertools",
+ "log",
+ "netbeam",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "rand",
+ "rstest 0.16.0",
+ "serde",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "ureq",
+ "uuid 1.2.2",
+ "webrtc-util 0.5.4",
+ "zerocopy",
+]
+
+[[package]]
+name = "citadel_sdk"
+version = "0.1.0"
+dependencies = [
+ "citadel_logging",
+ "citadel_proto",
+ "dirs2",
+ "futures",
+ "lazy_static",
+ "log",
+ "parking_lot 0.12.1",
+ "rand",
+ "rstest 0.16.0",
+ "serde",
+ "tokio",
+ "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "uuid 1.2.2",
+]
+
+[[package]]
+name = "citadel_user"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bincode2",
+ "bstr",
+ "bytes",
+ "chrono",
+ "citadel_crypt",
+ "citadel_logging",
+ "citadel_pqcrypto",
+ "dirs2",
+ "firebase-rtdb",
+ "futures",
+ "jwt",
+ "lazy_static",
+ "log",
+ "mobc",
+ "multimap",
+ "openssl",
+ "parking_lot 0.12.1",
+ "rand",
+ "redis",
+ "rstest 0.15.0",
+ "serde",
+ "serde_json",
+ "serde_millis",
+ "sqlx",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "twox-hash",
+ "uuid 1.2.2",
+]
+
+[[package]]
+name = "citadel_wire"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "async-trait-with-sync",
+ "async_ip",
+ "bincode2",
+ "byteorder",
+ "bytes",
+ "citadel_logging",
+ "either",
+ "futures",
+ "igd",
+ "itertools",
+ "log",
+ "netbeam",
+ "openssl",
+ "parking_lot 0.12.1",
+ "quinn",
+ "rand",
+ "rcgen",
+ "rstest 0.15.0",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile 1.0.1",
+ "serde",
+ "socket2",
+ "stun",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "uuid 1.2.2",
+ "webpki",
+ "whoami",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -857,30 +1054,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
-name = "ez_pqcrypto"
-version = "0.1.1"
-dependencies = [
- "aes-gcm-siv",
- "bincode2",
- "bytes",
- "chacha20poly1305",
- "enum_primitive",
- "generic-array",
- "kyber-pke",
- "lazy_static",
- "log",
- "lusna_logging",
- "oqs",
- "packed_struct",
- "parking_lot 0.12.1",
- "rand",
- "serde",
- "serde-big-array",
- "sha3",
- "strum",
-]
-
-[[package]]
 name = "fastrand"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -893,8 +1066,8 @@ dependencies = [
 name = "firebase-rtdb"
 version = "0.1.0"
 dependencies = [
+ "citadel_logging",
  "log",
- "lusna_logging",
  "reqwest",
  "serde",
  "tokio",
@@ -1307,151 +1480,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyxe_crypt"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "async-trait",
- "auto_impl",
- "bincode2",
- "bitvec",
- "byteorder",
- "bytes",
- "ez_pqcrypto",
- "futures",
- "kernel32-sys",
- "libc",
- "linked-hash-map",
- "log",
- "lusna_logging",
- "num-integer",
- "num_cpus",
- "parking_lot 0.12.1",
- "rand",
- "rayon",
- "rstest 0.16.0",
- "rust-argon2",
- "serde",
- "serde-big-array",
- "sha3",
- "sysinfo",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
-name = "hyxe_net"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "async-trait",
- "atomic",
- "auto_impl",
- "byteorder",
- "bytes",
- "either",
- "ez_pqcrypto",
- "futures",
- "hyxe_crypt",
- "hyxe_user",
- "hyxe_wire",
- "itertools",
- "log",
- "lusna_logging",
- "netbeam",
- "once_cell",
- "parking_lot 0.12.1",
- "rand",
- "rstest 0.16.0",
- "serde",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
- "ureq",
- "uuid 1.2.2",
- "webrtc-util 0.5.4",
- "zerocopy",
-]
-
-[[package]]
-name = "hyxe_user"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64",
- "bincode2",
- "bstr",
- "bytes",
- "chrono",
- "dirs2",
- "ez_pqcrypto",
- "firebase-rtdb",
- "futures",
- "hyxe_crypt",
- "jwt",
- "lazy_static",
- "log",
- "lusna_logging",
- "mobc",
- "multimap",
- "openssl",
- "parking_lot 0.12.1",
- "rand",
- "redis",
- "rstest 0.15.0",
- "serde",
- "serde_json",
- "serde_millis",
- "sqlx",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "twox-hash",
- "uuid 1.2.2",
-]
-
-[[package]]
-name = "hyxe_wire"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "async-trait-with-sync",
- "async_ip",
- "bincode2",
- "byteorder",
- "bytes",
- "either",
- "futures",
- "igd",
- "itertools",
- "log",
- "lusna_logging",
- "netbeam",
- "openssl",
- "parking_lot 0.12.1",
- "quinn",
- "rand",
- "rcgen",
- "rstest 0.15.0",
- "rustls",
- "rustls-native-certs",
- "rustls-pemfile 1.0.1",
- "serde",
- "socket2",
- "stun",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
- "uuid 1.2.2",
- "webpki",
- "whoami",
-]
-
-[[package]]
 name = "iana-time-zone"
 version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1690,34 +1718,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lusna_logging"
-version = "0.1.0"
-dependencies = [
- "log",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lusna_sdk"
-version = "0.1.0"
-dependencies = [
- "dirs2",
- "futures",
- "hyxe_net",
- "lazy_static",
- "log",
- "lusna_logging",
- "parking_lot 0.12.1",
- "rand",
- "rstest 0.16.0",
- "serde",
- "tokio",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
- "uuid 1.2.2",
-]
-
-[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1844,9 +1844,9 @@ dependencies = [
  "async-trait",
  "bincode2",
  "bytes",
+ "citadel_logging",
  "futures",
  "log",
- "lusna_logging",
  "parking_lot 0.12.1",
  "rand",
  "rstest 0.15.0",
