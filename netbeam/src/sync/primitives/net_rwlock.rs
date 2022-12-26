@@ -64,10 +64,10 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
             )
             .await
             {
-                log::error!(target: "lusna", "[NetRwLock] Err: {:?}", err.to_string());
+                log::error!(target: "citadel", "[NetRwLock] Err: {:?}", err.to_string());
             }
 
-            log::trace!(target: "lusna", "[NetRwLock] Passive background handler ending")
+            log::trace!(target: "citadel", "[NetRwLock] Passive background handler ending")
         });
 
         Ok(this)
@@ -102,7 +102,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
 
 impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLock<T, S> {
     fn drop(&mut self) {
-        log::trace!(target: "lusna", "DROPPING {:?} NetRwLock", self.channel.node_type());
+        log::trace!(target: "citadel", "DROPPING {:?} NetRwLock", self.channel.node_type());
         let conn = self.channel.clone();
         let stop_tx = self.stop_tx.take().unwrap();
         let _ = stop_tx.send(());
@@ -165,10 +165,10 @@ pub(crate) mod read {
     pub(super) async fn acquire_read<T: NetObject + 'static, S: Subscribable + 'static>(
         rwlock: &NetRwLock<T, S>,
     ) -> Result<NetRwLockReadGuard<T, S>, anyhow::Error> {
-        log::trace!(target: "lusna", "Running acquire_read for {:?}", rwlock.channel.node_type());
+        log::trace!(target: "citadel", "Running acquire_read for {:?}", rwlock.channel.node_type());
         {
             let pre_loaded = rwlock.local_active_read_lock.read();
-            log::trace!(target: "lusna", "Running acquire_read for {:?} | pre_loaded ? {}", rwlock.channel.node_type(), pre_loaded.is_some());
+            log::trace!(target: "citadel", "Running acquire_read for {:?} | pre_loaded ? {}", rwlock.channel.node_type(), pre_loaded.is_some());
             // if there is more than one strong reference, we can return early
             if pre_loaded
                 .as_ref()
@@ -205,7 +205,7 @@ pub(crate) mod read {
             let this = self.inner.take().unwrap();
             // if there are two left, then this is the final rwlock active for the user. The other one is the lock stored inside the rwlock
             if this.arc_strong_count().unwrap() == 2 {
-                log::trace!(target: "lusna", "CALLING read drop code on {:?}", self.conn.node_type());
+                log::trace!(target: "citadel", "CALLING read drop code on {:?}", self.conn.node_type());
                 // immediately remove the shared store to prevent further acquires
                 *self.shared_store.write() = None; // 1 arc left (this)
 
@@ -328,7 +328,7 @@ mod drop {
         conn: Arc<InnerChannel<S>>,
         lock: LocalLockHolder<T>,
     ) -> Result<(), anyhow::Error> {
-        log::trace!(target: "lusna", "[NetRwLock] Drop code initialized for {:?}...", conn.node_type());
+        log::trace!(target: "citadel", "[NetRwLock] Drop code initialized for {:?}...", conn.node_type());
         match &lock {
             LocalLockHolder::Read(..) => {
                 conn.send_serialized(UpdatePacket::ReleasedRead).await?;
@@ -346,7 +346,7 @@ mod drop {
 
         loop {
             let packet = conn.recv_serialized::<UpdatePacket>().await?;
-            log::trace!(target: "lusna", "[NetRwLock] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
+            log::trace!(target: "citadel", "[NetRwLock] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
 
             match packet {
                 UpdatePacket::ReleasedWrite(_new_value) => {
@@ -356,7 +356,7 @@ mod drop {
                 UpdatePacket::ReleasedRead => {
                     match &lock {
                         LocalLockHolder::Read(..) => {
-                            log::trace!(target: "lusna", "Yield:: Releasing Read lock");
+                            log::trace!(target: "citadel", "Yield:: Releasing Read lock");
                             conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
                                 .await?;
                             //return Ok(());
@@ -370,16 +370,16 @@ mod drop {
 
                 UpdatePacket::ReleasedVerified(_lock_type) => {
                     /*if lock_type != lock.lock_type() {
-                        log::warn!(target: "lusna", "ReleaseVerified received is {:?}, not {:?} as expected", lock_type, lock.lock_type());
+                        log::warn!(target: "citadel", "ReleaseVerified received is {:?}, not {:?} as expected", lock_type, lock.lock_type());
                         continue 'outer_loop;
                     }*/
 
-                    log::trace!(target: "lusna", "[NetRwLock] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
+                    log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
 
                     if let Some(_lock_type) = adjacent_trying_to_acquire {
-                        log::trace!(target: "lusna", "[NetRwLock] [Drop Code] Will not yet drop though, since remote requested lock access since dropping ...");
+                        log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Will not yet drop though, since remote requested lock access since dropping ...");
                         // all we have to do is hold the lock here. The underlying lock uses a mutex, so we are safe from parallel/concurrent local calls until after the yield is complete
-                        log::trace!(target: "lusna", "[KTX] {:?} yield_lock", conn.node_type());
+                        log::trace!(target: "citadel", "[KTX] {:?} yield_lock", conn.node_type());
                         return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
                     }
 
@@ -470,7 +470,7 @@ impl<T> LocalLockHolder<T> {
         match self {
             Self::Read(val, from_bg) => {
                 let val = val.take().unwrap();
-                log::trace!(target: "lusna", "Arc count: {}", Arc::strong_count(&val));
+                log::trace!(target: "citadel", "Arc count: {}", Arc::strong_count(&val));
                 let upgraded = Arc::try_unwrap(val).map_err(|_| ()).unwrap();
                 let new = LocalLockHolder::Write(Some(upgraded), *from_bg);
                 *from_bg = true; // set to true to disable destructor from executing normally
@@ -545,11 +545,11 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
 
     loop {
         let next_packet = channel.recv_serialized().await?;
-        log::trace!(target: "lusna", "Yield::RECV | {:?} received {:?}", channel.node_type(), &next_packet);
+        log::trace!(target: "citadel", "Yield::RECV | {:?} received {:?}", channel.node_type(), &next_packet);
         match next_packet {
             UpdatePacket::ReleasedWrite(new_value) => match &mut lock {
                 LocalLockHolder::Write(val, _) => {
-                    log::trace!(target: "lusna", "Yield:: Releasing Write lock");
+                    log::trace!(target: "citadel", "Yield:: Releasing Write lock");
                     val.as_mut().unwrap().0 = bincode2::deserialize(&new_value)?;
                     channel
                         .send_serialized(UpdatePacket::ReleasedVerified(LockType::Write))
@@ -558,13 +558,13 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
                 }
 
                 _ => {
-                    log::warn!(target: "lusna", "{:?} | Invalid read/write packet. Expected a write, but local has a read", channel.node_type())
+                    log::warn!(target: "citadel", "{:?} | Invalid read/write packet. Expected a write, but local has a read", channel.node_type())
                 }
             },
 
             UpdatePacket::ReleasedRead => match &lock {
                 LocalLockHolder::Read(..) => {
-                    log::trace!(target: "lusna", "Yield:: Releasing Read lock");
+                    log::trace!(target: "citadel", "Yield:: Releasing Read lock");
                     channel
                         .send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
                         .await?;
@@ -572,7 +572,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
                 }
 
                 _ => {
-                    log::warn!(target: "lusna", "Invalid read/write packet. Expected a read, but local has a write")
+                    log::warn!(target: "citadel", "Invalid read/write packet. Expected a read, but local has a write")
                 }
             },
 
@@ -583,7 +583,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
             }
 
             p => {
-                log::warn!(target: "lusna", "Received invalid packet type in inner_loop! {:?}", p)
+                log::warn!(target: "citadel", "Received invalid packet type in inner_loop! {:?}", p)
             }
         }
     }
@@ -629,7 +629,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                             // we hold the lock locally, preventing local from sending any packets outbound from the active channel since the adjacent node is actively seeking to
                             // establish a lock
                             // we set "true" to the local lock holder to imply that the drop code won't alert the background (b/c we already are in BG)
-                            log::trace!(target: "lusna", "[KTG] {:?} yield_lock", channel.node_type());
+                            log::trace!(target: "citadel", "[KTG] {:?} yield_lock", channel.node_type());
                             let lock_holder = yield_lock::<S, T>(&channel, lock_holder).await?; // return on error
 
                             // we must also manually free the read lock IF needs be
@@ -646,7 +646,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         | UpdatePacket::ReleasedWrite(..)
                         | UpdatePacket::ReleasedVerified(..)
                         | UpdatePacket::LockAcquired(..) => {
-                            log::warn!(target: "lusna", "RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
+                            log::warn!(target: "citadel", "RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
                         }
 
                         UpdatePacket::Halt => {
@@ -680,7 +680,7 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(
 where
     F: Fn(LocalLockHolder<T>) -> R,
 {
-    log::trace!(target: "lusna", "Attempting to acquire lock for {:?}", rwlock.channel.node_type());
+    log::trace!(target: "citadel", "Attempting to acquire lock for {:?}", rwlock.channel.node_type());
     // first, ensure background isn't already awaiting for a packet
     rwlock.active_to_bg_signalled.send(()).await?;
     let lock = rwlock.shared.clone().lock_owned().await;
@@ -690,7 +690,7 @@ where
         LockType::Write => LocalLockHolder::Write(Some(lock), false),
     };
 
-    log::trace!(target: "lusna", "{:?} acquired local lock", rwlock.channel.node_type());
+    log::trace!(target: "citadel", "{:?} acquired local lock", rwlock.channel.node_type());
 
     let conn = &rwlock.channel;
 
@@ -701,7 +701,7 @@ where
 
     loop {
         let packet = conn.recv_serialized().await?;
-        log::trace!(target: "lusna", "{:?}/active-channel || obtained packet {:?}", rwlock.channel.node_type(), &packet);
+        log::trace!(target: "citadel", "{:?}/active-channel || obtained packet {:?}", rwlock.channel.node_type(), &packet);
 
         // the adjacent side will return one of two packets. In the first case, we wait until it drops the adjacent lock, in which case,
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
@@ -738,7 +738,7 @@ where
             UpdatePacket::ReleasedRead => {
                 match &owned_local_lock {
                     LocalLockHolder::Write(..) => {
-                        // log::warn!(target: "lusna", "Invalid packet release received. Received ReleasedRead, but local lock is write");
+                        // log::warn!(target: "citadel", "Invalid packet release received. Received ReleasedRead, but local lock is write");
                         //continue 'outer_loop;
                     }
 
@@ -764,12 +764,12 @@ where
             }
 
             UpdatePacket::TryAcquire(remote_request_time, lock_type) => {
-                log::trace!(target: "lusna", "[local: {:?}] BOTH trying to acquire! Local: {:?} | Remote: {:?}", conn.node_type(), owned_local_lock.lock_type(), lock_type);
+                log::trace!(target: "citadel", "[local: {:?}] BOTH trying to acquire! Local: {:?} | Remote: {:?}", conn.node_type(), owned_local_lock.lock_type(), lock_type);
                 // in this case both are trying to acquire, give to the node that requested first, OR, if it was given preference in case of the next conflict
 
                 if lock_type == LockType::Read && owned_local_lock.lock_type() == LockType::Read {
                     // both win
-                    log::trace!(target: "lusna", "BOTH acquiring reads. Both win");
+                    log::trace!(target: "citadel", "BOTH acquiring reads. Both win");
                     // we tell the adjacent side that it won, while returning from here
                     // we don't yield here for the other side. Instead, the drop code must account for it (TODO)
                     conn.send_serialized(UpdatePacket::ReleasedRead).await?;
@@ -788,7 +788,7 @@ where
 
                     // transform only if local wins
                     if owned_local_lock.lock_type() != lock_type {
-                        log::trace!(target: "lusna", "Remote is trying to acquire lock type not equal to local type. Must transform. Local {:?}, Remote {:?}", owned_local_lock.lock_type(), lock_type);
+                        log::trace!(target: "citadel", "Remote is trying to acquire lock type not equal to local type. Must transform. Local {:?}, Remote {:?}", owned_local_lock.lock_type(), lock_type);
                         // if remote wants a write, all we need to do is clear the local read store and yield the lock to prevent local from reading
                         if lock_type == LockType::Write {
                             // this will prevent local from acquiring any reads
@@ -800,16 +800,16 @@ where
                         if lock_type == LockType::Read {
                             // just yield ahead
                             owned_local_lock.assert_write_and_downgrade();
-                            log::trace!(target: "lusna", "Asserted local is write and downgraded");
+                            log::trace!(target: "citadel", "Asserted local is write and downgraded");
                         }
                     }
 
-                    log::trace!(target: "lusna", "[KTZZ] {:?} yield_lock", conn.node_type());
+                    log::trace!(target: "citadel", "[KTZZ] {:?} yield_lock", conn.node_type());
                     owned_local_lock = yield_lock::<S, T>(conn, owned_local_lock).await?;
                     // the next time a conflict happens, the local node will win unconditionally since its time is lesser than the next possible adjacent request time
                     // transform only if local wins
                     if owned_local_lock.lock_type() != lock_type {
-                        log::trace!(target: "lusna", "[undo] Remote is trying to acquire lock type not equal to local type. Must transform");
+                        log::trace!(target: "citadel", "[undo] Remote is trying to acquire lock type not equal to local type. Must transform");
                         // if remote wants a write, all we need to do is clear the local read store and yield the lock to prevent local from reading
                         if lock_type == LockType::Write {
                             // this will prevent local from acquiring any reads
@@ -824,7 +824,7 @@ where
                             // just yield ahead
                             owned_local_lock.assert_read_and_upgrade();
                             *rwlock.local_active_read_lock.write() = None;
-                            log::trace!(target: "lusna", "Asserted local is write and downgraded");
+                            log::trace!(target: "citadel", "Asserted local is write and downgraded");
                         }
                     }
                 } else {
@@ -847,7 +847,7 @@ where
             }
 
             UpdatePacket::ReleasedVerified(..) => {
-                log::warn!(target: "lusna", "RELEASED_VERIFIED should only be received by the drop_lock subroutine")
+                log::warn!(target: "citadel", "RELEASED_VERIFIED should only be received by the drop_lock subroutine")
             }
         }
     }
@@ -862,7 +862,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_writes() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -878,17 +878,17 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let rwlock = &server_stream.rwlock(Some(init_value)).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on server");
+            log::trace!(target: "citadel", "Success establishing rwlock on server");
             client_done_rx.await.unwrap();
             let guard = rwlock.write().await.unwrap();
             assert_eq!(*guard, final_value);
-            log::trace!(target: "lusna", "Server ASSERT_EQ valid");
+            log::trace!(target: "citadel", "Server ASSERT_EQ valid");
             std::mem::drop(guard);
 
             for idx in 1..COUNT {
-                log::trace!(target: "lusna", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 let mut lock = rwlock.write().await.unwrap();
-                log::trace!(target: "lusna", "****Server obtained lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Server obtained lock {} w/val {:?}", idx, &*lock);
                 assert_eq!(idx + init_value, *lock);
 
                 *lock += 1;
@@ -900,9 +900,9 @@ mod tests {
 
         let client = tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on client");
+            log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut guard = rwlock.write().await.unwrap();
-            log::trace!(target: "lusna", "Client has successfully established a rwlock write lock");
+            log::trace!(target: "citadel", "Client has successfully established a rwlock write lock");
             *guard = 1001;
             client_ref.store(*guard, Ordering::SeqCst);
             std::mem::drop(guard);
@@ -912,7 +912,7 @@ mod tests {
                 let val = rwlock.write().await.unwrap();
                 let loaded = client_ref.load(Ordering::SeqCst);
                 if *val != loaded {
-                    log::error!(target: "lusna", "Mutex value {} != loaded value {}", *val, loaded);
+                    log::error!(target: "citadel", "Mutex value {} != loaded value {}", *val, loaded);
                     std::process::exit(-1);
                 }
             }
@@ -927,7 +927,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_reads() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -945,34 +945,34 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let rwlock = &server_stream.rwlock(Some(init_value)).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on server");
+            log::trace!(target: "citadel", "Success establishing rwlock on server");
             client_done_rx.await.unwrap();
             let guard = rwlock.write().await.unwrap();
             assert_eq!(*guard, final_value);
-            log::trace!(target: "lusna", "Server ASSERT_EQ valid");
+            log::trace!(target: "citadel", "Server ASSERT_EQ valid");
             std::mem::drop(guard);
             server_done_tx0.send(()).unwrap();
 
             let mut reads = Vec::new();
 
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
-                log::trace!(target: "lusna", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
 
             server_done_tx.send(()).unwrap();
             assert_eq!(rwlock.active_local_reads(), COUNT as _);
-            log::trace!(target: "lusna", "**Server has acquired {} reads", COUNT);
+            log::trace!(target: "citadel", "**Server has acquired {} reads", COUNT);
             client_done_rx2.await.unwrap();
         });
 
         let client = tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on client");
+            log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut guard = rwlock.write().await.unwrap();
-            log::trace!(target: "lusna", "Client has successfully established a rwlock write lock");
+            log::trace!(target: "citadel", "Client has successfully established a rwlock write lock");
             *guard = 1001;
             client_ref.store(*guard, Ordering::SeqCst);
             std::mem::drop(guard);
@@ -981,13 +981,13 @@ mod tests {
             let mut reads = Vec::new();
 
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Client obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Client obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
-                log::trace!(target: "lusna", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
 
-            log::trace!(target: "lusna", "**Client has acquired {} reads", COUNT);
+            log::trace!(target: "citadel", "**Client has acquired {} reads", COUNT);
             server_done_rx.await.unwrap();
             assert_eq!(rwlock.active_local_reads(), COUNT as _);
             std::mem::drop(reads);
@@ -1001,7 +1001,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_reads_no_initial_write() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -1011,15 +1011,15 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let rwlock = &server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on server");
+            log::trace!(target: "citadel", "Success establishing rwlock on server");
 
             let mut reads = Vec::new();
 
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                log::trace!(target: "lusna", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
 
@@ -1028,18 +1028,18 @@ mod tests {
 
         let client = tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on client");
+            log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut reads = Vec::new();
 
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Client obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Client obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                log::trace!(target: "lusna", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
 
-            log::trace!(target: "lusna", "**Client has acquired {} reads", COUNT);
+            log::trace!(target: "citadel", "**Client has acquired {} reads", COUNT);
 
             std::mem::drop(reads);
             client_done_tx.send(()).unwrap();
@@ -1052,7 +1052,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_reads_end_with_write() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -1069,15 +1069,15 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let rwlock = &server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on server");
+            log::trace!(target: "citadel", "Success establishing rwlock on server");
 
             let mut reads = Vec::new();
 
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                log::trace!(target: "lusna", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
 
@@ -1086,30 +1086,30 @@ mod tests {
             client_done_rx.await.unwrap();
             let guard = rwlock.write().await.unwrap();
             assert_eq!(*guard, final_value);
-            log::trace!(target: "lusna", "Server ASSERT_EQ valid");
+            log::trace!(target: "citadel", "Server ASSERT_EQ valid");
             std::mem::drop(guard);
             server_done_tx.send(()).unwrap();
         });
 
         let client = tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on client");
+            log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut reads = Vec::new();
 
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Client obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Client obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                log::trace!(target: "lusna", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
 
-            log::trace!(target: "lusna", "**Client has acquired {} reads", COUNT);
+            log::trace!(target: "citadel", "**Client has acquired {} reads", COUNT);
 
             std::mem::drop(reads);
 
             let mut guard = rwlock.write().await.unwrap();
-            log::trace!(target: "lusna", "Client has successfully established a rwlock write lock");
+            log::trace!(target: "citadel", "Client has successfully established a rwlock write lock");
             *guard = 1001;
             client_ref.store(*guard, Ordering::SeqCst);
             std::mem::drop(guard);
@@ -1124,7 +1124,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_interweaved() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -1140,23 +1140,23 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let rwlock = &server_stream.rwlock::<u64>(Some(0)).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on server");
+            log::trace!(target: "citadel", "Success establishing rwlock on server");
             init_tx.send(()).unwrap();
             init2_rx.await.unwrap();
 
             let mut do_read = false;
             for idx in 0..COUNT {
-                log::trace!(target: "lusna", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 if do_read {
                     let lock = rwlock.read().await.unwrap();
                     //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                    log::trace!(target: "lusna", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
+                    log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                     do_read = false;
                     assert_eq!(server_ref.load(Ordering::Relaxed), *lock);
                 } else {
                     let mut lock = rwlock.write().await.unwrap();
                     //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                    log::trace!(target: "lusna", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
+                    log::trace!(target: "citadel", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
                     do_read = true;
                     *lock = idx;
                     server_ref.store(*lock, Ordering::Relaxed);
@@ -1169,7 +1169,7 @@ mod tests {
 
         let client = tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
-            log::trace!(target: "lusna", "Success establishing rwlock on client");
+            log::trace!(target: "citadel", "Success establishing rwlock on client");
             init_rx.await.unwrap();
             init2_tx.send(()).unwrap();
 
@@ -1179,13 +1179,13 @@ mod tests {
                 if do_read {
                     let lock = rwlock.read().await.unwrap();
                     //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                    log::trace!(target: "lusna", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
+                    log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                     do_read = false;
                     assert_eq!(client_ref.load(Ordering::Relaxed), *lock);
                 } else {
                     let mut lock = rwlock.write().await.unwrap();
                     //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                    log::trace!(target: "lusna", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
+                    log::trace!(target: "citadel", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
                     do_read = true;
                     *lock = idx;
                     client_ref.store(*lock, Ordering::Relaxed);

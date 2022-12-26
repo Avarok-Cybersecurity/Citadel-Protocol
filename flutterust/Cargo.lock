@@ -993,7 +993,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ez_pqcrypto"
+name = "citadel_pqcrypto"
 version = "0.1.1"
 dependencies = [
  "aes-gcm-siv",
@@ -1483,7 +1483,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyxe_crypt"
+name = "citadel_crypt"
 version = "0.1.0"
 dependencies = [
  "arrayvec 0.7.1",
@@ -1493,7 +1493,7 @@ dependencies = [
  "bitvec 0.17.4",
  "byteorder",
  "bytes",
- "ez_pqcrypto",
+ "citadel_pqcrypto",
  "futures",
  "kernel32-sys",
  "libc",
@@ -1524,7 +1524,7 @@ dependencies = [
  "chrono",
  "dirs-2",
  "futures",
- "hyxe_crypt",
+ "citadel_crypt",
  "log",
  "num 0.4.0",
  "num-bigint 0.3.2",
@@ -1569,7 +1569,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyxe_net"
+name = "citadel_proto"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1582,12 +1582,12 @@ dependencies = [
  "byteorder",
  "bytes",
  "either",
- "ez_pqcrypto",
+ "citadel_pqcrypto",
  "futures",
- "hyxe_crypt",
+ "citadel_crypt",
  "hyxe_fs",
  "hyxe_nat",
- "hyxe_user",
+ "citadel_user",
  "log",
  "net2",
  "netbeam",
@@ -1605,7 +1605,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyxe_user"
+name = "citadel_user"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -1616,7 +1616,7 @@ dependencies = [
  "fcm",
  "firebase-rtdb",
  "futures",
- "hyxe_crypt",
+ "citadel_crypt",
  "hyxe_fs",
  "jwt",
  "log",
@@ -1648,9 +1648,9 @@ dependencies = [
  "dirs 3.0.2",
  "env_logger 0.7.1",
  "futures-util",
- "hyxe_crypt",
- "hyxe_net",
- "hyxe_user",
+ "citadel_crypt",
+ "citadel_proto",
+ "citadel_user",
  "lazy_static",
  "log",
  "multimap",
