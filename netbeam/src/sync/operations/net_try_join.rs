@@ -94,7 +94,7 @@ where
     F: Future<Output = Result<T, E>>,
 {
     let conn = &(conn.initiate_subscription().await?);
-    log::trace!(target: "lusna", "NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
+    log::trace!(target: "citadel", "NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
     let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<T, E> {
@@ -126,10 +126,10 @@ where
 
         loop {
             let received_remote_state = conn.recv_serialized::<State>().await?;
-            //log::trace!(target: "lusna", "{:?} RECV'd {:?}", local_node_type, &received_remote_state);
+            //log::trace!(target: "citadel", "{:?} RECV'd {:?}", local_node_type, &received_remote_state);
             let mut lock = local_state_ref.lock().await;
             let local_state_info = lock.ret_value.as_ref().map(|r| r.is_ok());
-            log::trace!(target: "lusna", "[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
+            log::trace!(target: "citadel", "[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
             if has_preference {
                 // if local has preference, we have the permission to evaluate
                 // first, check to make sure local hasn't already obtained a value
@@ -183,7 +183,7 @@ where
             .unwrap_or(State::Error);
 
         // we don't check the local state because the resolution would terminate this task anyways
-        //log::trace!(target: "lusna", "[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
+        //log::trace!(target: "citadel", "[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
 
         local_state.local_state = state.clone();
         local_state.ret_value = Some(res);
@@ -191,7 +191,7 @@ where
         // now, send a packet to the other side
         conn.send_serialized(state).await?;
         std::mem::drop(local_state);
-        //log::trace!(target: "lusna", "[NetRacer] {:?} completer done", local_node_type);
+        //log::trace!(target: "citadel", "[NetRacer] {:?} completer done", local_node_type);
 
         stopper_rx.await?;
         Err(anyhow::Error::msg("Stopped before the resolver"))
@@ -199,7 +199,7 @@ where
 
     tokio::select! {
         res0 = evaluator => {
-            log::trace!(target: "lusna", "NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id());
+            log::trace!(target: "citadel", "NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id());
             let ret = res0?;
             wrap_return(ret)
         },
@@ -222,12 +222,12 @@ mod tests {
 
     #[tokio::test]
     async fn racer() {
-        lusna_logging::setup_log();
+        citadel_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
         const COUNT: i32 = 10;
         for idx in 0..COUNT {
-            log::trace!(target: "lusna", "[Meta] ERR:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] ERR:ERR ({}/{})", idx, COUNT);
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -239,7 +239,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "lusna", "[Meta] OK:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] OK:OK ({}/{})", idx, COUNT);
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -251,7 +251,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "lusna", "[Meta] ERR:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] ERR:OK ({}/{})", idx, COUNT);
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -263,7 +263,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "lusna", "[Meta] OK:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] OK:ERR ({}/{})", idx, COUNT);
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -288,13 +288,13 @@ mod tests {
     ) {
         let server = async move {
             let res = conn0.net_try_join(fx_1).await.unwrap();
-            log::trace!(target: "lusna", "Server res: {:?}", res.value);
+            log::trace!(target: "citadel", "Server res: {:?}", res.value);
             res
         };
 
         let client = async move {
             let res = conn1.net_try_join(fx_2).await.unwrap();
-            log::trace!(target: "lusna", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {:?}", res);
             res
         };
 
@@ -302,11 +302,11 @@ mod tests {
         let client = tokio::spawn(client);
         let (res0, res1) = tokio::join!(server, client);
 
-        log::trace!(target: "lusna", "Unwrapping ....");
+        log::trace!(target: "citadel", "Unwrapping ....");
 
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
 
-        log::trace!(target: "lusna", "Done unwrapping");
+        log::trace!(target: "citadel", "Done unwrapping");
         if success {
             assert!(res0.value.unwrap().is_ok() && res1.value.unwrap().is_ok())
         } else {
@@ -316,7 +316,7 @@ mod tests {
             );
         }
 
-        log::trace!(target: "lusna", "DONE executing")
+        log::trace!(target: "citadel", "DONE executing")
     }
 
     async fn dummy_function() -> Result<(), &'static str> {
