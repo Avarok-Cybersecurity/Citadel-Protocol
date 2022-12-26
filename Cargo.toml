@@ -1,17 +1,17 @@
 [workspace]
 
 members = [
-    "lusna_sdk",
-    "hyxe_wire",
-	"hyxe_user",
-	"hyxe_crypt",
+    "citadel_sdk",
+	"citadel_wire",
+	"citadel_user",
+	"citadel_crypt",
 	"async_ip",
-	"ez_pqcrypto",
-	"hyxe_net",
+	"citadel_pqcrypto",
+	"citadel_proto",
     "firebase-rtdb",
     "netbeam",
 	"dpb_kem",
-	"lusna_logging"
+	"citadel_logging"
 ]
 
 exclude = [

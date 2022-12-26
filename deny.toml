@@ -136,7 +136,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "hyxe_fs"
+name = "citadel_wire"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [
@@ -145,7 +145,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "hyxe_wire"
+name = "citadel_user"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [
@@ -154,7 +154,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "hyxe_user"
+name = "citadel_logging"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [
@@ -163,7 +163,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "lusna_logging"
+name = "citadel_crypt"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [
@@ -172,7 +172,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "hyxe_crypt"
+name = "citadel_proto"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [
@@ -181,16 +181,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "hyxe_net"
-expression = "MIT AND ISC AND OpenSSL"
-version = "*"
-license-files = [
-    # Each entry is a crate relative path, and the (opaque) hash of its contents
-    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
-]
-
-[[licenses.clarify]]
-name = "lusna_sdk"
+name = "citadel_sdk"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [
