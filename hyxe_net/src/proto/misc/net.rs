@@ -16,6 +16,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::codec::LengthDelimitedCodec;
 //use tokio_native_tls::native_tls::{Identity, Certificate};
 use crate::error::NetworkError;
+use crate::proto::misc::custom_io::ChanneledClientConnection;
 use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use hyxe_user::re_imports::__private::Formatter;
@@ -59,6 +60,7 @@ pub enum GenericNetworkStream {
         Option<NewConnection>,
         SocketAddr,
     ),
+    Custom(ChanneledClientConnection),
 }
 
 impl Unpin for GenericNetworkStream {}
@@ -69,6 +71,7 @@ impl Debug for GenericNetworkStream {
             Self::Tcp(..) => "TCP",
             Self::Tls(..) => "TLS",
             Self::Quic(..) => "QUIC",
+            Self::Custom(..) => "CUSTOM",
         };
 
         write!(f, "{}", tag)
@@ -81,6 +84,7 @@ impl GenericNetworkStream {
             Self::Tcp(stream) => stream.peer_addr(),
             Self::Tls(stream) => TcpStream::peer_addr(&stream.get_ref().0),
             Self::Quic(_, _, _, _, remote_addr) => Ok(*remote_addr),
+            Self::Custom(conn) => conn.peer_addr(),
         }
     }
 

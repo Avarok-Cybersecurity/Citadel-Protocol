@@ -1,11 +1,17 @@
 use crate::error::NetworkError;
+use crate::proto::misc::custom_io::{
+    ChanneledClientConnection, ChanneledServerAcceptor, CustomClientIO, CustomServerAcceptor,
+};
 use crate::proto::node::TlsDomain;
+use bytes::BytesMut;
+use futures::Sink;
 use hyxe_user::re_imports::__private::Formatter;
 use hyxe_wire::exports::{Certificate, PrivateKey};
 use hyxe_wire::tls::TLSQUICInterop;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::path::Path;
+use tokio_stream::Stream;
 
 #[derive(Clone)]
 #[allow(variant_size_differences)]
@@ -13,9 +19,15 @@ pub enum UnderlyingProtocol {
     Tcp,
     Tls(TLSQUICInterop, TlsDomain, bool),
     Quic(Option<(Vec<Certificate>, PrivateKey)>, TlsDomain, bool),
+    Custom(ChanneledServerAcceptor),
 }
 
 impl UnderlyingProtocol {
+    pub fn custom(
+        acceptor: tokio::sync::mpsc::UnboundedReceiver<ChanneledClientConnection>,
+    ) -> UnderlyingProtocol {
+        UnderlyingProtocol::Custom(CustomServerAcceptor { acceptor })
+    }
     pub fn load_tls<P: AsRef<Path>, T: AsRef<str>, R: Into<String>>(
         path: P,
         password: T,
@@ -93,6 +105,9 @@ impl UnderlyingProtocol {
                 domain,
                 is_self_signed,
             ),
+            Self::Custom(..) => {
+                panic!("Cannot map a custom acceptor into a QUIC node")
+            }
         }
     }
 
@@ -102,6 +117,7 @@ impl UnderlyingProtocol {
             Self::Quic(_, domain, ..) => domain.clone(),
             Self::Tcp => None,
             Self::Tls(_, d, ..) => d.clone(),
+            Self::Custom(..) => None,
         }
     }
 }
@@ -112,6 +128,7 @@ impl Debug for UnderlyingProtocol {
             UnderlyingProtocol::Tcp => "TCP",
             UnderlyingProtocol::Tls(..) => "TLS",
             UnderlyingProtocol::Quic(..) => "QUIC",
+            UnderlyingProtocol::Custom(..) => "Custom",
         };
 
         write!(f, "{}", label)

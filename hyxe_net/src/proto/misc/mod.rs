@@ -8,6 +8,7 @@ use tokio_stream::StreamExt;
 use tokio_util::codec::LengthDelimitedCodec;
 
 pub mod clean_shutdown;
+pub mod custom_io;
 pub mod dual_cell;
 pub mod dual_late_init;
 pub mod dual_rwlock;

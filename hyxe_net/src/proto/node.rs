@@ -575,13 +575,6 @@ impl HdpServer {
         Ok(ret)
     }
 
-    /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
-    /// Once a TcpStream is established, it is passed into the underlying HdpSessionManager and a Session
-    /// is created to handle the stream.
-    ///
-    /// In personal mode, if a new connection needs to be forged with another node, then a new SO_REUSE socket
-    /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
-    /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
         server: HdpServer,
         _tt: TimeTracker,
