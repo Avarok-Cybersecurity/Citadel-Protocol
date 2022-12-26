@@ -13,4 +13,4 @@ serde = { version = "1.0.126", features = ["derive"] }
 
 [dev-dependencies]
 tokio = { version = "=1.20.1", features = ["full"] }
-lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.1.0" }

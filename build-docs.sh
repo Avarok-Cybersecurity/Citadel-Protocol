@@ -1,1 +1,1 @@
-cargo doc --package lusna_sdk --features webrtc --no-deps
+cargo doc --package citadel_sdk --features webrtc --no-deps

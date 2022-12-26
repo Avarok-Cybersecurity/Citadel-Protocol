@@ -168,7 +168,7 @@ class AutoLogin {
         });
 
         if (res) {
-          // 8 seconds is the default in hyxe_net. This high value was needed for connecting to remote high-latency islands, lol
+          // 8 seconds is the default in citadel_proto. This high value was needed for connecting to remote high-latency islands, lol
           // It will in 99.9% of the cases terminate far before then unless the server is simply unreachable
           var loginResult =  await controller.stream.first.timeout(Duration(seconds: 8), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
           await controller.close();

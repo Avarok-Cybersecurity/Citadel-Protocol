@@ -11,7 +11,7 @@ env:
   RUST_BACKTRACE: full
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
-  RUST_LOG: "lusna=warn"
+  RUST_LOG: "citadel=warn"
 
 jobs:
   core_libs:
@@ -51,21 +51,21 @@ jobs:
           redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --package ez_pqcrypto --package hyxe_crypt
+      - run: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         env:
           TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
           TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-        run: cargo nextest run --package hyxe_user --features sql,redis,localhost-testing
+        run: cargo nextest run --package citadel_user --features sql,redis,localhost-testing
       - name: Run minimal user library + SQL backend
         if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo nextest run --package hyxe_user --features localhost-testing
-      - run: cargo nextest run --features=localhost-testing,multi-threaded --package hyxe_net
+        run: cargo nextest run --package citadel_user --features localhost-testing
+      - run: cargo nextest run --features=localhost-testing,multi-threaded --package citadel_proto
         env:
-          RUST_LOG: lusna=trace
+          RUST_LOG: citadel=trace
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -87,7 +87,7 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
-      - run: cargo nextest run --package hyxe_wire --features=localhost-testing
+      - run: cargo nextest run --package citadel_wire --features=localhost-testing
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -99,7 +99,7 @@ jobs:
             return 'stop'
           result-encoding: string
 
-  lusna_sdk:
+  citadel_sdk:
     strategy:
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
@@ -109,10 +109,10 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
-        run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only
+        run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo nextest run --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only
+        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -124,7 +124,7 @@ jobs:
             return 'stop'
           result-encoding: string
 
-  lusna_sdk_release:
+  citadel_sdk_release:
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -134,9 +134,9 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
-        run: cargo nextest run --package lusna_sdk --features=localhost-testing,localhost-testing-loopback-only --release
+        run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only --release
       - name: Multi-threaded testing
-        run: cargo nextest run --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only --release
+        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only --release
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -168,7 +168,7 @@ jobs:
       # Run with valgrind
 #      - name: Run valgrind secmem_string
 #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
-      - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis,multi-threaded
+      - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
@@ -193,7 +193,7 @@ jobs:
 #      - name: Install features checker
 #        run: cargo install cargo-all-features
 #      - name: Check all feature combinations
-#        run: cargo check-all-features --package lusna_sdk
+#        run: cargo check-all-features --package citadel_sdk
 #      - uses: actions/github-script@v6
 #        if: failure()
 #        with:
@@ -218,7 +218,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p lusna_sdk -p hyxe_user -p hyxe_crypt -p ez_pqcrypto -p hyxe_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|lusna_sdk/src/test_common.rs|hyxe_wire/src/upnp_handler.rs"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs"
       - uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

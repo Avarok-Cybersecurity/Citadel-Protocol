@@ -28,7 +28,7 @@ log = "0.4.8"
 [dev-dependencies]
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 async-recursion = "1.0.0"
-lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
 rstest = "0.15.0"
 
 [lib]
