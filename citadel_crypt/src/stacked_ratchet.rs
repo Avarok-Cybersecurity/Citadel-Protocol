@@ -131,7 +131,7 @@ impl Ratchet for StackedRatchet {
             .map(|r| {
                 let prev_chain = r.pqc.get_chain().unwrap();
                 let next_chain =
-                    RecursiveChain::new(&meta_chain[..], &prev_chain.alice, &prev_chain.bob, false)
+                    RecursiveChain::new(&meta_chain[..], prev_chain.alice, prev_chain.bob, false)
                         .unwrap();
                 ConstructorOpts::new_from_previous(Some(r.pqc.params), next_chain)
             })
@@ -730,9 +730,7 @@ pub mod constructor {
                 .message
                 .inner
                 .iter()
-                .map(|inner| inner.pqc.generate_alice_to_bob_transfer().ok())
-                .filter(|r| r.is_some())
-                .map(|r| r.unwrap())
+                .filter_map(|inner| inner.pqc.generate_alice_to_bob_transfer().ok())
                 .collect::<Vec<AliceToBobTransferParameters>>();
 
             if pks.len() != self.message.inner.len() {
@@ -915,9 +913,7 @@ pub mod constructor {
 
                 Ok(())
             } else {
-                Err(CryptError::DrillUpdateError(format!(
-                    "Incompatible Ratchet Type passed! [X-40]"
-                )))
+                Err(CryptError::DrillUpdateError("Incompatible Ratchet Type passed! [X-40]".to_string()))
             }
         }
 

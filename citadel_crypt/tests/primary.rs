@@ -758,7 +758,7 @@ mod tests {
         }
     }
 
-    const DATA: &'static [u8] = b"Hello, world!";
+    const DATA: &[u8] = b"Hello, world!";
 
     #[rstest]
     #[case(

@@ -108,7 +108,7 @@ impl EntropyBank {
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         quantum_container
-            .encrypt(input.as_ref(), &nonce)
+            .encrypt(input.as_ref(), nonce)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
@@ -120,7 +120,7 @@ impl EntropyBank {
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         quantum_container
-            .decrypt(input.as_ref(), &nonce)
+            .decrypt(input.as_ref(), nonce)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 

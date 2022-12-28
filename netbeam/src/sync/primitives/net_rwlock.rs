@@ -15,6 +15,7 @@ use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
 use crate::sync::subscription::SubscriptionBiStream;
 use crate::time_tracker::TimeTracker;
+use crate::ScopedFutureResult;
 use serde::{Deserialize, Serialize};
 
 type InnerState<T> = (T, Sender<()>);
@@ -73,7 +74,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         Ok(this)
     }
 
-    pub fn new(conn: &S, t: Option<T>) -> NetRwLockLoader<T, S> {
+    pub fn create(conn: &S, t: Option<T>) -> NetRwLockLoader<T, S> {
         NetRwLockLoader {
             future: Box::pin(sync_establish_init(conn, t, Self::new_internal)),
         }
@@ -114,7 +115,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLock<T, S> {
 }
 
 pub struct NetRwLockLoader<'a, T: NetObject, S: Subscribable + 'static> {
-    future: Pin<Box<dyn Future<Output = Result<NetRwLock<T, S>, anyhow::Error>> + Send + 'a>>,
+    future: ScopedFutureResult<'a, NetRwLock<T, S>>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Future for NetRwLockLoader<'_, T, S> {
@@ -131,6 +132,7 @@ pub(crate) mod read {
     use std::sync::Arc;
     use std::task::{Context, Poll};
 
+    use crate::ScopedFutureResult;
     use futures::Future;
 
     use crate::sync::primitives::net_mutex::InnerChannel;
@@ -143,9 +145,7 @@ pub(crate) mod read {
     use crate::sync::subscription::SubscriptionBiStream;
 
     pub struct RwLockReadAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-        pub(crate) future: Pin<
-            Box<dyn Future<Output = Result<NetRwLockReadGuard<T, S>, anyhow::Error>> + Send + 'a>,
-        >,
+        pub(crate) future: ScopedFutureResult<'a, NetRwLockReadGuard<T, S>>,
     }
 
     pub struct NetRwLockReadGuard<T: NetObject + 'static, S: Subscribable + 'static> {
@@ -224,6 +224,7 @@ pub(crate) mod write {
     use std::sync::Arc;
     use std::task::{Context, Poll};
 
+    use crate::ScopedFutureResult;
     use futures::Future;
 
     use crate::sync::primitives::net_mutex::InnerChannel;
@@ -233,9 +234,7 @@ pub(crate) mod write {
     use crate::sync::subscription::Subscribable;
 
     pub struct RwLockWriteAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-        pub(crate) future: Pin<
-            Box<dyn Future<Output = Result<NetRwLockWriteGuard<T, S>, anyhow::Error>> + Send + 'a>,
-        >,
+        pub(crate) future: ScopedFutureResult<'a, NetRwLockWriteGuard<T, S>>,
     }
 
     pub struct NetRwLockWriteGuard<T: NetObject + 'static, S: Subscribable + 'static> {
@@ -265,7 +264,7 @@ pub(crate) mod write {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
-            &*self.inner.as_ref().unwrap()
+            self.inner.as_ref().unwrap()
         }
     }
 
@@ -354,26 +353,14 @@ mod drop {
                 }
 
                 UpdatePacket::ReleasedRead => {
-                    match &lock {
-                        LocalLockHolder::Read(..) => {
-                            log::trace!(target: "citadel", "Yield:: Releasing Read lock");
-                            conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
-                                .await?;
-                            //return Ok(());
-                        }
-
-                        _ => {
-                            //unreachable!("Adjacent signalled a release of the read lock, yet, local has not yet dropped write")
-                        }
+                    if let LocalLockHolder::Read(..) = &lock {
+                        log::trace!(target: "citadel", "Yield:: Releasing Read lock");
+                        conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
+                            .await?;
                     }
                 }
 
                 UpdatePacket::ReleasedVerified(_lock_type) => {
-                    /*if lock_type != lock.lock_type() {
-                        log::warn!(target: "citadel", "ReleaseVerified received is {:?}, not {:?} as expected", lock_type, lock.lock_type());
-                        continue 'outer_loop;
-                    }*/
-
                     log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
 
                     if let Some(_lock_type) = adjacent_trying_to_acquire {
@@ -608,7 +595,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         res0 = channel.recv_serialized::<UpdatePacket>() => res0?,
                         res1 = active_to_background_rx.recv() => {
                             // in the case local tries ot make an outgoing request, we will stop listening in the background
-                            let _ = res1.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
+                            res1.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
                             continue 'outer_loop;
                         }
                     };
@@ -736,15 +723,6 @@ where
             }
 
             UpdatePacket::ReleasedRead => {
-                match &owned_local_lock {
-                    LocalLockHolder::Write(..) => {
-                        // log::warn!(target: "citadel", "Invalid packet release received. Received ReleasedRead, but local lock is write");
-                        //continue 'outer_loop;
-                    }
-
-                    _ => {}
-                }
-
                 // now, send a LockAcquired packet
                 conn.send_serialized(UpdatePacket::ReleasedVerified(lock_type))
                     .await?;

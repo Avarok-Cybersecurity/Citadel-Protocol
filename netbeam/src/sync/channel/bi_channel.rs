@@ -2,6 +2,7 @@ use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
 use crate::sync::subscription::SubscriptionBiStream;
+use crate::ScopedFutureResult;
 use futures::{Future, Stream, StreamExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -9,6 +10,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use sync_wrapper::SyncWrapper;
 
 pub(crate) type InnerChannel<S> = <S as Subscribable>::SubscriptionType;
 
@@ -27,12 +29,13 @@ pub struct Channel<T: NetObject, S: Subscribable + 'static> {
 
 pub struct ChannelRecvHalf<T: NetObject, S: Subscribable + 'static> {
     // Wrap a mutex around the stream to make Sync
-    receiver: parking_lot::Mutex<
-        Pin<Box<dyn Stream<Item = Result<ChannelPacket<T>, anyhow::Error>> + Send>>,
-    >,
+    receiver: ChannelRecvHalfReceiver<T>,
     recv_halt: Arc<AtomicBool>,
     tx: Option<Arc<InnerChannel<S>>>,
 }
+
+type ChannelRecvHalfReceiver<T> =
+    SyncWrapper<Pin<Box<dyn Stream<Item = Result<ChannelPacket<T>, anyhow::Error>> + Send>>>;
 
 //impl<T: NetObject, S: Subscribable + 'static> Unpin for ChannelRecvHalf<T, S> {}
 
@@ -41,12 +44,6 @@ pub struct ChannelSendHalf<T: NetObject, S: Subscribable + 'static> {
     tx: Option<Arc<InnerChannel<S>>>,
     _pd: PhantomData<T>,
 }
-
-/*
-pub enum ChannelError<T> {
-    Item(T),
-    Err(String)
-}*/
 
 impl<T: NetObject, S: Subscribable + 'static> ChannelSendHalf<T, S> {
     pub async fn send_item(&self, t: T) -> Result<(), anyhow::Error> {
@@ -63,13 +60,13 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelSendHalf<T, S> {
     }
 
     fn get_chan(&self) -> &InnerChannel<S> {
-        &*self.tx.as_ref().unwrap()
+        self.tx.as_ref().unwrap()
     }
 }
 
 impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
     pub async fn recv(&mut self) -> Option<Result<T, anyhow::Error>> {
-        let packet = Pin::new(&mut self.receiver.lock()).next().await?;
+        let packet = Pin::new(&mut self.receiver).get_pin_mut().next().await?;
         Some(self.process_packet(packet))
     }
 
@@ -89,7 +86,7 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
-    pub fn new(conn: &S) -> ChannelLoader<T, S> {
+    pub fn create(conn: &S) -> ChannelLoader<T, S> {
         ChannelLoader {
             inner: Box::pin(
                 conn.initiate_subscription()
@@ -126,7 +123,7 @@ impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
 
         Self {
             recv: ChannelRecvHalf {
-                receiver: parking_lot::Mutex::new(Box::pin(stream)),
+                receiver: SyncWrapper::new(Box::pin(stream)),
                 recv_halt: recv_halt.clone(),
                 tx: Some(chan.clone()),
             },
@@ -166,18 +163,12 @@ impl<T: NetObject, S: Subscribable + 'static> Stream for ChannelRecvHalf<T, S> {
             return Poll::Ready(None);
         }
 
-        let mut lock = receiver.lock();
-
-        match futures::ready!(lock.as_mut().poll_next(cx)) {
+        match futures::ready!(Pin::new(receiver).get_pin_mut().poll_next(cx)) {
             None => Poll::Ready(None),
-            Some(Ok(res)) => {
-                std::mem::drop(lock);
-
-                match self.process_packet(Ok(res)) {
-                    Ok(res) => Poll::Ready(Some(res)),
-                    _ => Poll::Ready(None),
-                }
-            }
+            Some(Ok(res)) => match self.process_packet(Ok(res)) {
+                Ok(res) => Poll::Ready(Some(res)),
+                _ => Poll::Ready(None),
+            },
             Some(Err(_)) => Poll::Ready(None),
         }
     }
@@ -204,9 +195,9 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
                 loop {
                     let packet = chan.recv_serialized::<ChannelPacket<T>>().await?;
                     log::trace!(target: "citadel", "[Drop RECV] on {:?} recv {:?}", chan.node_type(), &packet);
-                    match packet {
-                        ChannelPacket::<T>::HaltVerified => break,
-                        _ => {}
+
+                    if let ChannelPacket::<T>::HaltVerified = packet {
+                        break
                     }
                 }
 
@@ -218,7 +209,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
 }
 
 pub struct ChannelLoader<'a, T: NetObject, S: Subscribable + 'static> {
-    inner: Pin<Box<dyn Future<Output = Result<Channel<T, S>, anyhow::Error>> + Send + 'a>>,
+    inner: ScopedFutureResult<'a, Channel<T, S>>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Future for ChannelLoader<'_, T, S> {
