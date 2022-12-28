@@ -73,15 +73,15 @@ pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
 ///
 pub const PRIMARY_PORT: u16 = 25021;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 1 * 480 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 1 * 480 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 480 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 480 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 480 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 480 * 1_000_000_000;
 /// For ensuring that the hole-punching process begin at about the same time (required)
 /// this is applied to the ping. If the ping is 200ms, the a multiplier of 2.0 will mean that in 200*2.0 = 400ms,
 /// the hole-punching process will begin

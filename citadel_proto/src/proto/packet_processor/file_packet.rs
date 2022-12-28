@@ -103,13 +103,13 @@ pub fn process_file_packet(
                             // the target is the implicated cid of THIS receiving node
                             let implicated_cid = header.target_cid.get();
                             // conclude by passing this data into the state container
-                            if let None = state_container.on_file_header_ack_received(
+                            if state_container.on_file_header_ack_received(
                                 success,
                                 implicated_cid,
                                 header.context_info.get().into(),
                                 object_id,
                                 v_target,
-                            ) {
+                            ).is_none() {
                                 log::error!(target: "citadel", "on_file_header_ack_received failed. File transfer attempt invalidated");
                             }
 

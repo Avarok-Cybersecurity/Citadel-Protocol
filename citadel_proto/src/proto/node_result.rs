@@ -167,10 +167,7 @@ pub enum NodeResult {
 
 impl NodeResult {
     pub fn is_connect_success_type(&self) -> bool {
-        match self {
-            NodeResult::ConnectSuccess(ConnectSuccess { .. }) => true,
-            _ => false,
-        }
+        matches!(self, NodeResult::ConnectSuccess(ConnectSuccess { .. }))
     }
 
     pub fn ticket(&self) -> Option<Ticket> {
@@ -188,7 +185,7 @@ impl NodeResult {
                 implicated_cid: _,
                 ticket_opt: t,
                 ..
-            }) => t.clone(),
+            }) => *t,
             NodeResult::ConnectSuccess(ConnectSuccess { ticket: t, .. }) => Some(*t),
             NodeResult::ConnectFail(ConnectFail {
                 ticket: t,
@@ -204,7 +201,7 @@ impl NodeResult {
                 implicated_cid: _,
                 ticket_opt: t,
                 items: _,
-            }) => t.clone(),
+            }) => *t,
             NodeResult::PeerEvent(PeerEvent {
                 event: _,
                 ticket: t,
@@ -229,7 +226,7 @@ impl NodeResult {
             NodeResult::InternalServerError(InternalServerError {
                 ticket_opt: t,
                 message: _,
-            }) => t.clone(),
+            }) => *t,
             NodeResult::SessionList(SessionList {
                 ticket: t,
                 sessions: _,

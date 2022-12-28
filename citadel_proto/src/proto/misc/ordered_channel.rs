@@ -26,7 +26,6 @@ impl OrderedChannel {
     pub fn on_packet_received(&mut self, id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
         let next_expected_message_id = self
             .last_message_received
-            .clone()
             .map(|r| r.wrapping_add(1))
             .unwrap_or(0);
         if next_expected_message_id == id {
@@ -56,7 +55,7 @@ impl OrderedChannel {
 
     fn send_then_scan(&mut self, new_id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
         self.send_unconditional(new_id, packet)?;
-        if self.map.len() != 0 {
+        if !self.map.is_empty() {
             self.scan_send(new_id)
         } else {
             Ok(())

@@ -106,8 +106,7 @@ pub fn process_rekey(
                     let secrecy_mode = return_if_none!(state_container
                         .session_security_settings
                         .as_ref()
-                        .map(|r| r.secrecy_mode)
-                        .clone());
+                        .map(|r| r.secrecy_mode));
 
                     let needs_early_kernel_alert = transfer.update_status.omitted();
 
@@ -117,7 +116,7 @@ pub fn process_rekey(
                             peer_cid,
                             target_cid,
                             transfer.update_status,
-                            &mut *state_container,
+                            &mut state_container,
                             Some(ConstructorType::Default(constructor))
                         )
                         .ok(),
@@ -127,7 +126,7 @@ pub fn process_rekey(
                     .assume_default());
                     let truncate_packet = packet_crafter::do_drill_update::craft_truncate(
                         &latest_hr,
-                        needs_truncate.clone(),
+                        needs_truncate,
                         resp_target_cid,
                         timestamp,
                         security_level,
@@ -136,7 +135,7 @@ pub fn process_rekey(
                     if needs_truncate.is_none() || needs_early_kernel_alert {
                         // we only alert the user once truncate_ack received
                         state_container.ratchet_update_state.on_complete(
-                            header_to_vconn_type(&*header),
+                            header_to_vconn_type(&header),
                             &session.kernel_tx,
                             ReKeyReturnType::Success {
                                 version: latest_hr.version(),
@@ -180,7 +179,6 @@ pub fn process_rekey(
                     .session_security_settings
                     .as_ref()
                     .map(|r| r.secrecy_mode)
-                    .clone()
                     .unwrap();
                 let crypt = &mut state_container
                     .c2s_channel_container
@@ -279,7 +277,7 @@ pub fn process_rekey(
             }
 
             state_container.ratchet_update_state.on_complete(
-                header_to_vconn_type(&*header),
+                header_to_vconn_type(&header),
                 &session.kernel_tx,
                 ReKeyReturnType::Success {
                     version: hyper_ratchet.version(),

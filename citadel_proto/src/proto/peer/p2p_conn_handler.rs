@@ -61,7 +61,7 @@ impl Drop for DirectP2PRemote {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "[DirectP2PRemote] dropping p2p connection (type: {})...", self.from_listener.if_true("listener").if_false("client"));
         if let Some(stopper) = self.stopper.take() {
-            if let Err(_) = stopper.send(()) {
+            if stopper.send(()).is_err() {
                 //log::error!(target: "citadel", "Unable to alert p2p-stopper")
             }
         }
@@ -104,7 +104,7 @@ async fn p2p_conn_handler(
 ) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
     let implicated_cid = session.implicated_cid.clone();
-    let ref weak = session.as_weak();
+    let weak = &session.as_weak();
 
     std::mem::drop(session);
 
@@ -122,7 +122,7 @@ async fn p2p_conn_handler(
                     continue;
                 }
 
-                let _ = handle_p2p_stream(
+                handle_p2p_stream(
                     p2p_stream,
                     implicated_cid,
                     session,
@@ -186,8 +186,8 @@ fn handle_p2p_stream(
     let p2p_handle = P2PInboundHandle::new(
         remote_peer,
         local_bind_addr.port(),
-        implicated_cid.clone(),
-        kernel_tx.clone(),
+        implicated_cid,
+        kernel_tx,
         p2p_primary_stream_tx.clone(),
     );
     let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink);
@@ -196,7 +196,7 @@ fn handle_p2p_stream(
     let stopper_future = p2p_stopper(stopper_rx);
 
     let direct_p2p_remote =
-        DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx.clone(), from_listener);
+        DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
     let sess = session;
     let mut state_container = inner_mut_state!(sess.state_container);
     // if this is called from a client-side connection, forcibly upgrade since the client asserts its connection is what will be used
@@ -208,7 +208,7 @@ fn handle_p2p_stream(
     HdpSession::udp_socket_loader(
         sess.clone(),
         v_conn,
-        UdpSplittableTypes::QUIC(udp_conn),
+        UdpSplittableTypes::Quic(udp_conn),
         hole_punched_addr,
         ticket,
         None,
@@ -231,7 +231,7 @@ fn handle_p2p_stream(
         res
     };
 
-    let _ = spawn!(future);
+    spawn!(future);
 
     Ok(())
 }

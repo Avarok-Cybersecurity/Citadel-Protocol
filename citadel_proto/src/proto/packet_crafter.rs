@@ -40,15 +40,18 @@ impl<T: AsRef<[u8]>> From<T> for SecureProtocolPacket {
         let bytes = bytes.as_ref();
         let mut this = Self::new();
         this.inner
-            .write_payload(bytes.len() as u32, |slice| Ok(slice.copy_from_slice(bytes)))
+            .write_payload(bytes.len() as u32, |slice| {
+                slice.copy_from_slice(bytes);
+                Ok(())
+            })
             .unwrap();
         this
     }
 }
 
-impl Into<SecureMessagePacket<HDP_HEADER_BYTE_LEN>> for SecureProtocolPacket {
-    fn into(self) -> SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
-        self.inner
+impl From<SecureProtocolPacket> for SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
+    fn from(val: SecureProtocolPacket) -> Self {
+        val.inner
     }
 }
 
@@ -198,7 +201,7 @@ impl GroupTransmitter {
 
     #[allow(unused_results)]
     pub fn transmit_tcp_file_transfer(&mut self) -> bool {
-        let ref to_primary_stream = self.to_primary_stream;
+        let to_primary_stream = &self.to_primary_stream;
         log::trace!(target: "citadel", "[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let to_primary_stream = to_primary_stream.clone();
         let packets = self.group_transmitter.take_all_packets();
@@ -242,7 +245,7 @@ pub(crate) mod group {
         virtual_target: VirtualTargetType,
     ) -> BytesMut {
         let target_cid = virtual_target.get_target_cid();
-        let is_fast_message = if processor.is_message { 1 } else { 0 };
+        let is_fast_message = u8::from(processor.is_message);
 
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -261,7 +264,10 @@ pub(crate) mod group {
         let mut packet = if processor.is_message {
             let mut packet = processor.get_unencrypted_oneshot_packet().unwrap().inner;
             packet
-                .write_header(|buf| Ok(header.inscribe_into_slice(&mut *buf)))
+                .write_header(|buf| {
+                    header.inscribe_into_slice(&mut *buf);
+                    Ok(())
+                })
                 .unwrap();
             // both the header and payload are now written. Just have to extend the kem info
             let kem = processor
@@ -1591,7 +1597,7 @@ pub(crate) mod file {
         virtual_target: VirtualTargetType,
         timestamp: i64,
     ) -> BytesMut {
-        let success: u64 = if success { 1 } else { 0 };
+        let success: u64 = u64::from(success);
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::FILE,
