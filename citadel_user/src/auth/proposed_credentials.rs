@@ -170,10 +170,7 @@ impl ProposedCredentials {
 
     /// Returns true if passwordless
     pub fn is_passwordless(&self) -> bool {
-        match self {
-            Self::Disabled { .. } => true,
-            _ => false,
-        }
+        matches!(self, Self::Disabled { .. })
     }
 
     /// Returns the username or uuid of the client

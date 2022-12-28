@@ -209,7 +209,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     async fn hyperlan_peers_are_mutuals(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         if peers.is_empty() {
             return Ok(Default::default());
@@ -226,7 +226,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     async fn get_hyperlan_peers(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         if peers.is_empty() {
             return Ok(Default::default());
@@ -389,7 +389,8 @@ pub(crate) async fn no_backend_streaming(
 ) -> Result<(), AccountError> {
     log::warn!(target: "citadel", "Attempted to stream object to backend, but, streaming is not enabled for this backend");
 
-    while let Some(_) = source.recv().await {
+    while source.recv().await.is_some() {
+        std::hint::black_box(());
         // exhaust the stream to ensure that the sender does not error out
     }
 
