@@ -301,8 +301,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns the wanted peers
-    pub(crate) fn get_hyperlan_peers(&self, peers: &Vec<u64>) -> Option<Vec<MutualPeer>> {
+    pub(crate) fn get_hyperlan_peers(&self, peers: impl AsRef<[u64]>) -> Option<Vec<MutualPeer>> {
         let read = self.read();
+        let peers = peers.as_ref();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         Some(
             peers
@@ -360,19 +361,18 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         other: &ClientNetworkAccount<R, Fcm>,
     ) -> Result<(), AccountError> {
         self.remove_hyperlan_peer(other.get_cid())
-            .ok_or(AccountError::ClientNonExists(other.get_cid()))?;
-        other
-            .remove_hyperlan_peer(self.get_cid())
-            .ok_or(AccountError::Generic(
-                "Could not remove self from other cnac".to_string(),
-            ))?;
+            .ok_or_else(|| AccountError::ClientNonExists(other.get_cid()))?;
+        other.remove_hyperlan_peer(self.get_cid()).ok_or_else(|| {
+            AccountError::Generic("Could not remove self from other cnac".to_string())
+        })?;
 
         Ok(())
     }
 
     /// Returns a set of registration statuses (true/false) for each co-responding peer. True if registered, false otherwise
-    pub(crate) fn hyperlan_peers_exist(&self, peers: &Vec<u64>) -> Vec<bool> {
+    pub(crate) fn hyperlan_peers_exist(&self, peers: impl AsRef<[u64]>) -> Vec<bool> {
         let read = self.read();
+        let peers = peers.as_ref();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
             peers
                 .iter()

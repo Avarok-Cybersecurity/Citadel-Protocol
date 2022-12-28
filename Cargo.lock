@@ -595,6 +595,7 @@ dependencies = [
  "dirs2",
  "firebase-rtdb",
  "futures",
+ "itertools",
  "jwt",
  "lazy_static",
  "log",

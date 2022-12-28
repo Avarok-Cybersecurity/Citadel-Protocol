@@ -9,17 +9,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 /// Used to sign custom JWTs for authentication purposes. The server is expected to have a single instance
-///
-/// Sign with attributes:
-/// alg	Algorithm	"RS256"
-// iss	Issuer	Your project's service account email address
-// sub	Subject	Your project's service account email address
-// aud	Audience	"https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit"
-// iat	Issued-at time	The current time, in seconds since the UNIX epoch
-// exp	Expiration time	The time, in seconds since the UNIX epoch, at which the token expires. It can be a maximum of 3600 seconds later than the iat.
-// Note: this only controls the time when the custom token itself expires. But once you sign a user in using signInWithCustomToken(), they will remain signed in into the device until their session is invalidated or the user signs out.
-// uid		The unique identifier of the signed-in user must be a string, between 1-36 characters long
-// claims (optional)		Optional custom claims to include in the Security Rules auth / request.auth variables
 #[derive(Clone)]
 pub struct GoogleAuth {
     key: Arc<PKeyWithDigest<Private>>,

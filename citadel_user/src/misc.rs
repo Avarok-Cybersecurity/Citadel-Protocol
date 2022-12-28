@@ -132,8 +132,8 @@ pub struct CNACMetadata {
 impl PartialEq for CNACMetadata {
     fn eq(&self, other: &Self) -> bool {
         self.cid == other.cid
-            && &self.username == &other.username
-            && &self.full_name == &other.full_name
+            && self.username == other.username
+            && self.full_name == other.full_name
             && self.is_personal == other.is_personal
     }
 }
