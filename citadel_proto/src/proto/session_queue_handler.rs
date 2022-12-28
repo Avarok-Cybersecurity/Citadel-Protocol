@@ -267,19 +267,13 @@ impl Stream for SessionQueueWorker {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        loop {
-            match self.as_mut().get_mut().rx.poll_recv(cx) {
-                Poll::Ready(Some((key, timeout, on_timeout))) => {
-                    // register any inbound tasks
-                    self.as_mut()
-                        .get_mut()
-                        .insert_reserved(key, timeout, on_timeout);
-                }
-
-                _ => {
-                    break;
-                }
-            }
+        while let Poll::Ready(Some((key, timeout, on_timeout))) =
+            self.as_mut().get_mut().rx.poll_recv(cx)
+        {
+            // register any inbound tasks
+            self.as_mut()
+                .get_mut()
+                .insert_reserved(key, timeout, on_timeout);
         }
 
         match futures::ready!(self.poll_purge(cx)) {

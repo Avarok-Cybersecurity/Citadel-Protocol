@@ -909,7 +909,10 @@ impl StateContainerInner {
         self.network_stats.jitter_ns.replace(jitter_ns);
         self.network_stats.ping_ns.replace(ping_ns);
 
-        let res = if let Some(last_ka) = self.network_stats.last_keep_alive.take() {
+        
+
+        //log::trace!(target: "citadel", "KEEP ALIVE subsystem statistics: Ping: {}ms | RTT: {}ms | Jitter: {}ms", (ping_ns as f64/1_000_000f64) as f64, (self.network_stats.rtt_ns.clone().unwrap_or(0) as f64/1_000_000f64) as f64, (jitter_ns as f64/1000000f64) as f64);
+        if let Some(last_ka) = self.network_stats.last_keep_alive.take() {
             if ping_ns > self.keep_alive_timeout_ns {
                 // possible timeout. There COULD be packets being spammed, preventing KAs from getting through. Thus, check the meta expiry container
                 !self.meta_expiry_state.expired()
@@ -930,10 +933,7 @@ impl StateContainerInner {
                 .last_keep_alive
                 .replace(current_timestamp_ns);
             true
-        };
-
-        //log::trace!(target: "citadel", "KEEP ALIVE subsystem statistics: Ping: {}ms | RTT: {}ms | Jitter: {}ms", (ping_ns as f64/1_000_000f64) as f64, (self.network_stats.rtt_ns.clone().unwrap_or(0) as f64/1_000_000f64) as f64, (jitter_ns as f64/1000000f64) as f64);
-        res
+        }
     }
 
     /// Like the other functions in this file, ensure that verification is called before running this
@@ -1019,7 +1019,7 @@ impl StateContainerInner {
         let ticket = header.context_info.get().into();
 
         // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
-        if !self.inbound_files.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let (start_recv_tx, start_recv_rx) = tokio::sync::oneshot::channel::<bool>();
 
@@ -1043,7 +1043,7 @@ impl StateContainerInner {
                 stream_to_hd,
             };
 
-            self.inbound_files.insert(key, entry);
+            e.insert(entry);
             let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
@@ -1846,7 +1846,7 @@ impl StateContainerInner {
             };
 
             // We manually send the header. The tails get sent automatically
-            log::trace!(target: "citadel", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then_some("Server").unwrap_or("Client"));
+            log::trace!(target: "citadel", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, if this.is_server { "Server" } else { "Client" });
             let group_len = transmitter.get_total_plaintext_bytes();
             transmitter.transmit_group_header(virtual_target)?;
 
@@ -1919,10 +1919,10 @@ impl StateContainerInner {
 
         let session_security_settings = self.session_security_settings.unwrap();
         let security_level = session_security_settings.security_level;
-        let ref default_primary_stream = self
+        let default_primary_stream = &(self
             .get_primary_stream()
             .cloned()
-            .ok_or(NetworkError::InternalError("Primary stream not loaded"))?;
+            .ok_or(NetworkError::InternalError("Primary stream not loaded"))?);
 
         match virtual_target {
             VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {

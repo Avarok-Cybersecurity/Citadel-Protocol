@@ -638,7 +638,7 @@ impl HdpSession {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine!");
         let session_ref = session;
         let connect_mode = (*inner!(session.connect_mode))
-            .ok_or_else(|| NetworkError::InternalError("Connect mode not loaded"))?;
+            .ok_or(NetworkError::InternalError("Connect mode not loaded"))?;
         let mut state_container = inner_mut_state!(session_ref.state_container);
 
         let udp_mode = state_container.udp_mode;
@@ -1902,8 +1902,7 @@ impl HdpSession {
                     disconnect_stage0_packet,
                     Some(ticket),
                 )
-            })?
-            .and_then(|_| Ok(true))
+            })?.map(|_| true)
     }
 }
 
@@ -2012,7 +2011,6 @@ impl HdpSessionInner {
             let security_level = state_container
                 .session_security_settings
                 .map(|r| r.security_level)
-                .clone()
                 .unwrap();
             let stage0_packet =
                 packet_crafter::do_deregister::craft_stage0(hr, timestamp, security_level);
