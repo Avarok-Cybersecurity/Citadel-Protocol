@@ -9,7 +9,7 @@ mod tests {
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_crypt::entropy_bank::SecurityLevel;
     use citadel_crypt::misc::CryptError;
-    use citadel_crypt::net::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
+    use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::secure_buffer::sec_bytes::SecBuffer;
     use citadel_crypt::secure_buffer::sec_string::SecString;
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
@@ -649,7 +649,7 @@ mod tests {
     ) {
         use bytes::{BufMut, BytesMut};
         use citadel_crypt::entropy_bank::SecurityLevel;
-        use citadel_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
+        use citadel_crypt::scramble::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
 
