@@ -118,25 +118,22 @@ pub async fn process_peer_cmd(
                                 let task = async move {
                                     loop {
                                         if let Some(ts) = last_packet.load(Ordering::SeqCst) {
-                                            if ts.elapsed() > Duration::from_millis(1500) {
-                                                if inner_mut_state!(state_container_ref)
+                                            if ts.elapsed() > Duration::from_millis(1500)
+                                                && inner_mut_state!(state_container_ref)
                                                     .enqueued_packets
                                                     .entry(target)
                                                     .or_default()
                                                     .is_empty()
-                                                {
-                                                    break;
-                                                }
-                                            }
-                                        } else {
-                                            if inner_mut_state!(state_container_ref)
-                                                .enqueued_packets
-                                                .entry(target)
-                                                .or_default()
-                                                .is_empty()
                                             {
                                                 break;
                                             }
+                                        } else if inner_mut_state!(state_container_ref)
+                                            .enqueued_packets
+                                            .entry(target)
+                                            .or_default()
+                                            .is_empty()
+                                        {
+                                            break;
                                         }
 
                                         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -156,7 +153,7 @@ pub async fn process_peer_cmd(
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,
-                                ticket: ticket,
+                                ticket,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
@@ -183,7 +180,7 @@ pub async fn process_peer_cmd(
 
                             kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerEvent {
                                 event: PeerSignal::DeregistrationSuccess(*peer_cid),
-                                ticket: ticket,
+                                ticket,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
@@ -219,7 +216,7 @@ pub async fn process_peer_cmd(
                                             *ticket0,
                                             Some(PeerResponse::Accept(Some(peer_username.clone()))),
                                         ),
-                                        ticket: ticket,
+                                        ticket,
                                     }))?;
                                 }
 
@@ -227,7 +224,7 @@ pub async fn process_peer_cmd(
                                     log::error!(target: "citadel", "Unable to register at endpoints: {:?}", &err);
                                     to_kernel.unbounded_send(NodeResult::PeerEvent(PeerEvent {
                                         event: PeerSignal::SignalError(ticket, err.into_string()),
-                                        ticket: ticket,
+                                        ticket,
                                     }))?;
                                 }
                             }
@@ -532,8 +529,8 @@ pub async fn process_peer_cmd(
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: ticket_for_chan.unwrap_or(ticket),
-                                            channel: channel,
-                                            udp_rx_opt: udp_rx_opt,
+                                            channel,
+                                            udp_rx_opt,
                                         });
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
@@ -656,8 +653,8 @@ pub async fn process_peer_cmd(
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: ticket_for_chan.unwrap_or(ticket),
-                                            channel: channel,
-                                            udp_rx_opt: udp_rx_opt,
+                                            channel,
+                                            udp_rx_opt,
                                         });
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
@@ -728,7 +725,7 @@ pub async fn process_peer_cmd(
                         .kernel_tx
                         .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                             event: signal,
-                            ticket: ticket,
+                            ticket,
                         }))?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
@@ -1325,7 +1322,7 @@ async fn process_signal_command_as_server(
                 .kernel_tx
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: PeerSignal::SignalError(ticket, err),
-                    ticket: ticket,
+                    ticket,
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }
@@ -1335,7 +1332,7 @@ async fn process_signal_command_as_server(
                 .kernel_tx
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: signal,
-                    ticket: ticket,
+                    ticket,
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }

@@ -34,7 +34,7 @@ pub(crate) mod group {
 
     use bytes::{Bytes, BytesMut};
 
-    use citadel_crypt::net::crypt_splitter::GroupReceiverConfig;
+    use citadel_crypt::scramble::crypt_splitter::GroupReceiverConfig;
 
     use crate::proto::packet_crafter::SecureProtocolPacket;
     use crate::proto::state_container::VirtualTargetType;

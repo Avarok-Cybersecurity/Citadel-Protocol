@@ -434,7 +434,7 @@ pub async fn process_preconnect(
                         std::mem::drop(state_container);
                         //session.needs_close_message.set(false);
                         session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
-                            ticket: ticket,
+                            ticket,
                             cid_opt: Some(cnac.get_cid()),
                             error_message: "Preconnect stage failed".to_string(),
                         }))?;
@@ -489,7 +489,7 @@ pub async fn process_preconnect(
                 let message = String::from_utf8(payload.to_vec()).unwrap_or("INVALID UTF-8".into());
                 let ticket = session.kernel_ticket.get();
                 session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
-                    ticket: ticket,
+                    ticket,
                     cid_opt: Some(header.session_cid.get()),
                     error_message: message,
                 }))?;
