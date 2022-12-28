@@ -315,11 +315,8 @@ impl VirtualConnectionType {
     }
 
     pub fn is_hyperlan(&self) -> bool {
-        match self {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(..)
-            | VirtualConnectionType::HyperLANPeerToHyperLANServer(..) => true,
-            _ => false,
-        }
+        matches!(self, VirtualConnectionType::HyperLANPeerToHyperLANPeer(..)
+            | VirtualConnectionType::HyperLANPeerToHyperLANServer(..))
     }
 
     pub fn is_hyperwan(&self) -> bool {
@@ -590,14 +587,12 @@ impl StateContainerInner {
                     .on_packet_received(group_id, data)
                     .is_ok();
             }
-        } else {
-            if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
-                if let Some(channel) = vconn.endpoint_container.as_mut() {
-                    return channel
-                        .to_default_channel
-                        .on_packet_received(group_id, data)
-                        .is_ok();
-                }
+        } else if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
+            if let Some(channel) = vconn.endpoint_container.as_mut() {
+                return channel
+                    .to_default_channel
+                    .on_packet_received(group_id, data)
+                    .is_ok();
             }
         }
 
@@ -613,12 +608,10 @@ impl StateContainerInner {
                     return unordered_channel.to_channel.unbounded_send(data).is_ok();
                 }
             }
-        } else {
-            if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
-                if let Some(channel) = vconn.endpoint_container.as_ref() {
-                    if let Some(unordered_channel) = channel.to_unordered_channel.as_ref() {
-                        return unordered_channel.to_channel.unbounded_send(data).is_ok();
-                    }
+        } else if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
+            if let Some(channel) = vconn.endpoint_container.as_ref() {
+                if let Some(unordered_channel) = channel.to_unordered_channel.as_ref() {
+                    return unordered_channel.to_channel.unbounded_send(data).is_ok();
                 }
             }
         }
@@ -659,38 +652,36 @@ impl StateContainerInner {
             } else {
                 None
             }
-        } else {
-            if let Some(p2p_container) = self.active_virtual_connections.get_mut(&target_cid) {
-                if let Some((sender, _)) = p2p_container.sender.as_mut() {
-                    *sender = Some(to_udp_stream.clone());
-                    if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut()
-                    {
-                        let (to_channel, rx) = unbounded();
-                        let udp_channel = UdpChannel::new(
-                            to_udp_stream,
-                            rx,
-                            target_cid,
-                            v_conn,
-                            ticket,
-                            p2p_container.is_active.clone(),
-                            self.hdp_server_remote.clone(),
-                        );
-                        p2p_endpoint_container.to_unordered_channel =
-                            Some(UnorderedChannelContainer {
-                                to_channel,
-                                stopper_tx,
-                            });
-                        // data can now be forwarded
-                        Some(udp_channel)
-                    } else {
-                        None
-                    }
+        } else if let Some(p2p_container) = self.active_virtual_connections.get_mut(&target_cid) {
+            if let Some((sender, _)) = p2p_container.sender.as_mut() {
+                *sender = Some(to_udp_stream.clone());
+                if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut()
+                {
+                    let (to_channel, rx) = unbounded();
+                    let udp_channel = UdpChannel::new(
+                        to_udp_stream,
+                        rx,
+                        target_cid,
+                        v_conn,
+                        ticket,
+                        p2p_container.is_active.clone(),
+                        self.hdp_server_remote.clone(),
+                    );
+                    p2p_endpoint_container.to_unordered_channel =
+                        Some(UnorderedChannelContainer {
+                            to_channel,
+                            stopper_tx,
+                        });
+                    // data can now be forwarded
+                    Some(udp_channel)
                 } else {
                     None
                 }
             } else {
                 None
             }
+        } else {
+            None
         }
     }
 
@@ -701,16 +692,14 @@ impl StateContainerInner {
                     let _ = channel.stopper_tx.send(());
                 }
             }
-        } else {
-            if let Some(p2p_container) = self.active_virtual_connections.get_mut(&target_cid) {
-                if let Some((sender, _)) = p2p_container.sender.as_mut() {
-                    if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut()
-                    {
-                        if let Some(channel) = p2p_endpoint_container.to_unordered_channel.take() {
-                            let _ = channel.stopper_tx.send(());
-                        }
-                        *sender = None;
+        } else if let Some(p2p_container) = self.active_virtual_connections.get_mut(&target_cid) {
+            if let Some((sender, _)) = p2p_container.sender.as_mut() {
+                if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut()
+                {
+                    if let Some(channel) = p2p_endpoint_container.to_unordered_channel.take() {
+                        let _ = channel.stopper_tx.send(());
                     }
+                    *sender = None;
                 }
             }
         }
@@ -735,7 +724,7 @@ impl StateContainerInner {
                 // this direct conn over the proxied TURN-like connection
                 vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
 
-                if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
+                if endpoint_container.direct_p2p_remote.replace(provisional).is_some() {
                     log::warn!(target: "citadel", "Dropped previous p2p remote during upgrade process");
                 }
 
@@ -911,25 +900,19 @@ impl StateContainerInner {
         let mut ping_ns = current_timestamp_ns - inbound_packet_timestamp_ns;
         if ping_ns < 0 {
             // For localhost testing, this sometimes occurs. The clocks might be out of sync a bit.
-            current_timestamp_ns = current_timestamp_ns - ping_ns;
+            current_timestamp_ns -= ping_ns;
             // Negate it, for now. Usually, this wont happen on networks
             ping_ns = -ping_ns;
         }
         // The jitter is the differential of pings. Ping current - ping present
-        let jitter_ns = ping_ns - self.network_stats.ping_ns.clone().unwrap_or(0);
+        let jitter_ns = ping_ns - self.network_stats.ping_ns.unwrap_or(0);
         self.network_stats.jitter_ns.replace(jitter_ns);
         self.network_stats.ping_ns.replace(ping_ns);
 
         let res = if let Some(last_ka) = self.network_stats.last_keep_alive.take() {
             if ping_ns > self.keep_alive_timeout_ns {
                 // possible timeout. There COULD be packets being spammed, preventing KAs from getting through. Thus, check the meta expiry container
-                if self.meta_expiry_state.expired() {
-                    // no packets are backing up the system. We are DC'ed
-                    false
-                } else {
-                    // packets are backed up, return true since other packets are making it across anyways
-                    true
-                }
+                !self.meta_expiry_state.expired()
             } else {
                 self.network_stats
                     .last_keep_alive
@@ -968,7 +951,7 @@ impl StateContainerInner {
         let object_id = header.wave_id.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
         let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id);
-        if !self.inbound_groups.contains_key(&inbound_group_key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_groups.entry(inbound_group_key) {
             let receiver = GroupReceiver::new(
                 group_receiver_config,
                 INDIVIDUAL_WAVE_TIMEOUT_MS,
@@ -1010,8 +993,7 @@ impl StateContainerInner {
                 receiver_container.current_window.clone()
             };
 
-            self.inbound_groups
-                .insert(inbound_group_key, receiver_container);
+            e.insert(receiver_container);
             Some(wave_window)
         } else {
             log::error!(target: "citadel", "Duplicate group HEADER detected ({})", group_id);
@@ -1119,9 +1101,7 @@ impl StateContainerInner {
                                     let status = match success_receiving_rx.await {
                                         Ok(_) => ObjectTransferStatus::ReceptionComplete,
 
-                                        Err(_) => ObjectTransferStatus::Fail(format!(
-                                            "An unknown error occurred while receiving file"
-                                        )),
+                                        Err(_) => ObjectTransferStatus::Fail("An unknown error occurred while receiving file".to_string()),
                                     };
 
                                     let _ = tx_status.send(status);
@@ -1266,7 +1246,7 @@ impl StateContainerInner {
         }
 
         let outbound_container = self.outbound_transmitters.get_mut(&key).unwrap();
-        outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
+        outbound_container.waves_in_current_window = next_window.unwrap_or(0..=0).count();
         // file-transfer, or TCP only mode since next_window is none. Use TCP
         outbound_container
             .burst_transmitter
@@ -1305,12 +1285,11 @@ impl StateContainerInner {
                     ))
                 })?;
 
-        let src = *payload
-            .get(0)
-            .ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [0]"))?;
+        let src = *payload.first()
+            .ok_or(NetworkError::InvalidRequest("Bad payload packet [0]"))?;
         let dest = *payload
             .get(1)
-            .ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [1]"))?;
+            .ok_or(NetworkError::InvalidRequest("Bad payload packet [1]"))?;
         let ts = self.time_tracker.get_global_time_ns();
 
         let true_sequence = citadel_crypt::packet_vector::generate_packet_coordinates_inv(
@@ -1319,7 +1298,7 @@ impl StateContainerInner {
             dest as u16,
             hr.get_scramble_drill(),
         )
-        .ok_or_else(|| NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
+        .ok_or(NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
 
         let mut send_wave_ack = false;
         let mut complete = false;
@@ -1428,7 +1407,7 @@ impl StateContainerInner {
         if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
             // we set has_begun here instead of the transmit_tcp, simply because we want the first wave to ACK
             transmitter_container.has_begun = true;
-            let ref mut transmitter = transmitter_container.burst_transmitter.group_transmitter;
+            let transmitter = &mut transmitter_container.burst_transmitter.group_transmitter;
             let relative_group_id = transmitter_container.relative_group_id;
             if transmitter.on_wave_tail_ack_received(wave_id) {
                 // Group is finished. Delete it
@@ -1504,7 +1483,7 @@ impl StateContainerInner {
 
     /// This should be ran periodically by the session timer
     pub fn keep_alive_subsystem_timed_out(&self, current_timestamp_ns: i64) -> bool {
-        if let Some(prev_ka_time) = self.network_stats.last_keep_alive.clone() {
+        if let Some(prev_ka_time) = self.network_stats.last_keep_alive {
             //assert_ne!(self.keep_alive_timeout_ns, 0);
             current_timestamp_ns - prev_ka_time > self.keep_alive_timeout_ns
         } else {
@@ -1526,7 +1505,6 @@ impl StateContainerInner {
             self.session_security_settings
                 .as_ref()
                 .map(|r| r.secrecy_mode)
-                .clone()
         }
     }
 
@@ -1622,7 +1600,7 @@ impl StateContainerInner {
                 .get_secrecy_mode(virtual_target.get_target_cid())
                 .ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
 
-            let time_tracker = this.time_tracker.clone();
+            let time_tracker = this.time_tracker;
 
             if secrecy_mode == SecrecyMode::Perfect && !called_from_poll {
                 //let mut enqueued = inner_mut!(this.enqueued_packets);
@@ -1631,7 +1609,7 @@ impl StateContainerInner {
                         .updates_in_progress
                         .get(&virtual_target.get_target_cid())
                         .map(|r| r.load(Ordering::SeqCst))
-                        .ok_or_else(|| {
+                        .ok_or({
                             NetworkError::InternalError("Update in progress not loaded for client")
                         })?
                 {
@@ -1671,7 +1649,7 @@ impl StateContainerInner {
                             let group_id = crypt_container.get_and_increment_group_id();
                             Either::Left((
                                 constructor,
-                                latest_hyper_ratchet.clone(),
+                                latest_hyper_ratchet,
                                 group_id,
                                 packet,
                             ))
@@ -1683,7 +1661,7 @@ impl StateContainerInner {
                                 let group_id = crypt_container.get_and_increment_group_id();
                                 Either::Left((
                                     constructor,
-                                    latest_hyper_ratchet.clone(),
+                                    latest_hyper_ratchet,
                                     group_id,
                                     packet,
                                 ))
@@ -1716,7 +1694,7 @@ impl StateContainerInner {
                                     ticket,
                                     time_tracker,
                                 )
-                                .ok_or_else(|| {
+                                .ok_or({
                                     NetworkError::InternalError(
                                         "Unable to create the outbound transmitter",
                                     )
@@ -1788,13 +1766,11 @@ impl StateContainerInner {
                                             ticket,
                                             time_tracker,
                                         )
-                                        .ok_or_else(
-                                            || {
+                                        .ok_or({
                                                 NetworkError::InternalError(
                                                     "Unable to create the outbound transmitter",
                                                 )
-                                            },
-                                        )?,
+                                            })?,
                                         group_id,
                                         target_cid,
                                     )
@@ -1821,7 +1797,7 @@ impl StateContainerInner {
                                                 ticket,
                                                 time_tracker,
                                             )
-                                            .ok_or_else(|| {
+                                            .ok_or({
                                                 NetworkError::InternalError(
                                                     "Unable to create the outbound transmitter",
                                                 )
@@ -1870,7 +1846,7 @@ impl StateContainerInner {
             };
 
             // We manually send the header. The tails get sent automatically
-            log::trace!(target: "citadel", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then(|| "Server").unwrap_or("Client"));
+            log::trace!(target: "citadel", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then_some("Server").unwrap_or("Client"));
             let group_len = transmitter.get_total_plaintext_bytes();
             transmitter.transmit_group_header(virtual_target)?;
 
@@ -1888,7 +1864,7 @@ impl StateContainerInner {
 
             this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                 if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
-                    let ref transmitter = transmitter.burst_transmitter.group_transmitter;
+                    let transmitter = &transmitter.burst_transmitter.group_transmitter;
                     if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
                         if state_container.meta_expiry_state.expired() {
                             log::warn!(target: "citadel", "Outbound group {} has expired; dropping from map", group_id);
@@ -1941,12 +1917,12 @@ impl StateContainerInner {
             ));
         }
 
-        let session_security_settings = self.session_security_settings.clone().unwrap();
+        let session_security_settings = self.session_security_settings.unwrap();
         let security_level = session_security_settings.security_level;
         let ref default_primary_stream = self
             .get_primary_stream()
             .cloned()
-            .ok_or_else(|| NetworkError::InternalError("Primary stream not loaded"))?;
+            .ok_or(NetworkError::InternalError("Primary stream not loaded"))?;
 
         match virtual_target {
             VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
@@ -2018,7 +1994,7 @@ impl StateContainerInner {
                     Some(alice_constructor) => {
                         let to_primary_stream_preferred = endpoint_container
                             .get_direct_p2p_primary_stream()
-                            .unwrap_or_else(|| default_primary_stream);
+                            .unwrap_or(default_primary_stream);
                         let stage0_packet =
                             packet_crafter::do_drill_update::craft_stage0(
                                 &latest_hyper_ratchet,
@@ -2034,10 +2010,10 @@ impl StateContainerInner {
                             .unbounded_send(stage0_packet)
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                        if let Some(_) = self
+                        if self
                             .ratchet_update_state
                             .p2p_updates
-                            .insert(peer_cid, alice_constructor)
+                            .insert(peer_cid, alice_constructor).is_some()
                         {
                             log::error!(target: "citadel", "Overwrote pre-existing peer kem. Report to developers");
                         }
@@ -2081,13 +2057,12 @@ impl StateContainerInner {
 
         let hyper_ratchet = self
             .get_c2s_crypto()
-            .ok_or_else(|| NetworkError::InternalError("C2s not loaded"))?
+            .ok_or(NetworkError::InternalError("C2s not loaded"))?
             .get_hyper_ratchet(None)
             .unwrap();
         let security_level = self
             .session_security_settings
             .map(|r| r.security_level)
-            .clone()
             .unwrap();
         let to_primary_stream = self.get_primary_stream().unwrap();
 
@@ -2134,7 +2109,7 @@ impl StateContainerInner {
             .cnac
             .as_ref()
             .map(|r| r.get_cid())
-            .ok_or_else(|| NetworkError::InternalError("CNAC not loaded"))?;
+            .ok_or(NetworkError::InternalError("CNAC not loaded"))?;
 
         if self.group_channels.contains_key(&key) {
             return Err(NetworkError::InternalError(

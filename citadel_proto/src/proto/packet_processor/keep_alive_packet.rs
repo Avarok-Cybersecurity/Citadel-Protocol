@@ -20,7 +20,7 @@ pub async fn process_keep_alive(
     }
 
     let task = async move {
-        let ref session = session;
+        let session = &session;
 
         let hr = {
             let state_container = inner_state!(session.state_container);

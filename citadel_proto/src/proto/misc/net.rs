@@ -79,7 +79,7 @@ impl GenericNetworkStream {
     pub(crate) fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
             Self::Tcp(stream) => stream.peer_addr(),
-            Self::Tls(stream) => TcpStream::peer_addr(&stream.get_ref().0),
+            Self::Tls(stream) => TcpStream::peer_addr(stream.get_ref().0),
             Self::Quic(_, _, _, _, remote_addr) => Ok(*remote_addr),
         }
     }
@@ -87,7 +87,7 @@ impl GenericNetworkStream {
     pub(crate) fn local_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
             Self::Tcp(stream) => stream.local_addr(),
-            Self::Tls(stream) => TcpStream::local_addr(&stream.get_ref().0),
+            Self::Tls(stream) => TcpStream::local_addr(stream.get_ref().0),
             Self::Quic(_, _, endpoint, _, _) => endpoint.local_addr(),
         }
     }
@@ -205,10 +205,10 @@ impl GenericNetworkListener {
     ) -> std::io::Result<Self> {
         let (send, recv) = tokio::sync::mpsc::channel(1024);
         let local_addr = listener.local_addr()?;
-        let tls_domain = redirect_to_quic.as_ref().map(|r| r.0.clone()).flatten();
+        let tls_domain = redirect_to_quic.as_ref().and_then(|r| r.0.clone());
 
         let future = async move {
-            let ref redirect_to_quic = redirect_to_quic;
+            let redirect_to_quic = &redirect_to_quic;
             loop {
                 let (stream, addr) = listener.accept().await?;
                 log::trace!(target: "citadel", "Received raw TCP stream from {:?}: {:?}", addr, stream);
@@ -343,9 +343,9 @@ impl TlsListener {
         let tls_domain = domain.clone();
 
         let future = async move {
-            let ref tls_acceptor = tls_acceptor;
-            let ref domain = domain;
-            let ref send = send;
+            let tls_acceptor = &tls_acceptor;
+            let domain = &domain;
+            let send = &send;
 
             let acceptor_stream = async_stream::stream! {
                     loop {
@@ -425,7 +425,7 @@ impl QuicListener {
 
         let future = async move {
             loop {
-                let ref mut server = server;
+                let server = &mut server;
 
                 let acceptor_stream = async_stream::stream! {
                     loop {
@@ -445,8 +445,8 @@ impl QuicListener {
                     }
                 };
 
-                let ref endpoint = endpoint;
-                let ref send = send;
+                let endpoint = &endpoint;
+                let send = &send;
 
                 acceptor_stream
                     .try_for_each_concurrent(None, |(conn, tx, rx)| async move {

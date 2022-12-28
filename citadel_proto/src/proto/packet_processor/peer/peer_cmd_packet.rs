@@ -71,7 +71,7 @@ pub async fn process_peer_cmd(
     };
 
     let task = async move {
-        let ref session = session;
+        let session = &session;
         // we can unwrap below safely since the header layout has already been verified
         let header = LayoutVerified::new(&*header).unwrap() as LayoutVerified<&[u8], HdpHeader>;
 
@@ -102,7 +102,7 @@ pub async fn process_peer_cmd(
                             let target = resp
                                 .as_ref()
                                 .map(|_| vconn.get_original_implicated_cid())
-                                .unwrap_or(vconn.get_original_target_cid());
+                                .unwrap_or_else(|| vconn.get_original_target_cid());
                             let state_container = inner_state!(session.state_container);
                             if let Some(v_conn) =
                                 state_container.active_virtual_connections.get(&target)
@@ -146,7 +146,7 @@ pub async fn process_peer_cmd(
                                         state_container.active_virtual_connections.remove(&target);
                                 };
 
-                                let _ = spawn!(task);
+                                spawn!(task);
                             } else {
                                 log::warn!(target: "citadel", "Vconn already removed");
                             }
@@ -170,10 +170,11 @@ pub async fn process_peer_cmd(
                             let acc_mgr = &session.account_manager;
                             let kernel_tx = &session.kernel_tx;
 
-                            if let None = acc_mgr
+                            if (acc_mgr
                                 .get_persistence_handler()
                                 .deregister_p2p_as_client(implicated_cid, *peer_cid)
-                                .await?
+                                .await?)
+                                .is_none()
                             {
                                 log::warn!(target: "citadel", "Unable to remove hyperlan peer {}", peer_cid);
                             }
@@ -241,99 +242,91 @@ pub async fn process_peer_cmd(
                         ) => {
                             if let Some(resp) = resp {
                                 // the connection was mutually accepted. Now, we must begin the KEM subroutine
-                                match resp {
-                                    // the accept case
-                                    PeerResponse::Accept(_) => {
-                                        return match conn {
-                                            PeerConnectionType::HyperLANPeerToHyperLANPeer(
-                                                original_implicated_cid,
-                                                original_target_cid,
-                                            ) => {
-                                                // this implies this node is receiving an accept_request. As such, we need to NOT
-                                                // forward the signal quite yet, and instead, begin the key-exchange process in order to
-                                                // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
-                                                // unique to the session.
-                                                //let mut state_container = inner_mut!(session.state_container);
-                                                //let peer_cid = conn.get_original_implicated_cid();
-                                                let mut peer_kem_state_container =
-                                                    PeerKemStateContainer::new(
-                                                        *endpoint_security_settings,
-                                                        *udp_enabled == UdpMode::Enabled,
-                                                    );
+                                if let PeerResponse::Accept(_) = resp {
+                                    return match conn {
+                                        PeerConnectionType::HyperLANPeerToHyperLANPeer(
+                                            original_implicated_cid,
+                                            original_target_cid,
+                                        ) => {
+                                            // this implies this node is receiving an accept_request. As such, we need to NOT
+                                            // forward the signal quite yet, and instead, begin the key-exchange process in order to
+                                            // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
+                                            // unique to the session.
+                                            //let mut state_container = inner_mut!(session.state_container);
+                                            //let peer_cid = conn.get_original_implicated_cid();
+                                            let mut peer_kem_state_container =
+                                                PeerKemStateContainer::new(
+                                                    *endpoint_security_settings,
+                                                    *udp_enabled == UdpMode::Enabled,
+                                                );
 
-                                                let alice_constructor = return_if_none!(
-                                                    StackedRatchetConstructor::new_alice(
-                                                        ConstructorOpts::new_vec_init(
-                                                            Some(
-                                                                endpoint_security_settings
-                                                                    .crypto_params
-                                                            ),
-                                                            (endpoint_security_settings
-                                                                .security_level
-                                                                .value()
-                                                                + 1)
-                                                                as usize
-                                                        ),
-                                                        conn.get_original_target_cid(),
-                                                        0,
+                                            let alice_constructor = return_if_none!(
+                                                StackedRatchetConstructor::new_alice(
+                                                    ConstructorOpts::new_vec_init(
                                                         Some(
                                                             endpoint_security_settings
-                                                                .security_level
-                                                        )
-                                                    )
-                                                );
-                                                let transfer = return_if_none!(
-                                                    alice_constructor.stage0_alice(),
-                                                    "AliceConstructor None"
-                                                );
-                                                //log::trace!(target: "citadel", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
-                                                let msg_bytes =
-                                                    return_if_none!(transfer.serialize_to_vec());
-                                                peer_kem_state_container.constructor =
-                                                    Some(alice_constructor);
-                                                inner_mut_state!(session.state_container)
-                                                    .peer_kem_states
-                                                    .insert(
-                                                        *original_implicated_cid,
-                                                        peer_kem_state_container,
-                                                    );
-                                                // finally, prepare the signal and send outbound
-                                                // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
-                                                let signal = PeerSignal::Kem(
-                                                    PeerConnectionType::HyperLANPeerToHyperLANPeer(
-                                                        *original_target_cid,
-                                                        *original_implicated_cid,
+                                                                .crypto_params
+                                                        ),
+                                                        (endpoint_security_settings
+                                                            .security_level
+                                                            .value()
+                                                            + 1)
+                                                            as usize
                                                     ),
-                                                    KeyExchangeProcess::Stage0(
-                                                        msg_bytes,
-                                                        *endpoint_security_settings,
-                                                        *udp_enabled,
-                                                    ),
+                                                    conn.get_original_target_cid(),
+                                                    0,
+                                                    Some(endpoint_security_settings.security_level)
+                                                )
+                                            );
+                                            let transfer = return_if_none!(
+                                                alice_constructor.stage0_alice(),
+                                                "AliceConstructor None"
+                                            );
+                                            //log::trace!(target: "citadel", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
+                                            let msg_bytes =
+                                                return_if_none!(transfer.serialize_to_vec());
+                                            peer_kem_state_container.constructor =
+                                                Some(alice_constructor);
+                                            inner_mut_state!(session.state_container)
+                                                .peer_kem_states
+                                                .insert(
+                                                    *original_implicated_cid,
+                                                    peer_kem_state_container,
                                                 );
+                                            // finally, prepare the signal and send outbound
+                                            // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
+                                            let signal = PeerSignal::Kem(
+                                                PeerConnectionType::HyperLANPeerToHyperLANPeer(
+                                                    *original_target_cid,
+                                                    *original_implicated_cid,
+                                                ),
+                                                KeyExchangeProcess::Stage0(
+                                                    msg_bytes,
+                                                    *endpoint_security_settings,
+                                                    *udp_enabled,
+                                                ),
+                                            );
 
-                                                let stage0_peer_kem =
-                                                    packet_crafter::peer_cmd::craft_peer_signal(
-                                                        &sess_hyper_ratchet,
-                                                        signal,
-                                                        ticket,
-                                                        timestamp,
-                                                        security_level,
-                                                    );
-                                                log::trace!(target: "citadel", "Sent peer KEM stage 0 outbound");
-                                                // send to central server
-                                                Ok(PrimaryProcessorResult::ReplyToSender(
-                                                    stage0_peer_kem,
-                                                ))
-                                            }
+                                            let stage0_peer_kem =
+                                                packet_crafter::peer_cmd::craft_peer_signal(
+                                                    &sess_hyper_ratchet,
+                                                    signal,
+                                                    ticket,
+                                                    timestamp,
+                                                    security_level,
+                                                );
+                                            log::trace!(target: "citadel", "Sent peer KEM stage 0 outbound");
+                                            // send to central server
+                                            Ok(PrimaryProcessorResult::ReplyToSender(
+                                                stage0_peer_kem,
+                                            ))
+                                        }
 
-                                            _ => {
-                                                log::error!(target: "citadel", "HyperWAN Functionality not yet enabled");
-                                                Ok(PrimaryProcessorResult::Void)
-                                            }
-                                        };
-                                    }
-
-                                    _ => {}
+                                        _ => {
+                                            log::error!(target: "citadel", "HyperWAN Functionality not yet enabled");
+                                            Ok(PrimaryProcessorResult::Void)
+                                        }
+                                    };
                                 }
                             }
                         }
@@ -486,7 +479,7 @@ pub async fn process_peer_cmd(
                                         let hole_punch_compat_stream =
                                             ReliableOrderedCompatStream::new(
                                                 return_if_none!(session.to_primary_stream.clone()),
-                                                &mut *state_container,
+                                                &mut state_container,
                                                 peer_cid,
                                                 endpoint_hyper_ratchet.clone(),
                                                 endpoint_security_level,
@@ -635,7 +628,7 @@ pub async fn process_peer_cmd(
                                         let hole_punch_compat_stream =
                                             ReliableOrderedCompatStream::new(
                                                 return_if_none!(session.to_primary_stream.clone()),
-                                                &mut *state_container,
+                                                &mut state_container,
                                                 peer_cid,
                                                 endpoint_hyper_ratchet.clone(),
                                                 endpoint_security_level,
@@ -882,7 +875,7 @@ async fn process_signal_command_as_server(
                             // route signal to peer
                             let _ =
                                 super::server::post_register::handle_response_phase_post_register(
-                                    &mut *peer_layer,
+                                    &mut peer_layer,
                                     peer_conn_type,
                                     username.clone(),
                                     PeerResponse::Accept(Some(username)),
@@ -928,7 +921,7 @@ async fn process_signal_command_as_server(
                                 return_if_none!(session.to_primary_stream.clone());
                             let sess_mgr = session.session_manager.clone();
                             route_signal_and_register_ticket_forwards(
-                                &mut *peer_layer,
+                                &mut peer_layer,
                                 PeerSignal::PostRegister(
                                     peer_conn_type,
                                     username,
@@ -1067,7 +1060,7 @@ async fn process_signal_command_as_server(
                     let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
                     if let Some(peer_response) = peer_response {
                         super::server::post_connect::handle_response_phase_post_connect(
-                            &mut *peer_layer,
+                            &mut peer_layer,
                             peer_conn_type,
                             ticket,
                             peer_response,
@@ -1094,7 +1087,7 @@ async fn process_signal_command_as_server(
                             // packet to the peer who first attempted a connect request
                             let _ =
                                 super::server::post_connect::handle_response_phase_post_connect(
-                                    &mut *peer_layer,
+                                    &mut peer_layer,
                                     peer_conn_type,
                                     ticket_new,
                                     PeerResponse::Accept(None),
@@ -1111,7 +1104,7 @@ async fn process_signal_command_as_server(
                             Ok(PrimaryProcessorResult::Void)
                         } else {
                             route_signal_and_register_ticket_forwards(
-                                &mut *peer_layer,
+                                &mut peer_layer,
                                 PeerSignal::PostConnect(
                                     peer_conn_type,
                                     Some(ticket),
@@ -1140,7 +1133,7 @@ async fn process_signal_command_as_server(
                     _target_cid,
                 ) => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
-                    return Ok(PrimaryProcessorResult::Void);
+                    Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
@@ -1211,7 +1204,7 @@ async fn process_signal_command_as_server(
                             );
                         };
 
-                        let _ = spawn!(task);
+                        spawn!(task);
 
                         Ok(PrimaryProcessorResult::Void)
                     } else {
@@ -1223,7 +1216,7 @@ async fn process_signal_command_as_server(
 
                 _ => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
-                    return Ok(PrimaryProcessorResult::Void);
+                    Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
@@ -1266,7 +1259,7 @@ async fn process_signal_command_as_server(
 
                 HypernodeConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
-                    return Ok(PrimaryProcessorResult::Void);
+                    Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
@@ -1481,7 +1474,7 @@ pub(crate) async fn route_signal_response(
                 );
                 log::trace!(target: "citadel", "Running on_route_finished subroutine");
                 //let mut peer_sess_ref = inner_mut!(peer_sess);
-                on_route_finished(&sess_ref, peer_sess, original_posting);
+                on_route_finished(sess_ref, peer_sess, original_posting);
                 ret
             },
         )
@@ -1492,7 +1485,7 @@ pub(crate) async fn route_signal_response(
 
         Err(err) => {
             log::warn!(target: "citadel", "Unable to route signal! {:?}", err);
-            reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level)
+            reply_to_sender_err(err, sess_hyper_ratchet, ticket, timestamp, security_level)
         }
     }
 }

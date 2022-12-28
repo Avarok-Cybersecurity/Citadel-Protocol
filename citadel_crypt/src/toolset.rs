@@ -73,7 +73,6 @@ impl<R: Ratchet> Toolset<R> {
         }
     }
 
-    #[cfg(debug_assertions)]
     pub fn new_debug(
         cid: u64,
         hyper_ratchet: R,

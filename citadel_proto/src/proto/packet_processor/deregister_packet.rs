@@ -20,7 +20,7 @@ pub async fn process_deregister(
     }
 
     let task = async move {
-        let ref session = session;
+        let session = &session;
         let hr = {
             let state_container = inner_state!(session.state_container);
             return_if_none!(
@@ -35,7 +35,7 @@ pub async fn process_deregister(
             validation::aead::validate(hr, &header, payload),
             "Unable to validate dereg packet"
         );
-        let ref header = header;
+        let header = &header;
         let implicated_cid = header.session_cid.get();
         let security_level = header.security_level.into();
 
@@ -60,7 +60,7 @@ pub async fn process_deregister(
             packet_flags::cmd::aux::do_deregister::FAILURE => {
                 log::trace!(target: "citadel", "STAGE FAILURE DEREGISTER PACKET RECV");
                 let state_container = inner_state!(session.state_container);
-                let ticket = state_container.deregister_state.current_ticket.clone();
+                let ticket = state_container.deregister_state.current_ticket;
                 // state_container.deregister_state.on_fail();
                 std::mem::drop(state_container);
                 let cid =

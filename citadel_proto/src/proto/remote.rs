@@ -279,15 +279,15 @@ impl Sink<NodeRequest> for NodeRemote {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct Ticket(pub u128);
 
-impl Into<Ticket> for u128 {
-    fn into(self) -> Ticket {
-        Ticket(self)
+impl From<u128> for Ticket {
+    fn from(val: u128) -> Self {
+        Ticket(val)
     }
 }
 
-impl Into<Ticket> for usize {
-    fn into(self) -> Ticket {
-        (self as u128).into()
+impl From<usize> for Ticket {
+    fn from(val: usize) -> Self {
+        (val as u128).into()
     }
 }
 

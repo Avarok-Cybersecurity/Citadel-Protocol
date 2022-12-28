@@ -27,7 +27,7 @@ pub(crate) async fn handle_response_phase_post_connect(
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-    route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), &sess_hyper_ratchet,
+    route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), sess_hyper_ratchet,
                           |this_sess, peer_sess, _original_tracked_posting| {
                               // when the route finishes, we need to update both sessions to allow high-level message-passing
                               // In other words, forge a virtual connection

@@ -192,36 +192,29 @@ impl Stream for PeerChannelRecvHalf {
 
 impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
-        match self.vconn_type {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) => {
-                log::trace!(target: "citadel", "[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
+        if let VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) = self.vconn_type {
+            log::trace!(target: "citadel", "[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
 
-                let command = match self.recv_type {
-                    ReceivePortType::OrderedReliable => {
-                        self.is_alive.store(false, Ordering::SeqCst);
-                        NodeRequest::PeerCommand(PeerCommand {
-                            implicated_cid: local_cid,
-                            command: PeerSignal::Disconnect(
-                                PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid),
-                                None,
-                            ),
-                        })
-                    }
-
-                    ReceivePortType::UnorderedUnreliable => NodeRequest::PeerCommand(PeerCommand {
+            let command = match self.recv_type {
+                ReceivePortType::OrderedReliable => {
+                    self.is_alive.store(false, Ordering::SeqCst);
+                    NodeRequest::PeerCommand(PeerCommand {
                         implicated_cid: local_cid,
-                        command: PeerSignal::DisconnectUDP(self.vconn_type),
-                    }),
-                };
-
-                if let Err(err) = self.server_remote.try_send(command) {
-                    log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
+                        command: PeerSignal::Disconnect(
+                            PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid),
+                            None,
+                        ),
+                    })
                 }
-            }
 
-            _ => {
-                // if c2s conn, we do nothing to allow the existence of the connection to continue
-                // but, TODO: if one end drops, the other end shouldn't be allowed to send data, but at least still allow the c2s connection
+                ReceivePortType::UnorderedUnreliable => NodeRequest::PeerCommand(PeerCommand {
+                    implicated_cid: local_cid,
+                    command: PeerSignal::DisconnectUDP(self.vconn_type),
+                }),
+            };
+
+            if let Err(err) = self.server_remote.try_send(command) {
+                log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
             }
         }
     }
