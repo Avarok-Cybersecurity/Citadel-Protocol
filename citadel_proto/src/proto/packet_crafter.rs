@@ -1,7 +1,7 @@
 use bytes::BytesMut;
 
 use citadel_crypt::entropy_bank::SecurityLevel;
-use citadel_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
+use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -9,7 +9,7 @@ use crate::error::NetworkError;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualTargetType;
-use citadel_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
+use citadel_crypt::scramble::crypt_splitter::oneshot_unencrypted_group_unified;
 use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 
@@ -1367,8 +1367,8 @@ pub(crate) mod peer_cmd {
     use crate::proto::peer::peer_layer::ChannelPacket;
     use crate::proto::remote::Ticket;
     use bytes::BytesMut;
-    use citadel_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::prelude::SecurityLevel;
+    use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::serialization::SyncIO;
     use serde::Serialize;
@@ -1533,7 +1533,7 @@ pub(crate) mod file {
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use bytes::{BufMut, BytesMut};
-    use citadel_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
+    use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::backend::utils::VirtualObjectMetadata;
     use zerocopy::{I64, U128, U32, U64};

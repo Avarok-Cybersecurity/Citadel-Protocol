@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
 use zerocopy::LayoutVerified;
 
-use citadel_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupReceiverStatus};
+use citadel_crypt::scramble::crypt_splitter::{
+    GroupReceiver, GroupReceiverConfig, GroupReceiverStatus,
+};
 use citadel_user::client_account::ClientNetworkAccount;
 use netbeam::time_tracker::TimeTracker;
 

@@ -139,9 +139,9 @@ async fn deregister_client_from_self(
     let session = session_ref;
 
     session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
-        implicated_cid: implicated_cid,
+        implicated_cid,
         ticket_opt: ticket,
-        success: success,
+        success,
     }))?;
 
     // This ensures no further packets are processed
@@ -184,7 +184,7 @@ async fn deregister_from_hyperlan_server_as_client(
     };
 
     session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
-        implicated_cid: implicated_cid,
+        implicated_cid,
         ticket_opt: dereg_ticket,
         success: true,
     }))?;

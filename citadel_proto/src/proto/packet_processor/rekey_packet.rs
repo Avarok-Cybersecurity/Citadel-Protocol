@@ -42,7 +42,6 @@ pub fn process_rekey(
         validation::aead::validate_custom(&hyper_ratchet, &header, payload),
         "Unable to validate packet"
     );
-    let ref header = header;
     let payload = &payload[..];
 
     let security_level = header.security_level.into();
@@ -54,11 +53,11 @@ pub fn process_rekey(
             log::trace!(target: "citadel", "DO_DRILL_UPDATE STAGE 0 PACKET RECV");
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
-                    let resp_target_cid = get_resp_target_cid_from_header(header);
+                    let resp_target_cid = get_resp_target_cid_from_header(&header);
                     let status = return_if_none!(
                         attempt_kem_as_bob(
                             resp_target_cid,
-                            header,
+                            &header,
                             Some(AliceToBobTransferType::Default(transfer)),
                             &mut state_container,
                             &hyper_ratchet
@@ -90,7 +89,7 @@ pub fn process_rekey(
                     //let mut state_container = inner_mut!(session.state_container);
                     let peer_cid = header.session_cid.get();
                     let target_cid = header.target_cid.get();
-                    let resp_target_cid = get_resp_target_cid_from_header(header);
+                    let resp_target_cid = get_resp_target_cid_from_header(&header);
                     let needs_truncate = transfer.update_status.requires_truncation();
                     let constructor = if target_cid != C2S_ENCRYPTION_ONLY {
                         return_if_none!(state_container
@@ -162,7 +161,7 @@ pub fn process_rekey(
                 validation::do_drill_update::validate_truncate(payload),
                 "Invalid truncate"
             );
-            let resp_target_cid = get_resp_target_cid_from_header(header);
+            let resp_target_cid = get_resp_target_cid_from_header(&header);
 
             let (mut method, secrecy_mode) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
                 let endpoint_container = return_if_none!(return_if_none!(state_container
@@ -227,10 +226,8 @@ pub fn process_rekey(
 
             //std::mem::drop(state_container);
 
-            if secrecy_mode == SecrecyMode::Perfect {
-                if do_poll {
-                    let _ = state_container.poll_next_enqueued(resp_target_cid)?;
-                }
+            if secrecy_mode == SecrecyMode::Perfect && do_poll {
+                let _ = state_container.poll_next_enqueued(resp_target_cid)?;
             }
 
             Ok(PrimaryProcessorResult::Void)
@@ -244,7 +241,7 @@ pub fn process_rekey(
             );
             log::trace!(target: "citadel", "Adjacent node has finished deregistering version {}", truncate_ack_packet.truncated_version);
 
-            let resp_target_cid = get_resp_target_cid_from_header(header);
+            let resp_target_cid = get_resp_target_cid_from_header(&header);
 
             let (mut method, secrecy_mode) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
                 let endpoint_container = return_if_none!(return_if_none!(state_container
@@ -263,7 +260,6 @@ pub fn process_rekey(
                     .session_security_settings
                     .as_ref()
                     .map(|r| r.secrecy_mode)
-                    .clone()
                     .unwrap();
                 let crypt = &mut state_container
                     .c2s_channel_container

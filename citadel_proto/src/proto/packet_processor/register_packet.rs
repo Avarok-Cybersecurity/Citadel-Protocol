@@ -27,7 +27,7 @@ pub async fn process_register(
 
     let task = async move {
         let (header, payload, _, _) = packet.decompose();
-        let ref header = return_if_none!(LayoutVerified::new(&header[..]), "Unable to parse header")
+        let header = return_if_none!(LayoutVerified::new(&header[..]), "Unable to parse header")
             as LayoutVerified<&[u8], HdpHeader>;
         debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
         let security_level = header.security_level.into();
@@ -49,16 +49,15 @@ pub async fn process_register(
                                 let timestamp = session.time_tracker.get_global_time_ns();
                                 state_container.register_state.passwordless = Some(passwordless);
 
-                                if passwordless {
-                                    if !session
+                                if passwordless
+                                    && !session
                                         .account_manager
                                         .get_misc_settings()
                                         .allow_passwordless
-                                    {
-                                        // passwordless is not allowed on this node
-                                        let err = packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
-                                        return Ok(PrimaryProcessorResult::ReplyToSender(err));
-                                    }
+                                {
+                                    // passwordless is not allowed on this node
+                                    let err = packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
+                                    return Ok(PrimaryProcessorResult::ReplyToSender(err));
                                 }
 
                                 std::mem::drop(state_container);
@@ -200,7 +199,7 @@ pub async fn process_register(
                         if let Some((stage2_packet, conn_info)) =
                             validation::do_register::validate_stage2(
                                 &hyper_ratchet,
-                                header,
+                                &header,
                                 payload,
                                 remote_addr,
                             )
@@ -279,7 +278,7 @@ pub async fn process_register(
                         if let Some((success_message, conn_info)) =
                             validation::do_register::validate_success(
                                 &hyper_ratchet,
-                                header,
+                                &header,
                                 payload,
                                 remote_addr,
                             )
@@ -371,7 +370,7 @@ pub async fn process_register(
                     > packet_flags::cmd::aux::do_register::STAGE0
                 {
                     if let Some(error_message) =
-                        validation::do_register::validate_failure(header, &payload[..])
+                        validation::do_register::validate_failure(&header, &payload[..])
                     {
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),

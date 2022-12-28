@@ -14,6 +14,7 @@ use citadel_crypt::endpoint_crypto_container::{
     EndpointRatchetConstructor, KemTransferStatus, PeerSessionCrypto,
 };
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
+use citadel_crypt::misc::CryptError;
 use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use citadel_crypt::stacked_ratchet::{Ratchet, RatchetType, StackedRatchet};
 use std::ops::Deref;
@@ -74,7 +75,7 @@ pub fn process_primary_packet(
             log::trace!(target: "citadel", "RECV GROUP PAYLOAD {:?}", header);
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
             match state_container.on_group_payload_received(
-                &*header,
+                &header,
                 payload.freeze(),
                 &hyper_ratchet,
             ) {
@@ -119,7 +120,7 @@ pub fn process_primary_packet(
                                         resp_target_cid,
                                         &header,
                                         transfer.map(AliceToBobTransferType::Default),
-                                        &mut *state_container,
+                                        &mut state_container,
                                         &hyper_ratchet
                                     ),
                                     "Unable to attempt_kem_as_bob [PGP]"
@@ -282,8 +283,7 @@ pub fn process_primary_packet(
                                         state_container
                                             .session_security_settings
                                             .as_ref()
-                                            .map(|r| r.secrecy_mode)
-                                            .clone(),
+                                            .map(|r| r.secrecy_mode),
                                         "Unable to get secrecy mode [PGP]"
                                     );
 
@@ -300,6 +300,7 @@ pub fn process_primary_packet(
                                             .store(Some(Instant::now()), Ordering::SeqCst);
                                     }
 
+                                    // TODO: make the below function return a result, not bools
                                     if state_container.on_group_header_ack_received(
                                         secrecy_mode,
                                         peer_cid,
@@ -344,16 +345,14 @@ pub fn process_primary_packet(
                                         }
 
                                         Ok(PrimaryProcessorResult::Void)
+                                    } else if udp_mode == UdpMode::Disabled {
+                                        Ok(PrimaryProcessorResult::EndSession(
+                                            "TCP sockets disconnected",
+                                        ))
                                     } else {
-                                        if udp_mode == UdpMode::Disabled {
-                                            Ok(PrimaryProcessorResult::EndSession(
-                                                "TCP sockets disconnected",
-                                            ))
-                                        } else {
-                                            Ok(PrimaryProcessorResult::EndSession(
-                                                "UDP sockets disconnected",
-                                            ))
-                                        }
+                                        Ok(PrimaryProcessorResult::EndSession(
+                                            "UDP sockets disconnected",
+                                        ))
                                     }
                                 }
 
@@ -363,7 +362,7 @@ pub fn process_primary_packet(
                                     //let mut state_container = session.state_container.borrow_mut();
                                     let group = header.group.get();
                                     let key = GroupKey::new(header.session_cid.get(), group);
-                                    if let None = state_container.outbound_transmitters.remove(&key)
+                                    if state_container.outbound_transmitters.remove(&key).is_none()
                                     {
                                         log::error!(target: "citadel", "Unable to remove outbound transmitter for group {} (non-existent)", group);
                                     }
@@ -466,7 +465,7 @@ pub(super) fn get_proper_hyper_ratchet(
                 .cloned()
         } else {
             log::warn!(target: "citadel", "Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
-            return None;
+            None
         }
     } else {
         // since this was not proxied, use the ordinary pqc and drill
@@ -520,7 +519,7 @@ pub enum ToolsetUpdate<'a> {
         crypt: &'a mut PeerSessionCrypto<StackedRatchet>,
         local_cid: u64,
     },
-    FCM {
+    Fcm {
         fcm_crypt_container: &'a mut PeerSessionCrypto<ThinRatchet>,
         peer_cid: u64,
         local_cid: u64,
@@ -532,19 +531,23 @@ impl ToolsetUpdate<'_> {
         &mut self,
         constructor: ConstructorType<StackedRatchet, ThinRatchet>,
         local_is_alice: bool,
-    ) -> Result<KemTransferStatus, ()> {
+    ) -> Result<KemTransferStatus, CryptError> {
         match self {
             ToolsetUpdate::E2E { crypt, local_cid } => {
-                let constructor = constructor.assume_default().ok_or(())?;
+                let constructor = constructor.assume_default().ok_or_else(|| {
+                    CryptError::DrillUpdateError("Constructor is not default type".to_string())
+                })?;
                 crypt.update_sync_safe(constructor, local_is_alice, *local_cid)
             }
 
-            ToolsetUpdate::FCM {
+            ToolsetUpdate::Fcm {
                 fcm_crypt_container,
                 local_cid,
                 ..
             } => {
-                let constructor = constructor.assume_fcm().ok_or(())?;
+                let constructor = constructor.assume_fcm().ok_or_else(|| {
+                    CryptError::DrillUpdateError("Constructor is not FCM type".to_string())
+                })?;
                 fcm_crypt_container.update_sync_safe(constructor, local_is_alice, *local_cid)
             }
         }
@@ -557,7 +560,7 @@ impl ToolsetUpdate<'_> {
                 crypt.post_alice_stage1_or_post_stage1_bob();
             }
 
-            ToolsetUpdate::FCM {
+            ToolsetUpdate::Fcm {
                 fcm_crypt_container,
                 ..
             } => {
@@ -572,7 +575,7 @@ impl ToolsetUpdate<'_> {
                 .deregister_oldest_hyper_ratchet(version)
                 .map_err(|err| NetworkError::Generic(err.to_string())),
 
-            ToolsetUpdate::FCM {
+            ToolsetUpdate::Fcm {
                 fcm_crypt_container,
                 ..
             } => fcm_crypt_container
@@ -588,17 +591,17 @@ impl ToolsetUpdate<'_> {
     ) -> Option<(RatchetType<StackedRatchet, ThinRatchet>, Option<bool>)> {
         match self {
             ToolsetUpdate::E2E { crypt, .. } => {
-                let lock_src = crypt.lock_set_by_alice.clone();
+                let lock_src = crypt.lock_set_by_alice;
                 crypt
                     .maybe_unlock(requires_locked_by_alice)
                     .map(|r| (RatchetType::Default(r.clone()), lock_src))
             }
 
-            ToolsetUpdate::FCM {
+            ToolsetUpdate::Fcm {
                 fcm_crypt_container,
                 ..
             } => {
-                let lock_src = fcm_crypt_container.lock_set_by_alice.clone();
+                let lock_src = fcm_crypt_container.lock_set_by_alice;
                 fcm_crypt_container
                     .maybe_unlock(requires_locked_by_alice)
                     .map(|r| (RatchetType::Fcm(r.clone()), lock_src))
@@ -609,7 +612,7 @@ impl ToolsetUpdate<'_> {
     pub(crate) fn get_local_cid(&self) -> u64 {
         match self {
             ToolsetUpdate::E2E { local_cid, .. } => *local_cid,
-            ToolsetUpdate::FCM { local_cid, .. } => *local_cid,
+            ToolsetUpdate::Fcm { local_cid, .. } => *local_cid,
         }
     }
 
@@ -619,7 +622,7 @@ impl ToolsetUpdate<'_> {
                 .get_hyper_ratchet(None)
                 .map(|r| RatchetType::Default(r.clone())),
 
-            ToolsetUpdate::FCM {
+            ToolsetUpdate::Fcm {
                 fcm_crypt_container,
                 ..
             } => fcm_crypt_container
@@ -683,8 +686,8 @@ pub(crate) fn attempt_kem_as_alice_finish(
                     return Err(()); // return true, otherwise, the session ends
                 }
 
-                if let Err(_) = toolset_update_method.update(constructor, true) {
-                    log::error!(target: "citadel", "Unable to update container (X-01)");
+                if let Err(err) = toolset_update_method.update(constructor, true) {
+                    log::error!(target: "citadel", "Unable to update container (X-01) | {:?}", err);
                     return Err(());
                 }
 
@@ -726,7 +729,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
 
         KemTransferStatus::StatusNoTransfer(_status) => {
             log::error!(target: "citadel", "Unaccounted program logic @ StatusNoTransfer! Report to developers");
-            return Err(());
+            Err(())
         }
 
         _ => Ok(None),
