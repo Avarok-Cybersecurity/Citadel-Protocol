@@ -62,14 +62,13 @@ impl EntropyBank {
             let val = ((nonce_version + x) as f64).div(std::f64::consts::PI);
             let bytes = val.to_be_bytes();
 
-            for y in 0..8 {
+            for byte in bytes {
                 if outer_idx == nonce_len {
                     return base;
                 }
 
                 base.push(
-                    bytes[y]
-                        .wrapping_add(self.entropy[outer_idx % BYTES_PER_STORE])
+                    byte.wrapping_add(self.entropy[outer_idx % BYTES_PER_STORE])
                         .wrapping_add(nonce_version as u8),
                 );
 

@@ -36,7 +36,7 @@ pub mod fcm;
 /// Error type
 pub mod misc;
 /// Contains the subroutines for network-related functionality
-pub mod net;
+pub mod scramble;
 /// For endowing packets with coordinates
 pub mod packet_vector;
 /// For secure byte handling

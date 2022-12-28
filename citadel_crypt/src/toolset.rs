@@ -167,6 +167,7 @@ impl<R: Ratchet> Toolset<R> {
     }
 
     /// Returns the number of StackedRatchets internally
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.map.len()
     }

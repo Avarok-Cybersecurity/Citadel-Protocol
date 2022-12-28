@@ -7,7 +7,7 @@ use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 
 use crate::entropy_bank::{EntropyBank, SecurityLevel};
-use crate::net::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
+use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 use crate::packet_vector::PacketVector;
 
 use crate::misc::CryptError;
@@ -21,7 +21,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_stream::{Stream, StreamExt};
 
 /// 3Mb per group
-pub const MAX_BYTES_PER_GROUP: usize = crate::net::crypt_splitter::MAX_BYTES_PER_GROUP;
+pub const MAX_BYTES_PER_GROUP: usize = crate::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 
 /// Used for streaming sources of a fixed size
@@ -81,7 +81,7 @@ impl ObjectSource for PathBuf {
 /// `header_inscriber`: the feed order for u64's is first the target_cid, and then the object-ID
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
-#[allow(unused_results)]
+#[allow(clippy::too_many_arguments)]
 pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: usize>(
     mut source: S,
     max_group_size: Option<usize>,
@@ -139,7 +139,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         cur_task: None,
     };
 
-    tokio::task::spawn(async move {
+    let _ = tokio::task::spawn(async move {
         let res = tokio::select! {
             res0 = stopper(stop) => res0,
             res1 = file_streamer(group_sender.clone(), file_scrambler) => res1
@@ -214,7 +214,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     }
 }
 
-impl<'a, F: HeaderInscriberFn, R: Read, const N: usize> Unpin for AsyncCryptScrambler<F, R, N> {}
+impl<F: HeaderInscriberFn, R: Read, const N: usize> Unpin for AsyncCryptScrambler<F, R, N> {}
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
     fn poll_scramble_next_group(
@@ -249,7 +249,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             let poll_len = std::cmp::min(remaining, *max_bytes_per_group);
             let mut lock = buffer.lock();
             let bytes = &mut lock[..poll_len];
-            if let Ok(_) = reader.read_exact(bytes) {
+            if reader.read_exact(bytes).is_ok() {
                 let group_id_input = *group_id + (*groups_rendered as u64);
                 std::mem::drop(lock);
                 // let mut compressed = Vec::new();
