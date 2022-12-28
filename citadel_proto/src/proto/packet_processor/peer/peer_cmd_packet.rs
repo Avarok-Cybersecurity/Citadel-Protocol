@@ -1155,12 +1155,8 @@ async fn process_signal_command_as_server(
 
                         let task = async move {
                             // note: this is w.r.t the server.
-                            loop {
-                                if let Some(ts) = last_packet.load(Ordering::SeqCst) {
-                                    if ts.elapsed() > Duration::from_millis(1500) {
-                                        break;
-                                    }
-                                } else {
+                            while let Some(ts) = last_packet.load(Ordering::SeqCst) {
+                                if ts.elapsed() > Duration::from_millis(1500) {
                                     break;
                                 }
 
