@@ -9,6 +9,7 @@ use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use itertools::Itertools;
 use sqlx::any::{AnyArguments, AnyPoolOptions, AnyQueryResult, AnyRow};
 use sqlx::{AnyPool, Arguments, Executor, Row};
 use std::collections::HashMap;
@@ -55,24 +56,24 @@ pub struct SqlConnectionOptions {
     pub car_mode: Option<bool>,
 }
 
-impl Into<AnyPoolOptions> for &'_ SqlConnectionOptions {
-    fn into(self) -> AnyPoolOptions {
+impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
+    fn from(this: &'_ SqlConnectionOptions) -> AnyPoolOptions {
         let mut ret = AnyPoolOptions::default();
 
-        if let Some(max_connections) = self.max_connections {
+        if let Some(max_connections) = this.max_connections {
             ret = ret.max_connections(max_connections as _);
         }
 
-        if let Some(min_connections) = self.min_connections {
+        if let Some(min_connections) = this.min_connections {
             ret = ret.min_connections(min_connections as _);
         }
 
-        if let Some(connect_timeout) = self.connect_timeout {
+        if let Some(connect_timeout) = this.connect_timeout {
             ret = ret.connect_timeout(connect_timeout as _);
         }
 
-        ret = ret.idle_timeout(self.idle_timeout);
-        ret = ret.max_lifetime(self.max_lifetime);
+        ret = ret.idle_timeout(this.idle_timeout);
+        ret = ret.max_lifetime(this.max_lifetime);
 
         if cfg!(feature = "localhost-testing")
             || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1"
@@ -523,7 +524,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn hyperlan_peers_are_mutuals(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         if peers.is_empty() {
             return Ok(Vec::new());
@@ -556,7 +557,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn get_hyperlan_peers(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         if peers.is_empty() {
             return Ok(Vec::new());
@@ -824,7 +825,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         } else {
             self.conn
                 .clone()
-                .ok_or(AccountError::Generic("Connection not loaded".to_string()))
+                .ok_or_else(|| AccountError::Generic("Connection not loaded".to_string()))
         }
     }
 
@@ -850,7 +851,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         }
     }
 
-    fn construct_arg_insert_any(&self, vals: &Vec<u64>) -> String {
+    fn construct_arg_insert_any(&self, vals: &[u64]) -> String {
         match self.variant {
             SqlVariant::MySQL => self.construct_arg_insert_mysql(vals),
 
@@ -860,31 +861,15 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         }
     }
 
-    fn construct_arg_insert_mysql(&self, vals: &Vec<u64>) -> String {
-        let mut ret = String::new();
-        let len = vals.len();
-
-        for idx in 0..len - 1 {
-            ret += &format!("ROW('{}'),", vals[idx]);
-        }
-
-        ret += &format!("ROW('{}')", vals[len - 1]);
-        ret
+    fn construct_arg_insert_mysql(&self, vals: &[u64]) -> String {
+        vals.iter().map(|val| format!("ROW('{}')", val)).join(",")
     }
 
-    fn construct_arg_insert_postgre(&self, vals: &Vec<u64>) -> String {
-        let mut ret = String::new();
-        let len = vals.len();
-
-        for idx in 0..len - 1 {
-            ret += &format!("('{}'),", vals[idx]);
-        }
-
-        ret += &format!("('{}')", vals[len - 1]);
-        ret
+    fn construct_arg_insert_postgre(&self, vals: &[u64]) -> String {
+        vals.iter().map(|val| format!("('{}')", val)).join(",")
     }
 
-    fn construct_arg_insert_sqlite(&self, vals: &Vec<u64>) -> String {
+    fn construct_arg_insert_sqlite(&self, vals: &[u64]) -> String {
         self.construct_arg_insert_postgre(vals)
     }
 
@@ -940,21 +925,18 @@ impl TryFrom<&'_ BackendType> for SqlVariant {
     type Error = ();
 
     fn try_from(this: &BackendType) -> Result<Self, ()> {
-        match this {
-            BackendType::SQLDatabase(url, ..) => {
-                if url.starts_with("mysql") {
-                    return Ok(SqlVariant::MySQL);
-                }
-
-                if url.starts_with("postgre") {
-                    return Ok(SqlVariant::Postgre);
-                }
-
-                if url.starts_with("sqlite") {
-                    return Ok(SqlVariant::Sqlite);
-                }
+        if let BackendType::SQLDatabase(url, ..) = this {
+            if url.starts_with("mysql") {
+                return Ok(SqlVariant::MySQL);
             }
-            _ => {}
+
+            if url.starts_with("postgre") {
+                return Ok(SqlVariant::Postgre);
+            }
+
+            if url.starts_with("sqlite") {
+                return Ok(SqlVariant::Sqlite);
+            }
         }
 
         Err(())
