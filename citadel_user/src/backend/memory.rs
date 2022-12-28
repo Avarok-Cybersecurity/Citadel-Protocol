@@ -55,7 +55,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         let mut write = self.clients.write();
         let cl = write
             .remove(&cid)
-            .ok_or_else(|| AccountError::ClientNonExists(cid))?;
+            .ok_or(AccountError::ClientNonExists(cid))?;
 
         // delete all related peer entries in other CNACs
         if let Some(peers) = cl.get_hyperlan_peer_list() {
@@ -104,7 +104,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         let read = self.clients.read();
         let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
         let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid0))?;
-        cnac0.register_hyperlan_p2p_as_server(&cnac1)
+        cnac0.register_hyperlan_p2p_as_server(cnac1)
     }
 
     async fn register_p2p_as_client(

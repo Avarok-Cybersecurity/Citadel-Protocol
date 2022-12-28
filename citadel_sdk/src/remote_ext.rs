@@ -203,10 +203,10 @@ pub trait ProtocolRemoteExt: Remote {
 
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
-            connect_mode: connect_mode,
-            udp_mode: udp_mode,
+            connect_mode,
+            udp_mode,
             keep_alive_timeout: keep_alive_timeout.map(|r| r.as_secs()),
-            session_security_settings: session_security_settings,
+            session_security_settings,
         });
 
         match map_errors(self.send_callback(connect_request).await?)? {
@@ -445,8 +445,8 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let result = remote
             .send_callback(NodeRequest::SendObject(SendObject {
                 source: Box::new(path.into()),
-                chunk_size: chunk_size,
-                implicated_cid: implicated_cid,
+                chunk_size,
+                implicated_cid,
                 v_conn_type: user,
             }))
             .await?;
@@ -488,7 +488,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let mut stream = self
             .remote()
             .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
-                implicated_cid: implicated_cid,
+                implicated_cid,
                 command: PeerSignal::PostConnect(
                     peer_target,
                     None,
@@ -555,7 +555,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let mut stream = self
             .remote()
             .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
-                implicated_cid: implicated_cid,
+                implicated_cid,
                 command: PeerSignal::PostRegister(
                     peer_target,
                     local_username,
@@ -592,7 +592,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let peer_request = PeerSignal::Deregister(peer_conn);
             let implicated_cid = self.user().get_implicated_cid();
             let request = NodeRequest::PeerCommand(PeerCommand {
-                implicated_cid: implicated_cid,
+                implicated_cid,
                 command: peer_request,
             });
 
@@ -611,7 +611,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let cid = self.user().get_implicated_cid();
             let request = NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
                 implicated_cid: cid,
-                v_conn_type: self.user().clone(),
+                v_conn_type: *self.user(),
             });
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(result) = subscription.next().await {
@@ -626,9 +626,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         ticket_opt: _,
                         success: false,
                     }) => {
-                        return Err(NetworkError::msg(format!(
-                            "Unable to deregister: status=false"
-                        )))
+                        return Err(NetworkError::msg("Unable to deregister: status=false".to_string()))
                     }
 
                     _ => {}
@@ -672,7 +670,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
         let group_request = GroupBroadcast::Create(initial_users, options);
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid: implicated_cid,
+            implicated_cid,
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
@@ -694,7 +692,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let implicated_cid = self.user().get_implicated_cid();
         let group_request = GroupBroadcast::ListGroupsFor(implicated_cid);
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid: implicated_cid,
+            implicated_cid,
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
@@ -720,7 +718,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// if the rekey fails, or, if a current rekey is already executing
     async fn rekey(&mut self) -> Result<Option<u32>, NetworkError> {
         let request = NodeRequest::ReKey(ReKey {
-            v_conn_type: self.user().clone(),
+            v_conn_type: *self.user(),
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 

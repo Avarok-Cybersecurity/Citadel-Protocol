@@ -164,9 +164,9 @@ mod tests {
     fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::InMemory, generate_random_filesystem_dir()];
 
-        match std::env::var(&env) {
+        match std::env::var(env) {
             Ok(addr) => {
-                if addr.len() > 0 {
+                if !addr.is_empty() {
                     for addr in addr.split(',') {
                         log::trace!(target: "citadel", "Adding testing addr: {}", addr);
                         let backend = BackendType::new(addr).unwrap();
@@ -951,7 +951,7 @@ mod tests {
             );
 
             // TODO: Change the below function
-            let _ = pers_cl
+            pers_cl
                 .synchronize_hyperlan_peer_list_as_client(&client, server_seen_peers)
                 .await
                 .unwrap();
@@ -1483,15 +1483,15 @@ mod tests {
         assert!(MIN_PASSWORD_LEN + 1 < MAX_PASSWORD_LEN);
         assert!(MIN_NAME_LEN + 1 < MAX_NAME_LEN);
 
-        let ref good_username = (0..(MIN_USERNAME_LEN + 1))
+        let good_username = &(0..(MIN_USERNAME_LEN + 1))
             .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
-        let ref good_password = (0..(MIN_PASSWORD_LEN + 1))
+        let good_password = &(0..(MIN_PASSWORD_LEN + 1))
             .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
-        let ref good_name = (0..(MIN_NAME_LEN + 1))
+        let good_name = &(0..(MIN_NAME_LEN + 1))
             .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
@@ -1506,11 +1506,11 @@ mod tests {
         ) {
             use citadel_user::misc::check_credential_formatting as check;
 
-            let ref bad_below = (0..(min - 1))
+            let bad_below = &(0..(min - 1))
                 .into_iter()
                 .map(|r| r.to_string())
                 .collect::<String>();
-            let ref bad_above = (0..(max + 1))
+            let bad_above = &(0..(max + 1))
                 .into_iter()
                 .map(|r| r.to_string())
                 .collect::<String>();

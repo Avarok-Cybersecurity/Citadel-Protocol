@@ -80,7 +80,7 @@ fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError>
         hyxe_nac_dir_base: append_to_path(home.clone(), "accounts/"),
         hyxe_nac_dir_impersonal: append_to_path(home.clone(), "accounts/impersonal/"),
         hyxe_nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
-        hyxe_server_dir: hyxe_server_dir.clone(),
+        hyxe_server_dir,
         hyxe_config_dir: append_to_path(home.clone(), "config/"),
         hyxe_virtual_dir: append_to_path(home, "virtual/"),
     };
@@ -91,7 +91,7 @@ fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError>
 #[cfg(not(target_os = "windows"))]
 /// #
 pub fn format_path(input: String) -> String {
-    input.replace("\\", "/")
+    input.replace('\\', "/")
 }
 
 #[cfg(any(target_os = "windows"))]

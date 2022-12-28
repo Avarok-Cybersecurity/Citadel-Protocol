@@ -52,6 +52,7 @@ impl<T: EzBuffer> AsRef<[u8]> for InPlaceBuffer<'_, T> {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 pub trait EzBuffer: AsRef<[u8]> + AsMut<[u8]> + BufMut {
     fn len(&self) -> usize;
     fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), Error>;

@@ -1,11 +1,11 @@
 use std::fmt::Formatter;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct TimeTracker;
 
 impl TimeTracker {
     pub fn new() -> Self {
-        Self
+        Default::default()
     }
 
     // This should work for about a hundred years before modulo'ing around back to zero

@@ -11,7 +11,7 @@ use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use stun::agent::TransactionId;
+
 use stun::client::ClientBuilder;
 use stun::message::{Getter, Message, BINDING_REQUEST};
 use stun::xoraddr::XorMappedAddress;
@@ -256,7 +256,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     let nat_type = async move {
         let mut msg = Message::new();
         msg.build(&[
-            Box::new(TransactionId::default()),
+            Box::<stun::agent::TransactionId>::default(),
             Box::new(BINDING_REQUEST),
         ])?;
 

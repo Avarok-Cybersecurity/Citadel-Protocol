@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use crate::ScopedFutureResult;
 use futures::Future;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -90,7 +91,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
         Ok(this)
     }
 
-    pub fn new<'a>(app: &'a S, value: Option<T>) -> NetMutexLoader<'a, T, S>
+    pub fn create<'a>(app: &'a S, value: Option<T>) -> NetMutexLoader<'a, T, S>
     where
         T: 'a,
     {
@@ -156,7 +157,7 @@ impl<T: NetObject + 'static, S: Subscribable> Drop for NetMutexGuard<T, S> {
 }
 
 pub struct NetMutexLoader<'a, T: NetObject, S: Subscribable + 'static> {
-    future: Pin<Box<dyn Future<Output = Result<NetMutex<T, S>, anyhow::Error>> + Send + 'a>>,
+    future: ScopedFutureResult<'a, NetMutex<T, S>>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Future for NetMutexLoader<'_, T, S> {
@@ -272,7 +273,7 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(
 
 /// Releases the lock with the adjacent endpoint, updating the value too for the adjacent node
 pub struct NetMutexGuardAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-    future: Pin<Box<dyn Future<Output = Result<NetMutexGuard<T, S>, anyhow::Error>> + Send + 'a>>,
+    future: ScopedFutureResult<'a, NetMutexGuard<T, S>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -436,7 +437,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         res0 = channel.recv_serialized::<UpdatePacket>() => res0?,
                         res1 = active_to_background_rx.recv() => {
                             // in the case local tries ot make an outgoing request, we will stop listening in the background
-                            let _ = res1.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
+                            res1.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
                             continue 'outer_loop;
                         }
                     };

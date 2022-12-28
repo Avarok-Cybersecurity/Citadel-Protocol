@@ -58,19 +58,11 @@ enum State {
 impl State {
     /// assumes this is called by the receiving node, not the node that creates the state
     fn implies_remote_success(&self) -> bool {
-        match self {
-            Self::ObtainedValidResult => true,
-            Self::Pinging(Some(true)) => true,
-            _ => false,
-        }
+        matches!(self, Self::ObtainedValidResult | Self::Pinging(Some(true)))
     }
 
     fn implies_remote_failure(&self) -> bool {
-        match self {
-            Self::Error => true,
-            Self::Pinging(Some(false)) => true,
-            _ => false,
-        }
+        matches!(self, Self::Error | Self::Pinging(Some(false)))
     }
 }
 
