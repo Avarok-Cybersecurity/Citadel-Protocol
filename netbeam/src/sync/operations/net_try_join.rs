@@ -2,6 +2,7 @@ use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::subscription::{Subscribable, SubscriptionBiStream};
 use crate::sync::RelativeNodeType;
+use crate::ScopedFutureResult;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -10,8 +11,7 @@ use tokio::sync::{Mutex, MutexGuard};
 
 /// Two endpoints produce Ok(T). Returns when both endpoints produce Ok(T), or, when the first error occurs
 pub struct NetTryJoin<'a, T, E> {
-    future:
-        Pin<Box<dyn Future<Output = Result<NetTryJoinResult<T, E>, anyhow::Error>> + Send + 'a>>,
+    future: ScopedFutureResult<'a, NetTryJoinResult<T, E>>,
 }
 
 impl<'a, T: Send + 'a, E: Send + 'a> NetTryJoin<'a, T, E> {
@@ -62,19 +62,11 @@ enum State {
 impl State {
     /// assumes this is called by the receiving node, not the node that creates the state
     fn implies_success(&self) -> bool {
-        match self {
-            Self::ObtainedValidResult => true,
-            Self::Pinging(Some(true)) => true,
-            _ => false,
-        }
+        matches!(self, Self::ObtainedValidResult | Self::Pinging(Some(true)))
     }
 
     fn implies_failure(&self) -> bool {
-        match self {
-            Self::Error => true,
-            Self::Pinging(Some(false)) => true,
-            _ => false,
-        }
+        matches!(self, Self::Error | Self::Pinging(Some(false)))
     }
 }
 

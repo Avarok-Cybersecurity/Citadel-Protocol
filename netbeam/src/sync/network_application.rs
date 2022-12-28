@@ -212,17 +212,17 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
 
     /// Creates a Mutex with an adjacent node on the network. One node must set the initial value, the other must set None
     pub fn mutex<R: NetObject + 'static>(&self, value: Option<R>) -> NetMutexLoader<R, Self> {
-        NetMutex::new(self, value)
+        NetMutex::create(self, value)
     }
 
     /// Creates a RwLock with an adjacent node on the network. One node must set the initial value, the other must set None
     pub fn rwlock<R: NetObject + 'static>(&self, value: Option<R>) -> NetRwLockLoader<R, Self> {
-        NetRwLock::new(self, value)
+        NetRwLock::create(self, value)
     }
 
     /// Creates a bidirectional channel between two endpoints
     pub fn bi_channel<R: NetObject>(&self) -> bi_channel::ChannelLoader<R, Self> {
-        bi_channel::Channel::new(self)
+        bi_channel::Channel::create(self)
     }
 }
 

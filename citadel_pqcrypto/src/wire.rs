@@ -49,8 +49,8 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
 
         let mut rng = rand::thread_rng();
         let mut mapping: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
-        for x in 0..BLOCK_SIZE {
-            mapping[x] = x as u8;
+        for (idx, val) in mapping.iter_mut().enumerate() {
+            *val = idx as u8;
         }
 
         mapping.shuffle(&mut rng);
@@ -59,7 +59,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
     }
 
     pub fn scramble_in_place<T: Buffer + ?Sized>(&self, buf: &mut T) -> Result<(), EzError> {
-        if buf.as_mut().len() % BLOCK_SIZE != 0 || buf.as_mut().len() == 0 {
+        if buf.as_mut().len() % BLOCK_SIZE != 0 || buf.as_mut().is_empty() {
             // pad with random bytes
             let diff = BLOCK_SIZE - (buf.as_mut().len() % BLOCK_SIZE);
             let mut rand = rand::thread_rng();

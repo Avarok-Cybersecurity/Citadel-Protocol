@@ -177,13 +177,13 @@ mod tests {
 
         let original = buf.clone();
 
-        log::trace!(target: "citadel", "[ {} ] {:?}", buf.len(), &buf.as_ref()[..]);
+        log::trace!(target: "citadel", "[ {} ] {:?}", buf.len(), buf.as_ref());
         let nonce = Vec::from_iter(0..nonce_len as u8);
         alice_container
             .protect_packet_in_place(header_len, &mut buf, &nonce)
             .unwrap();
 
-        log::trace!(target: "citadel", "[ {} ] {:?}", buf.len(), &buf.as_ref()[..]);
+        log::trace!(target: "citadel", "[ {} ] {:?}", buf.len(), buf.as_ref());
         let mut header = buf.split_to(header_len);
         bob_container
             .validate_packet_in_place(&header, &mut buf, &nonce)
@@ -193,7 +193,7 @@ mod tests {
 
         assert_eq!(buf, original);
 
-        log::trace!(target: "citadel", "[ {} ] {:?}", buf.len(), &buf.as_ref()[..]);
+        log::trace!(target: "citadel", "[ {} ] {:?}", buf.len(), buf.as_ref());
     }
 
     #[test]
@@ -388,10 +388,10 @@ mod tests {
         //let _bob_secr0 = bob_container.get_secret_key().unwrap();
 
         let serialized_alice = alice_container.serialize_to_vector().unwrap();
-        let pqq_alice = PostQuantumContainer::deserialize_from_bytes(&serialized_alice).unwrap();
+        let pqq_alice = PostQuantumContainer::deserialize_from_bytes(serialized_alice).unwrap();
 
         let serialized_bob = bob_container.serialize_to_vector().unwrap();
-        let pqq_bob = PostQuantumContainer::deserialize_from_bytes(&serialized_bob).unwrap();
+        let pqq_bob = PostQuantumContainer::deserialize_from_bytes(serialized_bob).unwrap();
 
         let al_pub1 = pqq_alice.get_public_key();
         let al_ss1 = pqq_alice.get_shared_secret().unwrap();

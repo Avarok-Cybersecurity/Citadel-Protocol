@@ -97,7 +97,7 @@ impl GoogleAuth {
         log::trace!(target: "citadel", "{:?}", &claims);
 
         claims
-            .sign_with_key(&*key as &PKeyWithDigest<Private>)
+            .sign_with_key(key as &PKeyWithDigest<Private>)
             .map_err(|err| AccountError::Generic(err.to_string()))
     }
 }
