@@ -2,7 +2,7 @@ use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
-use crate::net::crypt_splitter::calculate_nonce_version;
+use crate::scramble::crypt_splitter::calculate_nonce_version;
 use crate::stacked_ratchet::constructor::StackedRatchetConstructor;
 use bytes::BytesMut;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
@@ -150,7 +150,7 @@ impl Ratchet for StackedRatchet {
     fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
-        ref header: H,
+        header: H,
         packet: &mut T,
     ) -> Result<(), CryptError<String>> {
         self.validate_message_packet(security_level, header, packet)
@@ -226,13 +226,13 @@ impl StackedRatchet {
     pub fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
-        ref header: H,
+        header: H,
         packet: &mut T,
     ) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
-            drill.validate_packet_in_place_split(pqc, header, packet)?;
+            drill.validate_packet_in_place_split(pqc, &header, packet)?;
         }
 
         Ok(())
@@ -242,13 +242,13 @@ impl StackedRatchet {
     pub fn validate_message_packet_in_place_split<H: AsRef<[u8]>>(
         &self,
         security_level: Option<SecurityLevel>,
-        ref header: H,
+        header: H,
         packet: &mut BytesMut,
     ) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
-            drill.validate_packet_in_place_split(pqc, header, packet)?;
+            drill.validate_packet_in_place_split(pqc, &header, packet)?;
         }
 
         Ok(())
@@ -486,10 +486,7 @@ pub mod constructor {
         }
 
         pub fn is_fcm(&self) -> bool {
-            match self {
-                Self::Fcm(..) => true,
-                _ => false,
-            }
+            matches!(self, Self::Fcm(..))
         }
     }
 
