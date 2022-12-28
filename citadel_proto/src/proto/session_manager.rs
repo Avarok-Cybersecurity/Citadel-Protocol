@@ -386,30 +386,25 @@ impl HdpSessionManager {
                     vconn.is_active.store(false, Ordering::SeqCst);
                     if peer_cid != implicated_cid && peer_cid != 0 {
                         let vconn = vconn.connection_type;
-                        match vconn {
-                            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, _) => {
-                                if peer_cid != implicated_cid {
-                                    log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
-                                    let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
-                                    let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
-                                    if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                                        super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
-                                    }) {
-                                        //log::error!(target: "citadel", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
-                                    }
+                        if let VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, _) = vconn {
+                            if peer_cid != implicated_cid {
+                                log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
+                                let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
+                                let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
+                                if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
+                                    super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
+                                }) {
+                                    //log::error!(target: "citadel", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
+                                }
 
-                                    if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
-                                        let peer_sess = &peer_sess.1;
-                                        let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
-                                        if peer_state_container.active_virtual_connections.remove(&implicated_cid).is_none() {
-                                            log::warn!(target: "citadel", "While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
-                                        }
+                                if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
+                                    let peer_sess = &peer_sess.1;
+                                    let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
+                                    if peer_state_container.active_virtual_connections.remove(&implicated_cid).is_none() {
+                                        log::warn!(target: "citadel", "While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
                                     }
                                 }
                             }
-
-                            // TODO: HyperWAN conns
-                            _ => {}
                         }
                     }
                 });
