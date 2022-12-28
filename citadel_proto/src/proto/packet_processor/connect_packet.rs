@@ -137,11 +137,11 @@ pub async fn process_connect(
                                     ticket: kernel_ticket,
                                     implicated_cid: cid,
                                     remote_addr: addr,
-                                    is_personal: is_personal,
+                                    is_personal,
                                     v_conn_type: cxn_type,
                                     services: post_login_object,
                                     welcome_message: format!("Client {} successfully established a connection to the local HyperNode", cid),
-                                    channel: channel,
+                                    channel,
                                     udp_rx_opt: udp_channel_rx
                                 });
                                 // safe unwrap. Store the signal
@@ -295,11 +295,11 @@ pub async fn process_connect(
                                 ticket: kernel_ticket,
                                 implicated_cid: cid,
                                 remote_addr: addr,
-                                is_personal: is_personal,
+                                is_personal,
                                 v_conn_type: cxn_type,
                                 services: payload.post_login_object,
                                 welcome_message: message,
-                                channel: channel,
+                                channel,
                                 udp_rx_opt: udp_channel_rx,
                             }))?;
                             //finally, if there are any mailbox items, send them to the kernel for processing

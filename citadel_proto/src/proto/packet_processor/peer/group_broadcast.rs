@@ -529,8 +529,8 @@ fn create_group_channel(
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
     session.send_to_kernel(NodeResult::GroupChannelCreated(GroupChannelCreated {
-        ticket: ticket,
-        channel: channel,
+        ticket,
+        channel,
     }))?;
     Ok(PrimaryProcessorResult::Void)
 }
@@ -571,8 +571,8 @@ fn forward_signal(
     // send to kernel
     session
         .send_to_kernel(NodeResult::GroupEvent(GroupEvent {
-            implicated_cid: implicated_cid,
-            ticket: ticket,
+            implicated_cid,
+            ticket,
             event: broadcast,
         }))
         .map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {:?}", err)))?;
