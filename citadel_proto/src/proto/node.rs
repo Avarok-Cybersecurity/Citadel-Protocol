@@ -368,7 +368,7 @@ impl HdpServer {
                     quic
                 } else {
                     let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
-                    QuicServer::new(udp_socket, crypto).map_err(generic_error)?
+                    QuicServer::create(udp_socket, crypto).map_err(generic_error)?
                 };
 
                 let bind = quic.endpoint.local_addr()?;

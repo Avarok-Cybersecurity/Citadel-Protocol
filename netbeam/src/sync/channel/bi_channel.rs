@@ -28,7 +28,6 @@ pub struct Channel<T: NetObject, S: Subscribable + 'static> {
 }
 
 pub struct ChannelRecvHalf<T: NetObject, S: Subscribable + 'static> {
-    // Wrap a mutex around the stream to make Sync
     receiver: ChannelRecvHalfReceiver<T>,
     recv_halt: Arc<AtomicBool>,
     tx: Option<Arc<InnerChannel<S>>>,
