@@ -1,18 +1,13 @@
 use std::net::SocketAddr;
 
 /// Used for determining the proper action when loading the server
-#[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 pub enum NodeType {
     /// A server with a static IP address will choose this option
     Server(SocketAddr),
     /// A client/server behind a residential NAT will choose this (will specially will start the UPnP handler, but the method for symmetrical NATs works too; UPnP is just faster)
+    #[default]
     Peer,
-}
-
-impl Default for NodeType {
-    fn default() -> Self {
-        Self::Peer
-    }
 }
 
 impl NodeType {
@@ -24,16 +19,10 @@ impl NodeType {
     }
 
     pub fn is_server(&self) -> bool {
-        match self {
-            Self::Server(..) => true,
-            _ => false,
-        }
+        matches!(self, Self::Server(..))
     }
 
     pub fn is_peer(&self) -> bool {
-        match self {
-            Self::Peer => true,
-            _ => false,
-        }
+        matches!(self, Self::Peer)
     }
 }

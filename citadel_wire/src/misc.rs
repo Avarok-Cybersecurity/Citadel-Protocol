@@ -13,10 +13,12 @@ pub fn read_pkcs_12_der_to_quinn_keys<P: AsRef<Path>>(
     pkcs12_to_quinn_keys(&der, password)
 }
 
+pub type Pkcs12Decomposed = (Option<Stack<X509>>, X509, PKey<Private>);
+
 pub fn pkcs12_to_components(
     pkcs12_der: &[u8],
     password: &str,
-) -> Result<(Option<Stack<X509>>, X509, PKey<Private>), anyhow::Error> {
+) -> Result<Pkcs12Decomposed, anyhow::Error> {
     let openssl_pkcs12 = openssl::pkcs12::Pkcs12::from_der(pkcs12_der)?;
     let ParsedPkcs12 { chain, cert, pkey } = openssl_pkcs12.parse(password)?;
     Ok((chain, cert, pkey))
