@@ -113,7 +113,7 @@ impl KernelAsyncCallbackHandler {
 
 impl KernelAsyncCallbackHandlerInner {
     fn insert(&mut self, ticket: Ticket, notifier: CallbackNotifier) -> Result<(), NetworkError> {
-        if let Some(_) = self.map.insert(ticket, notifier) {
+        if self.map.insert(ticket, notifier).is_some() {
             Err(NetworkError::InternalError("Overwrote previous notifier"))
         } else {
             Ok(())

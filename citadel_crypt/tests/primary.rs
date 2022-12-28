@@ -723,13 +723,9 @@ mod tests {
                     packet_payload,
                 );
                 //dbg!(&result);
-                match result {
-                    GroupReceiverStatus::GROUP_COMPLETE(_group_id) => {
-                        bytes_ret.extend_from_slice(receiver.finalize().as_slice());
-                        break 'here;
-                    }
-
-                    _ => {}
+                if let GroupReceiverStatus::GROUP_COMPLETE(_group_id) = result {
+                    bytes_ret.extend_from_slice(receiver.finalize().as_slice());
+                    break 'here;
                 }
                 //seq += 1;
             }

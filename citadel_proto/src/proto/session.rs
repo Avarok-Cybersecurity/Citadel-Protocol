@@ -309,7 +309,7 @@ impl HdpSession {
                 keep_alive_timeout_ns,
                 state.clone(),
                 cnac,
-                time_tracker.clone(),
+                time_tracker,
                 Some(security_settings),
                 false,
                 TransferStats::new(timestamp, 0),
@@ -373,14 +373,14 @@ impl HdpSession {
             kernel_ticket: provisional_ticket.into(),
             remote_peer,
             kernel_tx: kernel_tx.clone(),
-            session_manager: session_manager.clone(),
+            session_manager,
             state_container: StateContainerInner::new(
                 kernel_tx,
                 hdp_remote,
                 KEEP_ALIVE_TIMEOUT_NS,
                 state.clone(),
                 None,
-                time_tracker.clone(),
+                time_tracker,
                 None,
                 true,
                 TransferStats::new(timestamp, 0),
@@ -454,7 +454,7 @@ impl HdpSession {
             let handle_zero_state = Self::handle_zero_state(
                 None,
                 persistence_handler,
-                primary_outbound_tx.clone(),
+                primary_outbound_tx,
                 this_outbound,
                 this.state.load(Ordering::SeqCst),
                 timestamp,
@@ -475,7 +475,7 @@ impl HdpSession {
             // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
             // separate task, we solve the issue of re-entrancing of mutex
-            let _ = spawn!(queue_worker_future);
+            spawn!(queue_worker_future);
 
             (session_future, handle_zero_state, implicated_cid)
         };
@@ -524,7 +524,7 @@ impl HdpSession {
         mut p2p_session_rx: UnboundedReceiver<Pin<Box<dyn RuntimeFuture>>>,
     ) -> Result<(), NetworkError> {
         while let Some(session) = p2p_session_rx.recv().await {
-            let _ = spawn!(session);
+            spawn!(session);
         }
 
         Ok(())
@@ -556,19 +556,18 @@ impl HdpSession {
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
                 let session_security_settings =
-                    state_container.session_security_settings.clone().unwrap();
+                    state_container.session_security_settings.unwrap();
                 let proposed_username = state_container
                     .connect_state
                     .proposed_credentials
                     .as_ref()
-                    .ok_or_else(|| NetworkError::InternalError("Proposed credentials not loaded"))?
+                    .ok_or(NetworkError::InternalError("Proposed credentials not loaded"))?
                     .username();
                 let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container
                     .register_state
                     .passwordless
-                    .clone()
-                    .ok_or_else(|| NetworkError::InternalError("Passwordless state not loaded"))?;
+                    .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
                 // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
                 let alice_constructor = StackedRatchetConstructor::new_alice(
                     ConstructorOpts::new_vec_init(
@@ -600,12 +599,9 @@ impl HdpSession {
                         passwordless,
                         proposed_cid,
                     );
-                if let Err(err) = to_outbound
+                to_outbound
                     .unbounded_send(stage0_register_packet)
-                    .map_err(|_| NetworkError::InternalError("Writer stream corrupted"))
-                {
-                    return Err(err);
-                }
+                    .map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
 
                 state_container.register_state.constructor = Some(alice_constructor);
                 log::trace!(target: "citadel", "Successfully sent stage0 register packet outbound");
@@ -641,17 +637,16 @@ impl HdpSession {
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine!");
         let session_ref = session;
-        let connect_mode = inner!(session.connect_mode)
-            .clone()
+        let connect_mode = (*inner!(session.connect_mode))
             .ok_or_else(|| NetworkError::InternalError("Connect mode not loaded"))?;
         let mut state_container = inner_mut_state!(session_ref.state_container);
 
         let udp_mode = state_container.udp_mode;
         let timestamp = session_ref.time_tracker.get_global_time_ns();
-        let session_security_settings = state_container.session_security_settings.clone().unwrap();
+        let session_security_settings = state_container.session_security_settings.unwrap();
         let peer_only_connect_mode = session_ref.peer_only_connect_protocol.get().unwrap();
         // reset the toolset's ARA
-        let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
+        let static_aux_hr = &cnac.refresh_static_hyper_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
         let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::InvalidRequest("The specified security setting for the session exceeds the registration security setting"))?;
         let opts = static_aux_hr
@@ -838,7 +833,7 @@ impl HdpSession {
                 let (writer, reader) = udp_conn.split();
 
                 let listener = Self::listen_udp_port(
-                    sess.clone(),
+                    sess,
                     hole_punched_addr_ip,
                     local_bind_addr.port(),
                     reader,
@@ -868,7 +863,7 @@ impl HdpSession {
             }
         };
 
-        let _ = spawn!(task);
+        spawn!(task);
     }
 
     #[cfg_attr(
@@ -928,7 +923,7 @@ impl HdpSession {
             )
         } else {
             let borrow = this_main;
-            let remote_peer = borrow.remote_peer.clone();
+            let remote_peer = borrow.remote_peer;
             let local_primary_port = borrow.local_bind_addr.port();
             let implicated_cid = borrow.implicated_cid.clone();
             let kernel_tx = borrow.kernel_tx.clone();
@@ -1016,7 +1011,7 @@ impl HdpSession {
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
                     implicated_cid.get(),
                     this_main,
-                    remote_peer.clone(),
+                    *remote_peer,
                     *local_primary_port,
                     packet,
                 )
@@ -1063,8 +1058,8 @@ impl HdpSession {
             borrow.queue_handle.set_once(sender);
 
             queue_worker.load_state_container(borrow.state_container.clone());
-            let time_tracker = borrow.time_tracker.clone();
-            let time_tracker_2 = time_tracker.clone();
+            let time_tracker = borrow.time_tracker;
+            let time_tracker_2 = time_tracker;
 
             let kernel_ticket = borrow.kernel_ticket.get();
             let is_server = borrow.is_server;
@@ -1090,13 +1085,13 @@ impl HdpSession {
 
             if !is_server {
                 queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE), move |state_container| {
-                    let time_tracker = time_tracker.clone();
+                    let time_tracker = time_tracker;
                     let ticket = kernel_ticket;
 
                     if state_container.state.load(Ordering::Relaxed) == SessionState::Connected {
                         let timestamp = time_tracker.get_global_time_ns();
 
-                        let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).clone().unwrap();
+                        let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
 
                         let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
                             if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.load(Ordering::SeqCst).map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
@@ -1107,7 +1102,7 @@ impl HdpSession {
                         }).collect::<Vec<VirtualTargetType>>();
 
                         let virtual_target = VirtualTargetType::HyperLANPeerToHyperLANServer(C2S_ENCRYPTION_ONLY);
-                        if let Ok(_) = state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket)) {
+                        if state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket)).is_ok() {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
                                 if let Err(err) = state_container.initiate_drill_update(timestamp, vconn, None) {
@@ -1197,7 +1192,7 @@ impl HdpSession {
                 .get_source_name()
                 .map_err(|err| NetworkError::msg(err.into_string()))?;
 
-            let time_tracker = this.time_tracker.clone();
+            let time_tracker = this.time_tracker;
             let timestamp = this.time_tracker.get_global_time_ns();
             let (group_sender, group_sender_rx) = channel(5);
             let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
@@ -1244,7 +1239,7 @@ impl HdpSession {
                             object_id,
                             name: file_name,
                             date_created: "".to_string(),
-                            author: format!("N/A"),
+                            author: "N/A".to_string(),
                             plaintext_length: file_size,
                             group_count: groups_needed,
                         };
@@ -1402,8 +1397,8 @@ impl HdpSession {
 
             let this = self.clone();
             let future = async move {
-                let ref this = this;
-                let ref next_gs_alerter = next_gs_alerter;
+                let this = &this;
+                let next_gs_alerter = &next_gs_alerter;
                 // this future will resolve when the sender drops in the file_crypt_scrambler
                 match start_rx.await {
                     Ok(false) => {
@@ -1487,7 +1482,7 @@ impl HdpSession {
                                     object_id,
                                     ticket,
                                     security_level,
-                                    time_tracker.clone(),
+                                    time_tracker,
                                 );
                                 // group_id is unique per session
                                 let group_id = transmitter.group_id;
@@ -1534,14 +1529,14 @@ impl HdpSession {
                                     // as long as a wave ACK has been received, proceed with the timeout check
                                     // The reason why is because this group may be loaded, but the previous one isn't done
                                     if transmitter.has_begun {
-                                        let ref transmitter = transmitter.burst_transmitter.group_transmitter;
+                                        let transmitter = &transmitter.burst_transmitter.group_transmitter;
                                         if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
                                             if state_container.meta_expiry_state.expired() {
                                                 log::error!(target: "citadel", "Outbound group {} has expired; dropping entire transfer", group_id);
                                                 //std::mem::drop(transmitter);
                                                 if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
                                                     if let Some(stop) = outbound_container.stop_tx.take() {
-                                                        if let Err(_) = stop.send(()) {
+                                                        if stop.send(()).is_err() {
                                                             log::error!(target: "citadel", "Unable to send stop signal");
                                                         }
                                                     }
@@ -1549,10 +1544,10 @@ impl HdpSession {
                                                     log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", &file_key);
                                                 }
 
-                                                if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                                if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                     ticket_opt: Some(ticket),
                                                     message: format!("Timeout on ticket {}", ticket)
-                                                })) {
+                                                })).is_err() {
                                                     log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
                                                     QueueWorkerResult::EndSession
                                                 } else {
@@ -1579,7 +1574,7 @@ impl HdpSession {
                             // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
                             // received a signal here
 
-                            if let None = next_gs_alerter_rx.next().await {
+                            if (next_gs_alerter_rx.next().await).is_none() {
                                 log::warn!(target: "citadel", "next_gs_alerter: steam ended");
                                 return;
                             }
@@ -1600,7 +1595,7 @@ impl HdpSession {
                 }
             };
 
-            let _ = spawn!(future);
+            spawn!(future);
 
             Ok(())
         }
@@ -1612,9 +1607,9 @@ impl HdpSession {
         mut rx: tokio::sync::mpsc::Receiver<SessionRequest>,
     ) {
         let task = async move {
-            let ref this = this;
+            let this = &this;
             let mut stopper_rx = inner!(this.stopper_tx).subscribe();
-            let ref to_kernel_tx = this.kernel_tx.clone();
+            let to_kernel_tx = &this.kernel_tx.clone();
 
             let stopper = async move {
                 stopper_rx
@@ -1679,7 +1674,7 @@ impl HdpSession {
             }
         };
 
-        let _ = spawn!(task);
+        spawn!(task);
     }
 
     #[allow(unused_results)]
@@ -1892,10 +1887,9 @@ impl HdpSession {
                     .session_security_settings
                     .as_ref()
                     .map(|r| r.security_level)
-                    .clone()
                     .unwrap();
                 let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
-                let ref to_kernel_tx = session.kernel_tx;
+                let to_kernel_tx = &session.kernel_tx;
                 let disconnect_stage0_packet = packet_crafter::do_disconnect::craft_stage0(
                     hr,
                     ticket,
@@ -1930,7 +1924,7 @@ impl HdpSessionInner {
     }
 
     pub(super) fn create_register_success_message(&self) -> String {
-        format!("Citadel register::success. Welcome to your new post-quantum network! Login to interact with your new network")
+        "Citadel register::success. Welcome to your new post-quantum network! Login to interact with your new network".to_string()
     }
 
     /// If the previous state was not a login fail, then the unwrap_or case will occur
@@ -2017,7 +2011,6 @@ impl HdpSessionInner {
             let timestamp = self.time_tracker.get_global_time_ns();
             let security_level = state_container
                 .session_security_settings
-                .clone()
                 .map(|r| r.security_level)
                 .clone()
                 .unwrap();
@@ -2064,7 +2057,7 @@ impl HdpSessionInner {
 impl Drop for HdpSessionInner {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
-        if let Err(_) = self.on_drop.unbounded_send(()) {
+        if self.on_drop.unbounded_send(()).is_err() {
             //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
         }
 

@@ -43,7 +43,7 @@ pub async fn process_register(
                     {
                         let algorithm = header.algorithm;
 
-                        match validation::do_register::validate_stage0(&*payload) {
+                        match validation::do_register::validate_stage0(&payload) {
                             Some((transfer, passwordless)) => {
                                 // Now, create a stage 1 packet
                                 let timestamp = session.time_tracker.get_global_time_ns();
@@ -291,7 +291,7 @@ pub async fn process_register(
                             );
 
                             let passwordless = return_if_none!(
-                                state_container.register_state.passwordless.clone(),
+                                state_container.register_state.passwordless,
                                 "Passwordless unset (reg)"
                             );
 
@@ -375,7 +375,7 @@ pub async fn process_register(
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
                             error_message: String::from_utf8(error_message)
-                                .unwrap_or("Non-UTF8 error message".to_string()),
+                                .unwrap_or_else(|_| "Non-UTF8 error message".to_string()),
                         }))?;
                         //session.needs_close_message.set(false);
                         session.shutdown();

@@ -377,7 +377,7 @@ pub(crate) mod file {
         payload: &[u8],
     ) -> Option<(bool, u32, VirtualTargetType)> {
         // 16 bytes for the signature
-        if payload.len() != 0 {
+        if !payload.is_empty() {
             let object_id = header.wave_id.get();
             let success = header.group.get() != 0;
             let v_target = VirtualTargetType::deserialize_from(payload)?;

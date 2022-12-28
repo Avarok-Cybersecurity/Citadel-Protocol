@@ -18,7 +18,7 @@ pub struct IfEq<J> {
 
 impl<J> IfEq<J> {
     pub fn if_false_then(self, lambda: impl FnOnce() -> J) -> J {
-        self.true_value.unwrap_or(lambda())
+        self.true_value.unwrap_or_else(lambda)
     }
 
     pub fn if_false(self, value: J) -> J {

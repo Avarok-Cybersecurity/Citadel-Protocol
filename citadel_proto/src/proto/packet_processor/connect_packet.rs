@@ -50,22 +50,22 @@ pub async fn process_connect(
     let header = header.clone();
     let security_level = header.security_level.into();
 
-    let time_tracker = session.time_tracker.clone();
+    let time_tracker = session.time_tracker;
 
     let task = async move {
-        let ref session = session;
+        let session = &session;
         match header.cmd_aux {
             // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
             packet_flags::cmd::aux::do_connect::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 2 CONNECT PACKET");
                 let task = {
-                    match validation::do_connect::validate_stage0_packet(&cnac, &*payload).await {
+                    match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
                         Ok(_) => {
                             let mut state_container = inner_mut_state!(session.state_container);
 
                             let cid = hyper_ratchet.get_cid();
                             let success_time = session.time_tracker.get_global_time_ns();
-                            let addr = session.remote_peer.clone();
+                            let addr = session.remote_peer;
                             let is_personal = !session.is_server;
                             let kernel_ticket = session.kernel_ticket.get();
 
@@ -183,10 +183,10 @@ pub async fn process_connect(
 
                 let mut state_container = inner_mut_state!(session.state_container);
                 if let Some(payload) =
-                    validation::do_connect::validate_final_status_packet(&*payload)
+                    validation::do_connect::validate_final_status_packet(&payload)
                 {
                     let message = String::from_utf8(payload.message.to_vec())
-                        .unwrap_or("Invalid UTF-8 message".to_string());
+                        .unwrap_or_else(|_| "Invalid UTF-8 message".to_string());
                     log::trace!(target: "citadel", "The server refused to login the user. Reason: {}", &message);
                     let cid = hyper_ratchet.get_cid();
                     state_container.connect_state.on_fail();
@@ -224,11 +224,11 @@ pub async fn process_connect(
 
                     if last_stage == packet_flags::cmd::aux::do_connect::STAGE1 {
                         if let Some(payload) =
-                            validation::do_connect::validate_final_status_packet(&*payload)
+                            validation::do_connect::validate_final_status_packet(&payload)
                         {
                             let cnac = cnac.clone();
                             let message = String::from_utf8(payload.message.to_vec())
-                                .unwrap_or(String::from("Invalid message"));
+                                .unwrap_or_else(|_| String::from("Invalid message"));
                             let kernel_ticket = session.kernel_ticket.get();
                             let cid = hyper_ratchet.get_cid();
 
@@ -237,7 +237,7 @@ pub async fn process_connect(
 
                             let use_ka = state_container.keep_alive_timeout_ns != 0;
                             let connect_mode = return_if_none!(
-                                state_container.connect_state.connect_mode.clone(),
+                                state_container.connect_state.connect_mode,
                                 "Unable to load connect mode"
                             );
                             let udp_channel_rx = state_container
@@ -257,13 +257,13 @@ pub async fn process_connect(
 
                             session.implicated_cid.set(Some(cid)); // This makes is_provisional equal to false
 
-                            let addr = session.remote_peer.clone();
+                            let addr = session.remote_peer;
                             let is_personal = !session.is_server;
 
                             // Upgrade the connect BEFORE updating the CNAC
                             if !session
                                 .session_manager
-                                .upgrade_connection(session.remote_peer.clone(), cid)
+                                .upgrade_connection(session.remote_peer, cid)
                             {
                                 return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection"));
                             }
@@ -314,54 +314,46 @@ pub async fn process_connect(
                             }
                             // TODO: Clean this up to prevent multiple saves
                             async move {
-                                let _ = persistence_handler
+                                persistence_handler
                                     .synchronize_hyperlan_peer_list_as_client(&cnac, peers)
                                     .await?;
-                                match (post_login_object.rtdb, post_login_object.google_auth_jwt) {
-                                    (Some(rtdb_cfg), Some(jwt)) => {
-                                        log::trace!(target: "citadel", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
-                                        let rtdb = FirebaseRTDB::new_from_jwt(
-                                            &rtdb_cfg.url,
-                                            jwt.clone(),
-                                            rtdb_cfg.api_key.clone(),
-                                        )
-                                        .await
-                                        .map_err(|err| NetworkError::Generic(err.inner))?; // login
+                                if let (Some(rtdb_cfg), Some(jwt)) = (post_login_object.rtdb, post_login_object.google_auth_jwt) {
+                                    log::trace!(target: "citadel", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
+                                    let rtdb = FirebaseRTDB::new_from_jwt(
+                                        &rtdb_cfg.url,
+                                        jwt.clone(),
+                                        rtdb_cfg.api_key.clone(),
+                                    )
+                                    .await
+                                    .map_err(|err| NetworkError::Generic(err.inner))?; // login
 
-                                        let FirebaseRTDB {
-                                            base_url,
-                                            auth,
-                                            expire_time,
-                                            api_key,
-                                            jwt,
-                                            ..
-                                        } = rtdb;
+                                    let FirebaseRTDB {
+                                        base_url,
+                                        auth,
+                                        expire_time,
+                                        api_key,
+                                        jwt,
+                                        ..
+                                    } = rtdb;
 
-                                        let client_rtdb_config = RtdbClientConfig {
-                                            url: base_url,
-                                            api_key,
-                                            auth_payload: auth,
-                                            expire_time,
-                                            jwt,
-                                        };
-                                        cnac.store_rtdb_config(client_rtdb_config);
+                                    let client_rtdb_config = RtdbClientConfig {
+                                        url: base_url,
+                                        api_key,
+                                        auth_payload: auth,
+                                        expire_time,
+                                        jwt,
+                                    };
+                                    cnac.store_rtdb_config(client_rtdb_config);
 
-                                        log::trace!(target: "citadel", "Successfully logged-in to RTDB + stored config inside CNAC ...");
-                                    }
-
-                                    _ => {}
+                                    log::trace!(target: "citadel", "Successfully logged-in to RTDB + stored config inside CNAC ...");
                                 };
 
-                                match connect_mode {
-                                    ConnectMode::Fetch { .. } => {
-                                        log::trace!(target: "citadel", "[FETCH] complete ...");
-                                        // we can end the session now. The fcm packets have already been sent alongside the connect signal above
-                                        return Ok(PrimaryProcessorResult::EndSession(
-                                            "Fetch succeeded",
-                                        ));
-                                    }
-
-                                    _ => {}
+                                if let ConnectMode::Fetch { .. } = connect_mode {
+                                    log::trace!(target: "citadel", "[FETCH] complete ...");
+                                    // we can end the session now. The fcm packets have already been sent alongside the connect signal above
+                                    return Ok(PrimaryProcessorResult::EndSession(
+                                        "Fetch succeeded",
+                                    ));
                                 }
 
                                 if use_ka {
@@ -398,7 +390,7 @@ pub async fn process_connect(
                         .ok_or_else(|| NetworkError::InternalError("C2S channel not loaded"))?
                         .channel_signal
                         .take()
-                        .ok_or_else(|| NetworkError::InternalError("Channel signal missing"))?;
+                        .ok_or(NetworkError::InternalError("Channel signal missing"))?;
                     session.send_to_kernel(signal)?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
