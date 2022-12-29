@@ -13,8 +13,10 @@ exclude = [
 ]
 
 [features]
-default = ["filesystem"]
+default = ["filesystem", "std"]
 filesystem = []
+std = ["citadel_pqcrypto/std"]
+wasm = ["citadel_pqcrypto/wasm"]
 
 [dependencies]
 async-trait = "0.1.24"

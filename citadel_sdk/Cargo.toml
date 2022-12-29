@@ -7,12 +7,15 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["filesystem"]
+default = ["filesystem", "std"]
 filesystem = ["citadel_proto/filesystem", "dirs2"]
 multi-threaded = ["citadel_proto/multi-threaded"]
 sql = ["citadel_proto/sql"]
 redis = ["citadel_proto/redis"]
 webrtc = ["citadel_proto/webrtc"]
+
+std = ["citadel_proto/std"]
+wasm = ["citadel_proto/wasm"]
 
 # for testing only
 localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_logging"]
