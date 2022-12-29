@@ -221,23 +221,22 @@ pub(crate) mod pre_connect {
     use citadel_user::serialization::SyncIO;
     use citadel_wire::nat_identification::NatType;
 
+    pub(crate) type SynValidationResult = (
+        StaticAuxRatchet,
+        BobToAliceTransfer,
+        SessionSecuritySettings,
+        ConnectProtocol,
+        UdpMode,
+        i64,
+        NatType,
+        StackedRatchet,
+    );
+
     pub(crate) fn validate_syn(
         cnac: &ClientNetworkAccount,
         packet: HdpPacket,
         session_manager: &HdpSessionManager,
-    ) -> Result<
-        (
-            StaticAuxRatchet,
-            BobToAliceTransfer,
-            SessionSecuritySettings,
-            ConnectProtocol,
-            UdpMode,
-            i64,
-            NatType,
-            StackedRatchet,
-        ),
-        NetworkError,
-    > {
+    ) -> Result<SynValidationResult, NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -395,12 +394,15 @@ pub(crate) mod aead {
     use crate::proto::packet::HdpHeader;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
 
+    pub(crate) type AeadValidationResult<'a> =
+        (LayoutVerified<&'a [u8], HdpHeader>, Bytes, StackedRatchet);
+
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM or chacha-poly
     pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(
         proper_hr: StackedRatchet,
         header: &'b H,
         mut payload: BytesMut,
-    ) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, StackedRatchet)> {
+    ) -> Option<AeadValidationResult> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         proper_hr

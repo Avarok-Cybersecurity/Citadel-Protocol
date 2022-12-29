@@ -36,25 +36,20 @@ pub fn process_file_packet(
                     match validation::file::validate_file_header(&header, &payload[..]) {
                         Some((v_target, vfm)) => {
                             let (target_cid, v_target_flipped) = match v_target {
-                                VirtualConnectionType::HyperLANPeerToHyperLANPeer(
+                                VirtualConnectionType::LocalGroupPeer(
                                     implicated_cid,
                                     target_cid,
                                 ) => (
                                     implicated_cid,
-                                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(
+                                    VirtualConnectionType::LocalGroupPeer(
                                         target_cid,
                                         implicated_cid,
                                     ),
                                 ),
 
-                                VirtualConnectionType::HyperLANPeerToHyperLANServer(
-                                    implicated_cid,
-                                ) => (
-                                    0,
-                                    VirtualConnectionType::HyperLANPeerToHyperLANServer(
-                                        implicated_cid,
-                                    ),
-                                ),
+                                VirtualConnectionType::LocalGroupServer(implicated_cid) => {
+                                    (0, VirtualConnectionType::LocalGroupServer(implicated_cid))
+                                }
 
                                 _ => {
                                     log::error!(target: "citadel", "HyperWAN functionality not yet enabled");
@@ -103,13 +98,16 @@ pub fn process_file_packet(
                             // the target is the implicated cid of THIS receiving node
                             let implicated_cid = header.target_cid.get();
                             // conclude by passing this data into the state container
-                            if state_container.on_file_header_ack_received(
-                                success,
-                                implicated_cid,
-                                header.context_info.get().into(),
-                                object_id,
-                                v_target,
-                            ).is_none() {
+                            if state_container
+                                .on_file_header_ack_received(
+                                    success,
+                                    implicated_cid,
+                                    header.context_info.get().into(),
+                                    object_id,
+                                    v_target,
+                                )
+                                .is_none()
+                            {
                                 log::error!(target: "citadel", "on_file_header_ack_received failed. File transfer attempt invalidated");
                             }
 

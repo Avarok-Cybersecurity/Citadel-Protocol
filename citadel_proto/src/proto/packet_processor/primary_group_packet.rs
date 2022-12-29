@@ -485,7 +485,7 @@ pub(super) fn get_proper_hyper_ratchet(
 /// returns the relative `resp_target_cid`
 pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64> {
     match virtual_target {
-        VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
+        VirtualConnectionType::LocalGroupPeer(implicated_cid, _target_cid) => {
             // by logic of the network, target_cid must equal this node's CID
             // since we have entered this process function
             //debug_assert_eq!(sess_implicated_cid, target_cid);
@@ -493,7 +493,7 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
             Some(*implicated_cid)
         }
 
-        VirtualConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
+        VirtualConnectionType::LocalGroupServer(_implicated_cid) => {
             // Since this is the receiving node, and we are already in a valid connection, return true
             Some(0) // ZERO, since we don't use ordinary p2p encryption
         }

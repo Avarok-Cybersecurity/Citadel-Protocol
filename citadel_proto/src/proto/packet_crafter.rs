@@ -123,6 +123,7 @@ impl GroupTransmitter {
     }
 
     /// Creates a new stream for a request
+    #[allow(clippy::too_many_arguments)]
     pub fn new_message(
         to_primary_stream: OutboundPrimaryStreamSender,
         object_id: u32,
@@ -308,7 +309,7 @@ pub(crate) mod group {
     /// `message`: Is appended to the end of the payload
     /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
     /// needs to only delete the outbound container
-    #[allow(unused_results)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_group_header_ack(
         hyper_ratchet: &StackedRatchet,
         object_id: u32,
@@ -388,7 +389,7 @@ pub(crate) mod group {
     }
 
     // NOTE: context infos contain the object ID in most of the GROUP packets
-    #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_wave_ack(
         hyper_ratchet: &StackedRatchet,
         object_id: u32,
@@ -493,7 +494,7 @@ pub(crate) mod do_connect {
         pub message: &'a [u8],
     }
 
-    #[allow(unused_results)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(
         hyper_ratchet: &StackedRatchet,
         success: bool,
@@ -1146,6 +1147,7 @@ pub(crate) mod pre_connect {
         pub keep_alive_timeout: i64,
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_syn(
         static_aux_hr: &StaticAuxRatchet,
         transfer: AliceToBobTransfer,
@@ -1587,6 +1589,7 @@ pub(crate) mod file {
         packet
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_file_header_ack_packet(
         hyper_ratchet: &StackedRatchet,
         success: bool,

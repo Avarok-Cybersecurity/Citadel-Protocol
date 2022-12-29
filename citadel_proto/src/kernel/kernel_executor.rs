@@ -8,8 +8,8 @@ use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
 
 use crate::error::NetworkError;
-use crate::kernel::kernel::NetKernel;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
+use crate::kernel::kernel_trait::NetKernel;
 use crate::kernel::{KernelExecutorSettings, RuntimeFuture};
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
 use crate::proto::node::HdpServer;
@@ -26,11 +26,13 @@ pub struct KernelExecutor<K: NetKernel> {
     server_to_kernel_rx: Option<UnboundedReceiver<NodeResult>>,
     shutdown_alerter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
     callback_handler: Option<KernelAsyncCallbackHandler>,
-    context: Option<(Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)>,
+    context: Option<KernelContext>,
     account_manager: AccountManager,
     kernel_executor_settings: KernelExecutorSettings,
     kernel: K,
 }
+
+type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start

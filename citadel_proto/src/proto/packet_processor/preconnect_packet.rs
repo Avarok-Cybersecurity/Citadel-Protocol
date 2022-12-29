@@ -47,16 +47,30 @@ pub async fn process_preconnect(
             packet_flags::cmd::aux::do_preconnect::SYN => {
                 log::trace!(target: "citadel", "RECV STAGE SYN PRE_CONNECT PACKET");
                 // first make sure the cid isn't already connected
-
+                let session_already_active = session
+                    .session_manager
+                    .session_active(header.session_cid.get());
                 let account_manager = session.account_manager.clone();
+                let header_if_err_occurs = header.clone();
+
+                let error = |err: NetworkError| {
+                    let packet = packet_crafter::pre_connect::craft_halt(
+                        &header_if_err_occurs,
+                        err.into_string(),
+                    );
+                    Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                };
+
+                if session_already_active {
+                    return error(NetworkError::InvalidRequest("Session Already Connected"));
+                }
+
                 if let Some(cnac) = account_manager
                     .get_client_by_cid(header.session_cid.get())
                     .await?
                 {
                     let mut state_container = inner_mut_state!(session.state_container);
                     let adjacent_proto_version = header.group.get();
-
-                    let header_if_err_occurs = header.clone();
 
                     match validation::pre_connect::validate_syn(
                         &cnac,
@@ -117,11 +131,7 @@ pub async fn process_preconnect(
 
                         Err(err) => {
                             log::error!(target: "citadel", "Invalid SYN packet received: {:?}", &err);
-                            let packet = packet_crafter::pre_connect::craft_halt(
-                                &header_if_err_occurs,
-                                err.into_string(),
-                            );
-                            Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                            error(err)
                         }
                     }
                 } else {
@@ -292,7 +302,8 @@ pub async fn process_preconnect(
                     if state_container.pre_connect_state.last_stage
                         == packet_flags::cmd::aux::do_preconnect::SYN_ACK
                     {
-                        if validation::pre_connect::validate_stage0(&hyper_ratchet, packet).is_some()
+                        if validation::pre_connect::validate_stage0(&hyper_ratchet, packet)
+                            .is_some()
                         {
                             let timestamp = session.time_tracker.get_global_time_ns();
 
@@ -483,7 +494,8 @@ pub async fn process_preconnect(
             }
 
             packet_flags::cmd::aux::do_preconnect::HALT => {
-                let message = String::from_utf8(payload.to_vec()).unwrap_or_else(|_| "INVALID UTF-8".into());
+                let message =
+                    String::from_utf8(payload.to_vec()).unwrap_or_else(|_| "INVALID UTF-8".into());
                 let ticket = session.kernel_ticket.get();
                 session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
                     ticket,
@@ -585,7 +597,7 @@ fn handle_success_as_receiver(
         // the UDP subsystem will automatically engage at this point
         HdpSession::udp_socket_loader(
             session.clone(),
-            VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid),
+            VirtualTargetType::LocalGroupServer(implicated_cid),
             udp_splittable,
             peer_addr,
             session.kernel_ticket.get(),
