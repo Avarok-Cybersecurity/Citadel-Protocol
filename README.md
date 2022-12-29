@@ -24,6 +24,8 @@ rm wasi-sysroot-12.0.tar.gz
 export WASI_SDK_DIR="$(pwd)/wasi-sysroot"
 export WASMTIME_HOME="$(pwd)/.wasmtime"
 export PATH="$WASMTIME_HOME/bin:$PATH"
+# If on Mac M1, make sure to use the clang provided by homebrew
+export PATH="/opt/homebrew/Cellar/llvm/<latest-version>/bin/:$PATH"
 ```
 
 Additionally, the feature `wasm` should be enabled too
