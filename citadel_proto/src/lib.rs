@@ -388,7 +388,7 @@ pub mod prelude {
     pub use crate::functional::*;
     pub use crate::kernel::RuntimeFuture;
     pub use crate::kernel::{
-        kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings,
+        kernel_executor::KernelExecutor, kernel_trait::NetKernel, KernelExecutorSettings,
     };
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     pub use crate::proto::misc::session_security_settings::{

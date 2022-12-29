@@ -98,8 +98,8 @@ pub(crate) fn header_to_vconn_type(header: &HdpHeader) -> VirtualConnectionType 
     let target_cid = header.target_cid.get();
     if target_cid != C2S_ENCRYPTION_ONLY {
         // the peer_cid and implicated cid must be flipped
-        VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, session_cid)
+        VirtualConnectionType::LocalGroupPeer(target_cid, session_cid)
     } else {
-        VirtualConnectionType::HyperLANPeerToHyperLANServer(session_cid)
+        VirtualConnectionType::LocalGroupServer(session_cid)
     }
 }

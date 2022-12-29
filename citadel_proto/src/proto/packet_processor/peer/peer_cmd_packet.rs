@@ -236,98 +236,92 @@ pub async fn process_peer_cmd(
                         PeerSignal::PostConnect(
                             conn,
                             _,
-                            resp,
+                            Some(resp),
                             endpoint_security_settings,
                             udp_enabled,
                         ) => {
-                            if let Some(resp) = resp {
-                                // the connection was mutually accepted. Now, we must begin the KEM subroutine
-                                if let PeerResponse::Accept(_) = resp {
-                                    return match conn {
-                                        PeerConnectionType::HyperLANPeerToHyperLANPeer(
-                                            original_implicated_cid,
-                                            original_target_cid,
-                                        ) => {
-                                            // this implies this node is receiving an accept_request. As such, we need to NOT
-                                            // forward the signal quite yet, and instead, begin the key-exchange process in order to
-                                            // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
-                                            // unique to the session.
-                                            //let mut state_container = inner_mut!(session.state_container);
-                                            //let peer_cid = conn.get_original_implicated_cid();
-                                            let mut peer_kem_state_container =
-                                                PeerKemStateContainer::new(
-                                                    *endpoint_security_settings,
-                                                    *udp_enabled == UdpMode::Enabled,
-                                                );
+                            let accepted = matches!(resp, PeerResponse::Accept(_));
+                            // TODO: handle non-accept case
+                            // the connection was mutually accepted. Now, we must begin the KEM subroutine
+                            if accepted {
+                                return match conn {
+                                    PeerConnectionType::HyperLANPeerToHyperLANPeer(
+                                        original_implicated_cid,
+                                        original_target_cid,
+                                    ) => {
+                                        // this implies this node is receiving an accept_request. As such, we need to NOT
+                                        // forward the signal quite yet, and instead, begin the key-exchange process in order to
+                                        // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
+                                        // unique to the session.
+                                        //let mut state_container = inner_mut!(session.state_container);
+                                        //let peer_cid = conn.get_original_implicated_cid();
+                                        let mut peer_kem_state_container =
+                                            PeerKemStateContainer::new(
+                                                *endpoint_security_settings,
+                                                *udp_enabled == UdpMode::Enabled,
+                                            );
 
-                                            let alice_constructor = return_if_none!(
-                                                StackedRatchetConstructor::new_alice(
-                                                    ConstructorOpts::new_vec_init(
-                                                        Some(
-                                                            endpoint_security_settings
-                                                                .crypto_params
-                                                        ),
-                                                        (endpoint_security_settings
-                                                            .security_level
-                                                            .value()
-                                                            + 1)
-                                                            as usize
-                                                    ),
-                                                    conn.get_original_target_cid(),
-                                                    0,
-                                                    Some(endpoint_security_settings.security_level)
-                                                )
-                                            );
-                                            let transfer = return_if_none!(
-                                                alice_constructor.stage0_alice(),
-                                                "AliceConstructor None"
-                                            );
-                                            //log::trace!(target: "citadel", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
-                                            let msg_bytes =
-                                                return_if_none!(transfer.serialize_to_vec());
-                                            peer_kem_state_container.constructor =
-                                                Some(alice_constructor);
-                                            inner_mut_state!(session.state_container)
-                                                .peer_kem_states
-                                                .insert(
-                                                    *original_implicated_cid,
-                                                    peer_kem_state_container,
-                                                );
-                                            // finally, prepare the signal and send outbound
-                                            // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
-                                            let signal = PeerSignal::Kem(
-                                                PeerConnectionType::HyperLANPeerToHyperLANPeer(
-                                                    *original_target_cid,
-                                                    *original_implicated_cid,
+                                        let alice_constructor =
+                                            return_if_none!(StackedRatchetConstructor::new_alice(
+                                                ConstructorOpts::new_vec_init(
+                                                    Some(endpoint_security_settings.crypto_params),
+                                                    (endpoint_security_settings
+                                                        .security_level
+                                                        .value()
+                                                        + 1)
+                                                        as usize
                                                 ),
-                                                KeyExchangeProcess::Stage0(
-                                                    msg_bytes,
-                                                    *endpoint_security_settings,
-                                                    *udp_enabled,
-                                                ),
+                                                conn.get_original_target_cid(),
+                                                0,
+                                                Some(endpoint_security_settings.security_level)
+                                            ));
+                                        let transfer = return_if_none!(
+                                            alice_constructor.stage0_alice(),
+                                            "AliceConstructor None"
+                                        );
+                                        //log::trace!(target: "citadel", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
+                                        let msg_bytes =
+                                            return_if_none!(transfer.serialize_to_vec());
+                                        peer_kem_state_container.constructor =
+                                            Some(alice_constructor);
+                                        inner_mut_state!(session.state_container)
+                                            .peer_kem_states
+                                            .insert(
+                                                *original_implicated_cid,
+                                                peer_kem_state_container,
                                             );
+                                        // finally, prepare the signal and send outbound
+                                        // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
+                                        let signal = PeerSignal::Kem(
+                                            PeerConnectionType::HyperLANPeerToHyperLANPeer(
+                                                *original_target_cid,
+                                                *original_implicated_cid,
+                                            ),
+                                            KeyExchangeProcess::Stage0(
+                                                msg_bytes,
+                                                *endpoint_security_settings,
+                                                *udp_enabled,
+                                            ),
+                                        );
 
-                                            let stage0_peer_kem =
-                                                packet_crafter::peer_cmd::craft_peer_signal(
-                                                    &sess_hyper_ratchet,
-                                                    signal,
-                                                    ticket,
-                                                    timestamp,
-                                                    security_level,
-                                                );
-                                            log::trace!(target: "citadel", "Sent peer KEM stage 0 outbound");
-                                            // send to central server
-                                            Ok(PrimaryProcessorResult::ReplyToSender(
-                                                stage0_peer_kem,
-                                            ))
-                                        }
+                                        let stage0_peer_kem =
+                                            packet_crafter::peer_cmd::craft_peer_signal(
+                                                &sess_hyper_ratchet,
+                                                signal,
+                                                ticket,
+                                                timestamp,
+                                                security_level,
+                                            );
+                                        log::trace!(target: "citadel", "Sent peer KEM stage 0 outbound");
+                                        // send to central server
+                                        Ok(PrimaryProcessorResult::ReplyToSender(stage0_peer_kem))
+                                    }
 
-                                        _ => {
-                                            log::error!(target: "citadel", "HyperWAN Functionality not yet enabled");
-                                            Ok(PrimaryProcessorResult::Void)
-                                        }
-                                    };
-                                }
+                                    _ => {
+                                        log::error!(target: "citadel", "HyperWAN Functionality not yet enabled");
+                                        Ok(PrimaryProcessorResult::Void)
+                                    }
+                                };
                             }
                         }
 
@@ -438,10 +432,9 @@ pub async fn process_peer_cmd(
                                         let toolset = Toolset::new(this_cid, hyper_ratchet);
                                         // now, register the loaded PQC + toolset into the virtual conn
                                         let peer_crypto = PeerSessionCrypto::new(toolset, true);
-                                        let vconn_type =
-                                            VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                                                this_cid, peer_cid,
-                                            );
+                                        let vconn_type = VirtualConnectionType::LocalGroupPeer(
+                                            this_cid, peer_cid,
+                                        );
                                         let (needs_turn, bob_predicted_socket_addr) = bob_nat_info
                                             .generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
@@ -598,10 +591,9 @@ pub async fn process_peer_cmd(
                                         let peer_crypto = PeerSessionCrypto::new(toolset, false);
 
                                         // create an endpoint vconn
-                                        let vconn_type =
-                                            VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                                                this_cid, peer_cid,
-                                            );
+                                        let vconn_type = VirtualConnectionType::LocalGroupPeer(
+                                            this_cid, peer_cid,
+                                        );
                                         let (needs_turn, alice_predicted_socket_addr) =
                                             alice_nat_info.generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
@@ -1384,6 +1376,7 @@ fn construct_error_signal<E: ToString>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn route_signal_and_register_ticket_forwards(
     peer_layer: &mut HyperNodePeerLayerInner,
     signal: PeerSignal,
@@ -1427,6 +1420,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
 }
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn route_signal_response(
     signal: PeerSignal,
     implicated_cid: u64,

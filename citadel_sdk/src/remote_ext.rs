@@ -272,17 +272,13 @@ pub trait ProtocolRemoteExt: Remote {
             .map(move |(cid, peer)| {
                 if peer.parent_icid != 0 {
                     SymmetricIdentifierHandleRef {
-                        user: VirtualTargetType::HyperLANPeerToHyperWANPeer(
-                            cid,
-                            peer.parent_icid,
-                            peer.cid,
-                        ),
+                        user: VirtualTargetType::ExternalGroupPeer(cid, peer.parent_icid, peer.cid),
                         remote: self.remote_ref_mut(),
                         target_username: None,
                     }
                 } else {
                     SymmetricIdentifierHandleRef {
-                        user: VirtualTargetType::HyperLANPeerToHyperLANPeer(cid, peer.cid),
+                        user: VirtualTargetType::LocalGroupPeer(cid, peer.cid),
                         remote: self.remote_ref_mut(),
                         target_username: None,
                     }
@@ -301,12 +297,12 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         match peer.into() {
             UserIdentifier::ID(peer_cid) => Ok(SymmetricIdentifierHandleRef {
-                user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid),
+                user: VirtualTargetType::LocalGroupPeer(local_cid, peer_cid),
                 remote: self.remote_ref_mut(),
                 target_username: None,
             }),
             UserIdentifier::Username(uname) => Ok(SymmetricIdentifierHandleRef {
-                user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, 0),
+                user: VirtualTargetType::LocalGroupPeer(local_cid, 0),
                 remote: self.remote_ref_mut(),
                 target_username: Some(uname),
             }),
@@ -626,7 +622,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         ticket_opt: _,
                         success: false,
                     }) => {
-                        return Err(NetworkError::msg("Unable to deregister: status=false".to_string()))
+                        return Err(NetworkError::msg(
+                            "Unable to deregister: status=false".to_string(),
+                        ))
                     }
 
                     _ => {}

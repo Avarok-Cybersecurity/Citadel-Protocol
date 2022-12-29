@@ -25,6 +25,7 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         server_remote: NodeRemote,
         target_cid: u64,
@@ -192,7 +193,7 @@ impl Stream for PeerChannelRecvHalf {
 
 impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
-        if let VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) = self.vconn_type {
+        if let VirtualConnectionType::LocalGroupPeer(local_cid, peer_cid) = self.vconn_type {
             log::trace!(target: "citadel", "[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
 
             let command = match self.recv_type {

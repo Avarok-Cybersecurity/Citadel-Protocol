@@ -411,12 +411,12 @@ impl Stream for TlsListener {
 
 pub struct QuicListener {
     future: Pin<Box<dyn StreamOutputImpl>>,
-    recv: tokio::sync::mpsc::Receiver<
-        std::io::Result<(NewConnection, SendStream, RecvStream, SocketAddr, Endpoint)>,
-    >,
+    recv: tokio::sync::mpsc::Receiver<std::io::Result<IncomingQuicConnection>>,
     #[allow(dead_code)]
     is_self_signed: bool,
 }
+
+type IncomingQuicConnection = (NewConnection, SendStream, RecvStream, SocketAddr, Endpoint);
 
 impl QuicListener {
     pub fn new(mut server: QuicNode, is_self_signed: bool) -> Self {
