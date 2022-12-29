@@ -38,7 +38,9 @@ use crate::proto::peer::peer_layer::{
     PeerSignal, UdpMode,
 };
 use crate::proto::remote::{NodeRemote, Ticket};
-use crate::proto::session::{HdpSession, HdpSessionInitMode};
+use crate::proto::session::{
+    ClientOnlySessionInitSettings, HdpSession, HdpSessionInitMode, SessionInitParams,
+};
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_wire::exports::tokio_rustls::rustls;
@@ -103,7 +105,7 @@ impl HdpSessionManager {
     pub(crate) fn load_server_remote_get_tt(&self, server_remote: NodeRemote) -> TimeTracker {
         let mut this = inner_mut!(self);
         this.server_remote = Some(server_remote);
-        this.time_tracker.clone()
+        this.time_tracker
     }
 
     /// Determines if `cid` is connected
@@ -117,7 +119,7 @@ impl HdpSessionManager {
     ///
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
-    #[allow(unused_results)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn initiate_connection(
         &self,
         local_node_type: NodeType,
@@ -203,7 +205,7 @@ impl HdpSessionManager {
                     let remote = this.server_remote.clone().unwrap();
                     let kernel_tx = this.kernel_tx.clone();
                     let account_manager = this.account_manager.clone();
-                    let tt = this.time_tracker.clone();
+                    let tt = this.time_tracker;
                     let peer_layer = this.hypernode_peer_layer.clone();
 
                     if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
@@ -211,7 +213,7 @@ impl HdpSessionManager {
                         // especially on IOS/droid where the background timer just stops completely
                         if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
                             // remove the entry, since it's expired anyways
-                            this.provisional_connections.remove(&peer_addr);
+                            let _ = this.provisional_connections.remove(&peer_addr);
                         } else {
                             return Err(NetworkError::Generic(format!(
                                 "Localhost is already trying to connect to {}",
@@ -261,32 +263,37 @@ impl HdpSessionManager {
             };
 
             //let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
-
-            let (stopper, new_session) = HdpSession::new(
+            let client_only_settings = ClientOnlySessionInitSettings {
                 init_mode,
-                local_nat_type,
-                peer_only_connect_mode,
+                connect_mode,
                 cnac,
-                peer_addr,
                 proposed_credentials,
+                udp_mode: udp_mode.unwrap_or(UDP_MODE),
+                keep_alive_timeout_ns: keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS),
+                security_settings,
+                peer_only_connect_proto: peer_only_connect_mode,
+            };
+
+            let session_init_params = SessionInitParams {
+                local_nat_type,
+                remote_peer: peer_addr,
                 on_drop,
-                remote,
+                hdp_remote: remote,
                 local_bind_addr,
                 local_node_type,
                 kernel_tx,
-                session_manager_clone.clone(),
+                session_manager: session_manager_clone.clone(),
                 account_manager,
-                tt,
-                ticket,
-                udp_mode.unwrap_or(UDP_MODE),
-                keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS),
-                security_settings,
-                connect_mode,
-                default_client_config.clone(),
-                peer_layer,
-            )?;
+                time_tracker: tt,
+                init_ticket: ticket,
+                client_config: default_client_config.clone(),
+                hypernode_peer_layer: peer_layer,
+                client_only_settings: Some(client_only_settings),
+            };
 
-            inner_mut!(self)
+            let (stopper, new_session) = HdpSession::new(session_init_params)?;
+
+            let _ = inner_mut!(self)
                 .provisional_connections
                 .insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
 
@@ -321,7 +328,7 @@ impl HdpSessionManager {
 
         match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
-                if let Some(cid) = cid_opt.clone() {
+                if let Some(cid) = *cid_opt {
                     //log::trace!(target: "citadel", "[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
                     session_manager.clear_session(cid);
                     session_manager.clear_provisional_session(&peer_addr);
@@ -358,7 +365,7 @@ impl HdpSessionManager {
                 // delete
                 let cid = cnac.get_cid();
                 let task = async move { pers.delete_cnac_by_cid(cid).await };
-                let _ = spawn!(task);
+                spawn!(task);
                 log::trace!(target: "citadel", "Deleting passwordless CNAC ...");
             }
         }
@@ -372,12 +379,11 @@ impl HdpSessionManager {
             if let Some(implicated_cid) = sess.implicated_cid.get() {
                 let task = async move { peer_layer.on_session_shutdown(implicated_cid).await };
 
-                let _ = spawn!(task);
+                spawn!(task);
 
                 let timestamp = sess.time_tracker.get_global_time_ns();
                 let security_level = state_container
                     .session_security_settings
-                    .clone()
                     .map(|r| r.security_level)
                     .unwrap_or(SecurityLevel::Standard);
 
@@ -387,30 +393,25 @@ impl HdpSessionManager {
                     vconn.is_active.store(false, Ordering::SeqCst);
                     if peer_cid != implicated_cid && peer_cid != 0 {
                         let vconn = vconn.connection_type;
-                        match vconn {
-                            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, _) => {
-                                if peer_cid != implicated_cid {
-                                    log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
-                                    let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
-                                    let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
-                                    if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                                        super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
-                                    }) {
-                                        //log::error!(target: "citadel", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
-                                    }
+                        if let VirtualConnectionType::LocalGroupPeer(_, _) = vconn {
+                            if peer_cid != implicated_cid {
+                                log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
+                                let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
+                                let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
+                                if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
+                                    super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
+                                }) {
+                                    //log::error!(target: "citadel", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
+                                }
 
-                                    if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
-                                        let ref peer_sess = peer_sess.1;
-                                        let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
-                                        if let None = peer_state_container.active_virtual_connections.remove(&implicated_cid) {
-                                            log::warn!(target: "citadel", "While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
-                                        }
+                                if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
+                                    let peer_sess = &peer_sess.1;
+                                    let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
+                                    if peer_state_container.active_virtual_connections.remove(&implicated_cid).is_none() {
+                                        log::warn!(target: "citadel", "While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
                                     }
                                 }
                             }
-
-                            // TODO: HyperWAN conns
-                            _ => {}
                         }
                     }
                 });
@@ -471,25 +472,26 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as _);
         this.incoming_cxn_count += 1;
 
-        let (stopper, new_session) = HdpSession::new_incoming(
+        let session_init_params = SessionInitParams {
             on_drop,
             local_nat_type,
-            remote,
+            hdp_remote: remote,
             local_bind_addr,
             local_node_type,
-            this.kernel_tx.clone(),
-            self.clone(),
-            this.account_manager.clone(),
-            this.time_tracker.clone(),
-            peer_addr.clone(),
-            provisional_ticket,
+            kernel_tx: this.kernel_tx.clone(),
+            session_manager: self.clone(),
+            account_manager: this.account_manager.clone(),
+            time_tracker: this.time_tracker,
+            remote_peer: peer_addr,
+            init_ticket: provisional_ticket,
             client_config,
-            peer_layer,
-        );
-        this.provisional_connections.insert(
-            peer_addr.clone(),
-            (Instant::now(), stopper, new_session.clone()),
-        );
+            hypernode_peer_layer: peer_layer,
+            client_only_settings: None,
+        };
+
+        let (stopper, new_session) = HdpSession::new(session_init_params)?;
+        this.provisional_connections
+            .insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
         std::mem::drop(this);
 
         // Note: Must send TICKET on finish
@@ -509,12 +511,12 @@ impl HdpSessionManager {
         &self,
         ticket: Ticket,
         implicated_cid: u64,
-        ref command: GroupBroadcast,
+        command: GroupBroadcast,
     ) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
             inner_mut_state!(existing_session.1.state_container)
-                .process_outbound_broadcast_command(ticket, command)
+                .process_outbound_broadcast_command(ticket, &command)
         } else {
             Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to handle group broadcast signal {:?} ...", implicated_cid, command)))
         }
@@ -556,7 +558,7 @@ impl HdpSessionManager {
         let implicated_cid = virtual_target.get_implicated_cid();
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let ref sess = sess.1;
+            let sess = &sess.1;
             let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut_state!(sess.state_container);
             state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket))
@@ -577,7 +579,7 @@ impl HdpSessionManager {
     ) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let ref sess = sess.1;
+            let sess = &sess.1;
             sess.initiate_deregister(connection_type, ticket)
         } else {
             Err(NetworkError::Generic(format!(
@@ -588,7 +590,7 @@ impl HdpSessionManager {
     }
 
     ///
-    pub fn check_online_status(&self, users: &Vec<u64>) -> Vec<bool> {
+    pub fn check_online_status(&self, users: &[u64]) -> Vec<bool> {
         let this = inner!(self);
         users
             .iter()
@@ -608,8 +610,7 @@ impl HdpSessionManager {
         let sess = {
             let this = inner!(self);
             if let Some(sess) = this.sessions.get(&implicated_cid) {
-                let sess = sess.1.clone();
-                sess
+                sess.1.clone()
             } else {
                 return Err(NetworkError::msg(format!("Session for {} not found in session manager. Failed to dispatch peer command {:?}", implicated_cid, peer_command)));
             }
@@ -622,7 +623,7 @@ impl HdpSessionManager {
     /// Returns a list of active sessions
     pub fn get_active_sessions(&self) -> Vec<u64> {
         let this = inner!(self);
-        this.sessions.keys().map(|r| *r).collect()
+        this.sessions.keys().copied().collect()
     }
 
     /// This upgrades a provisional connection to a full connection. Returns true if the upgrade
@@ -647,7 +648,7 @@ impl HdpSessionManager {
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection
                 log::warn!(target: "citadel", "Cleaned up lingering session for {}", implicated_cid);
-                let ref prev_conn = lingering_conn.1;
+                let prev_conn = &lingering_conn.1;
                 prev_conn.do_static_hr_refresh_atexit.set(false);
             }
 
@@ -767,6 +768,7 @@ impl HdpSessionManager {
 
     /// Removes the supplied peers from the group. Each peer that is successfully removed will receive a group disconnect signal
     /// This will additionally alert each remaining member
+    #[allow(clippy::too_many_arguments)]
     pub async fn kick_from_message_group(
         &self,
         mode: GroupMemberAlterMode,
@@ -826,7 +828,7 @@ impl HdpSessionManager {
                 security_level,
             )
             .await
-            .map_err(|err| NetworkError::Generic(err))?;
+            .map_err(NetworkError::Generic)?;
 
         let len = to_broadcast_left.len();
         let peers_and_statuses_left = to_broadcast_left
@@ -842,7 +844,7 @@ impl HdpSessionManager {
                 security_level,
             )
             .await
-            .map_err(|err| NetworkError::Generic(err))?;
+            .map_err(NetworkError::Generic)?;
 
         Ok(true)
     }
@@ -894,7 +896,7 @@ impl HdpSessionManager {
     ) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&target_cid) {
-            let ref sess = sess.1;
+            let sess = &sess.1;
             if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
                 let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
                 return accessor
@@ -941,7 +943,7 @@ impl HdpSessionManager {
 
         let this = inner!(self);
         if let Some(peer_sess) = this.sessions.get(&peer_cid) {
-            let ref sess = peer_sess.1;
+            let sess = &peer_sess.1;
             let to_primary = sess.to_primary_stream.as_ref().unwrap();
 
             let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
@@ -986,7 +988,7 @@ impl HdpSessionManager {
 
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
     /// After `timeout`, the closure `on_timeout` is executed
-    #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
         peer_layer: &mut HyperNodePeerLayerInner,
@@ -1164,7 +1166,7 @@ impl HdpSessionManager {
             if let Some(target_sess) = this.sessions.get(&target_cid) {
                 //let ret = target_sess.clone();
 
-                let ref sess_ref = target_sess.1;
+                let sess_ref = &target_sess.1;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
                 let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
 
@@ -1177,7 +1179,7 @@ impl HdpSessionManager {
                     })
                     .map_err(|err| err.into_string())??;
 
-                Ok((post_send)(&sess_ref, tracked_posting))
+                Ok((post_send)(sess_ref, tracked_posting))
             } else {
                 // session no longer exists. Could have been that the `implicated_cid` responded too late. Send an error back, saying it expired
                 Err(format!(
@@ -1198,7 +1200,7 @@ impl HdpSessionManager {
 impl HdpSessionManagerInner {
     /// Clears a session from the SessionManager
     pub fn clear_session(&mut self, cid: u64) {
-        if let None = self.sessions.remove(&cid) {
+        if self.sessions.remove(&cid).is_none() {
             log::warn!(target: "citadel", "Tried removing a session (non-provisional), but did not find it ...");
         }
     }
@@ -1210,11 +1212,11 @@ impl HdpSessionManagerInner {
         packet: impl FnOnce(&StackedRatchet) -> BytesMut,
     ) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
-            let ref peer_sess = peer_sess.1;
+            let peer_sess = &peer_sess.1;
             let peer_sender = peer_sess
                 .to_primary_stream
                 .as_ref()
-                .ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
+                .ok_or(NetworkError::InternalError("Peer stream absent"))?;
             let accessor = EndpointCryptoAccessor::C2S(peer_sess.state_container.clone());
 
             accessor.borrow_hr(None, |hr, _| {

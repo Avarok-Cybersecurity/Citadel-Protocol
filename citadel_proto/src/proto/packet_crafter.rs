@@ -1,7 +1,7 @@
 use bytes::BytesMut;
 
 use citadel_crypt::entropy_bank::SecurityLevel;
-use citadel_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
+use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -9,7 +9,7 @@ use crate::error::NetworkError;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualTargetType;
-use citadel_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
+use citadel_crypt::scramble::crypt_splitter::oneshot_unencrypted_group_unified;
 use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 
@@ -40,15 +40,18 @@ impl<T: AsRef<[u8]>> From<T> for SecureProtocolPacket {
         let bytes = bytes.as_ref();
         let mut this = Self::new();
         this.inner
-            .write_payload(bytes.len() as u32, |slice| Ok(slice.copy_from_slice(bytes)))
+            .write_payload(bytes.len() as u32, |slice| {
+                slice.copy_from_slice(bytes);
+                Ok(())
+            })
             .unwrap();
         this
     }
 }
 
-impl Into<SecureMessagePacket<HDP_HEADER_BYTE_LEN>> for SecureProtocolPacket {
-    fn into(self) -> SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
-        self.inner
+impl From<SecureProtocolPacket> for SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
+    fn from(val: SecureProtocolPacket) -> Self {
+        val.inner
     }
 }
 
@@ -120,6 +123,7 @@ impl GroupTransmitter {
     }
 
     /// Creates a new stream for a request
+    #[allow(clippy::too_many_arguments)]
     pub fn new_message(
         to_primary_stream: OutboundPrimaryStreamSender,
         object_id: u32,
@@ -198,7 +202,7 @@ impl GroupTransmitter {
 
     #[allow(unused_results)]
     pub fn transmit_tcp_file_transfer(&mut self) -> bool {
-        let ref to_primary_stream = self.to_primary_stream;
+        let to_primary_stream = &self.to_primary_stream;
         log::trace!(target: "citadel", "[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let to_primary_stream = to_primary_stream.clone();
         let packets = self.group_transmitter.take_all_packets();
@@ -242,7 +246,7 @@ pub(crate) mod group {
         virtual_target: VirtualTargetType,
     ) -> BytesMut {
         let target_cid = virtual_target.get_target_cid();
-        let is_fast_message = if processor.is_message { 1 } else { 0 };
+        let is_fast_message = u8::from(processor.is_message);
 
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -261,7 +265,10 @@ pub(crate) mod group {
         let mut packet = if processor.is_message {
             let mut packet = processor.get_unencrypted_oneshot_packet().unwrap().inner;
             packet
-                .write_header(|buf| Ok(header.inscribe_into_slice(&mut *buf)))
+                .write_header(|buf| {
+                    header.inscribe_into_slice(&mut *buf);
+                    Ok(())
+                })
                 .unwrap();
             // both the header and payload are now written. Just have to extend the kem info
             let kem = processor
@@ -302,7 +309,7 @@ pub(crate) mod group {
     /// `message`: Is appended to the end of the payload
     /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
     /// needs to only delete the outbound container
-    #[allow(unused_results)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_group_header_ack(
         hyper_ratchet: &StackedRatchet,
         object_id: u32,
@@ -382,7 +389,7 @@ pub(crate) mod group {
     }
 
     // NOTE: context infos contain the object ID in most of the GROUP packets
-    #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_wave_ack(
         hyper_ratchet: &StackedRatchet,
         object_id: u32,
@@ -487,7 +494,7 @@ pub(crate) mod do_connect {
         pub message: &'a [u8],
     }
 
-    #[allow(unused_results)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(
         hyper_ratchet: &StackedRatchet,
         success: bool,
@@ -1140,6 +1147,7 @@ pub(crate) mod pre_connect {
         pub keep_alive_timeout: i64,
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_syn(
         static_aux_hr: &StaticAuxRatchet,
         transfer: AliceToBobTransfer,
@@ -1367,8 +1375,8 @@ pub(crate) mod peer_cmd {
     use crate::proto::peer::peer_layer::ChannelPacket;
     use crate::proto::remote::Ticket;
     use bytes::BytesMut;
-    use citadel_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::prelude::SecurityLevel;
+    use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::serialization::SyncIO;
     use serde::Serialize;
@@ -1533,7 +1541,7 @@ pub(crate) mod file {
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use bytes::{BufMut, BytesMut};
-    use citadel_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
+    use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::backend::utils::VirtualObjectMetadata;
     use zerocopy::{I64, U128, U32, U64};
@@ -1581,6 +1589,7 @@ pub(crate) mod file {
         packet
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_file_header_ack_packet(
         hyper_ratchet: &StackedRatchet,
         success: bool,
@@ -1591,7 +1600,7 @@ pub(crate) mod file {
         virtual_target: VirtualTargetType,
         timestamp: i64,
     ) -> BytesMut {
-        let success: u64 = if success { 1 } else { 0 };
+        let success: u64 = u64::from(success);
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::FILE,

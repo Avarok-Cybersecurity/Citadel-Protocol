@@ -26,7 +26,6 @@ impl OrderedChannel {
     pub fn on_packet_received(&mut self, id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
         let next_expected_message_id = self
             .last_message_received
-            .clone()
             .map(|r| r.wrapping_add(1))
             .unwrap_or(0);
         if next_expected_message_id == id {
@@ -56,7 +55,7 @@ impl OrderedChannel {
 
     fn send_then_scan(&mut self, new_id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
         self.send_unconditional(new_id, packet)?;
-        if self.map.len() != 0 {
+        if !self.map.is_empty() {
             self.scan_send(new_id)
         } else {
             Ok(())
@@ -66,13 +65,9 @@ impl OrderedChannel {
     // Assumes `last_arrived_id` has already been sent through the sink. This function will scan the elements in the hashmap sequentially, sending each enqueued packet, stopping once discontinuity occurs
     fn scan_send(&mut self, last_arrived_id: u64) -> Result<(), NetworkError> {
         let mut cur_scan_id = last_arrived_id.wrapping_add(1);
-        loop {
-            if let Some(next) = self.map.remove(&cur_scan_id) {
-                self.send_unconditional(cur_scan_id, next)?;
-                cur_scan_id = cur_scan_id.wrapping_add(1);
-            } else {
-                break;
-            }
+        while let Some(next) = self.map.remove(&cur_scan_id) {
+            self.send_unconditional(cur_scan_id, next)?;
+            cur_scan_id = cur_scan_id.wrapping_add(1);
         }
 
         Ok(())
@@ -152,7 +147,7 @@ mod tests {
             })
             .collect::<Vec<(u64, SecBuffer)>>();
 
-        (&mut values_ordered[..]).shuffle(&mut ThreadRng::default());
+        values_ordered[..].shuffle(&mut ThreadRng::default());
 
         let values_unordered = values_ordered;
 
@@ -195,11 +190,11 @@ mod tests {
             })
             .collect::<Vec<(u64, SecBuffer)>>();
 
-        (&mut values_ordered[..]).shuffle(&mut ThreadRng::default());
+        values_ordered[..].shuffle(&mut ThreadRng::default());
 
         let values_unordered = values_ordered;
 
-        let ref ordered_channel = Arc::new(RwLock::new(ordered_channel));
+        let ordered_channel = &Arc::new(RwLock::new(ordered_channel));
 
         //log::trace!(target: "citadel", "Unordered input: {:?}", &values_unordered);
         let recv_task = async move {

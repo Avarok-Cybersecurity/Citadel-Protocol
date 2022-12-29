@@ -200,6 +200,7 @@ impl NodeRemote {
         uuid::Uuid::new_v4().as_u128().into()
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn try_send_with_custom_ticket(
         &mut self,
         ticket: Ticket,
@@ -208,12 +209,13 @@ impl NodeRemote {
         self.outbound_send_request_tx.try_send((request, ticket))
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn try_send(
         &mut self,
         request: NodeRequest,
     ) -> Result<(), TrySendError<(NodeRequest, Ticket)>> {
         let ticket = self.get_next_ticket();
-        self.outbound_send_request_tx.try_send((request, ticket))
+        self.try_send_with_custom_ticket(ticket, request)
     }
 
     pub fn local_node_type(&self) -> &NodeType {
@@ -279,15 +281,15 @@ impl Sink<NodeRequest> for NodeRemote {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct Ticket(pub u128);
 
-impl Into<Ticket> for u128 {
-    fn into(self) -> Ticket {
-        Ticket(self)
+impl From<u128> for Ticket {
+    fn from(val: u128) -> Self {
+        Ticket(val)
     }
 }
 
-impl Into<Ticket> for usize {
-    fn into(self) -> Ticket {
-        (self as u128).into()
+impl From<usize> for Ticket {
+    fn from(val: usize) -> Self {
+        (val as u128).into()
     }
 }
 

@@ -132,7 +132,7 @@ impl<const N: usize> SecureMessagePacket<N> {
     ) -> std::io::Result<()> {
         match self {
             Self::HeaderNext(packet) => {
-                let ret = (fx)(&mut *packet.header()?);
+                let ret = (fx)(&mut packet.header()?);
                 *self = SecureMessagePacket::FinalPayloadExt(std::mem::take(packet));
                 ret
             }
@@ -153,7 +153,7 @@ impl<const N: usize> SecureMessagePacket<N> {
         match self {
             Self::FinalPayloadExt(mut packet) => {
                 packet.prepare_extended_payload(len)?;
-                (fx)(&mut *packet.extended_payload()?)?;
+                (fx)(&mut packet.extended_payload()?)?;
                 Ok(packet.into_packet())
             }
 

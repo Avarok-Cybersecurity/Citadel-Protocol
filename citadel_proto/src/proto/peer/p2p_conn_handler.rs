@@ -61,7 +61,7 @@ impl Drop for DirectP2PRemote {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "[DirectP2PRemote] dropping p2p connection (type: {})...", self.from_listener.if_true("listener").if_false("client"));
         if let Some(stopper) = self.stopper.take() {
-            if let Err(_) = stopper.send(()) {
+            if stopper.send(()).is_err() {
                 //log::error!(target: "citadel", "Unable to alert p2p-stopper")
             }
         }
@@ -104,7 +104,7 @@ async fn p2p_conn_handler(
 ) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
     let implicated_cid = session.implicated_cid.clone();
-    let ref weak = session.as_weak();
+    let weak = &session.as_weak();
 
     std::mem::drop(session);
 
@@ -112,7 +112,7 @@ async fn p2p_conn_handler(
 
     // loop until we get the right peer
     loop {
-        match p2p_listener.next().await {
+        return match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
                 let session = HdpSession::upgrade_weak(weak)
                     .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
@@ -122,7 +122,7 @@ async fn p2p_conn_handler(
                     continue;
                 }
 
-                let _ = handle_p2p_stream(
+                handle_p2p_stream(
                     p2p_stream,
                     implicated_cid,
                     session,
@@ -132,25 +132,26 @@ async fn p2p_conn_handler(
                     hole_punched_addr,
                     ticket,
                 )?;
-                return Ok(());
+                Ok(())
             }
 
             Some(Err(err)) => {
                 // on android/ios, when the program is backgrounded for days then turned on, this error will loop endlessly. As such, drop this future and end the session to give the program the chance to create a session anew
                 //const ERR_INVALID_ARGUMENT: i32 = 22;
                 log::error!(target: "citadel", "[P2P-stream] ERR: {:?}", err);
-                return Err(NetworkError::Generic(err.to_string()));
+                Err(NetworkError::Generic(err.to_string()))
             }
 
             None => {
                 log::error!(target: "citadel", "P2P listener returned None. Stream dead");
-                return Err(NetworkError::InternalError("P2P Listener returned None"));
+                Err(NetworkError::InternalError("P2P Listener returned None"))
             }
-        }
+        };
     }
 }
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
+#[allow(clippy::too_many_arguments)]
 fn handle_p2p_stream(
     mut p2p_stream: GenericNetworkStream,
     implicated_cid: DualCell<Option<u64>>,
@@ -186,8 +187,8 @@ fn handle_p2p_stream(
     let p2p_handle = P2PInboundHandle::new(
         remote_peer,
         local_bind_addr.port(),
-        implicated_cid.clone(),
-        kernel_tx.clone(),
+        implicated_cid,
+        kernel_tx,
         p2p_primary_stream_tx.clone(),
     );
     let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink);
@@ -195,8 +196,7 @@ fn handle_p2p_stream(
         HdpSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
     let stopper_future = p2p_stopper(stopper_rx);
 
-    let direct_p2p_remote =
-        DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx.clone(), from_listener);
+    let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
     let sess = session;
     let mut state_container = inner_mut_state!(sess.state_container);
     // if this is called from a client-side connection, forcibly upgrade since the client asserts its connection is what will be used
@@ -208,7 +208,7 @@ fn handle_p2p_stream(
     HdpSession::udp_socket_loader(
         sess.clone(),
         v_conn,
-        UdpSplittableTypes::QUIC(udp_conn),
+        UdpSplittableTypes::Quic(udp_conn),
         hole_punched_addr,
         ticket,
         None,
@@ -231,7 +231,7 @@ fn handle_p2p_stream(
         res
     };
 
-    let _ = spawn!(future);
+    spawn!(future);
 
     Ok(())
 }
@@ -272,6 +272,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time`
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid())))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn attempt_simultaneous_hole_punch(
     peer_connection_type: PeerConnectionType,
     ticket: Ticket,

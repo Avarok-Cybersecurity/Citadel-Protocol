@@ -160,13 +160,13 @@ pub(crate) mod kyber_module {
             // encode the pre-scramble length
             encode_length_be_bytes(pre_scramble_len, input)?;
             // encrypt the 32-byte scramble dict using post-quantum pke
-            let remote_public_key = &*self.kex.remote_public_key.as_ref().unwrap();
+            let remote_public_key = self.kex.remote_public_key.as_ref().unwrap();
 
             let scram_crypt_ser = bincode2::serialize(&scram_crypt_dict)
                 .map_err(|err| EzError::Other(err.to_string()))?;
 
             let encrypted_scramble_dict =
-                encrypt_pke(self.kem_alg, &**remote_public_key, &scram_crypt_ser, &nonce)?;
+                encrypt_pke(self.kem_alg, &**remote_public_key, scram_crypt_ser, nonce)?;
             input
                 .extend_from_slice(encrypted_scramble_dict.as_slice())
                 .map_err(|err| EzError::Other(err.to_string()))?;

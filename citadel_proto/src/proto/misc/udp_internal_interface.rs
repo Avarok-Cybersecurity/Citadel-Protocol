@@ -40,14 +40,14 @@ pub(crate) trait UdpSplittable: ContextRequirements {
 }
 
 pub(crate) enum UdpSplittableTypes {
-    QUIC(QuicUdpSocketConnector),
+    Quic(QuicUdpSocketConnector),
     Raw(RawUdpSocketConnector),
 }
 
 impl UdpSplittableTypes {
     pub fn split(self) -> (Box<dyn UdpSink>, Box<dyn UdpStream>) {
         match self {
-            Self::QUIC(quic) => quic
+            Self::Quic(quic) => quic
                 .split_sink_stream()
                 .map_left(|r| Box::new(r) as _)
                 .map_right(|r| Box::new(r) as _),
@@ -60,14 +60,14 @@ impl UdpSplittableTypes {
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
-            Self::QUIC(quic) => quic.local_addr(),
+            Self::Quic(quic) => quic.local_addr(),
             Self::Raw(raw) => raw.local_addr(),
         }
     }
 
     pub fn peer_addr(&self) -> TargettedSocketAddr {
         match self {
-            Self::QUIC(quic) => TargettedSocketAddr::new_invariant(quic.sink.sink.remote_address()),
+            Self::Quic(quic) => TargettedSocketAddr::new_invariant(quic.sink.sink.remote_address()),
             Self::Raw(raw) => TargettedSocketAddr::new_invariant(raw.sink.peer_addr),
         }
     }
@@ -148,7 +148,7 @@ impl Stream for QuicUdpRecvHalf {
         // TODO: Upon quinn PR resolution, this will receive a BytesMut instead of a Bytes and we'll no longer need to copy
         Pin::new(&mut self.stream.datagrams)
             .poll_next(cx)
-            .map_err(|err| generic_error(err))
+            .map_err(generic_error)
             .map_ok(|r| (BytesMut::from(&r[..]), addr))
     }
 }
@@ -236,6 +236,6 @@ impl Stream for RawUdpSocketStream {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.stream)
             .poll_next(cx)
-            .map_err(|err| generic_error(err))
+            .map_err(generic_error)
     }
 }

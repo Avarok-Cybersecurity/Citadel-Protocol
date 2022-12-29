@@ -163,7 +163,7 @@ where
         };
 
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid: implicated_cid,
+            implicated_cid,
             command: request,
         });
 

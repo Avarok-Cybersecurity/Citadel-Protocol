@@ -194,7 +194,7 @@ pub async fn process_group_broadcast(
         ),
 
         GroupBroadcast::MemberStateChanged(key, state) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::MemberStateChanged(key, state),
@@ -219,29 +219,29 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::EndResponse(key, success) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::EndResponse(key, success),
         )
-        .and_then(|res| {
+        .map(|res| {
             let _ = inner_mut_state!(session.state_container)
                 .group_channels
                 .remove(&key);
-            Ok(res)
+            res
         }),
 
         GroupBroadcast::Disconnected(key) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::Disconnected(key),
         )
-        .and_then(|res| {
+        .map(|res| {
             let _ = inner_mut_state!(session.state_container)
                 .group_channels
                 .remove(&key);
-            Ok(res)
+            res
         }),
 
         GroupBroadcast::Message(username, key, message) => {
@@ -273,7 +273,7 @@ pub async fn process_group_broadcast(
             } else {
                 // send to kernel/channel
                 forward_signal(
-                    &session,
+                    session,
                     ticket,
                     Some(key),
                     GroupBroadcast::Message(username, key, message),
@@ -282,7 +282,7 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::MessageResponse(key, success) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::MessageResponse(key, success),
@@ -334,7 +334,7 @@ pub async fn process_group_broadcast(
                 create_group_channel(ticket, key, session)
             } else {
                 forward_signal(
-                    &session,
+                    session,
                     ticket,
                     Some(key),
                     GroupBroadcast::AcceptMembershipResponse(key, success),
@@ -382,16 +382,16 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::LeaveRoomResponse(key, success, response) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::LeaveRoomResponse(key, success, response),
         )
-        .and_then(|res| {
+        .map(|res| {
             let _ = inner_mut_state!(session.state_container)
                 .group_channels
                 .remove(&key);
-            Ok(res)
+            res
         }),
 
         GroupBroadcast::Add(key, peers) => {
@@ -401,7 +401,7 @@ pub async fn process_group_broadcast(
             // send invitation
             let persistence_handler = session.account_manager.get_persistence_handler().clone();
             let sess_mgr = session.session_manager.clone();
-            let ref peer_layer = session.hypernode_peer_layer;
+            let peer_layer = &session.hypernode_peer_layer;
             let peer_statuses = persistence_handler
                 .hyperlan_peers_are_mutuals(implicated_cid, &peers)
                 .await?;
@@ -417,9 +417,9 @@ pub async fn process_group_broadcast(
                         security_level,
                     )
                     .await
-                    .map_err(|err| NetworkError::Generic(err))?;
+                    .map_err(NetworkError::Generic)?;
 
-                if peers_okay.len() != 0 {
+                if !peers_okay.is_empty() {
                     peer_layer.add_pending_peers_to_group(key, peers_okay).await;
                     std::mem::drop(sess_mgr);
                 }
@@ -455,7 +455,7 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::AddResponse(key, failed_peers) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::AddResponse(key, failed_peers),
@@ -490,24 +490,24 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::KickResponse(key, success) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::KickResponse(key, success),
         ),
 
         GroupBroadcast::Invitation(key) => {
-            forward_signal(&session, ticket, Some(key), GroupBroadcast::Invitation(key))
+            forward_signal(session, ticket, Some(key), GroupBroadcast::Invitation(key))
         }
 
         GroupBroadcast::CreateResponse(key_opt) => match key_opt {
             Some(key) => create_group_channel(ticket, key, session),
 
-            None => forward_signal(&session, ticket, None, GroupBroadcast::CreateResponse(None)),
+            None => forward_signal(session, ticket, None, GroupBroadcast::CreateResponse(None)),
         },
 
         GroupBroadcast::GroupNonExists(key) => forward_signal(
-            &session,
+            session,
             ticket,
             Some(key),
             GroupBroadcast::GroupNonExists(key),
@@ -529,8 +529,8 @@ fn create_group_channel(
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
     session.send_to_kernel(NodeResult::GroupChannelCreated(GroupChannelCreated {
-        ticket: ticket,
-        channel: channel,
+        ticket,
+        channel,
     }))?;
     Ok(PrimaryProcessorResult::Void)
 }
@@ -571,8 +571,8 @@ fn forward_signal(
     // send to kernel
     session
         .send_to_kernel(NodeResult::GroupEvent(GroupEvent {
-            implicated_cid: implicated_cid,
-            ticket: ticket,
+            implicated_cid,
+            ticket,
             event: broadcast,
         }))
         .map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {:?}", err)))?;

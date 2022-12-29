@@ -11,7 +11,7 @@ use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use stun::agent::TransactionId;
+
 use stun::client::ClientBuilder;
 use stun::message::{Getter, Message, BINDING_REQUEST};
 use stun::xoraddr::XorMappedAddress;
@@ -233,11 +233,11 @@ impl NatType {
     }
 }
 
-fn average_delta<T: Ord + Copy + Sized + Sub>(vals: &Vec<T>) -> usize
+fn average_delta<T: Ord + Copy + Sized + Sub>(vals: impl AsRef<[T]>) -> usize
 where
     usize: From<<T as Sub>::Output>,
 {
-    let vals = vals.iter().copied().sorted().collect::<Vec<T>>();
+    let vals = vals.as_ref().iter().copied().sorted().collect::<Vec<T>>();
     let count = vals.len() as f32;
     let sum_diff: usize = vals
         .into_iter()
@@ -256,7 +256,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     let nat_type = async move {
         let mut msg = Message::new();
         msg.build(&[
-            Box::new(TransactionId::default()),
+            Box::<stun::agent::TransactionId>::default(),
             Box::new(BINDING_REQUEST),
         ])?;
 
@@ -302,13 +302,13 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
             .await;
         let first_natted_addr = results
             .pop()
-            .ok_or(anyhow::Error::msg("First result not present"))??;
+            .ok_or_else(|| anyhow::Error::msg("First result not present"))??;
         let second_natted_addr = results
             .pop()
-            .ok_or(anyhow::Error::msg("Second result not present"))??;
+            .ok_or_else(|| anyhow::Error::msg("Second result not present"))??;
         let third_natted_addr = results
             .pop()
-            .ok_or(anyhow::Error::msg("Third result not present"))??;
+            .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
         let is_ipv6_allowed = is_ipv6_enabled();
 
         // now, we determine what the nat does when mapping internal socket addrs to external socket addrs

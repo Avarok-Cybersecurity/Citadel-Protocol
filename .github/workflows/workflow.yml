@@ -170,7 +170,13 @@ jobs:
 #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
-#      - name: cargo build pq_kems
+      - run: rustup component add clippy-preview
+      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded
+      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release
+      - run: cargo clippy --features=webrtc,sql,redis
+      - run: cargo clippy --features=webrtc,sql,redis --release
+      - run: cargo fmt --check
+      #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
 #      - name: Run valgrind pq_kems

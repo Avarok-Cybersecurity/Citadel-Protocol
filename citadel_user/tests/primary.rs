@@ -164,9 +164,9 @@ mod tests {
     fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::InMemory, generate_random_filesystem_dir()];
 
-        match std::env::var(&env) {
+        match std::env::var(env) {
             Ok(addr) => {
-                if addr.len() > 0 {
+                if !addr.is_empty() {
                     for addr in addr.split(',') {
                         log::trace!(target: "citadel", "Adding testing addr: {}", addr);
                         let backend = BackendType::new(addr).unwrap();
@@ -465,8 +465,8 @@ mod tests {
             let lock_server = server.write();
             let lock_client = client.write();
 
-            assert_eq!(lock_server.is_local_personal, false);
-            assert_eq!(lock_client.is_local_personal, true);
+            assert!(!lock_server.is_local_personal);
+            assert!(lock_client.is_local_personal);
             assert_eq!(lock_client.auth_store.username(), USERNAME);
             assert_eq!(lock_server.auth_store.username(), USERNAME);
             assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
@@ -684,8 +684,8 @@ mod tests {
             let lock_server = se2.write();
             let lock_client = cl2.write();
 
-            assert_eq!(lock_server.is_local_personal, false);
-            assert_eq!(lock_client.is_local_personal, true);
+            assert!(!lock_server.is_local_personal);
+            assert!(lock_client.is_local_personal);
             assert_eq!(lock_client.auth_store.username(), USERNAME);
             assert_eq!(lock_server.auth_store.username(), USERNAME);
             assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
@@ -822,7 +822,7 @@ mod tests {
 
             assert_eq!(
                 pers_cl
-                    .get_hyperlan_peers(client.get_cid(), &vec![peer_cnac.get_cid()])
+                    .get_hyperlan_peers(client.get_cid(), &[peer_cnac.get_cid()])
                     .await
                     .unwrap(),
                 vec![MutualPeer {
@@ -834,7 +834,7 @@ mod tests {
 
             assert_eq!(
                 peer_pers
-                    .get_hyperlan_peers(peer_cnac.get_cid(), &vec![client.get_cid()])
+                    .get_hyperlan_peers(peer_cnac.get_cid(), &[client.get_cid()])
                     .await
                     .unwrap(),
                 vec![MutualPeer {
@@ -846,7 +846,7 @@ mod tests {
 
             assert_eq!(
                 pers_cl
-                    .get_hyperlan_peers(client.get_cid(), &vec![peer_cnac.get_cid()])
+                    .get_hyperlan_peers(client.get_cid(), &[peer_cnac.get_cid()])
                     .await
                     .unwrap(),
                 vec![MutualPeer {
@@ -858,28 +858,28 @@ mod tests {
 
             assert_eq!(
                 peer_pers
-                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &vec![client.get_cid()])
+                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &[client.get_cid()])
                     .await
                     .unwrap(),
                 vec![true]
             );
             assert_eq!(
                 pers_cl
-                    .hyperlan_peers_are_mutuals(client.get_cid(), &vec![peer_cnac.get_cid()])
+                    .hyperlan_peers_are_mutuals(client.get_cid(), &[peer_cnac.get_cid()])
                     .await
                     .unwrap(),
                 vec![true]
             );
             assert_eq!(
                 pers_se
-                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &vec![client.get_cid()])
+                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &[client.get_cid()])
                     .await
                     .unwrap(),
                 vec![true]
             );
             assert_eq!(
                 pers_se
-                    .hyperlan_peers_are_mutuals(client.get_cid(), &vec![peer_cnac.get_cid()])
+                    .hyperlan_peers_are_mutuals(client.get_cid(), &[peer_cnac.get_cid()])
                     .await
                     .unwrap(),
                 vec![true]
@@ -951,7 +951,7 @@ mod tests {
             );
 
             // TODO: Change the below function
-            let _ = pers_cl
+            pers_cl
                 .synchronize_hyperlan_peer_list_as_client(&client, server_seen_peers)
                 .await
                 .unwrap();
@@ -1479,19 +1479,15 @@ mod tests {
         const MIN_NAME_LEN: usize = citadel_user::misc::MIN_NAME_LENGTH;
         const MAX_NAME_LEN: usize = citadel_user::misc::MAX_NAME_LENGTH;
 
-        assert!(MIN_USERNAME_LEN + 1 < MAX_USERNAME_LEN);
-        assert!(MIN_PASSWORD_LEN + 1 < MAX_PASSWORD_LEN);
-        assert!(MIN_NAME_LEN + 1 < MAX_NAME_LEN);
-
-        let ref good_username = (0..(MIN_USERNAME_LEN + 1))
+        let good_username = &(0..(MIN_USERNAME_LEN + 1))
             .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
-        let ref good_password = (0..(MIN_PASSWORD_LEN + 1))
+        let good_password = &(0..(MIN_PASSWORD_LEN + 1))
             .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
-        let ref good_name = (0..(MIN_NAME_LEN + 1))
+        let good_name = &(0..(MIN_NAME_LEN + 1))
             .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
@@ -1506,11 +1502,11 @@ mod tests {
         ) {
             use citadel_user::misc::check_credential_formatting as check;
 
-            let ref bad_below = (0..(min - 1))
+            let bad_below = &(0..(min - 1))
                 .into_iter()
                 .map(|r| r.to_string())
                 .collect::<String>();
-            let ref bad_above = (0..(max + 1))
+            let bad_above = &(0..(max + 1))
                 .into_iter()
                 .map(|r| r.to_string())
                 .collect::<String>();

@@ -73,20 +73,35 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         mut newest_version: R::Constructor,
         local_cid: u64,
         local_is_alice: bool,
-    ) -> Result<(Option<BobToAliceTransferType>, UpdateStatus), ()> {
+    ) -> Result<(Option<BobToAliceTransferType>, UpdateStatus), CryptError> {
         let cur_vers = self.toolset.get_most_recent_hyper_ratchet_version();
         let next_vers = cur_vers.wrapping_add(1);
-        newest_version.update_version(next_vers).ok_or(())?;
+        newest_version.update_version(next_vers).ok_or_else(|| {
+            CryptError::DrillUpdateError("Unable to progress past update_version".to_string())
+        })?;
 
         let transfer = if local_is_alice {
             None
         } else {
             // we don't want to custom CID here
-            Some(newest_version.stage0_bob().ok_or(())?)
+            Some(newest_version.stage0_bob().ok_or_else(|| {
+                CryptError::DrillUpdateError("Unable to progress past stage0_bob".to_string())
+            })?)
         };
 
-        let next_hyper_ratchet = newest_version.finish_with_custom_cid(local_cid).ok_or(())?;
-        let status = self.toolset.update_from(next_hyper_ratchet).ok_or(())?;
+        let next_hyper_ratchet = newest_version
+            .finish_with_custom_cid(local_cid)
+            .ok_or_else(|| {
+                CryptError::DrillUpdateError(
+                    "Unable to progress past finish_with_custom_cid".to_string(),
+                )
+            })?;
+        let status = self
+            .toolset
+            .update_from(next_hyper_ratchet)
+            .ok_or_else(|| {
+                CryptError::DrillUpdateError("Unable to progress past update_from".to_string())
+            })?;
         log::trace!(target: "citadel", "[E2E] Successfully updated StackedRatchet from v{} to v{}", cur_vers, next_vers);
         //self.latest_hyper_ratchet_version_committed = next_vers;
 
@@ -107,7 +122,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         constructor: R::Constructor,
         local_is_alice: bool,
         local_cid: u64,
-    ) -> Result<KemTransferStatus, ()> {
+    ) -> Result<KemTransferStatus, CryptError> {
         let update_in_progress = self.update_in_progress.load(Ordering::SeqCst);
         log::trace!(target: "citadel", "[E2E] Calling UPDATE (local_is_alice: {}. Update in progress: {})", local_is_alice, update_in_progress);
         // if local is alice (relative), then update_in_progress will be expected to be true. As such, we don't want this to occur
@@ -129,7 +144,9 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         } else {
             // if it returns with None, and local isn't alice, return an error since we expected Some
             if !local_is_alice {
-                return Err(());
+                return Err(CryptError::DrillUpdateError(
+                    "Local is not alice, yet, conflicting program state".to_string(),
+                ));
             }
 
             KemTransferStatus::StatusNoTransfer(status)
@@ -281,17 +298,11 @@ impl KemTransferStatus {
     }
 
     pub fn omitted(&self) -> bool {
-        match self {
-            Self::Omitted => true,
-            _ => false,
-        }
+        matches!(self, Self::Omitted)
     }
 
     pub fn has_some(&self) -> bool {
-        match self {
-            KemTransferStatus::Some(..) => true,
-            _ => false,
-        }
+        matches!(self, KemTransferStatus::Some(..))
     }
 }
 

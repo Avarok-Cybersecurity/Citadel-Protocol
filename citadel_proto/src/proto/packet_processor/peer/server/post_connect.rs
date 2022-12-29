@@ -12,6 +12,7 @@ use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_response_phase_post_connect(
     peer_layer: &mut HyperNodePeerLayerInner,
     peer_conn_type: PeerConnectionType,
@@ -27,7 +28,7 @@ pub(crate) async fn handle_response_phase_post_connect(
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-    route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), &sess_hyper_ratchet,
+    route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), sess_hyper_ratchet,
                           |this_sess, peer_sess, _original_tracked_posting| {
                               // when the route finishes, we need to update both sessions to allow high-level message-passing
                               // In other words, forge a virtual connection
@@ -42,8 +43,8 @@ pub(crate) async fn handle_response_phase_post_connect(
                                       let this_udp_sender = this_sess_state_container.udp_primary_outbound_tx.clone();
                                       let peer_udp_sender = peer_sess_state_container.udp_primary_outbound_tx.clone();
                                       // rel to this local sess, the key = target_cid, then (implicated_cid, target_cid)
-                                      let virtual_conn_relative_to_this = VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
-                                      let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
+                                      let virtual_conn_relative_to_this = VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid);
+                                      let virtual_conn_relative_to_peer = VirtualConnectionType::LocalGroupPeer(target_cid, implicated_cid);
                                       this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
                                       peer_sess_state_container.insert_new_virtual_connection_as_server(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
                                       log::trace!(target: "citadel", "Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
