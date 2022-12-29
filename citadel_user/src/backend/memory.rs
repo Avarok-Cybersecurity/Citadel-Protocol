@@ -55,7 +55,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         let mut write = self.clients.write();
         let cl = write
             .remove(&cid)
-            .ok_or_else(|| AccountError::ClientNonExists(cid))?;
+            .ok_or(AccountError::ClientNonExists(cid))?;
 
         // delete all related peer entries in other CNACs
         if let Some(peers) = cl.get_hyperlan_peer_list() {
@@ -104,7 +104,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         let read = self.clients.read();
         let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
         let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid0))?;
-        cnac0.register_hyperlan_p2p_as_server(&cnac1)
+        cnac0.register_hyperlan_p2p_as_server(cnac1)
     }
 
     async fn register_p2p_as_client(
@@ -209,7 +209,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     async fn hyperlan_peers_are_mutuals(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         if peers.is_empty() {
             return Ok(Default::default());
@@ -226,7 +226,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     async fn get_hyperlan_peers(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         if peers.is_empty() {
             return Ok(Default::default());
@@ -389,7 +389,8 @@ pub(crate) async fn no_backend_streaming(
 ) -> Result<(), AccountError> {
     log::warn!(target: "citadel", "Attempted to stream object to backend, but, streaming is not enabled for this backend");
 
-    while let Some(_) = source.recv().await {
+    while source.recv().await.is_some() {
+        std::hint::black_box(());
         // exhaust the stream to ensure that the sender does not error out
     }
 

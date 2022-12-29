@@ -66,7 +66,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     let addr: SocketAddr = addr
         .to_socket_addrs()?
         .next()
-        .ok_or(anyhow::Error::msg("Bad socket addr"))?;
+        .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() {
         Domain::IPV4
@@ -86,7 +86,7 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     let addr: SocketAddr = addr
         .to_socket_addrs()?
         .next()
-        .ok_or(anyhow::Error::msg("Bad socket addr"))?;
+        .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() {
         Domain::IPV4
@@ -107,7 +107,7 @@ async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
     let addr: SocketAddr = addr
         .to_socket_addrs()?
         .next()
-        .ok_or(anyhow::Error::msg("Bad socket addr"))?;
+        .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "citadel", "[Socket helper] Getting TCP connect (reuse={}) socket @ {:?} ...", reuse, &addr);
     //return Ok(tokio::net::TcpStream::connect(addr).await?)
     let domain = if addr.is_ipv4() {

@@ -1,18 +1,18 @@
 use crate::serialization::SyncIO;
 use futures::Stream;
+pub use misc::StreamableTargetInformation;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-pub use utils::StreamableTargetInformation;
 
 use crate::misc::AccountError;
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 /// Misc utils/traits
-pub mod utils;
+pub mod misc;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VirtualObjectMetadata {
@@ -126,21 +126,21 @@ pub enum ObjectTransferStatus {
 
 impl ObjectTransferStatus {
     pub fn is_tick_type(&self) -> bool {
-        match self {
+        matches!(
+            self,
             ObjectTransferStatus::TransferTick(_, _, _)
-            | ObjectTransferStatus::ReceptionTick(_, _, _) => true,
-            _ => false,
-        }
+                | ObjectTransferStatus::ReceptionTick(_, _, _)
+        )
     }
 
     /// Even if an error, returns true if the file transfer is done
     pub fn is_finished_type(&self) -> bool {
-        match self {
+        matches!(
+            self,
             ObjectTransferStatus::TransferComplete
-            | ObjectTransferStatus::ReceptionComplete
-            | ObjectTransferStatus::Fail(_) => true,
-            _ => false,
-        }
+                | ObjectTransferStatus::ReceptionComplete
+                | ObjectTransferStatus::Fail(_)
+        )
     }
 }
 

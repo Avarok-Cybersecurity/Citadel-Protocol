@@ -312,14 +312,14 @@ impl PostQuantumContainer {
         ))
     }
 
-    fn get_encryption_key(&self) -> Option<&Box<dyn AeadModule>> {
+    fn get_encryption_key(&self) -> Option<&dyn AeadModule> {
         match self.node {
-            PQNode::Alice => Some(self.key_store.as_ref()?.alice_module.as_ref()?),
-            PQNode::Bob => Some(self.key_store.as_ref()?.bob_module.as_ref()?),
+            PQNode::Alice => Some(self.key_store.as_ref()?.alice_module.as_deref()?),
+            PQNode::Bob => Some(self.key_store.as_ref()?.bob_module.as_deref()?),
         }
     }
 
-    fn get_decryption_key(&self) -> Option<&Box<dyn AeadModule>> {
+    fn get_decryption_key(&self) -> Option<&dyn AeadModule> {
         if let EncryptionAlgorithm::Kyber = self.params.encryption_algorithm {
             // use multi-modal asymmetric + symmetric ratcheted encryption
             // alices key is in alice, bob's key is in bob. Thus, use encryption key
@@ -327,8 +327,8 @@ impl PostQuantumContainer {
         } else {
             // use symmetric encryption only (NOT post quantum, only quantum-resistant, but faster)
             match self.node {
-                PQNode::Alice => Some(self.key_store.as_ref()?.bob_module.as_ref()?),
-                PQNode::Bob => Some(self.key_store.as_ref()?.alice_module.as_ref()?),
+                PQNode::Alice => Some(self.key_store.as_ref()?.bob_module.as_deref()?),
+                PQNode::Bob => Some(self.key_store.as_ref()?.alice_module.as_deref()?),
             }
         }
     }
@@ -579,9 +579,9 @@ pub mod algorithm_dictionary {
         pub sig_algorithm: SigAlgorithm,
     }
 
-    impl Into<u8> for CryptoParameters {
-        fn into(self) -> u8 {
-            let bytes: [u8; 1] = self.pack().unwrap();
+    impl From<CryptoParameters> for u8 {
+        fn from(val: CryptoParameters) -> Self {
+            let bytes: [u8; 1] = val.pack().unwrap();
             bytes[0]
         }
     }
@@ -905,7 +905,7 @@ impl PostQuantumMeta {
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::Kyber => {
                 let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(&**pk_alice, &mut ThreadRng::default())
+                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default())
                         .map_err(|_err| get_generic_error("Failed encapsulate step"))?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
             }
@@ -982,7 +982,7 @@ impl PostQuantumMeta {
         };
 
         let secret_key = self.get_secret_key()?;
-        let shared_secret = kyber_pke::decapsulate(&**bob_ciphertext, &**secret_key)
+        let shared_secret = kyber_pke::decapsulate(bob_ciphertext, secret_key)
             .map_err(|err| EzError::Other(err.to_string()))?;
         self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.to_vec()));
 

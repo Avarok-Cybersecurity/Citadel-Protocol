@@ -69,18 +69,18 @@ pub trait QuicEndpointConnector {
     }
 }
 
+pub type QuicNextConnectionFuture<'a> = Pin<
+    Box<
+        dyn Future<Output = Result<(NewConnection, SendStream, RecvStream), anyhow::Error>>
+            + Send
+            + Sync
+            + 'a,
+    >,
+>;
+
 pub trait QuicEndpointListener {
     fn listener(&mut self) -> &mut Incoming;
-    fn next_connection<'a>(
-        &'a mut self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<(NewConnection, SendStream, RecvStream), anyhow::Error>>
-                + Send
-                + Sync
-                + 'a,
-        >,
-    >
+    fn next_connection(&mut self) -> QuicNextConnectionFuture
     where
         Self: Sized + Send + Sync,
     {
@@ -136,7 +136,7 @@ impl Debug for QuicNode {
 
 impl QuicClient {
     /// - trusted_certs: If None, won't verify certs. NOTE: this implies is Some(&[]) is passed, no verification will work.
-    pub fn new(
+    pub fn create(
         socket: UdpSocket,
         client_config: Option<Arc<rustls::ClientConfig>>,
     ) -> Result<QuicNode, anyhow::Error> {
@@ -150,7 +150,7 @@ impl QuicClient {
 
     /// This client will not verify the certificates of outgoing connection
     pub fn new_no_verify(socket: UdpSocket) -> Result<QuicNode, anyhow::Error> {
-        Self::new(socket, None)
+        Self::create(socket, None)
     }
 
     /// Creates a new client that verifies certificates
@@ -158,12 +158,12 @@ impl QuicClient {
         socket: UdpSocket,
         client_config: Arc<rustls::ClientConfig>,
     ) -> Result<QuicNode, anyhow::Error> {
-        Self::new(socket, Some(client_config))
+        Self::create(socket, Some(client_config))
     }
 }
 
 impl QuicServer {
-    pub fn new(
+    pub fn create(
         socket: UdpSocket,
         crypt: Option<(Vec<Certificate>, PrivateKey)>,
     ) -> Result<QuicNode, anyhow::Error> {
@@ -176,7 +176,7 @@ impl QuicServer {
     }
 
     pub fn new_self_signed(socket: UdpSocket) -> Result<QuicNode, anyhow::Error> {
-        Self::new(socket, None)
+        Self::create(socket, None)
     }
 
     pub fn new_from_pkcs_12_der_path<P: AsRef<Path>>(
@@ -185,7 +185,7 @@ impl QuicServer {
         password: &str,
     ) -> Result<QuicNode, anyhow::Error> {
         let (chain, pkey) = crate::misc::read_pkcs_12_der_to_quinn_keys(path, password)?;
-        Self::new(socket, Some((chain, pkey)))
+        Self::create(socket, Some((chain, pkey)))
     }
 
     pub fn new_from_pkcs_12_der(
@@ -194,7 +194,7 @@ impl QuicServer {
         password: &str,
     ) -> Result<QuicNode, anyhow::Error> {
         let (chain, pkey) = crate::misc::pkcs12_to_quinn_keys(der, password)?;
-        Self::new(socket, Some((chain, pkey)))
+        Self::create(socket, Some((chain, pkey)))
     }
 }
 

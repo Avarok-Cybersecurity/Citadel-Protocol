@@ -12,7 +12,7 @@ use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use crate::backend::mysql_backend::SqlConnectionOptions;
 #[cfg(all(feature = "redis", not(coverage)))]
 use crate::backend::redis_backend::RedisConnectionOptions;
-use crate::backend::utils::utils::StreamableTargetInformation;
+use crate::backend::utils::misc::StreamableTargetInformation;
 use crate::backend::utils::ObjectTransferStatus;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::misc::{AccountError, CNACMetadata};
@@ -215,13 +215,13 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn hyperlan_peers_are_mutuals(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<bool>, AccountError>;
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError>;
     /// Gets hyperland peer by username
     async fn get_hyperlan_peer_by_username(

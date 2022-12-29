@@ -247,7 +247,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(
-            &r"
+            r"
             local username1 = redis.call('get', KEYS[3])
             local username2 = redis.call('get', KEYS[4])
             redis.call('hset', KEYS[7], KEYS[2], username2)
@@ -295,7 +295,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let mut conn = self.get_conn().await?;
         // TODO: delete bytemap entries for p2p
         redis_base::Script::new(
-            &r"
+            r"
             local peer_username1 = redis.call('get', KEYS[5])
             local peer_username2 = redis.call('get', KEYS[6])
             redis.call('hdel', KEYS[3], peer_username2)
@@ -324,7 +324,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     ) -> Result<Option<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(
-            &r"
+            r"
             local peer_username = redis.call('hget', KEYS[4], KEYS[2])
             redis.call('hdel', KEYS[3], peer_username)
             redis.call('hdel', KEYS[4], KEYS[2])
@@ -355,7 +355,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hkeys(get_peer_username_key(implicated_cid))
             .await
-            .map(|res: Vec<u64>| res)
             .map(Some)
             .map_err(|err| AccountError::msg(err.to_string()))
     }
@@ -436,11 +435,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn hyperlan_peers_are_mutuals(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         let mut conn = self.get_conn().await?;
         let script = redis_base::Script::new(
-            &r"
+            r"
             local ret = {}
             for idx,value in ipairs(KEYS)
             do
@@ -469,11 +468,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn get_hyperlan_peers(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
         let script = redis_base::Script::new(
-            &r"
+            r"
             local ret = {}
             for idx,value in ipairs(KEYS)
             do
@@ -497,7 +496,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await
             .map(|ret: Vec<String>| {
                 ret.into_iter()
-                    .zip(peers.into_iter())
+                    .zip(peers.iter())
                     .map(|(username, cid)| MutualPeer {
                         parent_icid: HYPERLAN_IDX,
                         cid: *cid,

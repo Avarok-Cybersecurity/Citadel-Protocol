@@ -58,19 +58,11 @@ enum State {
 impl State {
     /// assumes this is called by the receiving node, not the node that creates the state
     fn implies_remote_success(&self) -> bool {
-        match self {
-            Self::ObtainedValidResult => true,
-            Self::Pinging(Some(true)) => true,
-            _ => false,
-        }
+        matches!(self, Self::ObtainedValidResult | Self::Pinging(Some(true)))
     }
 
     fn implies_remote_failure(&self) -> bool {
-        match self {
-            Self::Error => true,
-            Self::Pinging(Some(false)) => true,
-            _ => false,
-        }
+        matches!(self, Self::Error | Self::Pinging(Some(false)))
     }
 }
 
@@ -383,20 +375,20 @@ mod tests {
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
 
         if res0.result.is_some() {
-            assert_eq!(res0.other_side_succeeded, false);
+            assert!(!res0.other_side_succeeded);
             assert!(res1.result.is_none());
             assert!(res1.other_side_succeeded);
         }
 
         if res1.result.is_some() {
-            assert_eq!(res1.other_side_succeeded, false);
+            assert!(!res1.other_side_succeeded);
             assert!(res0.result.is_none());
             assert!(res0.other_side_succeeded);
         }
 
         if res0.result.is_none() && res1.result.is_none() {
-            assert_eq!(res0.other_side_succeeded, false);
-            assert_eq!(res1.other_side_succeeded, false);
+            assert!(!res0.other_side_succeeded);
+            assert!(!res1.other_side_succeeded);
             assert!(res0.global_failure());
             assert!(res1.global_failure());
         }

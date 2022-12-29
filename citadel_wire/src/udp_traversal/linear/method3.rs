@@ -154,6 +154,7 @@ impl Method3 {
     }
 
     /// Some research papers explain that incrementing the TTL on the packet may be beneficial
+    #[allow(clippy::too_many_arguments)]
     async fn send_syn_barrage(
         ttl_init: u32,
         delta_ttl: Option<u32>,

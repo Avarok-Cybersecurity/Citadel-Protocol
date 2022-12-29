@@ -227,7 +227,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     async fn hyperlan_peers_are_mutuals(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         self.memory_backend
             .hyperlan_peers_are_mutuals(implicated_cid, peers)
@@ -237,7 +237,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     async fn get_hyperlan_peers(
         &self,
         implicated_cid: u64,
-        peers: &Vec<u64>,
+        peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         self.memory_backend
             .get_hyperlan_peers(implicated_cid, peers)

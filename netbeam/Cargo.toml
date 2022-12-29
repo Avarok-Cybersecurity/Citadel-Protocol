@@ -22,6 +22,7 @@ anyhow = "1.0.57"
 tokio-util = { version = "0.7.3", features = ["codec"] }
 rand = "0.8.4"
 async-stream = "0.3.2"
+sync_wrapper = "0.1.1"
 
 log = "0.4.8"
 

@@ -51,6 +51,10 @@ impl SecBuffer {
     fn slice(&self) -> &[u8] {
         &self.inner[..]
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub struct SecureBufMutHandle<'a> {

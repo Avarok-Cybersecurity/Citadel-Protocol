@@ -93,24 +93,15 @@ enum SyncPacket<P: Send + Sync> {
 
 impl<P: Send + Sync> SyncPacket<P> {
     fn is_syn(&self) -> bool {
-        match self {
-            Self::Syn(..) => true,
-            _ => false,
-        }
+        matches!(self, Self::Syn(..))
     }
 
     fn is_syn_ack(&self) -> bool {
-        match self {
-            Self::SynAck(..) => true,
-            _ => false,
-        }
+        matches!(self, Self::SynAck(..))
     }
 
     fn is_ack(&self) -> bool {
-        match self {
-            Self::Ack(..) => true,
-            _ => false,
-        }
+        matches!(self, Self::Ack(..))
     }
 }
 

@@ -47,7 +47,7 @@ struct SharedInner {
 // message group byte map key layout:
 // implicated cid = implicated cid -> key = (u128."concurrent" OR u128."pending") -> u64 (peer cid)
 
-const MAILBOX: &'static str = "mailbox";
+const MAILBOX: &str = "mailbox";
 
 #[derive(Clone)]
 pub struct HyperNodePeerLayer {
@@ -109,25 +109,25 @@ impl HyperNodePeerLayer {
         let pers = {
             let mut this_orig = self.inner.write().await;
 
-            if !this_orig.message_groups.contains_key(&cid) {
+            this_orig.message_groups.entry(cid).or_insert_with(|| {
                 log::trace!(target: "citadel", "Adding message group hashmap for {}", cid);
-                this_orig.message_groups.insert(cid, HashMap::new());
-            }
+                HashMap::new()
+            });
 
             let mut this = this_orig.inner.write();
 
             // Otherwise, add only if it doesn't already exist
-            if !this.observed_postings.contains_key(&cid) {
+            this.observed_postings.entry(cid).or_insert_with(|| {
                 log::trace!(target: "citadel", "Adding observed postings handler for {}", cid);
-                this.observed_postings.insert(cid, HashMap::new());
-            }
+                HashMap::new()
+            });
 
             this_orig.persistence_handler.clone()
         };
 
         // drain mailbox, return to user (means there was mail to view)
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
-        if items.len() != 0 {
+        if !items.is_empty() {
             log::trace!(target: "citadel", "Returning enqueued mailbox items for {}", cid);
             Ok(Some(MailboxTransfer::from(
                 items
@@ -169,7 +169,7 @@ impl HyperNodePeerLayer {
         let map = this.message_groups.get_mut(&implicated_cid)?;
         let mgid = options.id;
         if map.len() <= u8::MAX as usize {
-            if !map.contains_key(&mgid) {
+            if let std::collections::hash_map::Entry::Vacant(e) = map.entry(mgid) {
                 let mut message_group = MessageGroup {
                     concurrent_peers: HashMap::new(),
                     pending_peers: HashMap::with_capacity(initial_peers.len()),
@@ -191,7 +191,7 @@ impl HyperNodePeerLayer {
                     },
                 );
 
-                map.insert(mgid, message_group);
+                e.insert(message_group);
                 Some(MessageGroupKey {
                     cid: implicated_cid,
                     mgid,
@@ -433,7 +433,7 @@ impl HyperNodePeerLayerInner {
         log::trace!(target: "citadel", "[simultaneous checking] peer_map len: {}", peer_map.len());
         peer_map
             .iter()
-            .find(|(_, posting)| (fx)(*posting))
+            .find(|(_, posting)| (fx)(posting))
             .map(|(ticket, _)| *ticket)
     }
 
@@ -626,10 +626,10 @@ impl PeerConnectionType {
     pub fn as_virtual_connection(self) -> VirtualConnectionType {
         match self {
             PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid)
+                VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid)
             }
             PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
-                VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid)
+                VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid)
             }
         }
     }
@@ -693,9 +693,9 @@ impl PeerResponse {
 
 pub type Username = String;
 
-impl Into<Vec<u8>> for PeerSignal {
-    fn into(self) -> Vec<u8> {
-        self.serialize_to_vector().unwrap()
+impl From<PeerSignal> for Vec<u8> {
+    fn from(val: PeerSignal) -> Self {
+        val.serialize_to_vector().unwrap()
     }
 }
 
