@@ -7,7 +7,7 @@ workspace = "../"
 license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
-default = ["filesystem", "multi-threaded"]
+default = ["filesystem", "multi-threaded", "std"]
 filesystem = ["citadel_user/filesystem"]
 multi-threaded = []
 sql = ["citadel_user/sql"]
@@ -16,6 +16,9 @@ webrtc = ["webrtc-util"]
 localhost-testing = ["citadel_wire/localhost-testing", "citadel_user/localhost-testing", "tracing"]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 localhost-testing-loopback-only = ["citadel_wire/localhost-testing-loopback-only"]
+
+std = ["citadel_user/std"]
+wasm = ["citadel_user/wasm"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
