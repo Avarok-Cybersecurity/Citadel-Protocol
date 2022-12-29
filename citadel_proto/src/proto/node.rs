@@ -319,14 +319,10 @@ impl HdpServer {
         quic_endpoint_opt: Option<QuicNode>,
         full_bind_addr: T,
     ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
-        let bind: SocketAddr =
-            full_bind_addr
-                .to_socket_addrs()?
-                .next()
-                .ok_or_else(|| std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    "bad addr",
-                ))?;
+        let bind: SocketAddr = full_bind_addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::bind_defaults(underlying_proto, redirect_to_quic, quic_endpoint_opt, bind)
     }
 
@@ -408,10 +404,10 @@ impl HdpServer {
         timeout: Option<Duration>,
         secure_client_config: Arc<ClientConfig>,
     ) -> io::Result<GenericNetworkStream> {
-        let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or_else(|| std::io::Error::new(
-            std::io::ErrorKind::AddrNotAvailable,
-            "bad addr",
-        ))?;
+        let remote: SocketAddr = remote
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::quic_p2p_connect_defaults(
             quic_endpoint,
             timeout,
@@ -447,8 +443,7 @@ impl HdpServer {
             timeout.unwrap_or(TCP_CONN_TIMEOUT),
             quic_endpoint.connect_biconn_with(
                 remote,
-                domain.as_deref()
-                    .unwrap_or(SELF_SIGNED_DOMAIN),
+                domain.as_deref().unwrap_or(SELF_SIGNED_DOMAIN),
                 Some(cfg),
             ),
         )
@@ -469,10 +464,10 @@ impl HdpServer {
         timeout: Option<Duration>,
         default_client_config: &Arc<ClientConfig>,
     ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
-        let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or_else(|| std::io::Error::new(
-            std::io::ErrorKind::AddrNotAvailable,
-            "bad addr",
-        ))?;
+        let remote: SocketAddr = remote
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::c2s_connect_defaults(timeout, remote, default_client_config).await
     }
 
@@ -513,11 +508,8 @@ impl HdpServer {
 
                 let stream = connector
                     .connect(
-                        ServerName::try_from(
-                            domain.as_deref()
-                                .unwrap_or(SELF_SIGNED_DOMAIN),
-                        )
-                        .map_err(|err| generic_error(err.to_string()))?,
+                        ServerName::try_from(domain.as_deref().unwrap_or(SELF_SIGNED_DOMAIN))
+                            .map_err(|err| generic_error(err.to_string()))?,
                         stream,
                     )
                     .await
@@ -638,8 +630,7 @@ impl HdpServer {
                                     ticket_opt: None,
                                     message: format!(
                                         "HDP Server dropping connection to {}. Reason: {}",
-                                        peer_addr,
-                                        err
+                                        peer_addr, err
                                     ),
                                 },
                             ))?;
@@ -696,10 +687,12 @@ impl HdpServer {
 
         let send_error = |ticket_id: Ticket, err: NetworkError| {
             let err = err.into_string();
-            if to_kernel_tx.unbounded_send(NodeResult::InternalServerError(InternalServerError {
+            if to_kernel_tx
+                .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: Some(ticket_id),
                     message: err.clone(),
-                })).is_err()
+                }))
+                .is_err()
             {
                 log::error!(target: "citadel", "TO_KERNEL_TX Error: {:?}", err);
                 Err(NetworkError::InternalError(

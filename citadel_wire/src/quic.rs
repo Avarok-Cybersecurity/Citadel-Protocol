@@ -72,18 +72,16 @@ pub trait QuicEndpointConnector {
 pub type QuicNextConnectionFuture<'a> = Pin<
     Box<
         dyn Future<Output = Result<(NewConnection, SendStream, RecvStream), anyhow::Error>>
-        + Send
-        + Sync
-        + 'a,
+            + Send
+            + Sync
+            + 'a,
     >,
 >;
 
 pub trait QuicEndpointListener {
     fn listener(&mut self) -> &mut Incoming;
-    fn next_connection(
-        &mut self,
-    ) -> QuicNextConnectionFuture
-        where
+    fn next_connection(&mut self) -> QuicNextConnectionFuture
+    where
         Self: Sized + Send + Sync,
     {
         Box::pin(async move {
