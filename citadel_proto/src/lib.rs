@@ -7,7 +7,6 @@
     unused_import_braces,
     variant_size_differences,
     unused_features,
-    unused_results,
     warnings,
     dead_code
 )]

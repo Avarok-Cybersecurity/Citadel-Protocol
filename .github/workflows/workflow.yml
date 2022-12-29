@@ -172,10 +172,10 @@ jobs:
       - run: cargo install --locked cargo-deny && cargo deny check all
       - run: rustup component add clippy-preview
       - run: cargo clippy --features=webrtc,sql,redis,multi-threaded
+      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release
       - run: cargo clippy --features=webrtc,sql,redis
-      - run: cargo clippy --release --features=webrtc,sql,redis,multi-threaded
-      - run: cargo clippy --release --features=webrtc,sql,redis
-#      - name: cargo build pq_kems
+      - run: cargo clippy --features=webrtc,sql,redis --release
+      #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
 #      - name: Run valgrind pq_kems
