@@ -10,3 +10,20 @@ When running unit tests inside `citadel_sdk`, you **must** run the tests with th
 example: `cargo test --package citadel_sdk --features=localhost-testing -- --test-threads=1`
 
 Not only does allowing one test at a time help with synchronization, it also helps with reading debug info too.
+
+## WASM
+The target triple `wasm32-wasi` is supported. These commands should be executed in order to compile to wasm
+```bash
+# install wasmtime
+curl https://wasmtime.dev/install.sh -sSf | bash
+# get the include/build files
+wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-12/wasi-sysroot-12.0.tar.gz
+tar -xvzf wasi-sysroot-12.0.tar.gz
+rm wasi-sysroot-12.0.tar.gz
+# Set environment variables
+export WASI_SDK_DIR="$(pwd)/wasi-sysroot"
+export WASMTIME_HOME="$(pwd)/.wasmtime"
+export PATH="$WASMTIME_HOME/bin:$PATH"
+```
+
+Additionally, the feature `wasm` should be enabled too
