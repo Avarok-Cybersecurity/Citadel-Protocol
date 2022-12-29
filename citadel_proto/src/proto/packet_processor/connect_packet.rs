@@ -131,8 +131,7 @@ pub async fn process_connect(
                                     .state
                                     .store(SessionState::Connected, Ordering::Relaxed);
 
-                                let cxn_type =
-                                    VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
+                                let cxn_type = VirtualConnectionType::LocalGroupServer(cid);
                                 let channel_signal = NodeResult::ConnectSuccess(ConnectSuccess {
                                     ticket: kernel_ticket,
                                     implicated_cid: cid,
@@ -272,7 +271,7 @@ pub async fn process_connect(
 
                             let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
-                            let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
+                            let cxn_type = VirtualConnectionType::LocalGroupServer(cid);
                             let peers = payload.peers;
 
                             let timestamp = session.time_tracker.get_global_time_ns();
@@ -317,7 +316,9 @@ pub async fn process_connect(
                                 persistence_handler
                                     .synchronize_hyperlan_peer_list_as_client(&cnac, peers)
                                     .await?;
-                                if let (Some(rtdb_cfg), Some(jwt)) = (post_login_object.rtdb, post_login_object.google_auth_jwt) {
+                                if let (Some(rtdb_cfg), Some(jwt)) =
+                                    (post_login_object.rtdb, post_login_object.google_auth_jwt)
+                                {
                                     log::trace!(target: "citadel", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
                                     let rtdb = FirebaseRTDB::new_from_jwt(
                                         &rtdb_cfg.url,

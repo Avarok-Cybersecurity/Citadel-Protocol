@@ -9,6 +9,7 @@ use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_response_phase_post_register(
     peer_layer: &mut HyperNodePeerLayerInner,
     peer_conn_type: PeerConnectionType,

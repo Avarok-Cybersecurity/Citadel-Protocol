@@ -132,6 +132,7 @@ pub(crate) enum ReceivePortType {
 }
 
 // returns None if the packet should finish being processed. Inlined for slightly faster TURN proxying
+#[allow(clippy::too_many_arguments)]
 #[inline]
 pub(crate) fn check_proxy(
     this_implicated_cid: Option<u64>,

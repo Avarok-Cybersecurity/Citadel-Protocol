@@ -224,66 +224,115 @@ pub enum HdpSessionInitMode {
     Register(SocketAddr, ProposedCredentials),
 }
 
+pub(crate) struct SessionInitParams {
+    pub on_drop: UnboundedSender<()>,
+    pub local_nat_type: NatType,
+    pub hdp_remote: NodeRemote,
+    pub local_bind_addr: SocketAddr,
+    pub local_node_type: NodeType,
+    pub kernel_tx: UnboundedSender<NodeResult>,
+    pub session_manager: HdpSessionManager,
+    pub account_manager: AccountManager,
+    pub time_tracker: TimeTracker,
+    pub remote_peer: SocketAddr,
+    pub init_ticket: Ticket,
+    pub client_config: Arc<rustls::ClientConfig>,
+    pub hypernode_peer_layer: HyperNodePeerLayer,
+
+    // this is set only when a local client is attempting to start an outbound session
+    pub client_only_settings: Option<ClientOnlySessionInitSettings>,
+}
+
+pub(crate) struct ClientOnlySessionInitSettings {
+    pub init_mode: HdpSessionInitMode,
+    pub peer_only_connect_proto: ConnectProtocol,
+    pub cnac: Option<ClientNetworkAccount>,
+    pub proposed_credentials: ProposedCredentials,
+    pub udp_mode: UdpMode,
+    pub keep_alive_timeout_ns: i64,
+    pub security_settings: SessionSecuritySettings,
+    pub connect_mode: Option<ConnectMode>,
+}
+
 impl HdpSession {
-    /// Creates a new session.
-    /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
     pub(crate) fn new(
-        init_mode: HdpSessionInitMode,
-        local_nat_type: NatType,
-        peer_only_connect_proto: ConnectProtocol,
-        cnac: Option<ClientNetworkAccount>,
-        remote_peer: SocketAddr,
-        proposed_credentials: ProposedCredentials,
-        on_drop: UnboundedSender<()>,
-        hdp_remote: NodeRemote,
-        local_bind_addr: SocketAddr,
-        local_node_type: NodeType,
-        kernel_tx: UnboundedSender<NodeResult>,
-        session_manager: HdpSessionManager,
-        account_manager: AccountManager,
-        time_tracker: TimeTracker,
-        kernel_ticket: Ticket,
-        udp_mode: UdpMode,
-        keep_alive_timeout_ns: i64,
-        security_settings: SessionSecuritySettings,
-        connect_mode: Option<ConnectMode>,
-        client_config: Arc<rustls::ClientConfig>,
-        hypernode_peer_layer: HyperNodePeerLayer,
+        session_init_params: SessionInitParams,
     ) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
-        let (cnac, state, implicated_cid) = match &init_mode {
-            HdpSessionInitMode::Connect(auth) => {
-                match auth {
-                    AuthenticationRequest::Credentialed { .. } => {
-                        let cnac =
-                            cnac.ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
-                        let cid = cnac.get_cid();
-                        (
-                            Some(cnac),
-                            Arc::new(Atomic::new(SessionState::NeedsConnect)),
-                            Some(cid),
-                        )
-                    }
-
-                    AuthenticationRequest::Passwordless { .. } => {
-                        // register will redirect to preconnect afterwords
-                        (
-                            None,
-                            Arc::new(Atomic::new(SessionState::NeedsRegister)),
-                            None,
-                        )
-                    }
-                }
-            }
-
-            HdpSessionInitMode::Register(..) => (
-                None,
-                Arc::new(Atomic::new(SessionState::NeedsRegister)),
-                None,
-            ),
-        };
-
-        let timestamp = time_tracker.get_global_time_ns();
         let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
+        let client_only_settings = &session_init_params.client_only_settings;
+        let is_server = client_only_settings.is_none();
+        let (cnac, state, implicated_cid) =
+            if let Some(client_init_settings) = &session_init_params.client_only_settings {
+                match &client_init_settings.init_mode {
+                    HdpSessionInitMode::Connect(auth) => {
+                        match auth {
+                            AuthenticationRequest::Credentialed { .. } => {
+                                let cnac = client_init_settings
+                                    .cnac
+                                    .clone()
+                                    .ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
+                                let cid = cnac.get_cid();
+                                (
+                                    Some(cnac),
+                                    Arc::new(Atomic::new(SessionState::NeedsConnect)),
+                                    Some(cid),
+                                )
+                            }
+
+                            AuthenticationRequest::Passwordless { .. } => {
+                                // register will redirect to preconnect afterwords
+                                (
+                                    None,
+                                    Arc::new(Atomic::new(SessionState::NeedsRegister)),
+                                    None,
+                                )
+                            }
+                        }
+                    }
+
+                    HdpSessionInitMode::Register(..) => (
+                        None,
+                        Arc::new(Atomic::new(SessionState::NeedsRegister)),
+                        None,
+                    ),
+                }
+            } else {
+                (
+                    None,
+                    Arc::new(Atomic::new(SessionState::SocketJustOpened)),
+                    None,
+                )
+            };
+
+        let timestamp = session_init_params.time_tracker.get_global_time_ns();
+        let hypernode_peer_layer = session_init_params.hypernode_peer_layer;
+        let connect_mode = client_only_settings.as_ref().and_then(|r| r.connect_mode);
+        let local_nat_type = session_init_params.local_nat_type;
+        let kernel_tx = session_init_params.kernel_tx;
+        let peer_only_connect_protocol = client_only_settings
+            .as_ref()
+            .map(|r| r.peer_only_connect_proto.clone())
+            .into();
+        let on_drop = session_init_params.on_drop;
+        let local_bind_addr = session_init_params.local_bind_addr;
+        let local_node_type = session_init_params.local_node_type;
+        let remote_node_type = None;
+        let time_tracker = session_init_params.time_tracker;
+        let kernel_ticket = session_init_params.init_ticket;
+        let remote_peer = session_init_params.remote_peer;
+        let session_manager = session_init_params.session_manager;
+        let hdp_remote = session_init_params.hdp_remote;
+        let session_security_settings = client_only_settings.as_ref().map(|r| r.security_settings);
+        let udp_mode = client_only_settings
+            .as_ref()
+            .map(|r| r.udp_mode)
+            .unwrap_or(UdpMode::Disabled);
+        let account_manager = session_init_params.account_manager;
+        let client_config = session_init_params.client_config;
+        let keep_alive_timeout_ns = client_only_settings
+            .as_ref()
+            .map(|r| r.keep_alive_timeout_ns)
+            .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
 
         let mut inner = HdpSessionInner {
             hypernode_peer_layer,
@@ -293,109 +342,46 @@ impl HdpSession {
             adjacent_nat_type: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
             dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
-            peer_only_connect_protocol: Some(peer_only_connect_proto).into(),
+            peer_only_connect_protocol,
             on_drop,
             local_bind_addr,
             local_node_type,
-            remote_node_type: None,
-            kernel_tx: kernel_tx.clone(),
+            remote_node_type,
             implicated_cid: DualCell::new(implicated_cid),
             time_tracker,
             kernel_ticket: kernel_ticket.into(),
-            to_primary_stream: DualLateInit::default(),
-            state_container: StateContainerInner::new(
+            remote_peer,
+            kernel_tx: kernel_tx.clone(),
+            session_manager,
+            state_container: StateContainerInner::create(
                 kernel_tx,
                 hdp_remote,
                 keep_alive_timeout_ns,
                 state.clone(),
                 cnac,
                 time_tracker,
-                Some(security_settings),
-                false,
+                session_security_settings,
+                is_server,
                 TransferStats::new(timestamp, 0),
                 udp_mode,
-            ),
-            session_manager,
-            remote_peer,
-            state,
-            account_manager,
-            is_server: false,
-            stopper_tx: stopper_tx.clone().into(),
-            queue_handle: DualLateInit::default(),
-            client_config,
-        };
-
-        inner.store_proposed_credentials(proposed_credentials);
-
-        Ok((stopper_tx, Self::from(inner)))
-    }
-
-    /// During impersonal mode, a new connection may come inbound. Unlike above in Self::new, we do not yet have the implicated cid nor nid.
-    /// We must then expect a welcome packet
-    ///
-    /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
-    /// the provisional ticket.
-    pub(crate) fn new_incoming(
-        on_drop: UnboundedSender<()>,
-        local_nat_type: NatType,
-        hdp_remote: NodeRemote,
-        local_bind_addr: SocketAddr,
-        local_node_type: NodeType,
-        kernel_tx: UnboundedSender<NodeResult>,
-        session_manager: HdpSessionManager,
-        account_manager: AccountManager,
-        time_tracker: TimeTracker,
-        remote_peer: SocketAddr,
-        provisional_ticket: Ticket,
-        client_config: Arc<rustls::ClientConfig>,
-        hypernode_peer_layer: HyperNodePeerLayer,
-    ) -> (tokio::sync::broadcast::Sender<()>, Self) {
-        let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
-        let state = Arc::new(Atomic::new(SessionState::SocketJustOpened));
-
-        let timestamp = time_tracker.get_global_time_ns();
-
-        let inner = HdpSessionInner {
-            hypernode_peer_layer,
-            connect_mode: DualRwLock::from(None),
-            primary_stream_quic_conn: DualRwLock::from(None),
-            local_nat_type,
-            adjacent_nat_type: DualLateInit::default(),
-            do_static_hr_refresh_atexit: true.into(),
-            dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
-            peer_only_connect_protocol: None.into(),
-            on_drop,
-            local_bind_addr,
-            local_node_type,
-            remote_node_type: None,
-            implicated_cid: DualCell::new(None),
-            time_tracker,
-            kernel_ticket: provisional_ticket.into(),
-            remote_peer,
-            kernel_tx: kernel_tx.clone(),
-            session_manager,
-            state_container: StateContainerInner::new(
-                kernel_tx,
-                hdp_remote,
-                KEEP_ALIVE_TIMEOUT_NS,
-                state.clone(),
-                None,
-                time_tracker,
-                None,
-                true,
-                TransferStats::new(timestamp, 0),
-                UdpMode::Disabled,
             ),
             to_primary_stream: DualLateInit::default(),
             state,
             account_manager,
-            is_server: true,
+            is_server,
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             client_config,
         };
 
-        (stopper_tx, Self::from(inner))
+        if let Some(proposed_credentials) = session_init_params
+            .client_only_settings
+            .map(|r| r.proposed_credentials)
+        {
+            inner.store_proposed_credentials(proposed_credentials);
+        }
+
+        Ok((stopper_tx, Self::from(inner)))
     }
 
     /// Once the [HdpSession] is created, it can then be executed to begin handling a periodic connection handler.
@@ -555,13 +541,14 @@ impl HdpSession {
                 log::trace!(target: "citadel", "Beginning registration subroutine");
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
-                let session_security_settings =
-                    state_container.session_security_settings.unwrap();
+                let session_security_settings = state_container.session_security_settings.unwrap();
                 let proposed_username = state_container
                     .connect_state
                     .proposed_credentials
                     .as_ref()
-                    .ok_or(NetworkError::InternalError("Proposed credentials not loaded"))?
+                    .ok_or(NetworkError::InternalError(
+                        "Proposed credentials not loaded",
+                    ))?
                     .username();
                 let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container
@@ -750,7 +737,7 @@ impl HdpSession {
                     .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let accessor = match v_target {
-                    VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
+                    VirtualConnectionType::LocalGroupServer(_) => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
                         log::trace!(target: "citadel", "C2S UDP subroutine inserting UDP channel ... (is_server={})", is_server);
@@ -784,10 +771,7 @@ impl HdpSession {
                         }
                     }
 
-                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                        _implicated_cid,
-                        target_cid,
-                    ) => {
+                    VirtualConnectionType::LocalGroupPeer(_implicated_cid, target_cid) => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         if let Some(channel) = state_container.insert_udp_channel(
                             target_cid, v_target, ticket, udp_sender, stopper_tx,
@@ -1101,7 +1085,7 @@ impl HdpSession {
                             }
                         }).collect::<Vec<VirtualTargetType>>();
 
-                        let virtual_target = VirtualTargetType::HyperLANPeerToHyperLANServer(C2S_ENCRYPTION_ONLY);
+                        let virtual_target = VirtualTargetType::LocalGroupServer(C2S_ENCRYPTION_ONLY);
                         if state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket)).is_ok() {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
@@ -1206,7 +1190,7 @@ impl HdpSession {
             // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
             let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) =
                 match virtual_target {
-                    VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                    VirtualTargetType::LocalGroupServer(implicated_cid) => {
                         // if we are sending this just to the HyperLAN server (in the case of file uploads),
                         // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
                         let crypt_container = &mut state_container
@@ -1266,10 +1250,7 @@ impl HdpSession {
                         )
                     }
 
-                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                        implicated_cid,
-                        target_cid,
-                    ) => {
+                    VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
                         log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
                         // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
                         if let Some(vconn) = state_container
@@ -1440,27 +1421,24 @@ impl HdpSession {
                                 let mut state_container = inner_mut_state!(sess.state_container);
 
                                 let proper_latest_hyper_ratchet = match virtual_target {
-                                    VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
-                                        state_container
-                                            .c2s_channel_container
-                                            .as_ref()
-                                            .unwrap()
-                                            .peer_session_crypto
-                                            .get_hyper_ratchet(None)
-                                    }
-                                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(
-                                        _,
-                                        peer_cid,
-                                    ) => match state_container.get_peer_session_crypto(peer_cid) {
-                                        Some(peer_sess_crypt) => {
-                                            peer_sess_crypt.get_hyper_ratchet(None)
-                                        }
+                                    VirtualConnectionType::LocalGroupServer(_) => state_container
+                                        .c2s_channel_container
+                                        .as_ref()
+                                        .unwrap()
+                                        .peer_session_crypto
+                                        .get_hyper_ratchet(None),
+                                    VirtualConnectionType::LocalGroupPeer(_, peer_cid) => {
+                                        match state_container.get_peer_session_crypto(peer_cid) {
+                                            Some(peer_sess_crypt) => {
+                                                peer_sess_crypt.get_hyper_ratchet(None)
+                                            }
 
-                                        None => {
-                                            log::warn!(target: "citadel", "Since transmitting the file, the peer session ended");
-                                            return;
+                                            None => {
+                                                log::warn!(target: "citadel", "Since transmitting the file, the peer session ended");
+                                                return;
+                                            }
                                         }
-                                    },
+                                    }
 
                                     _ => {
                                         log::error!(target: "citadel", "HyperWAN Functionality not implemented");
@@ -1902,7 +1880,8 @@ impl HdpSession {
                     disconnect_stage0_packet,
                     Some(ticket),
                 )
-            })?.map(|_| true)
+            })?
+            .map(|_| true)
     }
 }
 
