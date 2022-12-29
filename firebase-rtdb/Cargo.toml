@@ -12,5 +12,5 @@ log = "0.4.8"
 serde = { version = "1.0.126", features = ["derive"] }
 
 [dev-dependencies]
-tokio = { version = "=1.20.1", features = ["full"] }
+tokio = { version = "1.23.0", features = ["full"] }
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
