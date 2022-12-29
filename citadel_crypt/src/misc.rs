@@ -1,7 +1,7 @@
 use crate::entropy_bank::PORT_RANGE;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use std::os::raw::c_void;
 
 /// Default Error type for this crate
@@ -33,13 +33,6 @@ impl<T> CryptError<T> {
         }
     }
 
-    pub fn to_string(&self) -> String
-    where
-        T: AsRef<str>,
-    {
-        self.as_str().to_string()
-    }
-
     pub fn as_str(&self) -> &str
     where
         T: AsRef<str>,
@@ -57,6 +50,12 @@ impl<T> CryptError<T> {
 impl<T: AsRef<str>> std::fmt::Debug for CryptError<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl<T: AsRef<str>> Display for CryptError<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 
@@ -86,6 +85,9 @@ pub fn create_port_mapping() -> Vec<(u16, u16)> {
 #[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
+/// # Safety
+///
+/// uses libc functions with proper len and start ptr idx
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
     libc::mlock(ptr as *const c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
@@ -106,6 +108,9 @@ pub unsafe fn mlock(ptr: *const u8, len: usize) {
 #[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
+/// # Safety
+///
+/// uses libc functions with proper len and start ptr idx
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
     libc::munlock(ptr as *const c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
@@ -130,6 +135,9 @@ unsafe fn memset(s: *mut u8, c: u8, n: usize) {
 }
 
 /// General `memzero`.
+/// # Safety
+///
+/// uses libc functions with proper len and start ptr idx
 #[inline]
 pub unsafe fn zeroize(dest: *const u8, n: usize) {
     memset(dest as *mut u8, 0, n);

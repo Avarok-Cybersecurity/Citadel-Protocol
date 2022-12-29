@@ -1,7 +1,7 @@
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::misc::CryptError;
-use crate::net::crypt_splitter::calculate_nonce_version;
+use crate::scramble::crypt_splitter::calculate_nonce_version;
 use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::stacked_ratchet::Ratchet;
 use arrayvec::ArrayVec;
@@ -111,7 +111,7 @@ impl Ratchet for ThinRatchet {
     fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
         &self,
         _security_level: Option<SecurityLevel>,
-        ref header: H,
+        header: H,
         packet: &mut T,
     ) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);

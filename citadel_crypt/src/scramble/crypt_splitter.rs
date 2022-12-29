@@ -181,7 +181,7 @@ pub struct PacketCoordinate {
 
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
-#[allow(unused_results)]
+#[allow(clippy::too_many_arguments)]
 pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>(
     plain_text: T,
     security_level: SecurityLevel,
@@ -190,7 +190,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     target_cid: u64,
     object_id: u32,
     group_id: u64,
-    ref header_inscriber: F,
+    header_inscriber: F,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>>
 where
     F: Fn(&PacketVector, &EntropyBank, u32, u64, &mut BytesMut) + Send + Sync,
@@ -218,7 +218,7 @@ where
                 target_cid,
                 object_id,
                 header_size_bytes,
-                header_inscriber,
+                &header_inscriber,
             )
         })
         .flatten()
@@ -258,6 +258,7 @@ where
     Ok(GroupSenderDevice::new(cfg, packets))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scramble_encrypt_wave(
     wave_idx: usize,
     bytes_to_encrypt_for_this_wave: &[u8],
@@ -312,21 +313,22 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
     group_id: u64,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>> {
     let len = plain_text.message_len();
-    let group_receiver_config = GroupReceiverConfig::new(
-        group_id as usize,
-        1,
+    let group_receiver_config = GroupReceiverConfig {
+        group_id: group_id as usize,
+        packets_needed: 1,
         header_size_bytes,
-        len,
-        len,
-        len,
-        0,
-        1,
-        1,
-        len,
-        len,
-        1,
-        1,
-    );
+        plaintext_length: len,
+        max_payload_size: len,
+        last_payload_size: len,
+        number_of_full_waves: 0,
+        number_of_partial_waves: 1,
+        wave_count: 1,
+        max_plaintext_wave_length: len,
+        last_plaintext_wave_length: len,
+        max_packets_per_wave: 1,
+        packets_in_last_wave: 1,
+    };
+
     Ok(GroupSenderDevice::<N>::new_oneshot(
         group_receiver_config,
         plain_text,
@@ -407,39 +409,7 @@ pub struct GroupReceiverConfig {
 pub const GROUP_RECEIVER_INSCRIBE_LEN: usize = 72;
 
 impl GroupReceiverConfig {
-    /// Creates a new container for the set of variables
-    pub fn new(
-        group_id: usize,
-        packets_needed: usize,
-        header_size_bytes: usize,
-        plaintext_length: usize,
-        max_payload_size: usize,
-        last_payload_size: usize,
-        number_of_full_waves: usize,
-        number_of_partial_waves: usize,
-        wave_count: usize,
-        max_plaintext_wave_length: usize,
-        last_plaintext_wave_length: usize,
-        max_packets_per_wave: usize,
-        packets_in_last_wave: usize,
-    ) -> Self {
-        Self {
-            group_id,
-            packets_needed,
-            header_size_bytes,
-            plaintext_length,
-            max_payload_size,
-            last_payload_size,
-            number_of_full_waves,
-            number_of_partial_waves,
-            wave_count,
-            max_plaintext_wave_length,
-            last_plaintext_wave_length,
-            max_packets_per_wave,
-            packets_in_last_wave,
-        }
-    }
-
+    #[allow(clippy::too_many_arguments)]
     pub fn new_refresh(
         group_id: u64,
         header_size_bytes: usize,
@@ -467,21 +437,35 @@ impl GroupReceiverConfig {
 
         let packets_needed = (number_of_full_waves * max_packets_per_wave) + packets_in_last_wave;
 
-        GroupReceiverConfig::new(
-            group_id as usize,
+        //    pub packets_needed: usize,
+        //     pub max_packets_per_wave: usize,
+        //     pub plaintext_length: usize,
+        //     pub max_payload_size: usize,
+        //     pub last_payload_size: usize,
+        //     pub number_of_full_waves: usize,
+        //     pub number_of_partial_waves: usize,
+        //     pub wave_count: usize,
+        //     pub max_plaintext_wave_length: usize,
+        //     pub last_plaintext_wave_length: usize,
+        //     pub packets_in_last_wave: usize,
+        //     // this is NOT inscribed; only for transmission
+        //     pub header_size_bytes: usize,
+        //     pub group_id: usize,
+        GroupReceiverConfig {
+            group_id: group_id as usize,
             packets_needed,
             header_size_bytes,
-            plain_text.len(),
-            max_packet_payload_size,
-            debug_last_payload_size,
+            plaintext_length: plain_text.len(),
+            max_payload_size: max_packet_payload_size,
+            last_payload_size: debug_last_payload_size,
             number_of_full_waves,
             number_of_partial_waves,
-            number_of_waves,
-            max_plaintext_bytes_per_wave,
-            bytes_in_last_wave,
+            wave_count: number_of_waves,
+            max_plaintext_wave_length: max_plaintext_bytes_per_wave,
+            last_plaintext_wave_length: bytes_in_last_wave,
             max_packets_per_wave,
             packets_in_last_wave,
-        )
+        }
     }
 
     /// Returns the number of packets in a given wave by id. TODO: Clean this up
@@ -512,11 +496,7 @@ impl GroupReceiver {
     ///
     /// The drill is needed in order to get the multiport width (determines max packets per wave)
     #[allow(unused_results)]
-    pub fn new(
-        ref cfg: GroupReceiverConfig,
-        wave_timeout_ms: usize,
-        group_timeout_ms: usize,
-    ) -> Self {
+    pub fn new(cfg: GroupReceiverConfig, wave_timeout_ms: usize, group_timeout_ms: usize) -> Self {
         use bitvec::prelude::*;
         log::trace!(target: "citadel", "Creating new group receiver. Anticipated plaintext slab length: {}", cfg.plaintext_length);
         let unified_plaintext_slab = vec![0u8; cfg.plaintext_length];

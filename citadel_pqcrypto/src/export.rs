@@ -76,6 +76,8 @@ impl From<KeyStoreIntermediate> for KeyStore {
     }
 }
 
+pub type AeadStore = (Option<Box<dyn AeadModule>>, Option<Box<dyn AeadModule>>);
+
 pub(crate) fn keys_to_aead_store(
     alice: &GenericArray<u8, generic_array::typenum::U32>,
     bob: &GenericArray<u8, generic_array::typenum::U32>,
@@ -83,7 +85,7 @@ pub(crate) fn keys_to_aead_store(
     params: CryptoParameters,
     sig: Option<&PostQuantumMetaSig>,
     pq_node: PQNode,
-) -> (Option<Box<dyn AeadModule>>, Option<Box<dyn AeadModule>>) {
+) -> AeadStore {
     match params.encryption_algorithm {
         EncryptionAlgorithm::AES_GCM_256_SIV => (
             Some(Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice))),

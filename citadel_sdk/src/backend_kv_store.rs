@@ -2,7 +2,7 @@ use crate::prelude::user_ids::TargetLockedRemote;
 use crate::prelude::*;
 use std::collections::HashMap;
 
-const DATA_MAP_KEY: &'static str = "_INTERNAL_DATA_MAP";
+const DATA_MAP_KEY: &str = "_INTERNAL_DATA_MAP";
 
 #[async_trait]
 /// Contains a trait for persisting application-level data in a K,V store that is unique

@@ -35,10 +35,10 @@ pub mod entropy_bank;
 pub mod fcm;
 /// Error type
 pub mod misc;
-/// Contains the subroutines for network-related functionality
-pub mod net;
 /// For endowing packets with coordinates
 pub mod packet_vector;
+/// Contains the subroutines for network-related functionality
+pub mod scramble;
 /// For secure byte handling
 pub mod secure_buffer;
 /// This is a container for holding the drill and PQC, and is intended to replace the seperate use of the drill/PQC

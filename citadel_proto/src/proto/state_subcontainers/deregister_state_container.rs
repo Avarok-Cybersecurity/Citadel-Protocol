@@ -1,6 +1,7 @@
 use crate::proto::remote::Ticket;
 
 /// For keeping track of deregistration processes
+#[derive(Default)]
 pub struct DeRegisterState {
     pub(crate) last_packet_time: Option<i64>,
     pub(crate) in_progress: bool,
@@ -13,15 +14,5 @@ impl DeRegisterState {
         self.in_progress = true;
         self.last_packet_time = Some(timestamp);
         self.current_ticket = Some(ticket);
-    }
-}
-
-impl Default for DeRegisterState {
-    fn default() -> Self {
-        Self {
-            last_packet_time: None,
-            in_progress: false,
-            current_ticket: None,
-        }
     }
 }

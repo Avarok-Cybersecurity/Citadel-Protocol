@@ -11,7 +11,7 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 [features]
 redis = ["redis-base", "mobc"]
 default = ["filesystem"]
-sql = ["sqlx", "base64"]
+sql = ["sqlx", "base64", "itertools"]
 filesystem = ["citadel_crypt/filesystem", "tokio-util", "tokio-stream"]
 
 # whenever an accountmanager is created, all accounts are purged when localhost-testing is enabled
@@ -20,6 +20,7 @@ jwt-testing = []
 
 [dependencies]
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
+itertools = { version = "0.10.5", optional = true }
 serde = { version = "1.0.104", features=["rc", "derive"] }
 serde_millis = "0.1.1"
 tokio = "=1.20.1"

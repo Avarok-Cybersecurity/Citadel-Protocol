@@ -142,7 +142,7 @@ impl SessionQueueWorker {
 
     /// MUST be called when a session's timer subroutine begins!
     pub fn load_state_container(&mut self, state_container: StateContainer) {
-        self.state_container = Some(state_container.clone());
+        self.state_container = Some(state_container);
     }
 
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
@@ -210,12 +210,8 @@ impl SessionQueueWorker {
                     QueueWorkerTicket::Oneshot(_, _) => {
                         // already removed from expiration; now, just remove from hashmap
                         let (fx, _, _) = entries.remove(&entry).unwrap();
-                        match (fx)(&mut state_container) {
-                            QueueWorkerResult::EndSession => {
-                                return Poll::Ready(Err(Error::shutdown()));
-                            }
-
-                            _ => {}
+                        if let QueueWorkerResult::EndSession = (fx)(&mut state_container) {
+                            return Poll::Ready(Err(Error::shutdown()));
                         }
                     }
 
@@ -243,7 +239,7 @@ impl SessionQueueWorker {
                             }
                             _ => {
                                 // if incomplete, and is periodic, reset it
-                                let duration = duration.clone();
+                                let duration = *duration;
                                 expirations.insert(entry, duration)
                                 // since we re-inserted the item, we need to schedule it to be awaken again
                             }
@@ -271,19 +267,13 @@ impl Stream for SessionQueueWorker {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        loop {
-            match self.as_mut().get_mut().rx.poll_recv(cx) {
-                Poll::Ready(Some((key, timeout, on_timeout))) => {
-                    // register any inbound tasks
-                    self.as_mut()
-                        .get_mut()
-                        .insert_reserved(key, timeout, on_timeout);
-                }
-
-                _ => {
-                    break;
-                }
-            }
+        while let Poll::Ready(Some((key, timeout, on_timeout))) =
+            self.as_mut().get_mut().rx.poll_recv(cx)
+        {
+            // register any inbound tasks
+            self.as_mut()
+                .get_mut()
+                .insert_reserved(key, timeout, on_timeout);
         }
 
         match futures::ready!(self.poll_purge(cx)) {

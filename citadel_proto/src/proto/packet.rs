@@ -233,6 +233,8 @@ pub struct HdpPacket<B: HdpBuffer = BytesMut> {
     local_port: u16,
 }
 
+pub type ParsedPacket<'a> = (LayoutVerified<&'a [u8], HdpHeader>, &'a [u8]);
+
 impl<B: HdpBuffer> HdpPacket<B> {
     /// When a packet comes inbound, this should be used to wrap the packet
     pub fn new_recv(packet: B, remote_peer: SocketAddr, local_port: u16) -> Self {
@@ -244,7 +246,7 @@ impl<B: HdpBuffer> HdpPacket<B> {
     }
 
     /// Parses the zerocopy header
-    pub fn parse(&self) -> Option<(LayoutVerified<&[u8], HdpHeader>, &[u8])> {
+    pub fn parse(&self) -> Option<ParsedPacket> {
         LayoutVerified::new_from_prefix(self.packet.as_ref())
     }
 

@@ -1,7 +1,7 @@
 //use futures::channel::mpsc::{UnboundedSender, SendError, UnboundedReceiver, TrySendError};
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use citadel_user::re_imports::__private::Formatter;
 use futures::task::{Context, Poll};
 use futures::Sink;
@@ -63,7 +63,7 @@ impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundPrimaryStreamReceiver 
 }
 
 /// For keeping the firewall open
-pub const KEEP_ALIVE: Bytes = Bytes::from_static(b"KA");
+pub const KEEP_ALIVE: &[u8; 2] = b"KA";
 
 #[derive(Clone)]
 pub struct OutboundUdpSender {
