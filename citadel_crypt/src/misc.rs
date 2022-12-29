@@ -86,7 +86,7 @@ pub fn create_port_mapping() -> Vec<(u16, u16)> {
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
 /// # Safety
-/// 
+///
 /// uses libc functions with proper len and start ptr idx
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
     libc::mlock(ptr as *const c_void, len);
