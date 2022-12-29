@@ -171,8 +171,10 @@ jobs:
       - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
       - run: rustup component add clippy-preview
-      - run: cargo clippy --package citadel_pqcrypto --package netbeam --package citadel_wire --package citadel_crypt --package citadel_user --package citadel_proto --package citadel_sdk --features=webrtc,sql,redis,multi-threaded
-      - run: cargo clippy --package citadel_pqcrypto --package netbeam --package citadel_wire --package citadel_crypt --package citadel_user --package citadel_proto --package citadel_sdk --features=webrtc,sql,redis
+      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded
+      - run: cargo clippy --features=webrtc,sql,redis
+      - run: cargo clippy --release --features=webrtc,sql,redis,multi-threaded
+      - run: cargo clippy --release --features=webrtc,sql,redis
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
