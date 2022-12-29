@@ -29,7 +29,7 @@ futures = "0.3.12"
 log = "0.4.8"
 async-trait = "0.1.56"
 tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"] }
-tokio = { version = "=1.20.1", features = ["full"] }
+tokio = { version = "1.23.0", features = ["full"] }
 auto_impl = "1.0.1"
 tokio-stream = "0.1.7"
 parking_lot = "0.12.0"

@@ -24,7 +24,7 @@ localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-onl
 
 [dependencies]
 citadel_proto = { path = "../citadel_proto", default-features = false }
-tokio = { version = "=1.20.1", features = ["full"] }
+tokio = { version = "1.23.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.12.0"
 log = "0.4.8"
