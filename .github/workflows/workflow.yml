@@ -175,6 +175,7 @@ jobs:
       - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release
       - run: cargo clippy --features=webrtc,sql,redis
       - run: cargo clippy --features=webrtc,sql,redis --release
+      - run: cargo fmt --check
       #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind

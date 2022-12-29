@@ -910,7 +910,9 @@ pub mod constructor {
 
                 Ok(())
             } else {
-                Err(CryptError::DrillUpdateError("Incompatible Ratchet Type passed! [X-40]".to_string()))
+                Err(CryptError::DrillUpdateError(
+                    "Incompatible Ratchet Type passed! [X-40]".to_string(),
+                ))
             }
         }
 

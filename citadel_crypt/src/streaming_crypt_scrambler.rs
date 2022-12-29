@@ -7,8 +7,8 @@ use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 
 use crate::entropy_bank::{EntropyBank, SecurityLevel};
-use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 use crate::packet_vector::PacketVector;
+use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;

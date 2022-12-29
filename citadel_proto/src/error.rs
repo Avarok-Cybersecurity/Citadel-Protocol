@@ -42,21 +42,13 @@ impl NetworkError {
             NetworkError::Timeout(val) => {
                 format!("Timeout at {}", val)
             }
-            NetworkError::InternalError(err) => {
-                (*err).to_string()
-            }
+            NetworkError::InternalError(err) => (*err).to_string(),
             NetworkError::InvalidPacketSize(size) => {
                 format!("Excess packet size requested: {}", *size)
             }
-            NetworkError::InvalidRequest(err) => {
-                (*err).to_string()
-            }
-            NetworkError::InvalidPacket(err) => {
-                (*err).to_string()
-            }
-            NetworkError::ProperShutdown => {
-                "Proper shutdown called".to_string()
-            }
+            NetworkError::InvalidRequest(err) => (*err).to_string(),
+            NetworkError::InvalidPacket(err) => (*err).to_string(),
+            NetworkError::ProperShutdown => "Proper shutdown called".to_string(),
         }
     }
 
@@ -68,18 +60,12 @@ impl NetworkError {
             NetworkError::Timeout(val) => {
                 format!("Timeout at {}", val)
             }
-            NetworkError::InternalError(err) => {
-                err.to_string()
-            }
+            NetworkError::InternalError(err) => err.to_string(),
             NetworkError::InvalidPacketSize(size) => {
                 format!("Excess packet size requested: {}", size)
             }
-            NetworkError::InvalidRequest(err) => {
-                err.to_string()
-            }
-            NetworkError::InvalidPacket(err) => {
-                err.to_string()
-            }
+            NetworkError::InvalidRequest(err) => err.to_string(),
+            NetworkError::InvalidPacket(err) => err.to_string(),
             NetworkError::ProperShutdown => {
                 format!("{:?}", NetworkError::ProperShutdown)
             }

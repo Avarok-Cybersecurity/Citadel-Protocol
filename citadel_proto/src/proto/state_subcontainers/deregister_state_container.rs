@@ -16,5 +16,3 @@ impl DeRegisterState {
         self.current_ticket = Some(ticket);
     }
 }
-
-
