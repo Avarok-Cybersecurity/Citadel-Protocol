@@ -281,6 +281,7 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    #[cfg(feature = "google-services")]
     fn okay_config() {
         let _ = NodeBuilder::default()
             .with_google_realtime_database_config("123", "456")
@@ -290,6 +291,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "google-services")]
     fn bad_config() {
         assert!(NodeBuilder::default()
             .with_google_realtime_database_config("123", "456")
