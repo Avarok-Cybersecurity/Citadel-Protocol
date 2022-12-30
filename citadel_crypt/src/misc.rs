@@ -170,6 +170,7 @@ pub mod blocking_spawn {
     use std::pin::Pin;
     use std::task::{Context, Poll};
 
+    #[derive(Debug)]
     pub struct BlockingSpawnError {
         pub message: String,
     }
