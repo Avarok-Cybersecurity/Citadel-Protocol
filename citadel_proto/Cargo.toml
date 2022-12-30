@@ -16,20 +16,32 @@ webrtc = ["webrtc-util"]
 localhost-testing = ["citadel_wire/localhost-testing", "citadel_user/localhost-testing", "tracing"]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 localhost-testing-loopback-only = ["citadel_wire/localhost-testing-loopback-only"]
+google-services = ["citadel_user/google-services"]
 
-std = ["citadel_user/std"]
-wasm = ["citadel_user/wasm"]
+std = [
+    "citadel_user/std",
+    "citadel_crypt/std",
+    "citadel_pqcrypto/std",
+    "citadel_wire/std",
+    "netbeam/std"
+]
+
+wasm = [
+    "citadel_user/wasm",
+    "citadel_crypt/wasm",
+    "citadel_pqcrypto/wasm",
+    "citadel_wire/wasm",
+    "netbeam/wasm"
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#futures = { version = "0.3.1", features = ["compat", "async-await"] }
 futures = "0.3.12"
-#rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 log = "0.4.8"
 async-trait = "0.1.56"
 tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"] }
-tokio = { version = "1.23.0", features = ["full"] }
+tokio = { version = "1.23.0", default-features = false, features = [] }
 auto_impl = "1.0.1"
 tokio-stream = "0.1.7"
 parking_lot = "0.12.0"
@@ -44,24 +56,23 @@ either = "1.5.3"
 async-stream = "0.3.2"
 citadel_crypt = { path = "../citadel_crypt", version = "0.1.0", default-features=false }
 citadel_user = { path = "../citadel_user", version = "0.1.0", default-features=false }
-citadel_wire = { path = "../citadel_wire", version = "0.1.0" }
+citadel_wire = { path = "../citadel_wire", version = "0.1.0", default-features=false }
 citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features=false }
-netbeam = { path = "../netbeam", version = "0.1.0" }
-#tokio-native-tls = "0.3.0"
-#native-tls = { version = "0.2.7", features = ["vendored"] }
+netbeam = { path = "../netbeam", version = "0.1.0", default-features=false }
 once_cell = "1.13.0"
-webrtc-util = {version = "0.5.3", optional = true }
+webrtc-util = { version = "0.5.3", optional = true }
 uuid = { version = "1.0.0-alpha.1", features = ["serde", "v4"] }
 itertools = "0.10.3"
 tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", optional = true }
 #libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
+serde_with = { version = "2.1.0", default-features = false, features = ["macros", "alloc"] }
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
 tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x" }
 ureq = "2.4.0"
 rand = "0.8.5"
-rstest = { git = "https://github.com/la10736/rstest", branch="master" }
+rstest = "0.16.0"
 
 [lib]
 doctest = false

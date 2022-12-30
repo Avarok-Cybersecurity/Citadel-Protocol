@@ -1,5 +1,5 @@
 use futures::Stream;
-use parking_lot::Mutex;
+use lock_wrapper::Mutex;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;

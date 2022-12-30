@@ -22,9 +22,11 @@ pub mod prelude {
 }
 
 /// Serde and others
-pub mod re_imports {
+pub mod re_exports {
     #[cfg(feature = "filesystem")]
     pub use crate::directory_store::DirectoryStore;
+    #[cfg(feature = "google-services")]
+    pub use firebase_rtdb::FirebaseRTDB;
     pub use serde::*;
 }
 

@@ -30,7 +30,7 @@ pub struct NetRwLock<T: NetObject, S: Subscribable + 'static> {
     channel: Arc<InnerChannel<S>>,
     stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
     // Used to cheaply clone read locks locally. There is no equivalent WriteLock version, since only one can exist
-    local_active_read_lock: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>,
+    local_active_read_lock: Arc<lock_wrapper::RwLock<Option<OwnedLocalReadLock<T>>>>,
     active_to_bg_signalled: Sender<()>,
 }
 
@@ -47,7 +47,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
             shared: Arc::new(Mutex::new((initial_value, active_to_bg_tx.clone()))),
             channel: Arc::new(channel),
             stop_tx: Some(stop_tx),
-            local_active_read_lock: Arc::new(parking_lot::RwLock::new(None)),
+            local_active_read_lock: Arc::new(lock_wrapper::RwLock::new(None)),
             active_to_bg_signalled: active_to_bg_tx,
         };
 
@@ -151,7 +151,7 @@ pub(crate) mod read {
     pub struct NetRwLockReadGuard<T: NetObject + 'static, S: Subscribable + 'static> {
         inner: Option<LocalLockHolder<T>>,
         conn: Arc<InnerChannel<S>>,
-        shared_store: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>,
+        shared_store: Arc<lock_wrapper::RwLock<Option<OwnedLocalReadLock<T>>>>,
     }
 
     impl<T: NetObject, S: Subscribable + 'static> Future for RwLockReadAcquirer<'_, T, S> {
@@ -582,7 +582,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
     shared_state: Arc<Mutex<InnerState<T>>>,
     stop_rx: tokio::sync::oneshot::Receiver<()>,
     mut active_to_background_rx: Receiver<()>,
-    read_lock_local: Arc<parking_lot::RwLock<Option<OwnedLocalReadLock<T>>>>,
+    read_lock_local: Arc<lock_wrapper::RwLock<Option<OwnedLocalReadLock<T>>>>,
 ) -> Result<(), anyhow::Error> {
     let background_task = async move {
         'outer_loop: loop {
