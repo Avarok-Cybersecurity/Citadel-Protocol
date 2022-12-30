@@ -14,7 +14,7 @@ use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
 use futures::Future;
 use num_integer::Integer;
-use parking_lot::Mutex;
+use lock_wrapper::Mutex;
 use std::sync::Arc;
 use std::task::Poll;
 use tokio_stream::{Stream, StreamExt};
