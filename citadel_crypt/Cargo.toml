@@ -20,9 +20,11 @@ std = [
     "byteorder/std",
     "rand/std",
     "tokio/default",
+    "lock_wrapper/std"
 ]
 wasm = [
     "citadel_pqcrypto/wasm",
+    "lock_wrapper/wasm"
 ]
 
 [dependencies]
@@ -37,8 +39,8 @@ num-integer = "0.1.43"
 rand = { version = "0.8.5", default-features = false }
 rayon = "1.5.1"
 arrayvec = { version = "0.7.0", features = ["serde"] }
-citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features=false }
-#fcm = { path = "../fcm-rust", version = "0.8.1" }
+citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features = false }
+lock_wrapper = { path = "../lock_wrapper", version = "0.1.0", default-features = false }
 bitvec = "1.0.0"
 serde-big-array = "0.4.1"
 rust-argon2 = "1.0.0"
@@ -47,7 +49,6 @@ num_cpus = "1.13.0"
 linked-hash-map = "*"
 tokio = { version = "1.23.0", default-features=false, features = ["rt", "macros"] }
 sha3 = "0.10.1"
-parking_lot = "0.12.1"
 tokio-stream = "0.1.7"
 auto_impl = "1.0.1"
 
