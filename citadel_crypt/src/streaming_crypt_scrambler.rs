@@ -17,8 +17,8 @@ use num_integer::Integer;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio::task::{JoinError, JoinHandle};
 use tokio_stream::{Stream, StreamExt};
+use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 
 /// 3Mb per group
 pub const MAX_BYTES_PER_GROUP: usize = crate::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;
@@ -189,7 +189,7 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     poll_amt: usize,
     buffer: Arc<Mutex<Vec<u8>>>,
     header_inscriber: Arc<F>,
-    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+    cur_task: Option<BlockingSpawn<Result<GroupSenderDevice<N>, CryptError<String>>>>,
 }
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
@@ -197,10 +197,10 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
         groups_rendered: &mut usize,
         read_cursor: &mut usize,
         poll_amt: usize,
-        cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+        cur_task: &mut Option<BlockingSpawn<Result<GroupSenderDevice<N>, CryptError<String>>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<GroupSenderDevice<N>>> {
-        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, JoinError> =
+        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, BlockingSpawnError> =
             futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
         return if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;
@@ -263,7 +263,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 let target_cid = *target_cid;
                 let object_id = *object_id;
 
-                let task = tokio::task::spawn_blocking(move || {
+                let task = crate::misc::blocking_spawn::spawn_blocking(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,
