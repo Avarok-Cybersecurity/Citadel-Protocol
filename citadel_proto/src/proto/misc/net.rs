@@ -18,7 +18,7 @@ use tokio_util::codec::LengthDelimitedCodec;
 use crate::error::NetworkError;
 use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
-use citadel_user::re_imports::__private::Formatter;
+use citadel_user::re_exports::__private::Formatter;
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::{Endpoint, NewConnection, RecvStream, SendStream};
 use citadel_wire::quic::{QuicEndpointListener, QuicNode};

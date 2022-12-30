@@ -62,7 +62,7 @@ tokio-stream = { version = "0.1.7", default-features = false, optional = true }
 tokio = { version = "1.23.0", features = ["macros"] }
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
 dirs2 = "3.0.1"
-rstest = "0.15.0"
+rstest = "0.16.0"
 lazy_static = "1.4.0"
 
 citadel_pqcrypto = { version = "0.1.1", path = "../citadel_pqcrypto" }

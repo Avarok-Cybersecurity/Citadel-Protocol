@@ -171,26 +171,28 @@ pub mod blocking_spawn {
     use std::task::{Context, Poll};
 
     pub struct BlockingSpawnError {
-        pub message: String
+        pub message: String,
     }
 
     pub enum BlockingSpawn<T> {
-        Tokio(tokio::task::JoinHandle<T>)
+        Tokio(tokio::task::JoinHandle<T>),
     }
 
     #[cfg(target_family = "wasm")]
     pub fn spawn_blocking<F, R>(_f: F) -> BlockingSpawn<R>
-        where
-            F: FnOnce() -> R + Send + 'static,
-            R: Send + 'static, {
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
         panic!("Cannot call spawn_blocking on WASM")
     }
 
     #[cfg(not(target_family = "wasm"))]
     pub fn spawn_blocking<F, R>(f: F) -> BlockingSpawn<R>
-        where
-            F: FnOnce() -> R + Send + 'static,
-            R: Send + 'static, {
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
         BlockingSpawn::Tokio(tokio::task::spawn_blocking(f))
     }
 
@@ -200,8 +202,9 @@ pub mod blocking_spawn {
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             match self.get_mut() {
                 BlockingSpawn::Tokio(handle) => {
-                    Pin::new(handle).poll(cx)
-                        .map_err(|err| BlockingSpawnError { message: err.to_string() })
+                    Pin::new(handle).poll(cx).map_err(|err| BlockingSpawnError {
+                        message: err.to_string(),
+                    })
                 }
             }
         }

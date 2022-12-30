@@ -9,6 +9,7 @@ use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
+use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
 use futures::Future;
@@ -17,7 +18,6 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use std::task::Poll;
 use tokio_stream::{Stream, StreamExt};
-use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 
 /// 3Mb per group
 pub const MAX_BYTES_PER_GROUP: usize = crate::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;

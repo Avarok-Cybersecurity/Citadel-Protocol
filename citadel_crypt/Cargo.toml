@@ -25,9 +25,6 @@ wasm = [
     "citadel_pqcrypto/wasm",
 ]
 
-[build.'cfg(target = "wasm32-wasi")']
-rustflags = ["--cfg", "tokio_unstable"]
-
 [dependencies]
 async-trait = "0.1.24"
 bincode2 = "2.0.1"
@@ -62,7 +59,7 @@ kernel32-sys = "0.2.2"
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
-rstest = { git = "https://github.com/la10736/rstest", branch="master" }
+rstest = "0.16.0"
 
 
 [lib]

@@ -437,10 +437,10 @@ pub(crate) mod do_connect {
     use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
-    use citadel_user::external_services::ServicesObject;
     use citadel_user::prelude::MutualPeer;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
+    use serde_with::{serde_as, DefaultOnError};
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet {
@@ -485,11 +485,16 @@ pub(crate) mod do_connect {
         packet
     }
 
+    #[serde_as]
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
         pub peers: Vec<MutualPeer>,
-        pub post_login_object: ServicesObject,
+        // in order to allow interoperability between protocols that have fields in the services object
+        // and those that don't, default on error
+        #[serde_as(deserialize_as = "DefaultOnError")]
+        #[serde(default)]
+        pub post_login_object: citadel_user::external_services::ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8],
     }
@@ -499,7 +504,7 @@ pub(crate) mod do_connect {
         hyper_ratchet: &StackedRatchet,
         success: bool,
         mailbox: Option<MailboxTransfer>,
-        post_login_object: ServicesObject,
+        post_login_object: citadel_user::external_services::ServicesObject,
         message: T,
         peers: Vec<MutualPeer>,
         timestamp: i64,

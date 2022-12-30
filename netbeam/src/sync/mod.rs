@@ -91,10 +91,22 @@ pub mod test_utils {
         }
     }
 
+    fn create_listener<A: std::net::ToSocketAddrs>(addr: A) -> TcpListener {
+        let std_listener = std::net::TcpListener::bind(addr).unwrap();
+        std_listener.set_nonblocking(true).unwrap();
+        TcpListener::from_std(std_listener).unwrap()
+    }
+
+    fn create_connect<A: std::net::ToSocketAddrs>(addr: A) -> TcpStream {
+        let std_stream = std::net::TcpStream::connect(addr).unwrap();
+        std_stream.set_nonblocking(true).unwrap();
+        TcpStream::from_std(std_stream).unwrap()
+    }
+
     pub async fn create_streams() -> (NetworkApplication, NetworkApplication) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let server = async move {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let listener = create_listener("127.0.0.1:0");
             tx.send(listener.local_addr().unwrap()).unwrap();
             NetworkApplication::register(
                 RelativeNodeType::Receiver,
@@ -108,7 +120,7 @@ pub mod test_utils {
             let addr = rx.await.unwrap();
             NetworkApplication::register(
                 RelativeNodeType::Initiator,
-                NetworkConnSimulator::new(0, codec(TcpStream::connect(addr).await.unwrap())),
+                NetworkConnSimulator::new(0, codec(create_connect(addr))),
             )
             .await
             .unwrap()
@@ -122,7 +134,7 @@ pub mod test_utils {
     ) -> (NetworkEndpoint, NetworkEndpoint) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let server = async move {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let listener = create_listener("127.0.0.1:0");
             tx.send(listener.local_addr().unwrap()).unwrap();
             NetworkEndpoint::register(
                 RelativeNodeType::Receiver,
@@ -136,7 +148,7 @@ pub mod test_utils {
             let addr = rx.await.unwrap();
             NetworkEndpoint::register(
                 RelativeNodeType::Initiator,
-                NetworkConnSimulator::new(min, codec(TcpStream::connect(addr).await.unwrap())),
+                NetworkConnSimulator::new(min, codec(create_connect(addr))),
             )
             .await
             .unwrap()

@@ -35,13 +35,13 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     ) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
         #[cfg(feature = "google-services")]
-            let services_handler = _services_cfg
-                .unwrap_or_default()
-                .into_services_handler()
-                .await?;
+        let services_handler = _services_cfg
+            .unwrap_or_default()
+            .into_services_handler()
+            .await?;
 
         #[cfg(not(feature = "google-services"))]
-            let services_handler = ServicesHandler;
+        let services_handler = ServicesHandler;
 
         let persistence_handler = match &backend_type {
             BackendType::InMemory => {

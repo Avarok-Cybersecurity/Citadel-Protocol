@@ -2,11 +2,11 @@ use crate::auth::DeclaredAuthenticationMode;
 use crate::misc::AccountError;
 use crate::server_misc_settings::ServerMiscSettings;
 use bstr::ByteSlice;
-use rand::RngCore;
 use citadel_crypt::argon::argon_container::{
     ArgonContainerType, ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
 };
 use citadel_crypt::prelude::SecBuffer;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 
@@ -70,8 +70,10 @@ impl ProposedCredentials {
 
         // the secret will be stored in the settings which is stored in the CNAC locally clientside
         let secret = &mut [0u8; 32];
-        let mut rng = rand::thread_rng();
-        rng.fill_bytes(secret);
+        {
+            let mut rng = rand::thread_rng();
+            rng.fill_bytes(secret);
+        }
 
         let settings = ArgonSettings::new_defaults_with_static_secret(
             full_name.clone().into_bytes(),

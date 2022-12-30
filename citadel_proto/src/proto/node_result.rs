@@ -4,7 +4,6 @@ use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_user::client_account::ClientNetworkAccount;
-use citadel_user::external_services::ServicesObject;
 use std::net::SocketAddr;
 
 #[derive(Debug)]
@@ -34,7 +33,7 @@ pub struct ConnectSuccess {
     pub remote_addr: SocketAddr,
     pub is_personal: bool,
     pub v_conn_type: VirtualConnectionType,
-    pub services: ServicesObject,
+    pub services: citadel_user::external_services::ServicesObject,
     pub welcome_message: String,
     pub channel: PeerChannel,
     pub udp_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,

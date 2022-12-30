@@ -9,7 +9,7 @@ use crate::proto::session::SessionRequest;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_crypt::prelude::SecBuffer;
-use citadel_user::re_imports::__private::Formatter;
+use citadel_user::re_exports::__private::Formatter;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use std::fmt::Debug;

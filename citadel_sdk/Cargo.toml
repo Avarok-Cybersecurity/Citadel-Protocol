@@ -16,6 +16,7 @@ webrtc = ["citadel_proto/webrtc"]
 
 std = ["citadel_proto/std"]
 wasm = ["citadel_proto/wasm"]
+google-services = ["citadel_proto/google-services"]
 
 # for testing only
 localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_logging"]
@@ -38,7 +39,7 @@ citadel_logging = { path = "../citadel_logging", version = "0.1.0", optional = t
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 dirs2 = "3.0.1"
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
-rstest = { git = "https://github.com/la10736/rstest", branch="master" }
+rstest = "0.16.0"
 serde = { version = "1.0.137", features = ["derive"] }
 rand = "0.8.5"
 

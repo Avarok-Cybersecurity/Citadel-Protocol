@@ -9,28 +9,36 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["std"]
+std = [
+    "rand/std",
+    "rand/std_rng",
+    "lock_wrapper/std"
+]
+wasm = [
+    "lock_wrapper/wasm"
+]
 
 [dependencies]
-tokio = { version = "1.23.0", features = ["net", "macros", "rt", "time", "io-util", "parking_lot"] }
+tokio = { version = "1.23.0", default-features=false, features = ["net", "macros", "rt", "time", "io-util"] }
+lock_wrapper = { path = "../lock_wrapper", version = "0.1.0", default-features = false }
 futures = "0.3.16"
 bytes = "1.0.1"
 async-trait = "0.1.51"
-parking_lot = "0.12.0"
 bincode2 = "2.0.1"
-serde = { version = "1.0.127", features = ["derive"] }
+serde = { version = "1.0.127", default-features = false, features = ["derive"] }
 anyhow = "1.0.57"
-tokio-util = { version = "0.7.3", features = ["codec"] }
-rand = "0.8.4"
+tokio-util = { version = "0.7.3", default-features = false, features = ["codec"] }
+rand = { default-features = false, version = "0.8.4" }
 async-stream = "0.3.2"
 sync_wrapper = "0.1.1"
 
 log = "0.4.8"
 
 [dev-dependencies]
-parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 async-recursion = "1.0.0"
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
-rstest = "0.15.0"
+rstest = "0.16.0"
 
 [lib]
 doctest = false
