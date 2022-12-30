@@ -54,10 +54,10 @@ parking_lot = "0.12.1"
 tokio-stream = "0.1.7"
 auto_impl = "1.0.1"
 
-[target.'cfg(not(target_os = "windows"))'.dependencies]
+[target.'cfg(target_family = "unix")'.dependencies]
 libc = "0.2.80"
 
-[target.'cfg(target_os = "windows")'.dependencies]
+[target.'cfg(target_family = "windows")'.dependencies]
 kernel32-sys = "0.2.2"
 
 [dev-dependencies]
