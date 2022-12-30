@@ -30,14 +30,18 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     pub async fn new(
         backend_type: BackendType,
         server_argon_settings: Option<ArgonDefaultServerSettings>,
-        services_cfg: Option<ServicesConfig>,
+        _services_cfg: Option<ServicesConfig>,
         server_misc_settings: Option<ServerMiscSettings>,
     ) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
-        let services_handler = services_cfg
-            .unwrap_or_default()
-            .into_services_handler()
-            .await?;
+        #[cfg(feature = "google-services")]
+            let services_handler = _services_cfg
+                .unwrap_or_default()
+                .into_services_handler()
+                .await?;
+
+        #[cfg(not(feature = "google-services"))]
+            let services_handler = ServicesHandler;
 
         let persistence_handler = match &backend_type {
             BackendType::InMemory => {
@@ -227,6 +231,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         cid0: u64,
         cid1: u64,
     ) -> Result<(), AccountError> {
+        // TODO: rtdb backend
+        /*
         if let Some(mut rtdb_instance) = self.services_handler.rtdb_root_instance.clone() {
             let cid0_str = cid0.to_string();
             let cid1_str = cid1.to_string();
@@ -263,7 +269,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 .put(&mint)
                 .await
                 .map_err(|err| AccountError::Generic(err.inner))?;
-        }
+        }*/
 
         self.persistence_handler
             .register_p2p_as_server(cid0, cid1)
