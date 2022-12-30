@@ -2,7 +2,7 @@ use crate::proto::packet::HdpHeader;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::state_container::VirtualConnectionType;
 use bytes::BytesMut;
-use citadel_user::re_imports::__private::Formatter;
+use citadel_user::re_exports::__private::Formatter;
 
 //use crate::proto::outbound_sender::{SendError, TrySendError};
 //use std::ops::{FromResidual, Try, ControlFlow};

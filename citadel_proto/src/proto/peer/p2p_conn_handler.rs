@@ -18,7 +18,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::HdpSession;
 use crate::proto::state_container::VirtualConnectionType;
-use citadel_user::re_imports::__private::Formatter;
+use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
@@ -35,7 +35,7 @@ pub struct DirectP2PRemote {
 }
 
 impl Debug for DirectP2PRemote {
-    fn fmt(&self, f: &mut Formatter<'_>) -> citadel_user::re_imports::__private::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> citadel_user::re_exports::__private::fmt::Result {
         f.debug_struct("DirectP2PRemote")
             .field("from_listener", &self.from_listener)
             .finish()

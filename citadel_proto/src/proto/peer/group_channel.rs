@@ -4,7 +4,7 @@ use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::SessionRequest;
-use citadel_user::re_imports::__private::Formatter;
+use citadel_user::re_exports::__private::Formatter;
 use futures::Stream;
 use std::fmt::Debug;
 use std::ops::Deref;

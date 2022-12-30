@@ -11,8 +11,8 @@ use crate::socket_helpers::ensure_ipv6;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use crate::udp_traversal::HolePunchID;
+use lock_wrapper::Mutex;
 use netbeam::sync::RelativeNodeType;
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL

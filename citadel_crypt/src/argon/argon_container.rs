@@ -1,3 +1,4 @@
+use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::prelude::SecBuffer;
 use argon2::Config;
 use futures::Future;
@@ -8,7 +9,6 @@ use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 
 const ARGON_SALT_LENGTH: usize = 16;
 

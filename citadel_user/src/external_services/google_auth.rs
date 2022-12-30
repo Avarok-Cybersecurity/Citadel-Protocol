@@ -1,3 +1,4 @@
+use crate::external_services::JsonWebToken;
 use crate::misc::AccountError;
 use jwt::{PKeyWithDigest, SignWithKey};
 use openssl::hash::MessageDigest;
@@ -14,9 +15,6 @@ pub struct GoogleAuth {
     key: Arc<PKeyWithDigest<Private>>,
     email: Arc<String>,
 }
-
-/// The type returned when signing a custom jwt
-pub type JsonWebToken = String;
 
 impl GoogleAuth {
     /// Must contain the private key and services email. Can be obtained from the firebase console
