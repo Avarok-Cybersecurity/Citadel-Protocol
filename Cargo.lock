@@ -2186,8 +2186,7 @@ dependencies = [
 [[package]]
 name = "pqcrypto-falcon-wasi"
 version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03e4e0b9d50e8185bf5cdd750c60f9719c43ad06620e1caaad0a47419be8d4ed"
+source = "git+https://github.com/Avarok-Cybersecurity/pqcrypto-wasi#067888cfcac0ebed2a970eadac5c410a6644f40e"
 dependencies = [
  "cc",
  "glob",
@@ -2201,8 +2200,7 @@ dependencies = [
 [[package]]
 name = "pqcrypto-internals-wasi"
 version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a6d7a7ba4e70b9052c6f7d754b49a65aa2bdd9b5903d1eb2b602739e22abce0"
+source = "git+https://github.com/Avarok-Cybersecurity/pqcrypto-wasi#067888cfcac0ebed2a970eadac5c410a6644f40e"
 dependencies = [
  "cc",
  "getrandom",
@@ -2212,8 +2210,7 @@ dependencies = [
 [[package]]
 name = "pqcrypto-traits-wasi"
 version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dca96c933215a67324af8d927152d56fb4c3cf294b3d463a39d70841743f6c6"
+source = "git+https://github.com/Avarok-Cybersecurity/pqcrypto-wasi#067888cfcac0ebed2a970eadac5c410a6644f40e"
 
 [[package]]
 name = "proc-macro-error"
