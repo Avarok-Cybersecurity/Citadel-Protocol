@@ -561,6 +561,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_millis",
+ "sha3",
  "sqlx",
  "tokio",
  "tokio-stream",
