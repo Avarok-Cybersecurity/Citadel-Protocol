@@ -3,7 +3,6 @@
 //! Every node/device necessarily contains a singular NetworkAccount; for each connection leading into and out of the node, a ClientAccount exists.
 
 #![deny(
-    missing_docs,
     trivial_numeric_casts,
     unused_extern_crates,
     unused_import_braces,
@@ -19,9 +18,6 @@ pub mod prelude {
     pub use crate::client_account::*;
     pub use crate::hypernode_account::*;
     pub use crate::network_account::*;
-    #[cfg(not(feature = "filesystem"))]
-    pub use citadel_crypt::net::crypt_splitter::MAX_BYTES_PER_GROUP;
-    #[cfg(feature = "filesystem")]
     pub use citadel_crypt::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
 }
 
@@ -29,7 +25,6 @@ pub mod prelude {
 pub mod re_imports {
     #[cfg(feature = "filesystem")]
     pub use crate::directory_store::DirectoryStore;
-    pub use firebase_rtdb::FirebaseRTDB;
     pub use serde::*;
 }
 
@@ -61,7 +56,7 @@ pub mod account_manager;
 pub mod auth;
 /// For handling different I/O operations
 pub mod backend;
-#[cfg(feature = "filesystem")]
+#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
 /// Environmental constants and subroutines for pre-checking the system
 pub mod directory_store;
 /// For services

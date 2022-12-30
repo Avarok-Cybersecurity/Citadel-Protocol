@@ -13,8 +13,14 @@ default = ["filesystem", "std"]
 redis = ["redis-base", "mobc"]
 sql = ["sqlx", "base64", "itertools"]
 filesystem = ["citadel_crypt/filesystem", "tokio-util", "tokio-stream"]
-std = ["citadel_crypt/std"]
+std = [
+    "citadel_crypt/std",
+    "tokio/fs",
+    "rand/std",
+    "sha3/std"
+]
 wasm = ["citadel_crypt/wasm"]
+google-services = ["openssl", "jwt", "firebase-rtdb"]
 
 # whenever an accountmanager is created, all accounts are purged when localhost-testing is enabled
 localhost-testing = []
@@ -25,15 +31,16 @@ jwt-testing = []
 itertools = { version = "0.10.5", optional = true }
 serde = { version = "1.0.104", features=["rc", "derive"] }
 serde_millis = "0.1.1"
-tokio = "1.23.0"
+tokio = { version = "1.23.0", default-features = false, features = ["io-util"] }
 async-trait = "^0.1.48"
 futures = "0.3.5"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
-rand = "0.8.5"
+rand = { version = "0.8.5", default-features = false }
 multimap = "^0.8.3"
 parking_lot = { version = "0.12.0", features = ["serde"] }
 log = { version = "0.4.8" }
 twox-hash = "1.6.3"
+sha3 = { version = "0.10", default-features = false }
 citadel_crypt = { path = "../citadel_crypt", version = "0.1.0", default-features=false }
 serde_json = "1.0.62"
 base64 = { version = "0.13.0", optional = true }
@@ -42,14 +49,14 @@ bstr = "0.2.15"
 sqlx = { version = "0.5.11", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
 redis-base = { package = "redis", version = "0.21.5", features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
 mobc = { version = "0.7.3", optional = true }
-firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
-jwt = { version = "0.16.0", features = ["openssl"] }
-openssl = { version = "0.10.36", features = ["vendored"] }
+firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0", optional = true }
+jwt = { version = "0.16.0", features = ["openssl"], optional = true }
+openssl = { version = "0.10.36", features = ["vendored"], optional = true }
 uuid = { version = "1.0.0", features = ["v4"] }
 bincode2 = "2.0.1"
 chrono = "0.4.20"
-tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"], optional = true }
-tokio-stream = { version = "0.1.7", optional = true }
+tokio-util = { version = "0.7.2", default-features = false, features = ["io"], optional = true }
+tokio-stream = { version = "0.1.7", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.23.0", features = ["macros"] }

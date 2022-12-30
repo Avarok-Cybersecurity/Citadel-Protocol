@@ -1,7 +1,6 @@
 use bytes::BytesMut;
 use futures::task::Context;
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
 use tokio::macros::support::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
@@ -57,7 +56,7 @@ pub trait ObjectSource: Send + Sync + 'static {
 }
 
 #[cfg(feature = "filesystem")]
-impl ObjectSource for PathBuf {
+impl ObjectSource for std::path::PathBuf {
     fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError> {
         std::fs::File::open(self)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
