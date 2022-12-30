@@ -47,24 +47,9 @@ rand = "0.8.5"
 doctest = false
 
 [package.metadata.cargo-all-features]
-
 # Features "foo" and "bar" are incompatible, so skip permutations including them
-#skip_feature_sets = [
-#    ["single-threaded", "multi-threaded"],
-#    ["multi-threaded", "single-threaded"]
-#]
+skip_feature_sets = [
+    ["std", "wasm"],
+]
 
-# If your crate has a large number of optional dependencies, skip them for speed
-skip_optional_dependencies = false
-
-# Add back certain optional dependencies that you want to include in the permutations
-#extra_features = [
-#    "log",
-#]
-
-# Exclude certain features from the build matrix
-#denylist = ["foo", "bar"]
-
-# Only include certain features in the build matrix
-#(incompatible with `denylist`, `skip_optional_dependencies`, and `extra_features`)
-#allowlist = ["foo", "bar"]
+allowlist = ["std", "filesystem", "google-services", "multi-threaded", "sql", "redis", "webrtc"]

@@ -46,8 +46,8 @@ parking_lot = { version = "0.12.0", features = ["serde"] }
 log = "0.4.8"
 strum = { version = "0.24.0", default-features = false, features = ["derive"] }
 sha3 = { version = "0.10", default-features = false }
-pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = ["serialization"] }
-pqcrypto-traits-wasi = { version = "*", default-features = false }
+pqcrypto-falcon-wasi = { git = "https://github.com/Avarok-Cybersecurity/pqcrypto-wasi", default-features=false, features = ["serialization", "avx2"] }
+pqcrypto-traits-wasi = { git = "https://github.com/Avarok-Cybersecurity/pqcrypto-wasi", default-features = false }
 kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", default-features = false, branch = "master", features=["90s"] }
 packed_struct = { version = "0.10.0", features = ["serde"] }
 rand = { version = "0.8.5", default-features = false }
