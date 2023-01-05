@@ -19,6 +19,9 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 
+#[cfg(target_family = "wasm")]
+use crate::functions::AsSlice;
+
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
@@ -81,7 +84,7 @@ pub(crate) mod functions {
     ) -> Result<Vec<u8>, Error> {
         let sig = get_sig()?;
         let secret_key = sig.secret_key_from_bytes(secret_key.as_ref())
-            .ok_or_else(|| Error::Generic("Bad secret key length"))?;
+            .ok_or(Error::Generic("Bad secret key length"))?;
         sig.sign(message.as_ref(), secret_key)
             .map(|r| r.into_vec())
             .map_err(|err| Error::Other(err.to_string()))
@@ -94,9 +97,9 @@ pub(crate) mod functions {
     ) -> Result<(), Error> {
         let sig = get_sig()?;
         let signature = sig.signature_from_bytes(signature.as_ref())
-            .ok_or_else(|| Error::Generic("Bad signature length"))?;
+            .ok_or(Error::Generic("Bad signature length"))?;
         let public_key = sig.public_key_from_bytes(public_key.as_ref())
-            .ok_or_else(|| Error::Generic("Bad public key length"))?;
+            .ok_or(Error::Generic("Bad public key length"))?;
 
         sig.verify(message.as_ref(), signature, public_key)
             .map_err(|err| Error::Other(err.to_string()))
@@ -124,16 +127,41 @@ pub(crate) mod functions {
     use pqcrypto_falcon_wasi::falcon1024;
     use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
     use pqcrypto_traits_wasi::sign::{DetachedSignature as DetachedSignatureTrait, SecretKey};
+    use pqcrypto_traits_wasi::sign::PublicKey as PublicKeyTrait;
+
+    pub trait AsSlice {
+        fn as_slice(&self) -> &[u8];
+    }
 
     pub type SecretKeyType = falcon1024::SecretKey;
     pub type PublicKeyType = falcon1024::PublicKey;
 
+    impl AsSlice for SecretKeyType {
+        fn as_slice(&self) -> &[u8] {
+            self.as_bytes()
+        }
+    }
+
+    impl AsSlice for DetachedSignature {
+        fn as_slice(&self) -> &[u8] {
+            self.as_bytes()
+        }
+    }
+
+    impl AsSlice for PublicKeyType {
+        fn as_slice(&self) -> &[u8] {
+            use pqcrypto_traits_wasi::sign::PublicKey;
+            self.as_bytes()
+        }
+    }
+
     pub fn signature_sign(
         message: impl AsRef<[u8]>,
         secret_key: impl AsRef<[u8]>,
-    ) -> Result<DetachedSignature, Error> {
-        let secret_key = deserialize::<falcon1024::SecretKey>(secret_key.as_ref())?;
-        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key))
+    ) -> Result<Vec<u8>, Error> {
+        let secret_key = falcon1024::SecretKey::from_bytes(secret_key.as_ref())
+            .map_err(|err| Error::Other(err.to_string()))?;
+        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key).as_bytes().to_vec())
     }
 
     pub fn signature_verify(
@@ -142,11 +170,12 @@ pub(crate) mod functions {
         public_key: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
         let signature = deserialize::<falcon1024::DetachedSignature>(signature.as_ref())?;
-        let public_key = deserialize::<falcon1024::PublicKey>(public_key.as_ref())?;
+        let public_key = falcon1024::PublicKey::from_bytes(public_key.as_ref())
+            .map_err(|err| Error::Other(err.to_string()))?;
         falcon1024::verify_detached_signature(
-            signature,
+            &signature,
             message.as_ref(),
-            public_key,
+            &public_key,
         )
         .map_err(|err| Error::Other(err.to_string()))
     }
