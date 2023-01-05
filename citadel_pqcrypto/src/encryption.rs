@@ -114,8 +114,6 @@ pub(crate) mod kyber_module {
         AES_GCM_NONCE_LENGTH_BYTES,
     };
     use aes_gcm_siv::aead::Buffer;
-    use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
-    use pqcrypto_traits_wasi::sign::DetachedSignature as DetachedSignatureTrait;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,
@@ -138,15 +136,12 @@ pub(crate) mod kyber_module {
             // encrypting the input ciphertext + the signature ensures ciphertext works
 
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let signature = pqcrypto_falcon_wasi::falcon1024::detached_sign(
-                ad,
-                self.sig.sig_private_key.as_ref(),
-            );
+            let signature = crate::functions::signature_sign(ad, self.sig.sig_private_key.as_slice())?;
             // append the signature of the header onto the plaintext
             input
-                .extend_from_slice(signature.as_bytes())
+                .extend_from_slice(signature.as_slice())
                 .map_err(|err| Error::Other(err.to_string()))?;
-            encode_length_be_bytes(signature.as_bytes().len(), input)?;
+            encode_length_be_bytes(signature.as_slice().len(), input)?;
 
             // encrypt everything so far with AES GCM
             self.symmetric_key_local
@@ -228,15 +223,7 @@ pub(crate) mod kyber_module {
             let signature_len = decode_length(input)?;
             let split_pt = input.len().saturating_sub(signature_len);
             let (_, signature_bytes) = input.as_ref().split_at(split_pt);
-            let signature = DetachedSignature::from_bytes(signature_bytes)
-                .map_err(|err| Error::Other(err.to_string()))?;
-            pqcrypto_falcon_wasi::falcon1024::verify_detached_signature(
-                &signature,
-                ad,
-                sig_remote_pk,
-            )
-            .map_err(|err| Error::Other(format!("Signature verification failed: {:?}", err)))?;
-
+            crate::functions::signature_verify(ad, signature_bytes, sig_remote_pk.as_slice())?;
             // remove the signature from the buffer
             input.truncate(split_pt);
 
