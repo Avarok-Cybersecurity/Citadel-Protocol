@@ -108,14 +108,14 @@ pub(crate) mod chacha_impl {
 }
 
 pub(crate) mod kyber_module {
+    #[cfg(target_family = "wasm")]
+    use crate::functions::AsSlice;
     use crate::wire::ScramCryptDictionary;
     use crate::{
         AeadModule, Error, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
         AES_GCM_NONCE_LENGTH_BYTES,
     };
     use aes_gcm_siv::aead::Buffer;
-    #[cfg(target_family = "wasm")]
-    use crate::functions::AsSlice;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,
@@ -138,7 +138,8 @@ pub(crate) mod kyber_module {
             // encrypting the input ciphertext + the signature ensures ciphertext works
 
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let signature = crate::functions::signature_sign(ad, self.sig.sig_private_key.as_slice())?;
+            let signature =
+                crate::functions::signature_sign(ad, self.sig.sig_private_key.as_slice())?;
             // append the signature of the header onto the plaintext
             input
                 .extend_from_slice(signature.as_slice())

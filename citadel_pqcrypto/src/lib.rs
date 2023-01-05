@@ -83,7 +83,8 @@ pub(crate) mod functions {
         secret_key: impl AsRef<[u8]>,
     ) -> Result<Vec<u8>, Error> {
         let sig = get_sig()?;
-        let secret_key = sig.secret_key_from_bytes(secret_key.as_ref())
+        let secret_key = sig
+            .secret_key_from_bytes(secret_key.as_ref())
             .ok_or(Error::Generic("Bad secret key length"))?;
         sig.sign(message.as_ref(), secret_key)
             .map(|r| r.into_vec())
@@ -96,9 +97,11 @@ pub(crate) mod functions {
         public_key: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
         let sig = get_sig()?;
-        let signature = sig.signature_from_bytes(signature.as_ref())
+        let signature = sig
+            .signature_from_bytes(signature.as_ref())
             .ok_or(Error::Generic("Bad signature length"))?;
-        let public_key = sig.public_key_from_bytes(public_key.as_ref())
+        let public_key = sig
+            .public_key_from_bytes(public_key.as_ref())
             .ok_or(Error::Generic("Bad public key length"))?;
 
         sig.verify(message.as_ref(), signature, public_key)
@@ -126,8 +129,8 @@ pub(crate) mod functions {
     use crate::Error;
     use pqcrypto_falcon_wasi::falcon1024;
     use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
-    use pqcrypto_traits_wasi::sign::{DetachedSignature as DetachedSignatureTrait, SecretKey};
     use pqcrypto_traits_wasi::sign::PublicKey as PublicKeyTrait;
+    use pqcrypto_traits_wasi::sign::{DetachedSignature as DetachedSignatureTrait, SecretKey};
 
     pub trait AsSlice {
         fn as_slice(&self) -> &[u8];
@@ -161,7 +164,9 @@ pub(crate) mod functions {
     ) -> Result<Vec<u8>, Error> {
         let secret_key = falcon1024::SecretKey::from_bytes(secret_key.as_ref())
             .map_err(|err| Error::Other(err.to_string()))?;
-        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key).as_bytes().to_vec())
+        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key)
+            .as_bytes()
+            .to_vec())
     }
 
     pub fn signature_verify(
@@ -172,12 +177,8 @@ pub(crate) mod functions {
         let signature = deserialize::<falcon1024::DetachedSignature>(signature.as_ref())?;
         let public_key = falcon1024::PublicKey::from_bytes(public_key.as_ref())
             .map_err(|err| Error::Other(err.to_string()))?;
-        falcon1024::verify_detached_signature(
-            &signature,
-            message.as_ref(),
-            &public_key,
-        )
-        .map_err(|err| Error::Other(err.to_string()))
+        falcon1024::verify_detached_signature(&signature, message.as_ref(), &public_key)
+            .map_err(|err| Error::Other(err.to_string()))
     }
 
     pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
@@ -1028,7 +1029,11 @@ impl PostQuantumMeta {
                 let (sig_pk_bob, sig_sk_bob) = crate::functions::signature_keypair()?;
                 let public_key_alice = alice_pk;
 
-                crate::functions::signature_verify(public_key_alice.as_slice(), alice_public_key_signature.as_slice(), alice_pk_sig.as_slice())?;
+                crate::functions::signature_verify(
+                    public_key_alice.as_slice(),
+                    alice_public_key_signature.as_slice(),
+                    alice_pk_sig.as_slice(),
+                )?;
 
                 let remote_sig_public_key = Some(alice_pk_sig);
 
@@ -1084,7 +1089,11 @@ impl PostQuantumMeta {
                 bob_ciphertext,
                 ..
             } => {
-                crate::functions::signature_verify(bob_ciphertext.as_slice(), bob_ciphertext_signature.as_slice(), bob_pk_sig.as_slice())?;
+                crate::functions::signature_verify(
+                    bob_ciphertext.as_slice(),
+                    bob_ciphertext_signature.as_slice(),
+                    bob_pk_sig.as_slice(),
+                )?;
                 bob_ciphertext.clone()
             }
         };
@@ -1115,7 +1124,10 @@ impl PostQuantumMeta {
             Self::MixedAsymmetric { kex, sig } => {
                 let alice_pk = kex.public_key.clone();
                 let alice_pk_sig = sig.sig_public_key.clone();
-                let alice_public_key_signature = crate::functions::signature_sign(alice_pk.as_slice(), sig.sig_private_key.as_slice())?;
+                let alice_public_key_signature = crate::functions::signature_sign(
+                    alice_pk.as_slice(),
+                    sig.sig_private_key.as_slice(),
+                )?;
                 let sig_scheme = sig.sig_alg;
                 let kem_scheme = kex.kem_alg;
 
@@ -1150,7 +1162,10 @@ impl PostQuantumMeta {
                 })
             }
             PostQuantumMeta::MixedAsymmetric { sig, .. } => {
-                let bob_signed_ciphertext = crate::functions::signature_sign(bob_ciphertext.as_slice(), sig.sig_private_key.as_slice())?;
+                let bob_signed_ciphertext = crate::functions::signature_sign(
+                    bob_ciphertext.as_slice(),
+                    sig.sig_private_key.as_slice(),
+                )?;
                 let bob_pk_sig = sig.sig_public_key.clone();
 
                 Ok(BobToAliceTransferParameters::MixedAsymmetric {
