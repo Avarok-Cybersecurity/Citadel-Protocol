@@ -10,8 +10,8 @@ use std::sync::Arc;
 pub enum AliceToBobTransferParameters {
     MixedAsymmetric {
         alice_pk: Arc<Vec<u8>>,
-        alice_pk_sig: Arc<pqcrypto_falcon_wasi::falcon1024::PublicKey>,
-        alice_signed_public_key: pqcrypto_falcon_wasi::falcon1024::SignedMessage,
+        alice_pk_sig: Arc<crate::functions::PublicKeyType>,
+        alice_public_key_signature: Vec<u8>,
         sig_scheme: SigAlgorithm,
         kem_scheme: KemAlgorithm,
     },
@@ -24,8 +24,9 @@ pub enum AliceToBobTransferParameters {
 #[derive(Serialize, Deserialize, Clone)]
 pub enum BobToAliceTransferParameters {
     MixedAsymmetric {
-        bob_signed_ciphertext: Arc<pqcrypto_falcon_wasi::falcon1024::SignedMessage>,
-        bob_pk_sig: Arc<pqcrypto_falcon_wasi::falcon1024::PublicKey>,
+        bob_ciphertext_signature: Arc<Vec<u8>>,
+        bob_ciphertext: Arc<Vec<u8>>,
+        bob_pk_sig: Arc<crate::functions::PublicKeyType>,
         bob_pk: Arc<Vec<u8>>,
     },
     PureSymmetric {
