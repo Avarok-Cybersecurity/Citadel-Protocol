@@ -114,6 +114,8 @@ pub(crate) mod kyber_module {
         AES_GCM_NONCE_LENGTH_BYTES,
     };
     use aes_gcm_siv::aead::Buffer;
+    #[cfg(target_family = "wasm")]
+    use crate::functions::AsSlice;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,

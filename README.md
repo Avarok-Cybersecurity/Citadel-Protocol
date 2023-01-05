@@ -25,8 +25,8 @@ export WASI_SDK_DIR="$(pwd)/wasi-sysroot"
 export WASMTIME_HOME="$(pwd)/.wasmtime"
 export PATH="$WASMTIME_HOME/bin:$PATH"
 export RUSTFLAGS="--cfg tokio_unstable"
-# If on Mac M1, make sure to use the clang provided by homebrew
-export PATH="/opt/homebrew/Cellar/llvm/<latest-version>/bin/:$PATH"
+# If on Mac M1, make sure to use the clang provided by homebrew. Make sure to replace <LATEST_VERSION>
+export PATH="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/:$PATH"
 ```
 
 Additionally, the feature `wasm` should be enabled when checking/compiling.
