@@ -51,7 +51,7 @@ rand = { version = "0.8.5", default-features = false }
 serde-big-array = "0.4.1"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-oqs = { version = "0.7.2", features = ["serde", "falcon"] }
+oqs = { version = "0.7.2", default-features = false, features = ["serde", "falcon"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = ["serialization", "avx2"] }
