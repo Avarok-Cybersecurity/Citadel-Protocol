@@ -12,8 +12,8 @@ use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDev
 use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
-use futures::Future;
 use citadel_runtime::Mutex;
+use futures::Future;
 use num_integer::Integer;
 use std::sync::Arc;
 use std::task::Poll;
