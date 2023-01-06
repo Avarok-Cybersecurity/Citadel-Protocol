@@ -64,7 +64,7 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
 impl<T: ReliableOrderedStreamToTarget> ReliableOrderedStreamToTargetExt for T {}
 
 #[async_trait]
-#[cfg(not(target_family= "wasm"))]
+#[cfg(not(target_family = "wasm"))]
 impl ReliableOrderedStreamToTarget for tokio::net::TcpStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         loop {
@@ -102,7 +102,7 @@ impl ReliableOrderedStreamToTarget for tokio::net::TcpStream {
     }
 }
 
-#[cfg(not(target_family= "wasm"))]
+#[cfg(not(target_family = "wasm"))]
 impl ConnAddr for tokio::net::TcpStream {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
         tokio::net::TcpStream::local_addr(self)
@@ -170,7 +170,7 @@ pub mod simulator {
     }
 
     impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkConnSimulator<T> {
-        #[cfg_attr(target_family= "wasm", allow(dead_code))]
+        #[cfg_attr(target_family = "wasm", allow(dead_code))]
         pub(crate) fn new(min_lag: usize, inner: T) -> Self {
             let inner = Arc::new(inner);
             let inner_fwd = inner.clone();
