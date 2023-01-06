@@ -1,0 +1,1 @@
+const DEFAULT_AVATAR_IMAGE = 'https://flutter.github.io/assets-for-api-docs/assets/widgets/owl.jpg';

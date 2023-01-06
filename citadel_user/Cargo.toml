@@ -2,7 +2,7 @@
 name = "citadel_user"
 version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
+edition = "2021"
 workspace = "../"
 license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 

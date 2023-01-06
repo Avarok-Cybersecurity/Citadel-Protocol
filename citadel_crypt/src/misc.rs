@@ -105,7 +105,7 @@ pub unsafe fn mlock(_ptr: *const u8, _len: usize) {}
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For windows, returns nonzero if successful
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
-    kernel32::VirtualLock(ptr as *mut c_void, len as u64);
+    kernel32::VirtualLock(ptr as _, len as u64);
 }
 
 /// Locks-down the memory location, preventing it from being read until unlocked
@@ -132,7 +132,7 @@ pub unsafe fn munlock(_ptr: *const u8, _len: usize) {}
 /// For windows, returns nonzero if successful. Returns 158 if already unlocked.
 /// Windows unlocks a page all at once
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
-    kernel32::VirtualUnlock(ptr as *mut c_void, len as u64);
+    kernel32::VirtualUnlock(ptr as _, len as u64);
 }
 
 /// General `memset`.
