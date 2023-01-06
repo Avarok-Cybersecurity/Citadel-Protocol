@@ -2,7 +2,7 @@
 name = "scrap-ffi"
 version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "scrap_ffi"

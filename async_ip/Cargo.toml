@@ -2,16 +2,30 @@
 name = "async_ip"
 version = "0.1.0"
 authors = ["Thomas Braun <braunth@oregonstate.edu>"]
-edition = "2018"
+edition = "2021"
 description = "An asynchronous client used to obtain one's global Ipv6 or Ipv4 address"
 readme = "README.md"
-homepage = "https://thomaspbraun.com/"
+homepage = "https://avarok.net/"
 repository = "https://github.com/tbraun96/async_ip"
 license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[features]
+default = ["std"]
+std = [
+    "tokio/net",
+    "futures/std",
+]
+wasm = [
+]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+reqwest = { version = "0.11.14", package = "reqwest-wasm" }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 reqwest = "0.11.4"
-tokio = { version = "1.23.0", features = ["net", "macros"] }
+
+[dependencies]
+tokio = { version = "1.23.0", default-features = false, features = ["macros"] }
 serde = { version = "1.0.126", features = ["derive"] }
-futures = "0.3.16"
+futures = { version = "0.3.16", default-features = false, features = ["alloc"] }

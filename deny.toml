@@ -136,7 +136,7 @@ license-files = [
 ]
 
 [[licenses.clarify]]
-name = "lock_wrapper"
+name = "citadel_runtime"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
 license-files = [

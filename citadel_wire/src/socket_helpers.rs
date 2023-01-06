@@ -154,16 +154,6 @@ pub async fn get_tcp_stream<T: std::net::ToSocketAddrs>(
     get_tcp_stream_inner(addr, timeout, false).await
 }
 
-#[allow(dead_code)]
-async fn asyncify<F, O>(fx: F) -> Result<O, anyhow::Error>
-where
-    F: FnOnce() -> O,
-    F: Send + 'static,
-    O: Send + 'static,
-{
-    Ok(tokio::task::spawn_blocking(fx).await?)
-}
-
 pub fn is_ipv6_enabled() -> bool {
     // this is a bit hacky, but, should prevent pipelines from failing
     // if runners don't have ipv6 compat
