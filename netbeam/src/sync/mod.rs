@@ -24,7 +24,7 @@ impl From<u64> for SymmetricConvID {
     }
 }
 
-#[cfg(not(target_family= "wasm"))]
+#[cfg(not(target_family = "wasm"))]
 pub mod test_utils {
     use async_trait::async_trait;
     use bytes::Bytes;
