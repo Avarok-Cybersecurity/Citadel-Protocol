@@ -2,9 +2,9 @@
 name = "citadel_pqcrypto"
 version = "0.1.1"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
+edition = "2021"
 readme = "README.md"
-homepage = "https://thomaspbraun.com/"
+homepage = "https://avarok.net/"
 repository = "https://github.com/tbraun96/citadel_pqcrypto/"
 license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,7 +30,7 @@ std = [
     "sha3/std"
 ]
 
-wasm = ["kyber-pke/wasm"]
+wasm = ["kyber-pke/wasm", "lazy_static/spin_no_std"]
 
 [dependencies]
 generic-array = { version = "0.14.5", features = ["serde"]}

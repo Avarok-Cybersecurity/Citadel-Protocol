@@ -194,10 +194,14 @@ fn addr(addr: &str) -> Option<SocketAddr> {
     SocketAddr::from_str(addr).ok()
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn get_default_client() -> Client {
     Client::builder().tcp_nodelay(true).build().unwrap()
 }
-
+#[cfg(target_family = "wasm")]
+fn get_default_client() -> Client {
+    Client::builder().build().unwrap()
+}
 /// The default error type for this crate
 #[derive(Debug)]
 pub enum IpRetrieveError {

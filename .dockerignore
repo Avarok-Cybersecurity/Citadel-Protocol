@@ -1,7 +1,7 @@
 *target/
 ./target
 target
-flutterust
-./flutterust
+mobile
+mobile
 .idea/
 ./deny.toml

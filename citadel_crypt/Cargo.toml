@@ -2,7 +2,7 @@
 name = "citadel_crypt"
 version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
+edition = "2021"
 workspace = "../"
 license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
@@ -20,11 +20,11 @@ std = [
     "byteorder/std",
     "rand/std",
     "tokio/default",
-    "lock_wrapper/std"
+    "citadel_runtime/std"
 ]
 wasm = [
     "citadel_pqcrypto/wasm",
-    "lock_wrapper/wasm"
+    "citadel_runtime/wasm"
 ]
 
 [dependencies]
@@ -40,7 +40,7 @@ rand = { version = "0.8.5", default-features = false }
 rayon = "1.5.1"
 arrayvec = { version = "0.7.0", features = ["serde"] }
 citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features = false }
-lock_wrapper = { path = "../lock_wrapper", version = "0.1.0", default-features = false }
+citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
 bitvec = "1.0.0"
 serde-big-array = "0.4.1"
 rust-argon2 = "1.0.0"

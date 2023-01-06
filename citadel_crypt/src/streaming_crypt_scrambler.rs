@@ -13,7 +13,7 @@ use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
 use futures::Future;
-use lock_wrapper::Mutex;
+use citadel_runtime::Mutex;
 use num_integer::Integer;
 use std::sync::Arc;
 use std::task::Poll;

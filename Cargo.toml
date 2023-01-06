@@ -12,7 +12,8 @@ members = [
     "netbeam",
 	"dpb_kem",
 	"citadel_logging",
-    "lock_wrapper"
+    "citadel_runtime",
+    "citadel_runtime"
 ]
 
 exclude = [

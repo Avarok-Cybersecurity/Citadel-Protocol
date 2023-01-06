@@ -1,0 +1,14 @@
+name: satori_ffi_parser
+description: Subroutines for deserializing content from the rust FFI
+version: 0.0.1
+author: Thomas P Braun
+
+environment:
+  sdk: '>=2.12.0 <3.0.0'
+
+dependencies:
+  optional: ^6.0.0-nullsafety.0
+  quiver: ^3.0.0
+
+dev_dependencies:
+  test: '^1.15.7'

@@ -11,7 +11,7 @@ example: `cargo test --package citadel_sdk --features=localhost-testing -- --tes
 
 Not only does allowing one test at a time help with synchronization, it also helps with reading debug info too.
 
-## WASM
+## WASM (dev only WIP)
 The target triple `wasm32-wasi` is a WIP for support. These commands should be executed in order to compile to wasm
 ```bash
 # install wasmtime
@@ -25,8 +25,10 @@ export WASI_SDK_DIR="$(pwd)/wasi-sysroot"
 export WASMTIME_HOME="$(pwd)/.wasmtime"
 export PATH="$WASMTIME_HOME/bin:$PATH"
 export RUSTFLAGS="--cfg tokio_unstable"
-# If on Mac M1, make sure to use the clang provided by homebrew. Make sure to replace <LATEST_VERSION>
+# If on Mac M1, make sure to use the clang/ar provided by homebrew. Make sure to replace <LATEST_VERSION>
 export PATH="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/:$PATH"
+export AR="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/llvm-ar"
+export CC="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/clang"
 ```
 
 Additionally, the feature `wasm` should be enabled when checking/compiling.
