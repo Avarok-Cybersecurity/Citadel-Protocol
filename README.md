@@ -1,9 +1,16 @@
 # Avarok Cybersecurity | Citadel Protocol
+[![Website shields.io](https://img.shields.io/website-up-down-green-red/http/shields.io.svg)](https://avarok.net)
 [![codecov](https://codecov.io/gh/Avarok-Cybersecurity/Lusna/branch/master/graph/badge.svg?token=J739KOHOZR)](https://codecov.io/gh/Avarok-Cybersecurity/Lusna)
-[![Build docs](https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/workflows/deploy.yml/badge.svg)](https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/workflows/deploy.yml)
+[![Build docs](https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/workflows/deploy.yml/badge.svg)](https://avarok-cybersecurity.github.io/Citadel-Protocol/docs/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-APACHE)
+[![Slack](https://img.shields.io/badge/Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://avarokcybersecurity.slack.com)
 ### A post-quantum signal-like protocol that makes developing hyper-secure client-to-server and p2p applications easily
 # Whitepaper
 The whitepaper for the Citadel Protocol can be found in the repository [here](The_Citadel_Protocol.pdf). Note: this whitepaper has not been updated since July 2022. While the protocol is very similar to what is covered in the whitepaper, it has since evolved. The whitepaper will be synced to the source code in the near future.
+
+# Documentation
+For examples on building applications, please check [the docs](https://avarok-cybersecurity.github.io/Citadel-Protocol/docs/)
 
 ## Build instructions
 OpenSSL and clang are required in order to compile the libraries. View the CI files in .github for an example of getting the code to compile on a bare machine
@@ -36,3 +43,10 @@ export CC="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/clang"
 ```
 
 Additionally, the feature `wasm` should be enabled when checking/compiling.
+
+# Authors
+
+[Thomas Braun](https://thomaspbraun.com) - Founder
+# Contributing
+
+Contributions are welcome and needed! I have been the only developer for the past 5 years, and, need more people to help make the ecosystem flourish.

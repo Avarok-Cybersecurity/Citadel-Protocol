@@ -59,7 +59,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             #[cfg(all(feature = "sql", not(coverage)))]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::mysql_backend::SqlBackend;
-                use std::convert::TryFrom;
                 let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
                 PersistenceHandler::create(backend).await?
             }
