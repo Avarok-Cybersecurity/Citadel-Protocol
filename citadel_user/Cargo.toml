@@ -35,7 +35,7 @@ jwt-testing = []
 itertools = { version = "0.10.5", optional = true }
 serde = { version = "1.0.104", features=["rc", "derive"] }
 serde_millis = "0.1.1"
-tokio = { version = "1.23.0", default-features = false, features = ["io-util"] }
+tokio = { version = "1.24", default-features = false, features = ["io-util"] }
 async-trait = "^0.1.48"
 futures = { version = "0.3.16", default-features = false }
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
@@ -63,7 +63,7 @@ tokio-util = { version = "0.7.2", default-features = false, features = ["io"], o
 tokio-stream = { version = "0.1.7", default-features = false, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.23.0", features = ["macros"] }
+tokio = { version = "1.24", features = ["macros"] }
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
 dirs2 = "3.0.1"
 rstest = "0.16.0"

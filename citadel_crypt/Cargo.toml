@@ -51,7 +51,7 @@ rust-argon2 = "1.0.0"
 sysinfo = "0.23.2"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
-tokio = { version = "1.23.0", default-features=false, features = ["rt", "macros"] }
+tokio = { version = "1.24", default-features=false, features = ["rt", "macros"] }
 sha3 = "0.10.1"
 tokio-stream = "0.1.7"
 auto_impl = "1.0.1"

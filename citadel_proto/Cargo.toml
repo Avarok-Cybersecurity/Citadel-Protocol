@@ -45,7 +45,7 @@ futures = { version = "0.3.16", default-features = false }
 log = "0.4.8"
 async-trait = "0.1.56"
 tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"] }
-tokio = { version = "1.23.0", default-features = false, features = [] }
+tokio = { version = "1.24", default-features = false, features = [] }
 auto_impl = "1.0.1"
 tokio-stream = "0.1.7"
 parking_lot = "0.12.0"
