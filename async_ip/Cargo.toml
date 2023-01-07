@@ -27,6 +27,6 @@ reqwest = { version = "0.11.14", package = "reqwest-wasm" }
 reqwest = "0.11.4"
 
 [dependencies]
-tokio = { version = "1.23.0", default-features = false, features = ["macros"] }
+tokio = { version = "1.24", default-features = false, features = ["macros"] }
 serde = { version = "1.0.126", default-features = false, features = ["derive"] }
 futures = { version = "0.3.16", default-features = false, features = ["alloc"] }

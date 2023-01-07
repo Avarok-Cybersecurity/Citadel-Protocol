@@ -117,7 +117,7 @@
 //! [`NodeRemote::shutdown`]: crate::prelude::NodeRemote::shutdown
 //! [`NodeType`]: crate::prelude::NodeType
 //! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
-
+#![cfg_attr(not(feature = "localhost-testing"), deny(unsafe_code))]
 #![deny(
     clippy::cognitive_complexity,
     trivial_numeric_casts,
