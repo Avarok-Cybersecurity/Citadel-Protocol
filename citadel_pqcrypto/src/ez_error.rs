@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 /// The default error type for this crate
 #[derive(Debug)]
-pub enum EzError {
+pub enum Error {
     /// The shared secret is not loaded
     SharedSecretNotLoaded,
     /// Failed to encrypt the data
@@ -13,20 +13,14 @@ pub enum EzError {
     Generic(&'static str),
     /// For message types requiring heap
     Other(String),
+    /// Bad length
+    InvalidLength,
 }
 
-impl Display for EzError {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let val = match self {
-            EzError::SharedSecretNotLoaded => "Shared secret not loaded",
-            EzError::EncryptionFailure => "AES-GCM Encryption Failure",
-            EzError::DecryptionFailure => "AES-GCM Decryption Failure",
-            EzError::Generic(val) => val,
-            EzError::Other(val) => val.as_str(),
-        };
-
-        write!(f, "{}", val)
+        std::fmt::Debug::fmt(self, f)
     }
 }
 
-impl std::error::Error for EzError {}
+impl std::error::Error for Error {}

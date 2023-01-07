@@ -16,6 +16,7 @@ pub struct NodeBuilder {
     underlying_protocol: Option<ServerUnderlyingProtocol>,
     backend_type: Option<BackendType>,
     server_argon_settings: Option<ArgonDefaultServerSettings>,
+    #[cfg(feature = "google-services")]
     services: Option<ServicesConfig>,
     server_misc_settings: Option<ServerMiscSettings>,
     client_tls_config: Option<RustlsClientConfig>,
@@ -29,7 +30,7 @@ pub struct NodeFuture<'a, K> {
 }
 
 #[cfg(feature = "localhost-testing")]
-unsafe impl<K> Send for NodeFuture<'_, K> {}
+unsafe impl<T> Send for NodeFuture<'_, T> {}
 
 impl<K> Debug for NodeFuture<'_, K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -79,7 +80,10 @@ impl NodeBuilder {
             BackendType::InMemory
         });
         let server_argon_settings = self.server_argon_settings.take();
+        #[cfg(feature = "google-services")]
         let server_services_cfg = self.services.take();
+        #[cfg(not(feature = "google-services"))]
+        let server_services_cfg = None;
         let server_misc_settings = self.server_misc_settings.take();
         let client_config = self.client_tls_config.take().map(Arc::new);
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
@@ -164,6 +168,7 @@ impl NodeBuilder {
     }
 
     /// Attaches a google services json path, allowing the use of Google Auth and other dependent services like Realtime Database for android/IOS messaging. Required when using [`Self::with_google_realtime_database_config`]
+    #[cfg(feature = "google-services")]
     pub fn with_google_services_json_path<T: Into<String>>(&mut self, path: T) -> &mut Self {
         let cfg = self.get_or_create_services();
         cfg.google_services_json_path = Some(path.into());
@@ -178,6 +183,7 @@ impl NodeBuilder {
 
     /// Creates a Google Realtime Database configuration given the project URL and API Key. Requires the use of [`Self::with_google_services_json_path`] to allow minting of JsonWebTokens
     /// at the central server
+    #[cfg(feature = "google-services")]
     pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(
         &mut self,
         url: T,
@@ -198,6 +204,7 @@ impl NodeBuilder {
         self
     }
 
+    #[cfg(feature = "google-services")]
     fn get_or_create_services(&mut self) -> &mut ServicesConfig {
         if self.services.is_some() {
             self.services.as_mut().unwrap()
@@ -251,6 +258,7 @@ impl NodeBuilder {
     }
 
     fn check(&self) -> Result<(), NodeBuilderError> {
+        #[cfg(feature = "google-services")]
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
                 return Err(NodeBuilderError::InvalidConfiguration(
@@ -273,6 +281,7 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    #[cfg(feature = "google-services")]
     fn okay_config() {
         let _ = NodeBuilder::default()
             .with_google_realtime_database_config("123", "456")
@@ -282,6 +291,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "google-services")]
     fn bad_config() {
         assert!(NodeBuilder::default()
             .with_google_realtime_database_config("123", "456")

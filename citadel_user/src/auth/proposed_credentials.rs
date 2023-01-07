@@ -6,7 +6,9 @@ use citadel_crypt::argon::argon_container::{
     ArgonContainerType, ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
 };
 use citadel_crypt::prelude::SecBuffer;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha3::Digest;
 
 /// When creating credentials, this is required
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +70,10 @@ impl ProposedCredentials {
 
         // the secret will be stored in the settings which is stored in the CNAC locally clientside
         let secret = &mut [0u8; 32];
-        openssl::rand::rand_bytes(secret).map_err(|err| AccountError::Generic(err.to_string()))?;
+        {
+            let mut rng = rand::thread_rng();
+            rng.fill_bytes(secret);
+        }
 
         let settings = ArgonSettings::new_defaults_with_static_secret(
             full_name.clone().into_bytes(),
@@ -92,7 +97,7 @@ impl ProposedCredentials {
             settings.clone(),
         )
         .await
-        .map_err(|err| AccountError::Generic(err.to_string()))?
+        .map_err(|err| AccountError::Generic(err.message))?
         {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
             other => Err(AccountError::Generic(format!(
@@ -142,7 +147,9 @@ impl ProposedCredentials {
 
     /// SHA's the password before input into argon
     pub fn password_transform<T: AsRef<[u8]>>(password_raw: T) -> SecBuffer {
-        openssl::sha::sha256(password_raw.as_ref()).into()
+        let mut digest = sha3::Sha3_256::default();
+        digest.update(password_raw.as_ref());
+        digest.finalize().to_vec().into()
     }
 
     pub(crate) fn into_auth_store(self) -> DeclaredAuthenticationMode {
@@ -212,7 +219,7 @@ impl ProposedCredentials {
 
                 match AsyncArgon::hash(password_hashed, settings.clone())
                     .await
-                    .map_err(|err| AccountError::Generic(err.to_string()))?
+                    .map_err(|err| AccountError::Generic(err.message))?
                 {
                     ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
                         username,
@@ -243,7 +250,7 @@ impl ProposedCredentials {
             ArgonContainerType::Server(server_container) => {
                 match AsyncArgon::verify(password_hashed, server_container)
                     .await
-                    .map_err(|err| AccountError::Generic(err.to_string()))?
+                    .map_err(|err| AccountError::Generic(err.message))?
                 {
                     ArgonStatus::VerificationSuccess => Ok(()),
 

@@ -14,7 +14,6 @@ use std::fmt::Formatter;
 
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::auth::DeclaredAuthenticationMode;
-use crate::external_services::rtdb::RtdbClientConfig;
 use crate::serialization::SyncIO;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::prelude::{SecBuffer, Toolset};
@@ -79,7 +78,10 @@ pub struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet =
     #[serde(bound = "")]
     pub crypt_container: PeerSessionCrypto<R>,
     /// RTDB config for client-side communications
-    pub client_rtdb_config: Option<RtdbClientConfig>,
+    #[cfg(feature = "google-services")]
+    pub client_rtdb_config: Option<crate::external_services::rtdb::RtdbClientConfig>,
+    #[cfg(not(feature = "google-services"))]
+    pub client_rtdb_config: Option<()>,
     /// For storing critical ID information for this CNAC
     pub auth_store: DeclaredAuthenticationMode,
     /// peer id -> key -> sub_key -> bytes
@@ -159,7 +161,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Stores the rtdb config
-    pub fn store_rtdb_config(&self, cfg: RtdbClientConfig) {
+    #[cfg(feature = "google-services")]
+    pub fn store_rtdb_config(&self, cfg: crate::external_services::rtdb::RtdbClientConfig) {
         self.write().client_rtdb_config = Some(cfg);
     }
 

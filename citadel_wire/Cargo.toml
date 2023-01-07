@@ -1,58 +1,70 @@
 [package]
 name = "citadel_wire"
 version = "0.1.0"
-authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
 workspace = ".."
-license-file = "../LICENSE-COMMERCIAL-USE.pdf"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["std"]
+std = [
+    "netbeam/std",
+    "citadel_runtime/std",
+    "openssl/default",
+    "quinn/default",
+    "serde/std"
+]
 localhost-testing = ["tracing"]
 localhost-testing-loopback-only = []
+wasm = [
+    "citadel_runtime/wasm",
+    "netbeam/wasm"
+]
 
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }
-tokio = "=1.20.1"
-futures = "0.3.16"
+tokio = { version = "1.24", default-features = false }
+futures = { version = "0.3.16", default-features = false }
 async-trait = "0.1.36"
 async-trait-with-sync = "0.1.36"
 bytes = "^1.0.1"
 byteorder = "1.3.4"
-#rsntp = { version = "2.0.0", features = ["async"] }
-parking_lot = "0.12.0"
+citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
 stun = "0.4.2"
-#socket2 = "0.4.1"
-socket2 = { version = "0.4.4", features = ["all"] }
 anyhow = "1.0.57"
-serde = { version = "1.0.126", features = ["derive"] }
+serde = { version = "1.0.126", default-features = false, features = ["derive"] }
 log = "0.4.8"
 bincode2 = "2.0.1"
 async_ip = { path = "../async_ip", version = "0.1.0" }
 itertools = "0.10.3"
-quinn = { version = "0.8.3", features = ["rustls"] }
-webpki = "0.22.0"
+quinn = { version = "0.8.3", default-features = false, features = ["rustls"] }
 rustls = { version = "0.20.2", features = ["quic", "dangerous_configuration"] }
-rustls-native-certs = "0.6.1"
 rustls-pemfile = "1.0.0"
 rcgen = "0.9.1"
-openssl = { version = "0.10.36", features = ["vendored"] }
+openssl = { version = "0.10.36", default-features = false, features = ["vendored"] }
 either = "1.6.1"
 tokio-rustls = "0.23.2"
-netbeam = { path = "../netbeam", version = "0.1.0" }
+netbeam = { path = "../netbeam", default-features = false, version = "0.1.0" }
 uuid = { version = "1.1.2", features = ["v4", "serde"] }
 tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", optional = true }
+lazy_static = "1.4.0"
 
-[target.'cfg(target_os = "windows")'.dependencies]
-whoami = "1.2.1"
+[target.'cfg(not(target_host = "wasm"))'.dependencies]
+socket2 = { version = "0.4.4", features = ["all"] }
+rustls-native-certs = "0.6.1"
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
-parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 rand = "0.8.4"
 tokio-util = "0.7.3"
-rstest = "0.15.0"
+rstest = "0.16.0"
 
 [lib]
 doctest = false

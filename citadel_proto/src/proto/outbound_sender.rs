@@ -2,7 +2,7 @@
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
 use bytes::BytesMut;
-use citadel_user::re_imports::__private::Formatter;
+use citadel_user::re_exports::__private::Formatter;
 use futures::task::{Context, Poll};
 use futures::Sink;
 use std::net::SocketAddr;

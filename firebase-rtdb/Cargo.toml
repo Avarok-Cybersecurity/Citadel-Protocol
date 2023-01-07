@@ -1,8 +1,14 @@
 [package]
 name = "firebase-rtdb"
 version = "0.1.0"
-edition = "2018"
-license = "MIT"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+workspace = ".."
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,5 +18,5 @@ log = "0.4.8"
 serde = { version = "1.0.126", features = ["derive"] }
 
 [dev-dependencies]
-tokio = { version = "=1.20.1", features = ["full"] }
+tokio = { version = "1.24", features = ["full"] }
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }

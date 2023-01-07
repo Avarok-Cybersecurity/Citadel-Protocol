@@ -1,5 +1,5 @@
+use citadel_runtime::Mutex;
 use futures::Stream;
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;

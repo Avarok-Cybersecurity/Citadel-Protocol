@@ -29,14 +29,23 @@
 //!
 //! # Post-quantum key encapsulation mechanisms
 //! The user may also select a KEM family before a session to either a central server or peer begins (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder)). Each KEM has variants that alter the degree of security
-//! - Saber (default: Firesaber)
-//! - NTRU
-//! - Kyber
+//! - Kyber (default)
 //!
-//! # Symmetric Encryption Algorithms
+//! # Encryption Algorithms
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
 //! - AES-256-GCM-SIV
 //! - XChacha20Poly-1305
+//! - Kyber "scramcryption" (see below for explanation)
+//!
+//! Whereas AES-GCM and ChaCha are only quantum resistant (as opposed to post-quantum), a novel method of encryption may be used that
+//! combines the post-quantum asymmetric encryption algorithm Kyber coupled with AES. When Kyber "scramcryption" is used, several modifications to the protocol outlined in the whitepaper
+//! is applied:
+//! [*] Falcon-1024 is used to sign each message to ensure non-repudiation
+//! [*] Ciphertext is first encrypted by AES-GCM, then, randomly scrambled in 32-byte blocks. The scrambling order is unique for each ciphertext,
+//! and, is appended at the end of the ciphertext in encrypted form (using Kyber1024 encryption). Even if the attacker uses Grover's algorithm to
+//! discover the AES key, the attacker would also have to break the lattice-based Kyber cryptography in order to properly order
+//! the ciphertext before using the AES key. Since every 32 bytes of input into the Kyber encryption scheme produces over a 1Kb output ciphertext, and, each scramble dictionary is 32 bytes long,
+//! the size of each packet is increased at a constant value, helping keep packet sizes minimal and security very high.
 //!
 //! # Executor Architecture: The [`NetKernel`]
 //! Any node in the network may act as **both** a server and a client/peer (except for when [`NodeType::Peer`] or the default node type is specified). Since multiple parallel connections may exist, handling events is necessary. When the lower-level protocol produces events,
@@ -108,7 +117,7 @@
 //! [`NodeRemote::shutdown`]: crate::prelude::NodeRemote::shutdown
 //! [`NodeType`]: crate::prelude::NodeType
 //! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
-
+#![cfg_attr(not(feature = "localhost-testing"), deny(unsafe_code))]
 #![deny(
     clippy::cognitive_complexity,
     trivial_numeric_casts,

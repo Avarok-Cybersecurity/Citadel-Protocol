@@ -1,8 +1,8 @@
-use crate::ez_error::EzError;
+use crate::ez_error::Error;
 use aes_gcm_siv::aead::Buffer;
 
 pub trait AeadModule: Send + Sync {
-    fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
+    fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, Error> {
         let mut ret = Vec::from(input);
         self.encrypt_in_place(nonce, &[], &mut ret)?;
         Ok(ret)
@@ -12,14 +12,14 @@ pub trait AeadModule: Send + Sync {
         nonce: &[u8],
         ad: &[u8],
         input: &mut dyn Buffer,
-    ) -> Result<(), EzError>;
+    ) -> Result<(), Error>;
     fn decrypt_in_place(
         &self,
         nonce: &[u8],
         ad: &[u8],
         input: &mut dyn Buffer,
-    ) -> Result<(), EzError>;
-    fn decrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, EzError> {
+    ) -> Result<(), Error>;
+    fn decrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, Error> {
         let mut ret = Vec::from(input);
         self.decrypt_in_place(nonce, &[], &mut ret)?;
         Ok(ret)
@@ -28,7 +28,7 @@ pub trait AeadModule: Send + Sync {
 
 pub(crate) mod aes_impl {
     use crate::encryption::AeadModule;
-    use crate::ez_error::EzError;
+    use crate::ez_error::Error;
     use aes_gcm_siv::aead::generic_array::GenericArray;
     use aes_gcm_siv::aead::{AeadInPlace, Buffer};
     use aes_gcm_siv::Aes256GcmSiv;
@@ -39,14 +39,14 @@ pub(crate) mod aes_impl {
             nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
-        ) -> Result<(), EzError> {
+        ) -> Result<(), Error> {
             <Self as AeadInPlace>::encrypt_in_place(
                 self,
                 GenericArray::from_slice(nonce),
                 ad,
                 input,
             )
-            .map_err(|_| EzError::EncryptionFailure)
+            .map_err(|_| Error::EncryptionFailure)
         }
 
         fn decrypt_in_place(
@@ -54,21 +54,21 @@ pub(crate) mod aes_impl {
             nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
-        ) -> Result<(), EzError> {
+        ) -> Result<(), Error> {
             <Self as AeadInPlace>::decrypt_in_place(
                 self,
                 GenericArray::from_slice(nonce),
                 ad,
                 input,
             )
-            .map_err(|_| EzError::EncryptionFailure)
+            .map_err(|_| Error::EncryptionFailure)
         }
     }
 }
 
 pub(crate) mod chacha_impl {
     use crate::encryption::AeadModule;
-    use crate::ez_error::EzError;
+    use crate::ez_error::Error;
     use aes_gcm_siv::aead::Buffer;
     use chacha20poly1305::aead::generic_array::GenericArray;
     use chacha20poly1305::aead::AeadInPlace;
@@ -80,14 +80,14 @@ pub(crate) mod chacha_impl {
             nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
-        ) -> Result<(), EzError> {
+        ) -> Result<(), Error> {
             <Self as AeadInPlace>::encrypt_in_place(
                 self,
                 GenericArray::from_slice(nonce),
                 ad,
                 input,
             )
-            .map_err(|_| EzError::EncryptionFailure)
+            .map_err(|_| Error::EncryptionFailure)
         }
 
         fn decrypt_in_place(
@@ -95,22 +95,24 @@ pub(crate) mod chacha_impl {
             nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
-        ) -> Result<(), EzError> {
+        ) -> Result<(), Error> {
             <Self as AeadInPlace>::decrypt_in_place(
                 self,
                 GenericArray::from_slice(nonce),
                 ad,
                 input,
             )
-            .map_err(|_| EzError::EncryptionFailure)
+            .map_err(|_| Error::EncryptionFailure)
         }
     }
 }
 
 pub(crate) mod kyber_module {
+    #[cfg(target_family = "wasm")]
+    use crate::functions::AsSlice;
     use crate::wire::ScramCryptDictionary;
     use crate::{
-        AeadModule, EzError, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
+        AeadModule, Error, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
         AES_GCM_NONCE_LENGTH_BYTES,
     };
     use aes_gcm_siv::aead::Buffer;
@@ -130,23 +132,21 @@ pub(crate) mod kyber_module {
             nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
-        ) -> Result<(), EzError> {
+        ) -> Result<(), Error> {
             // sign the header only, append, then encrypt
             // signing the header ensures header does not change
             // encrypting the input ciphertext + the signature ensures ciphertext works
-            let sig_alg = self.sig.sig_alg;
-
-            let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
 
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let signature = sig
-                .sign(ad, self.sig.sig_private_key.as_ref())
-                .map_err(|err| EzError::Other(err.to_string()))?;
+            let signature = crate::functions::signature_sign(
+                sha3_256_with_ad(ad, input.as_ref()),
+                self.sig.sig_private_key.as_slice(),
+            )?;
             // append the signature of the header onto the plaintext
             input
-                .extend_from_slice(signature.as_ref())
-                .map_err(|err| EzError::Other(err.to_string()))?;
-            encode_length_be_bytes(signature.len(), input)?;
+                .extend_from_slice(signature.as_slice())
+                .map_err(|err| Error::Other(err.to_string()))?;
+            encode_length_be_bytes(signature.as_slice().len(), input)?;
 
             // encrypt everything so far with AES GCM
             self.symmetric_key_local
@@ -163,20 +163,19 @@ pub(crate) mod kyber_module {
             let remote_public_key = self.kex.remote_public_key.as_ref().unwrap();
 
             let scram_crypt_ser = bincode2::serialize(&scram_crypt_dict)
-                .map_err(|err| EzError::Other(err.to_string()))?;
+                .map_err(|err| Error::Other(err.to_string()))?;
 
             let encrypted_scramble_dict =
                 encrypt_pke(self.kem_alg, &**remote_public_key, scram_crypt_ser, nonce)?;
             input
                 .extend_from_slice(encrypted_scramble_dict.as_slice())
-                .map_err(|err| EzError::Other(err.to_string()))?;
+                .map_err(|err| Error::Other(err.to_string()))?;
             encode_length_be_bytes(encrypted_scramble_dict.len(), input)?;
 
             let sha = sha3_256(input.as_ref());
             input
                 .extend_from_slice(&sha)
-                .map_err(|err| EzError::Other(err.to_string()))?;
-            log::error!(target: "citadel", "output: {:?}", input.as_ref());
+                .map_err(|err| Error::Other(err.to_string()))?;
             Ok(())
         }
 
@@ -185,10 +184,7 @@ pub(crate) mod kyber_module {
             nonce: &[u8],
             ad: &[u8],
             input: &mut dyn Buffer,
-        ) -> Result<(), EzError> {
-            log::error!(target: "citadel", "input: {:?}", input.as_ref());
-            let sig_alg = self.sig.sig_alg;
-            let sig = oqs::sig::Sig::new(sig_alg).map_err(|err| EzError::Other(err.to_string()))?;
+        ) -> Result<(), Error> {
             let local_sk = self.kex.secret_key.as_deref().unwrap();
             let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
 
@@ -196,7 +192,7 @@ pub(crate) mod kyber_module {
                 input.as_ref().split_at(input.len().saturating_sub(32));
             let sha_ciphertext = sha3_256(ciphertext);
             if sha_ciphertext != sha_required {
-                return Err(EzError::Other(format!(
+                return Err(Error::Other(format!(
                     "Invalid ciphertext checksum. {:?} != {:?}",
                     sha_ciphertext, sha_required
                 )));
@@ -212,7 +208,7 @@ pub(crate) mod kyber_module {
             //let scram_crypt_dict = ScramCryptDictionary::<32>::try_from(decrypted_scramble_dict)?;
             let scram_crypt_dict: ScramCryptDictionary<32> =
                 bincode2::deserialize(&decrypted_scramble_dict)
-                    .map_err(|err| EzError::Other(err.to_string()))?;
+                    .map_err(|err| Error::Other(err.to_string()))?;
             // remove the encrypted scramble data from the input buf
             let truncate_point = input.len().saturating_sub(encrypted_scramble_dict_len);
             input.truncate(truncate_point);
@@ -230,13 +226,12 @@ pub(crate) mod kyber_module {
             let signature_len = decode_length(input)?;
             let split_pt = input.len().saturating_sub(signature_len);
             let (_, signature_bytes) = input.as_ref().split_at(split_pt);
-            let signature = sig
-                .signature_from_bytes(signature_bytes)
-                .ok_or(EzError::Generic("Invalid signature len bytes"))?;
-            sig.verify(ad, signature, &**sig_remote_pk).map_err(|err| {
-                EzError::Other(format!("Signature verification failed: {:?}", err))
-            })?;
-
+            let sig_verify_input = sha3_256_with_ad(ad, &input.as_ref()[..split_pt]);
+            crate::functions::signature_verify(
+                sig_verify_input,
+                signature_bytes,
+                sig_remote_pk.as_slice(),
+            )?;
             // remove the signature from the buffer
             input.truncate(split_pt);
 
@@ -249,32 +244,32 @@ pub(crate) mod kyber_module {
         local_pk: T,
         plaintext: R,
         nonce: V,
-    ) -> Result<Vec<u8>, EzError> {
-        kyber_pke::encrypt(local_pk, plaintext, nonce).map_err(|_| EzError::EncryptionFailure)
+    ) -> Result<Vec<u8>, Error> {
+        kyber_pke::encrypt(local_pk, plaintext, nonce).map_err(|_| Error::EncryptionFailure)
     }
 
     pub fn decrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>>(
         _: KemAlgorithm,
         local_sk: T,
         ciphertext: R,
-    ) -> Result<Vec<u8>, EzError> {
-        kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| EzError::Other(format!("{:?}", err)))
+    ) -> Result<Vec<u8>, Error> {
+        kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| Error::Other(format!("{:?}", err)))
     }
 
-    fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), EzError> {
+    fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), Error> {
         let bytes_be = (len as u64).to_be_bytes();
         buf.extend_from_slice(&bytes_be as &[u8])
-            .map_err(|err| EzError::Other(err.to_string()))?;
+            .map_err(|err| Error::Other(err.to_string()))?;
         Ok(())
     }
 
-    fn decode_length(input: &mut dyn Buffer) -> Result<usize, EzError> {
+    fn decode_length(input: &mut dyn Buffer) -> Result<usize, Error> {
         let total_len = input.len();
         let starting_pos = total_len.saturating_sub(8);
         let len_be_bytes = &input.as_ref()[starting_pos..];
 
         if len_be_bytes.len() != 8 {
-            return Err(EzError::Generic("Bad sig_size_bytes length"));
+            return Err(Error::Generic("Bad sig_size_bytes length"));
         }
 
         let mut len_buf = [0u8; 8];
@@ -283,7 +278,7 @@ pub(crate) mod kyber_module {
         let object_len = u64::from_be_bytes(len_buf) as usize;
 
         if object_len > total_len {
-            return Err(EzError::Other(format!(
+            return Err(Error::Other(format!(
                 "Decoded length = {}, yet, input buffer's len is only {}",
                 object_len, total_len
             )));
@@ -296,8 +291,17 @@ pub(crate) mod kyber_module {
     }
 
     fn sha3_256(input: &[u8]) -> [u8; 32] {
+        sha3_256_with_ad(&[], input)
+    }
+
+    fn sha3_256_with_ad(ad: &[u8], input: &[u8]) -> [u8; 32] {
         use sha3::Digest;
         let mut digest = sha3::Sha3_256::default();
+
+        if !ad.is_empty() {
+            digest.update(ad);
+        }
+
         digest.update(input);
         digest.finalize().into()
     }

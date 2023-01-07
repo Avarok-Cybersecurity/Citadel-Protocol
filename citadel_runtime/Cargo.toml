@@ -1,0 +1,26 @@
+[package]
+name = "citadel_runtime"
+version = "0.1.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+description = "Underlying runtime for interfacing with I/O for std/wasm targets"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+workspace = ".."
+readme = "../README.md"
+categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["std"]
+std = []
+wasm = []
+
+[target.'cfg(not(target_family="wasm"))'.dependencies]
+parking_lot = { version = "0.12.1", default-features = false }
+tokio = { version = "1.24", default-features = false, features = ["net"] }
+[target.'cfg(target_family="wasm")'.dependencies]
+ws_stream_wasm = "0.7.3"
+#wasm_thread = "0.2.0"

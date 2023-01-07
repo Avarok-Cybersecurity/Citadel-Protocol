@@ -377,9 +377,7 @@ pub mod prelude {
     pub use citadel_user::account_manager::AccountManager;
     pub use citadel_user::auth::proposed_credentials::ProposedCredentials;
     pub use citadel_user::backend::BackendType;
-    pub use citadel_user::external_services::RtdbConfig;
-    pub use citadel_user::external_services::ServicesConfig;
-    pub use citadel_user::external_services::ServicesObject;
+    pub use citadel_user::external_services::{RtdbConfig, ServicesConfig, ServicesObject};
     pub use citadel_user::prelude::{ConnectProtocol, UserIdentifier};
     pub use citadel_user::server_misc_settings::ServerMiscSettings;
 

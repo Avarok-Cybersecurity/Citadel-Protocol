@@ -6,7 +6,7 @@ use crate::sync::subscription::{
 use crate::sync::{RelativeNodeType, SymmetricConvID};
 use anyhow::Error;
 use async_trait::async_trait;
-use parking_lot::RwLock;
+use citadel_runtime::RwLock;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
