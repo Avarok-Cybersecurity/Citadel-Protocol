@@ -24,6 +24,20 @@ mod tests {
     use tokio::sync::Barrier;
     use uuid::Uuid;
 
+    #[cfg(feature = "multi-threaded")]
+    macro_rules! spawn_handle {
+        ($future:expr) => {
+            $future
+        };
+    }
+
+    #[cfg(not(feature = "multi-threaded"))]
+    macro_rules! spawn_handle {
+        ($future:expr) => {
+            $future
+        };
+    }
+
     const MESSAGE_LEN: usize = 2000;
 
     #[derive(Serialize, Deserialize)]
@@ -179,7 +193,8 @@ mod tests {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
             .with_crypto_params(kem + enx)
-            .build();
+            .build()
+            .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
@@ -195,8 +210,8 @@ mod tests {
             },
         );
 
-        let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = tokio::spawn(server);
+        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawn_handle!(server);
 
         let joined = futures::future::try_join(server, client);
 
@@ -239,7 +254,8 @@ mod tests {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
             .with_crypto_params(kem + enx + SigAlgorithm::Falcon1024)
-            .build();
+            .build()
+            .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
@@ -255,8 +271,8 @@ mod tests {
             },
         );
 
-        let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = tokio::spawn(server);
+        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawn_handle!(server);
 
         let joined = futures::future::try_join(server, client);
 
@@ -293,7 +309,8 @@ mod tests {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
             .with_crypto_params(kem + enx)
-            .build();
+            .build()
+            .unwrap();
 
         // TODO: SinglePeerConnectionKernel
         // to not hold up all conns

@@ -29,9 +29,6 @@ pub struct NodeFuture<'a, K> {
     _pd: PhantomData<fn() -> K>,
 }
 
-#[cfg(feature = "localhost-testing")]
-unsafe impl<K> Send for NodeFuture<'_, K> {}
-
 impl<K> Debug for NodeFuture<'_, K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeFuture")

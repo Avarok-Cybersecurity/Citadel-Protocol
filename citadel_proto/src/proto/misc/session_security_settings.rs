@@ -60,11 +60,14 @@ impl SessionSecuritySettingsBuilder {
     }
 
     /// Constructs the [`SessionSecuritySettings`]
-    pub fn build(self) -> SessionSecuritySettings {
-        SessionSecuritySettings {
+    pub fn build(self) -> Result<SessionSecuritySettings, anyhow::Error> {
+        let settings = SessionSecuritySettings {
             security_level: self.security_level.unwrap_or(SecurityLevel::Standard),
             secrecy_mode: self.secrecy_mode.unwrap_or(SecrecyMode::BestEffort),
             crypto_params: self.crypto_params.unwrap_or_default(),
-        }
+        };
+
+        citadel_pqcrypto::validate_crypto_params(&settings.crypto_params)?;
+        Ok(settings)
     }
 }

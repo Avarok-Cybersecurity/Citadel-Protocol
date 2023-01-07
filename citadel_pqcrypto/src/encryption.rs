@@ -138,8 +138,10 @@ pub(crate) mod kyber_module {
             // encrypting the input ciphertext + the signature ensures ciphertext works
 
             let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let signature =
-                crate::functions::signature_sign(ad, self.sig.sig_private_key.as_slice())?;
+            let signature = crate::functions::signature_sign(
+                sha3_256_with_ad(ad, input.as_ref()),
+                self.sig.sig_private_key.as_slice(),
+            )?;
             // append the signature of the header onto the plaintext
             input
                 .extend_from_slice(signature.as_slice())
@@ -224,7 +226,12 @@ pub(crate) mod kyber_module {
             let signature_len = decode_length(input)?;
             let split_pt = input.len().saturating_sub(signature_len);
             let (_, signature_bytes) = input.as_ref().split_at(split_pt);
-            crate::functions::signature_verify(ad, signature_bytes, sig_remote_pk.as_slice())?;
+            let sig_verify_input = sha3_256_with_ad(ad, &input.as_ref()[..split_pt]);
+            crate::functions::signature_verify(
+                sig_verify_input,
+                signature_bytes,
+                sig_remote_pk.as_slice(),
+            )?;
             // remove the signature from the buffer
             input.truncate(split_pt);
 
@@ -284,8 +291,17 @@ pub(crate) mod kyber_module {
     }
 
     fn sha3_256(input: &[u8]) -> [u8; 32] {
+        sha3_256_with_ad(&[], input)
+    }
+
+    fn sha3_256_with_ad(ad: &[u8], input: &[u8]) -> [u8; 32] {
         use sha3::Digest;
         let mut digest = sha3::Sha3_256::default();
+
+        if ad.len() != 0 {
+            digest.update(ad);
+        }
+
         digest.update(input);
         digest.finalize().into()
     }
