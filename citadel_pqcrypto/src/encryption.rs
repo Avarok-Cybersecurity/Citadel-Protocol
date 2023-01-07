@@ -298,7 +298,7 @@ pub(crate) mod kyber_module {
         use sha3::Digest;
         let mut digest = sha3::Sha3_256::default();
 
-        if ad.len() != 0 {
+        if !ad.is_empty() {
             digest.update(ad);
         }
 
