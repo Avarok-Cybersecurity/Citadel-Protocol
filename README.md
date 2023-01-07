@@ -1,7 +1,11 @@
 # Avarok Cybersecurity | Citadel Protocol
 [![codecov](https://codecov.io/gh/Avarok-Cybersecurity/Lusna/branch/master/graph/badge.svg?token=J739KOHOZR)](https://codecov.io/gh/Avarok-Cybersecurity/Lusna)
+[![Build docs](https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/workflows/deploy.yml/badge.svg)](https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/workflows/deploy.yml)
+### A post-quantum signal-like protocol that makes developing hyper-secure client-to-server and p2p applications easily
+# Whitepaper
+The whitepaper for the Citadel Protocol can be found in the repository [here](The_Citadel_Protocol.pdf). Note: this whitepaper has not been updated since July 2022. While the protocol is very similar to what is covered in the whitepaper, it has since evolved. The whitepaper will be synced to the source code in the near future.
 
-## Instructions
+## Build instructions
 OpenSSL and clang are required in order to compile the libraries. View the CI files in .github for an example of getting the code to compile on a bare machine
 
 ## Testing instructions
