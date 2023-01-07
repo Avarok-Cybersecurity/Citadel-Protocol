@@ -12,7 +12,9 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
+#[cfg(not(target_family = "wasm"))]
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 // use http since it's 2-3x faster
@@ -175,12 +177,19 @@ pub async fn get_internal_ip(ipv6: bool) -> Option<IpAddr> {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 async fn get_internal_ipv4() -> Option<IpAddr> {
     let socket = tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?).await.ok()?;
     socket.connect(addr("8.8.8.8:80")?).await.ok()?;
     socket.local_addr().ok().map(|sck| sck.ip())
 }
 
+#[cfg(target_family = "wasm")]
+async fn get_internal_ipv4() -> Option<IpAddr> {
+    None
+}
+
+#[cfg(not(target_family = "wasm"))]
 async fn get_internal_ipv6() -> Option<IpAddr> {
     let socket = tokio::net::UdpSocket::bind(addr("[::]:0")?).await.ok()?;
     socket
@@ -190,14 +199,24 @@ async fn get_internal_ipv6() -> Option<IpAddr> {
     socket.local_addr().ok().map(|sck| sck.ip())
 }
 
+#[cfg(target_family = "wasm")]
+async fn get_internal_ipv6() -> Option<IpAddr> {
+    None
+}
+
+#[cfg(not(target_family = "wasm"))]
 fn addr(addr: &str) -> Option<SocketAddr> {
     SocketAddr::from_str(addr).ok()
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn get_default_client() -> Client {
     Client::builder().tcp_nodelay(true).build().unwrap()
 }
-
+#[cfg(target_family = "wasm")]
+fn get_default_client() -> Client {
+    Client::builder().build().unwrap()
+}
 /// The default error type for this crate
 #[derive(Debug)]
 pub enum IpRetrieveError {

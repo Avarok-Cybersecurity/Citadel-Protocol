@@ -1,10 +1,14 @@
 [package]
 name = "citadel_crypt"
 version = "0.1.0"
-authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
-workspace = "../"
-license-file = "../LICENSE-COMMERCIAL-USE.pdf"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+workspace = ".."
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,44 +17,54 @@ exclude = [
 ]
 
 [features]
-default = ["filesystem"]
+default = ["filesystem", "std"]
 filesystem = []
+std = [
+    "citadel_pqcrypto/std",
+    "byteorder/std",
+    "rand/std",
+    "tokio/default",
+    "citadel_runtime/std"
+]
+wasm = [
+    "citadel_pqcrypto/wasm",
+    "citadel_runtime/wasm"
+]
 
 [dependencies]
 async-trait = "0.1.24"
 bincode2 = "2.0.1"
 serde = { version="1.0.104", features=["rc", "derive"] }
-futures = "0.3.5"
+futures = { version = "0.3.16", default-features = false }
 log = "0.4.8"
-byteorder = "1.3.2"
+byteorder = { version = "1.3.2", default-features=false }
 bytes = { version = "^1.0.1", features = ["serde"] }
 num-integer = "0.1.43"
-rand = "0.8.5"
+rand = { version = "0.8.5", default-features = false }
 rayon = "1.5.1"
 arrayvec = { version = "0.7.0", features = ["serde"] }
-citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features=false }
-#fcm = { path = "../fcm-rust", version = "0.8.1" }
+citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features = false }
+citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
 bitvec = "1.0.0"
 serde-big-array = "0.4.1"
 rust-argon2 = "1.0.0"
 sysinfo = "0.23.2"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
-tokio = { version = "=1.20.1", features = ["full"] }
+tokio = { version = "1.24", default-features=false, features = ["rt", "macros"] }
 sha3 = "0.10.1"
-parking_lot = "0.12.1"
 tokio-stream = "0.1.7"
 auto_impl = "1.0.1"
 
-[target.'cfg(not(target_os = "windows"))'.dependencies]
+[target.'cfg(target_family = "unix")'.dependencies]
 libc = "0.2.80"
 
-[target.'cfg(target_os = "windows")'.dependencies]
+[target.'cfg(target_family = "windows")'.dependencies]
 kernel32-sys = "0.2.2"
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
-rstest = { git = "https://github.com/la10736/rstest", branch="master" }
+rstest = "0.16.0"
 
 
 [lib]
