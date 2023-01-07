@@ -1,13 +1,14 @@
 [package]
 name = "async_ip"
 version = "0.1.0"
-authors = ["Thomas Braun <braunth@oregonstate.edu>"]
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
 description = "An asynchronous client used to obtain one's global Ipv6 or Ipv4 address"
-readme = "README.md"
+readme = "../README.md"
 homepage = "https://avarok.net/"
-repository = "https://github.com/tbraun96/async_ip"
-license = "MIT"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+categories = [ "network-programming", "asynchronous" ]
+license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
@@ -27,5 +28,5 @@ reqwest = "0.11.4"
 
 [dependencies]
 tokio = { version = "1.23.0", default-features = false, features = ["macros"] }
-serde = { version = "1.0.126", features = ["derive"] }
+serde = { version = "1.0.126", default-features = false, features = ["derive"] }
 futures = { version = "0.3.16", default-features = false, features = ["alloc"] }

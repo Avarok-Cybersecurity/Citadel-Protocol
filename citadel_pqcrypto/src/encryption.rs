@@ -174,7 +174,6 @@ pub(crate) mod kyber_module {
             input
                 .extend_from_slice(&sha)
                 .map_err(|err| Error::Other(err.to_string()))?;
-            log::error!(target: "citadel", "output: {:?}", input.as_ref());
             Ok(())
         }
 
@@ -184,7 +183,6 @@ pub(crate) mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), Error> {
-            log::error!(target: "citadel", "input: {:?}", input.as_ref());
             let local_sk = self.kex.secret_key.as_deref().unwrap();
             let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
 
