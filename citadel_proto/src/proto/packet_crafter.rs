@@ -437,7 +437,6 @@ pub(crate) mod do_connect {
     use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
-    use citadel_user::external_services::ServicesObject;
     use citadel_user::prelude::MutualPeer;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
@@ -489,9 +488,21 @@ pub(crate) mod do_connect {
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
         pub peers: Vec<MutualPeer>,
-        pub post_login_object: ServicesObject,
+        // in order to allow interoperability between protocols that have fields in the services object
+        // and those that don't, default on error
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub post_login_object: citadel_user::external_services::ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8],
+    }
+
+    fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, <D as serde::Deserializer<'a>>::Error>
+    where
+        T: Deserialize<'a> + Default,
+        D: serde::Deserializer<'a>,
+    {
+        Ok(T::deserialize(deserializer).unwrap_or_default())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -499,7 +510,7 @@ pub(crate) mod do_connect {
         hyper_ratchet: &StackedRatchet,
         success: bool,
         mailbox: Option<MailboxTransfer>,
-        post_login_object: ServicesObject,
+        post_login_object: citadel_user::external_services::ServicesObject,
         message: T,
         peers: Vec<MutualPeer>,
         timestamp: i64,

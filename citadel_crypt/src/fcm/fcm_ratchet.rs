@@ -201,7 +201,7 @@ pub struct FcmAliceToBobTransfer {
     pub version: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FcmBobToAliceTransfer {
     params_tx: BobToAliceTransferParameters,
     encrypted_drill_bytes: Vec<u8>,

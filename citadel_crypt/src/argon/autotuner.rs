@@ -49,7 +49,7 @@ pub async fn calculate_optimal_argon_params(
 
         match AsyncArgon::hash(fake_password.clone(), settings_this_round)
             .await
-            .map_err(|err| CryptError::Encrypt(err.to_string()))?
+            .map_err(|err| CryptError::Encrypt(err.message))?
         {
             ArgonStatus::HashSuccess(_) => {
                 let elapsed = init_time.elapsed().as_millis();

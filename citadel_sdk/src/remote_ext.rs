@@ -957,7 +957,8 @@ mod tests {
 
         let session_security_settings = SessionSecuritySettingsBuilder::default()
             .with_crypto_params(enx + kem + sig)
-            .build();
+            .build()
+            .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,

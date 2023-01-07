@@ -64,8 +64,9 @@ impl Default for NatType {
 }
 
 // we only need to check the NAT type once per node
-static LOCALHOST_TESTING_NAT_TYPE: parking_lot::Mutex<Option<NatType>> =
-    parking_lot::const_mutex(None);
+lazy_static::lazy_static! {
+    pub static ref LOCALHOST_TESTING_NAT_TYPE: citadel_runtime::Mutex<Option<NatType>> = citadel_runtime::Mutex::new(None);
+}
 
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
@@ -97,7 +98,7 @@ impl NatType {
                 }),
 
             Err(_elapsed) => {
-                log::warn!(target: "citadel", "Timeout on NAT identification occured");
+                log::warn!(target: "citadel", "Timeout on NAT identification occurred");
                 if cfg!(feature = "localhost-testing") {
                     log::warn!(target: "citadel", "Will use default NatType for localhost-testing");
                     Ok(NatType::PortPreserved(

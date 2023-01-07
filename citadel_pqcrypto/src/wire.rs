@@ -1,4 +1,4 @@
-use crate::{EzError, KemAlgorithm};
+use crate::{Error, KemAlgorithm, SigAlgorithm};
 use aes_gcm_siv::aead::Buffer;
 use rand::prelude::SliceRandom;
 use rand::RngCore;
@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum AliceToBobTransferParameters {
     MixedAsymmetric {
         alice_pk: Arc<Vec<u8>>,
-        alice_pk_sig: Arc<oqs::sig::PublicKey>,
-        alice_sig: oqs::sig::Signature,
-        sig_scheme: oqs::sig::Algorithm,
+        alice_pk_sig: Arc<crate::functions::PublicKeyType>,
+        alice_public_key_signature: Vec<u8>,
+        sig_scheme: SigAlgorithm,
         kem_scheme: KemAlgorithm,
     },
     PureSymmetric {
@@ -21,12 +21,12 @@ pub enum AliceToBobTransferParameters {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum BobToAliceTransferParameters {
     MixedAsymmetric {
+        bob_ciphertext_signature: Arc<Vec<u8>>,
         bob_ciphertext: Arc<Vec<u8>>,
-        bob_signature: oqs::sig::Signature,
-        bob_pk_sig: Arc<oqs::sig::PublicKey>,
+        bob_pk_sig: Arc<crate::functions::PublicKeyType>,
         bob_pk: Arc<Vec<u8>>,
     },
     PureSymmetric {
@@ -58,7 +58,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         Some(Self { mapping })
     }
 
-    pub fn scramble_in_place<T: Buffer + ?Sized>(&self, buf: &mut T) -> Result<(), EzError> {
+    pub fn scramble_in_place<T: Buffer + ?Sized>(&self, buf: &mut T) -> Result<(), Error> {
         if buf.as_mut().len() % BLOCK_SIZE != 0 || buf.as_mut().is_empty() {
             // pad with random bytes
             let diff = BLOCK_SIZE - (buf.as_mut().len() % BLOCK_SIZE);
@@ -75,12 +75,12 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         Ok(())
     }
 
-    pub fn descramble_in_place<T: AsMut<[u8]> + ?Sized>(&self, buf: &mut T) -> Result<(), EzError> {
+    pub fn descramble_in_place<T: AsMut<[u8]> + ?Sized>(&self, buf: &mut T) -> Result<(), Error> {
         let chunk_len = BLOCK_SIZE;
         let buf = buf.as_mut();
 
         if buf.len() % chunk_len != 0 {
-            return Err(EzError::Other(format!(
+            return Err(Error::Other(format!(
                 "Invalid input len for scrambler: {}",
                 buf.len()
             )));
@@ -93,10 +93,10 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         Ok(())
     }
 
-    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T) -> Result<(), EzError> {
+    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T) -> Result<(), Error> {
         let buf = buf.as_mut();
         if buf.len() != BLOCK_SIZE {
-            return Err(EzError::Generic("Bad input buffer length"));
+            return Err(Error::Generic("Bad input buffer length"));
         }
 
         let mut has_swapped = HashSet::new();
@@ -104,7 +104,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         for (lhs_idx, rhs_idx) in self.mapping.iter().map(|r| *r as usize).enumerate() {
             if !has_swapped.contains(&lhs_idx) && !has_swapped.contains(&rhs_idx) {
                 if rhs_idx > BLOCK_SIZE || lhs_idx > BLOCK_SIZE {
-                    return Err(EzError::Generic(
+                    return Err(Error::Generic(
                         "RHS_IDX | LHS_IDX is greater than the block size. Bad deserialization?",
                     ));
                 }

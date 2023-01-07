@@ -24,6 +24,20 @@ mod tests {
     use tokio::sync::Barrier;
     use uuid::Uuid;
 
+    #[cfg(feature = "multi-threaded")]
+    macro_rules! spawn_handle {
+        ($future:expr) => {
+            tokio::task::spawn($future)
+        };
+    }
+
+    #[cfg(not(feature = "multi-threaded"))]
+    macro_rules! spawn_handle {
+        ($future:expr) => {
+            tokio::task::spawn($future)
+        };
+    }
+
     const MESSAGE_LEN: usize = 2000;
 
     #[derive(Serialize, Deserialize)]
@@ -146,7 +160,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -179,7 +193,8 @@ mod tests {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
             .with_crypto_params(kem + enx)
-            .build();
+            .build()
+            .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
@@ -195,8 +210,8 @@ mod tests {
             },
         );
 
-        let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = tokio::spawn(server);
+        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawn_handle!(server);
 
         let joined = futures::future::try_join(server, client);
 
@@ -210,7 +225,7 @@ mod tests {
     #[case(100, SecrecyMode::Perfect)]
     #[case(100, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -239,7 +254,8 @@ mod tests {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
             .with_crypto_params(kem + enx + SigAlgorithm::Falcon1024)
-            .build();
+            .build()
+            .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
@@ -255,8 +271,8 @@ mod tests {
             },
         );
 
-        let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = tokio::spawn(server);
+        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawn_handle!(server);
 
         let joined = futures::future::try_join(server, client);
 
@@ -270,7 +286,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -293,7 +309,8 @@ mod tests {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
             .with_crypto_params(kem + enx)
-            .build();
+            .build()
+            .unwrap();
 
         // TODO: SinglePeerConnectionKernel
         // to not hold up all conns
@@ -357,7 +374,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         let _ = citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);

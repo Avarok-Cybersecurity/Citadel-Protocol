@@ -2,35 +2,49 @@
 name = "netbeam"
 version = "0.1.0"
 description = "a pure-rust asynchronous network synchronization crate (using tokio) that recreates familiar asynchronous paradigms but in a network context"
-license = "MIT"
-repository = "https://github.com/tbraun96/netbeam"
-edition = "2018"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+workspace = ".."
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["std"]
+std = [
+    "rand/std",
+    "rand/std_rng",
+    "citadel_runtime/std",
+    #"tokio/net"
+]
+wasm = [
+    "citadel_runtime/wasm"
+]
 
 [dependencies]
-tokio = { version = "=1.20.1", features = ["net", "macros", "rt", "time", "io-util", "parking_lot"] }
-futures = "0.3.16"
+tokio = { version = "1.24", default-features=false, features = ["macros", "rt", "time", "io-util"] }
+citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
+futures = { version = "0.3.16", default-features = false }
 bytes = "1.0.1"
 async-trait = "0.1.51"
-parking_lot = "0.12.0"
 bincode2 = "2.0.1"
-serde = { version = "1.0.127", features = ["derive"] }
+serde = { version = "1.0.127", default-features = false, features = ["derive"] }
 anyhow = "1.0.57"
-tokio-util = { version = "0.7.3", features = ["codec"] }
-rand = "0.8.4"
+tokio-util = { version = "0.7.3", default-features = false, features = ["codec"] }
+rand = { default-features = false, version = "0.8.4" }
 async-stream = "0.3.2"
 sync_wrapper = "0.1.1"
 
 log = "0.4.8"
 
 [dev-dependencies]
-parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 async-recursion = "1.0.0"
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
-rstest = "0.15.0"
+rstest = "0.16.0"
 
 [lib]
 doctest = false

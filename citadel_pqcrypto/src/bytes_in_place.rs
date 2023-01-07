@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use crate::EzError;
-use aes_gcm_siv::aead::{Buffer, Error};
+use crate::Error;
+use aes_gcm_siv::aead::{Buffer, Error as AesError};
 use bytes::{BufMut, BytesMut};
 
 pub struct InPlaceBuffer<'a, T> {
@@ -25,11 +25,11 @@ impl<T: EzBuffer> Buffer for InPlaceBuffer<'_, T> {
         self.inner.len()
     }
 
-    fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), Error> {
+    fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), AesError> {
         let start = self.window.start;
         let new_end = self.window.end + other.len();
         self.window = start..new_end;
-        self.inner.extend_from_slice(other)?;
+        self.inner.extend_from_slice(other).map_err(|_| AesError)?;
         Ok(())
     }
 
@@ -69,9 +69,9 @@ pub trait EzBuffer: AsRef<[u8]> + AsMut<[u8]> + BufMut {
         &mut self.as_mut()[range]
     }
 
-    fn try_truncate(&mut self, len: usize) -> Result<(), EzError> {
+    fn try_truncate(&mut self, len: usize) -> Result<(), Error> {
         if len > self.len() {
-            Err(EzError::Other(format!(
+            Err(Error::Other(format!(
                 "Cannot truncate len={} when buffer len={}",
                 len,
                 self.len()

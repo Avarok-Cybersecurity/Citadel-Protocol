@@ -1,40 +1,63 @@
 [package]
 name = "citadel_pqcrypto"
 version = "0.1.1"
-authors = ["Thomas Braun <tbraun96@gmail.com>"]
-edition = "2018"
-readme = "README.md"
-homepage = "https://thomaspbraun.com/"
-repository = "https://github.com/tbraun96/citadel_pqcrypto/"
-license = "MIT"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 exclude = [
     "./target/*"
 ]
 
+[features]
+default = ["std"]
+std = [
+    "serde/std",
+    "aes-gcm-siv/std",
+    "aes-gcm-siv/alloc",
+    "chacha20poly1305/alloc",
+    "chacha20poly1305/std",
+    "bytes/std",
+    "strum/std",
+    "kyber-pke/std",
+    "pqcrypto-falcon-wasi/std",
+    "pqcrypto-traits-wasi/std",
+    "rand/std",
+    "sha3/std"
+]
+
+wasm = ["kyber-pke/wasm", "lazy_static/spin_no_std"]
+
 [dependencies]
 generic-array = { version = "0.14.5", features = ["serde"]}
 lazy_static = "1.4.0"
 enum_primitive = "0.1.1"
-serde = { version = "1.0.135", features = ["derive", "rc"] }
-#serde_traitobject = "0.2.7"
+serde = { version = "1.0.135", default-features = false, features = ["derive", "rc"] }
 bincode2 = "2.0.1"
-aes-gcm-siv = { version = "0.11.1", features = ["heapless"]}
-chacha20poly1305 = { version = "0.10.1", features = ["heapless"] }
-bytes = "1.1.0"
-#circular-queue = { version = "*", features = ["serde_support"], optional = true }
+aes-gcm-siv = { version = "0.11.1", default-features = false, features = ["heapless", "aes", "alloc"]}
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["heapless", "alloc"] }
+bytes = { version = "1.1.0", default-features = false }
 parking_lot = { version = "0.12.0", features = ["serde"] }
 log = "0.4.8"
-strum = { version = "0.24.0", features = ["derive"] }
-sha3 = "0.10.1"
-oqs = { version = "0.7.2", default-features = false, features = ["std", "serde", "falcon"] }
-kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", branch = "master", features=["90s"] }
-#pqcrypto = { git = "https://github.com/rustpq/pqcrypto.git", default-features = false, features = ["pqcrypto-saber", "pqcrypto-kyber", "pqcrypto-ntru"]}
-#typetag = "0.1.8"
+strum = { version = "0.24.0", default-features = false, features = ["derive"] }
+sha3 = { version = "0.10", default-features = false }
+kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", default-features = false, branch = "master", features=["90s"] }
 packed_struct = { version = "0.10.0", features = ["serde"] }
-rand = "0.8.5"
+rand = { version = "0.8.5", default-features = false }
+getrandom = { version = "*", default-features = false, features = ["js"], optional = true }
 serde-big-array = "0.4.1"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+oqs = { version = "0.7.2", default-features = false, features = ["serde", "falcon"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = ["serialization", "avx2"] }
+pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }

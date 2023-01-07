@@ -8,10 +8,9 @@ use crate::bytes_in_place::{EzBuffer, InPlaceBuffer};
 use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
 use crate::encryption::AeadModule;
 use crate::export::keys_to_aead_store;
-use crate::ez_error::EzError;
+use crate::ez_error::Error;
 use crate::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
 use generic_array::GenericArray;
-use oqs::Error;
 use rand::rngs::ThreadRng;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
@@ -20,15 +19,13 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 
-lazy_static::lazy_static! {
-    static ref INIT: () = oqs::init();
-}
+#[cfg(target_family = "wasm")]
+use crate::functions::AsSlice;
 
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
     pub use crate::{algorithm_dictionary, PQNode, PostQuantumContainer, PostQuantumMeta};
-    pub use oqs::Error;
 }
 
 pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
@@ -72,8 +69,130 @@ pub const fn get_approx_bytes_per_container() -> usize {
     2000
 }
 
-/// The number of bytes in a firesaber pk
-//pub const FIRESABER_PK_SIZE: usize = pqcrypto_saber::firesaber_public_key_bytes();
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod functions {
+    use crate::Error;
+    use oqs::sig::Sig;
+
+    pub type SecretKeyType = Vec<u8>;
+    pub type PublicKeyType = Vec<u8>;
+    const ALG: oqs::sig::Algorithm = oqs::sig::Algorithm::Falcon1024;
+
+    pub fn signature_sign(
+        message: impl AsRef<[u8]>,
+        secret_key: impl AsRef<[u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        let sig = get_sig()?;
+        let secret_key = sig
+            .secret_key_from_bytes(secret_key.as_ref())
+            .ok_or(Error::Generic("Bad secret key length"))?;
+        sig.sign(message.as_ref(), secret_key)
+            .map(|r| r.into_vec())
+            .map_err(|err| Error::Other(err.to_string()))
+    }
+
+    pub fn signature_verify(
+        message: impl AsRef<[u8]>,
+        signature: impl AsRef<[u8]>,
+        public_key: impl AsRef<[u8]>,
+    ) -> Result<(), Error> {
+        let sig = get_sig()?;
+        let signature = sig
+            .signature_from_bytes(signature.as_ref())
+            .ok_or(Error::Generic("Bad signature length"))?;
+        let public_key = sig
+            .public_key_from_bytes(public_key.as_ref())
+            .ok_or(Error::Generic("Bad public key length"))?;
+
+        sig.verify(message.as_ref(), signature, public_key)
+            .map_err(|err| Error::Other(err.to_string()))
+    }
+
+    pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
+        get_sig()?
+            .keypair()
+            .map_err(|err| Error::Other(err.to_string()))
+            .map(|(l, r)| (l.into_vec(), r.into_vec()))
+    }
+
+    pub fn signature_bytes() -> usize {
+        get_sig().unwrap().length_signature()
+    }
+
+    fn get_sig() -> Result<Sig, Error> {
+        oqs::sig::Sig::new(ALG).map_err(|err| Error::Other(err.to_string()))
+    }
+}
+
+#[cfg(target_family = "wasm")]
+pub(crate) mod functions {
+    use crate::Error;
+    use pqcrypto_falcon_wasi::falcon1024;
+    use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
+    use pqcrypto_traits_wasi::sign::PublicKey as PublicKeyTrait;
+    use pqcrypto_traits_wasi::sign::{DetachedSignature as DetachedSignatureTrait, SecretKey};
+
+    pub trait AsSlice {
+        fn as_slice(&self) -> &[u8];
+    }
+
+    pub type SecretKeyType = falcon1024::SecretKey;
+    pub type PublicKeyType = falcon1024::PublicKey;
+
+    impl AsSlice for SecretKeyType {
+        fn as_slice(&self) -> &[u8] {
+            self.as_bytes()
+        }
+    }
+
+    impl AsSlice for DetachedSignature {
+        fn as_slice(&self) -> &[u8] {
+            self.as_bytes()
+        }
+    }
+
+    impl AsSlice for PublicKeyType {
+        fn as_slice(&self) -> &[u8] {
+            use pqcrypto_traits_wasi::sign::PublicKey;
+            self.as_bytes()
+        }
+    }
+
+    pub fn signature_sign(
+        message: impl AsRef<[u8]>,
+        secret_key: impl AsRef<[u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        let secret_key = falcon1024::SecretKey::from_bytes(secret_key.as_ref())
+            .map_err(|err| Error::Other(err.to_string()))?;
+        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key)
+            .as_bytes()
+            .to_vec())
+    }
+
+    pub fn signature_verify(
+        message: impl AsRef<[u8]>,
+        signature: impl AsRef<[u8]>,
+        public_key: impl AsRef<[u8]>,
+    ) -> Result<(), Error> {
+        let signature = deserialize::<falcon1024::DetachedSignature>(signature.as_ref())?;
+        let public_key = falcon1024::PublicKey::from_bytes(public_key.as_ref())
+            .map_err(|err| Error::Other(err.to_string()))?;
+        falcon1024::verify_detached_signature(&signature, message.as_ref(), &public_key)
+            .map_err(|err| Error::Other(err.to_string()))
+    }
+
+    pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
+        Ok(falcon1024::keypair())
+    }
+
+    pub fn signature_bytes() -> usize {
+        pqcrypto_falcon_wasi::falcon1024::signature_bytes()
+    }
+
+    fn deserialize<T: DetachedSignatureTrait>(bytes: &[u8]) -> Result<T, Error> {
+        T::from_bytes(bytes).map_err(|err| Error::Other(err.to_string()))
+    }
+}
 
 /// Contains the public keys for Alice and Bob
 #[derive(Serialize, Deserialize)]
@@ -116,12 +235,12 @@ impl PostQuantumContainer {
     /// invalid
     ///
     /// `algorithm`: If this is None, a random algorithm will be used
-    pub fn new_alice(opts: ConstructorOpts) -> Result<Self, EzError> {
+    pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
         let params = opts.cryptography.unwrap_or_default();
         validate_crypto_params(&params)?;
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
-            .map_err(|err| EzError::Other(err.to_string()))?;
+            .map_err(|err| Error::Other(err.to_string()))?;
         let aes_gcm_key = None;
         log::trace!(target: "citadel", "Success creating new ALICE container");
 
@@ -148,15 +267,14 @@ impl PostQuantumContainer {
     pub fn new_bob(
         opts: ConstructorOpts,
         tx_params: AliceToBobTransferParameters,
-    ) -> Result<Self, EzError> {
+    ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
         let params = opts.cryptography.unwrap_or_default();
         validate_crypto_params(&params)?;
 
         let chain = opts.chain;
 
-        let data =
-            Self::create_new_bob(tx_params).map_err(|err| EzError::Other(err.to_string()))?;
+        let data = Self::create_new_bob(tx_params).map_err(|err| Error::Other(err.to_string()))?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap().clone();
         let kex = data.kex().clone();
@@ -165,7 +283,7 @@ impl PostQuantumContainer {
         let (chain, keys) =
             Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex)
                 .map_err(|err| {
-                    EzError::Other(format!(
+                    Error::Other(format!(
                         "Error while calculating recursive keystore: {:?}",
                         err
                     ))
@@ -360,10 +478,10 @@ impl PostQuantumContainer {
     pub fn alice_on_receive_ciphertext(
         &mut self,
         params: BobToAliceTransferParameters,
-    ) -> Result<(), EzError> {
+    ) -> Result<(), Error> {
         self.data.alice_on_receive_ciphertext(params)?;
         let _ss = self.data.get_shared_secret()?; // call once to load internally
-        Ok(self.load_symmetric_keys()?)
+        self.load_symmetric_keys()
     }
 
     /// Returns true if either Tx/Rx Anti-replay attack counters have been engaged (useful for determining
@@ -404,15 +522,15 @@ impl PostQuantumContainer {
     }
 
     /// Serializes the entire package to a vector
-    pub fn serialize_to_vector(&self) -> Result<Vec<u8>, EzError> {
-        bincode2::serialize(self).map_err(|_err| EzError::Generic("Deserialization failure"))
+    pub fn serialize_to_vector(&self) -> Result<Vec<u8>, Error> {
+        bincode2::serialize(self).map_err(|_err| Error::Generic("Deserialization failure"))
     }
 
     /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
-    pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, EzError> {
+    pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, Error> {
         bincode2::deserialize::<PostQuantumContainer>(bytes.as_ref())
-            .map_err(|_err| EzError::Generic("Deserialization failure"))
+            .map_err(|_err| Error::Generic("Deserialization failure"))
     }
 
     /// Returns either Alice or Bob
@@ -425,7 +543,7 @@ impl PostQuantumContainer {
         &self,
         input: T,
         nonce: R,
-    ) -> Result<Vec<u8>, EzError> {
+    ) -> Result<Vec<u8>, Error> {
         let input = input.as_ref();
         let nonce = nonce.as_ref();
 
@@ -434,7 +552,7 @@ impl PostQuantumContainer {
         if let Some(aes_gcm_key) = self.get_encryption_key() {
             aes_gcm_key.encrypt(nonce, input)
         } else {
-            Err(EzError::SharedSecretNotLoaded)
+            Err(Error::SharedSecretNotLoaded)
         }
     }
 
@@ -443,7 +561,7 @@ impl PostQuantumContainer {
         header_len: usize,
         full_packet: &mut T,
         nonce: R,
-    ) -> Result<(), EzError> {
+    ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
         let mut payload = full_packet.split_off(header_len);
         let header = full_packet;
@@ -453,15 +571,15 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len)
-            .ok_or(EzError::Generic("Bad window range"))?;
+            .ok_or(Error::Generic("Bad window range"))?;
         if let Some(aes_gcm_key) = self.get_encryption_key() {
             aes_gcm_key
                 .encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload)
-                .map_err(|_| EzError::EncryptionFailure)?;
+                .map_err(|_| Error::EncryptionFailure)?;
             header.unsplit(payload);
             Ok(())
         } else {
-            Err(EzError::SharedSecretNotLoaded)
+            Err(Error::SharedSecretNotLoaded)
         }
     }
 
@@ -471,13 +589,13 @@ impl PostQuantumContainer {
         header: H,
         payload: &mut T,
         nonce: R,
-    ) -> Result<(), EzError> {
+    ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
         let header = header.as_ref();
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len)
-            .ok_or(EzError::Generic("Bad window range"))?;
+            .ok_or(Error::Generic("Bad window range"))?;
         if let Some(aes_gcm_key) = self.get_decryption_key() {
             aes_gcm_key
                 .decrypt_in_place(nonce, header, &mut in_place_payload)
@@ -496,16 +614,16 @@ impl PostQuantumContainer {
                             payload.truncate(start_idx);
                             Ok(())
                         } else {
-                            Err(EzError::Generic("Anti-replay-attack: invalid"))
+                            Err(Error::Generic("Anti-replay-attack: invalid"))
                         }
                     } else {
-                        Err(EzError::Generic(
+                        Err(Error::Generic(
                             "Anti-replay-attack: Invalid inscription length",
                         ))
                     }
                 })
         } else {
-            Err(EzError::SharedSecretNotLoaded)
+            Err(Error::SharedSecretNotLoaded)
         }
     }
 
@@ -514,7 +632,7 @@ impl PostQuantumContainer {
         &self,
         input: T,
         nonce: R,
-    ) -> Result<Vec<u8>, EzError>
+    ) -> Result<Vec<u8>, Error>
     where
         Self: Sized,
     {
@@ -525,7 +643,7 @@ impl PostQuantumContainer {
         if let Some(aes_gcm_key) = self.get_decryption_key() {
             aes_gcm_key.decrypt(nonce, input)
         } else {
-            Err(EzError::SharedSecretNotLoaded)
+            Err(Error::SharedSecretNotLoaded)
         }
     }
 
@@ -533,7 +651,7 @@ impl PostQuantumContainer {
         kem_algorithm: KemAlgorithm,
         sig_algorithm: SigAlgorithm,
     ) -> Result<PostQuantumMeta, Error> {
-        PostQuantumMeta::new_alice(kem_algorithm, sig_algorithm.into())
+        PostQuantumMeta::new_alice(kem_algorithm, sig_algorithm)
     }
 
     fn create_new_bob(
@@ -554,7 +672,7 @@ impl Clone for PostQuantumContainer {
 #[allow(missing_docs)]
 pub mod algorithm_dictionary {
     use crate::{
-        validate_crypto_params, EzError, AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES,
+        validate_crypto_params, Error, AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES,
         KYBER_NONCE_LENGTH_BYTES,
     };
     use enum_primitive::*;
@@ -587,12 +705,12 @@ pub mod algorithm_dictionary {
     }
 
     impl TryFrom<u8> for CryptoParameters {
-        type Error = crate::ez_error::EzError;
+        type Error = crate::ez_error::Error;
 
         fn try_from(value: u8) -> Result<Self, Self::Error> {
             let value: [u8; 1] = [value];
             let this: CryptoParameters =
-                CryptoParameters::unpack(&value).map_err(|err| EzError::Other(err.to_string()))?;
+                CryptoParameters::unpack(&value).map_err(|err| Error::Other(err.to_string()))?;
             validate_crypto_params(&this)?;
             Ok(this)
         }
@@ -628,7 +746,7 @@ pub mod algorithm_dictionary {
         }
 
         // calculates the max ciphertext len given an input plaintext length
-        pub fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize {
+        pub fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
             const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
             match self {
                 Self::AES_GCM_256_SIV => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
@@ -637,12 +755,7 @@ pub mod algorithm_dictionary {
                 // Add 32 for internal apendees
                 Self::Kyber => {
                     const LENGTH_FIELD: usize = 8;
-                    let sig_alg: Option<oqs::sig::Algorithm> = sig_alg.into();
-                    let signature_len = if let Some(sig_alg) = sig_alg {
-                        oqs::sig::Sig::new(sig_alg).unwrap().length_signature()
-                    } else {
-                        0
-                    };
+                    let signature_len = crate::functions::signature_bytes();
 
                     let aes_input_len = signature_len + LENGTH_FIELD;
                     let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
@@ -701,15 +814,6 @@ pub mod algorithm_dictionary {
         #[default]
         None = 0,
         Falcon1024 = 1,
-    }
-
-    impl From<SigAlgorithm> for Option<oqs::sig::Algorithm> {
-        fn from(this: SigAlgorithm) -> Self {
-            match this {
-                SigAlgorithm::Falcon1024 => Some(oqs::sig::Algorithm::Falcon1024),
-                SigAlgorithm::None => None,
-            }
-        }
     }
 
     pub trait AlgorithmsExt:
@@ -825,11 +929,11 @@ pub struct PostQuantumMetaKex {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PostQuantumMetaSig {
-    sig_public_key: Arc<oqs::sig::PublicKey>,
-    sig_private_key: Arc<oqs::sig::SecretKey>,
-    remote_sig_public_key: Option<Arc<oqs::sig::PublicKey>>,
+    sig_public_key: Arc<crate::functions::PublicKeyType>,
+    sig_private_key: Arc<crate::functions::SecretKeyType>,
+    remote_sig_public_key: Option<Arc<crate::functions::PublicKeyType>>,
     /// the sig alg
-    sig_alg: oqs::sig::Algorithm,
+    sig_alg: SigAlgorithm,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -849,10 +953,7 @@ pub enum PostQuantumMeta {
 }
 
 impl PostQuantumMeta {
-    fn new_alice(
-        kem_alg: KemAlgorithm,
-        sig_alg: Option<oqs::sig::Algorithm>,
-    ) -> Result<Self, Error> {
+    fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {:?}", kem_alg);
         let (public_key, secret_key) = kyber_pke::kem_keypair();
         let ciphertext = None;
@@ -869,19 +970,20 @@ impl PostQuantumMeta {
             remote_public_key: None,
         };
 
-        if let Some(sig_alg) = sig_alg {
-            let sig_alg = oqs::sig::Sig::new(sig_alg)?;
-            let (sig_public_key, sig_private_key) = sig_alg.keypair()?;
-            let sig = PostQuantumMetaSig {
-                sig_public_key: Arc::new(sig_public_key),
-                sig_private_key: Arc::new(sig_private_key),
-                remote_sig_public_key,
-                sig_alg: sig_alg.algorithm(),
-            };
+        match sig_alg {
+            SigAlgorithm::Falcon1024 => {
+                let (sig_public_key, sig_private_key) = crate::functions::signature_keypair()?;
+                let sig = PostQuantumMetaSig {
+                    sig_public_key: Arc::new(sig_public_key),
+                    sig_private_key: Arc::new(sig_private_key),
+                    remote_sig_public_key,
+                    sig_alg,
+                };
 
-            Ok(Self::MixedAsymmetric { kex, sig })
-        } else {
-            Ok(Self::PureSymmetricEncryption { kex })
+                Ok(Self::MixedAsymmetric { kex, sig })
+            }
+
+            SigAlgorithm::None => Ok(Self::PureSymmetricEncryption { kex }),
         }
     }
 
@@ -920,18 +1022,19 @@ impl PostQuantumMeta {
             AliceToBobTransferParameters::MixedAsymmetric {
                 alice_pk,
                 alice_pk_sig,
-                alice_sig,
+                alice_public_key_signature,
                 sig_scheme,
                 kem_scheme,
             } => {
-                let sig_alg = oqs::sig::Sig::new(sig_scheme)?;
-                let (sig_pk_bob, sig_sk_bob) = sig_alg.keypair()?;
+                let (sig_pk_bob, sig_sk_bob) = crate::functions::signature_keypair()?;
                 let public_key_alice = alice_pk;
-                sig_alg.verify(
-                    public_key_alice.deref().as_ref(),
-                    &alice_sig,
-                    alice_pk_sig.as_ref(),
+
+                crate::functions::signature_verify(
+                    public_key_alice.as_slice(),
+                    alice_public_key_signature.as_slice(),
+                    alice_pk_sig.as_slice(),
                 )?;
+
                 let remote_sig_public_key = Some(alice_pk_sig);
 
                 let kex = PostQuantumMetaKex {
@@ -974,43 +1077,43 @@ impl PostQuantumMeta {
     fn alice_on_receive_ciphertext(
         &mut self,
         params: BobToAliceTransferParameters,
-    ) -> Result<(), EzError> {
+    ) -> Result<(), Error> {
         // These functions should only be called once upon response back from Bob
         let bob_ciphertext = match &params {
-            BobToAliceTransferParameters::MixedAsymmetric { bob_ciphertext, .. }
-            | BobToAliceTransferParameters::PureSymmetric { bob_ciphertext, .. } => bob_ciphertext,
+            BobToAliceTransferParameters::PureSymmetric { bob_ciphertext, .. } => {
+                bob_ciphertext.clone()
+            }
+            BobToAliceTransferParameters::MixedAsymmetric {
+                bob_ciphertext_signature,
+                bob_pk_sig,
+                bob_ciphertext,
+                ..
+            } => {
+                crate::functions::signature_verify(
+                    bob_ciphertext.as_slice(),
+                    bob_ciphertext_signature.as_slice(),
+                    bob_pk_sig.as_slice(),
+                )?;
+                bob_ciphertext.clone()
+            }
         };
 
         let secret_key = self.get_secret_key()?;
-        let shared_secret = kyber_pke::decapsulate(bob_ciphertext, secret_key)
-            .map_err(|err| EzError::Other(err.to_string()))?;
+        let shared_secret = kyber_pke::decapsulate(&bob_ciphertext, secret_key)
+            .map_err(|err| Error::Other(err.to_string()))?;
         self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.to_vec()));
+        self.get_kex_mut().ciphertext = Some(bob_ciphertext);
 
         match params {
             BobToAliceTransferParameters::MixedAsymmetric {
-                bob_ciphertext,
-                bob_signature,
-                bob_pk_sig,
-                bob_pk,
+                bob_pk_sig, bob_pk, ..
             } => {
-                let sig_alg = oqs::sig::Sig::new(self.get_sig_algorithm().unwrap())?;
-                sig_alg.verify(
-                    bob_ciphertext.deref().as_ref(),
-                    &bob_signature,
-                    bob_pk_sig.as_ref(),
-                )?;
-
                 self.get_kex_mut().remote_public_key = Some(bob_pk);
                 self.get_sig_mut().unwrap().remote_sig_public_key = Some(bob_pk_sig);
-                self.get_kex_mut().ciphertext = Some(bob_ciphertext);
                 Ok(())
             }
-            BobToAliceTransferParameters::PureSymmetric {
-                bob_ciphertext,
-                bob_pk,
-            } => {
+            BobToAliceTransferParameters::PureSymmetric { bob_pk, .. } => {
                 self.get_kex_mut().remote_public_key = Some(bob_pk);
-                self.get_kex_mut().ciphertext = Some(bob_ciphertext);
                 Ok(())
             }
         }
@@ -1019,18 +1122,19 @@ impl PostQuantumMeta {
     fn generate_alice_to_bob_transfer(&self) -> Result<AliceToBobTransferParameters, Error> {
         match self {
             Self::MixedAsymmetric { kex, sig } => {
-                let sig_alg = oqs::sig::Sig::new(sig.sig_alg)?;
                 let alice_pk = kex.public_key.clone();
                 let alice_pk_sig = sig.sig_public_key.clone();
-                let alice_sig =
-                    sig_alg.sign(alice_pk.deref().as_ref(), sig.sig_private_key.as_ref())?;
+                let alice_public_key_signature = crate::functions::signature_sign(
+                    alice_pk.as_slice(),
+                    sig.sig_private_key.as_slice(),
+                )?;
                 let sig_scheme = sig.sig_alg;
                 let kem_scheme = kex.kem_alg;
 
                 Ok(AliceToBobTransferParameters::MixedAsymmetric {
                     alice_pk,
                     alice_pk_sig,
-                    alice_sig,
+                    alice_public_key_signature,
                     sig_scheme,
                     kem_scheme,
                 })
@@ -1058,17 +1162,15 @@ impl PostQuantumMeta {
                 })
             }
             PostQuantumMeta::MixedAsymmetric { sig, .. } => {
-                let sig_alg = oqs::sig::Sig::new(sig.sig_alg)?;
-                let bob_signature = sig_alg.sign(
-                    bob_ciphertext.deref().as_ref(),
-                    sig.sig_private_key.as_ref(),
+                let bob_signed_ciphertext = crate::functions::signature_sign(
+                    bob_ciphertext.as_slice(),
+                    sig.sig_private_key.as_slice(),
                 )?;
-
                 let bob_pk_sig = sig.sig_public_key.clone();
 
                 Ok(BobToAliceTransferParameters::MixedAsymmetric {
+                    bob_ciphertext_signature: Arc::new(bob_signed_ciphertext),
                     bob_ciphertext,
-                    bob_signature,
                     bob_pk_sig,
                     bob_pk,
                 })
@@ -1076,7 +1178,8 @@ impl PostQuantumMeta {
         }
     }
 
-    fn get_sig_algorithm(&self) -> Option<oqs::sig::Algorithm> {
+    #[allow(dead_code)]
+    fn get_sig_algorithm(&self) -> Option<SigAlgorithm> {
         match self {
             PostQuantumMeta::PureSymmetricEncryption { .. } => None,
             PostQuantumMeta::MixedAsymmetric { sig, .. } => Some(sig.sig_alg),
@@ -1165,8 +1268,8 @@ impl PostQuantumMeta {
     }
 }
 
-fn get_generic_error(_text: &'static str) -> Error {
-    Error::Error
+fn get_generic_error(text: &'static str) -> Error {
+    Error::Generic(text)
 }
 
 impl Debug for PostQuantumContainer {
@@ -1175,11 +1278,11 @@ impl Debug for PostQuantumContainer {
     }
 }
 
-pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), EzError> {
+pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
     if params.encryption_algorithm == EncryptionAlgorithm::Kyber
         && params.kem_algorithm != KemAlgorithm::Kyber
     {
-        return Err(EzError::Generic(
+        return Err(Error::Generic(
             "Invalid crypto parameter combination. Kyber encryption must be paired with Kyber KEM",
         ));
     }
@@ -1188,7 +1291,7 @@ pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), EzError> 
         && params.kem_algorithm == KemAlgorithm::Kyber
         && params.sig_algorithm == SigAlgorithm::None
     {
-        return Err(EzError::Generic(
+        return Err(Error::Generic(
             "A post-quantum signature scheme must be selected when using Kyber encryption + KEM",
         ));
     }
@@ -1196,10 +1299,4 @@ pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), EzError> 
     // NOTE: it's okay to have a sig scheme defined with no Kyber. That just means every packet gets non-repudiation endowed onto its security
 
     Ok(())
-}
-
-impl From<Error> for EzError {
-    fn from(value: Error) -> Self {
-        EzError::Other(value.to_string())
-    }
 }

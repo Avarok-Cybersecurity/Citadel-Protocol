@@ -2,6 +2,7 @@ use crate::entropy_bank::PORT_RANGE;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use std::fmt::{Display, Formatter};
+#[cfg(target_family = "unix")]
 use std::os::raw::c_void;
 
 /// Default Error type for this crate
@@ -81,13 +82,13 @@ pub fn create_port_mapping() -> Vec<(u16, u16)> {
     output_vec
 }
 
-#[cfg(not(target_os = "windows"))]
-#[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
 /// # Safety
 ///
 /// uses libc functions with proper len and start ptr idx
+#[cfg(target_family = "unix")]
+#[allow(unused_results)]
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
     libc::mlock(ptr as *const c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
@@ -96,21 +97,24 @@ pub unsafe fn mlock(ptr: *const u8, len: usize) {
     libc::madvise(ptr as *mut c_void, len, libc::MADV_DONTDUMP);
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(target_family = "wasm")]
+pub unsafe fn mlock(_ptr: *const u8, _len: usize) {}
+
+#[cfg(target_family = "windows")]
 #[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For windows, returns nonzero if successful
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
-    kernel32::VirtualLock(ptr as *mut c_void, len as u64);
+    kernel32::VirtualLock(ptr as _, len as u64);
 }
 
-#[cfg(not(target_os = "windows"))]
-#[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
 /// # Safety
 ///
 /// uses libc functions with proper len and start ptr idx
+#[cfg(target_family = "unix")]
+#[allow(unused_results)]
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
     libc::munlock(ptr as *const c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
@@ -119,13 +123,16 @@ pub unsafe fn munlock(ptr: *const u8, len: usize) {
     libc::madvise(ptr as *mut c_void, len, libc::MADV_DODUMP);
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(target_family = "wasm")]
+pub unsafe fn munlock(_ptr: *const u8, _len: usize) {}
+
+#[cfg(target_family = "windows")]
 #[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For windows, returns nonzero if successful. Returns 158 if already unlocked.
 /// Windows unlocks a page all at once
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
-    kernel32::VirtualUnlock(ptr as *mut c_void, len as u64);
+    kernel32::VirtualUnlock(ptr as _, len as u64);
 }
 
 /// General `memset`.
@@ -155,5 +162,52 @@ unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
     for i in 0..count {
         let ptr = dst.add(i);
         std::ptr::write_volatile(ptr, src);
+    }
+}
+
+pub mod blocking_spawn {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    #[derive(Debug)]
+    pub struct BlockingSpawnError {
+        pub message: String,
+    }
+
+    pub enum BlockingSpawn<T> {
+        Tokio(tokio::task::JoinHandle<T>),
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn spawn_blocking<F, R>(_f: F) -> BlockingSpawn<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        panic!("Cannot call spawn_blocking on WASM")
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub fn spawn_blocking<F, R>(f: F) -> BlockingSpawn<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        BlockingSpawn::Tokio(tokio::task::spawn_blocking(f))
+    }
+
+    impl<T> Future for BlockingSpawn<T> {
+        type Output = Result<T, BlockingSpawnError>;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            match self.get_mut() {
+                BlockingSpawn::Tokio(handle) => {
+                    Pin::new(handle).poll(cx).map_err(|err| BlockingSpawnError {
+                        message: err.to_string(),
+                    })
+                }
+            }
+        }
     }
 }

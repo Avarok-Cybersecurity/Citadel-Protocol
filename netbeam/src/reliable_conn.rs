@@ -5,7 +5,6 @@ use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 #[async_trait]
@@ -65,7 +64,8 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
 impl<T: ReliableOrderedStreamToTarget> ReliableOrderedStreamToTargetExt for T {}
 
 #[async_trait]
-impl ReliableOrderedStreamToTarget for TcpStream {
+#[cfg(not(target_family = "wasm"))]
+impl ReliableOrderedStreamToTarget for tokio::net::TcpStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         loop {
             self.writable().await?;
@@ -102,13 +102,14 @@ impl ReliableOrderedStreamToTarget for TcpStream {
     }
 }
 
-impl ConnAddr for TcpStream {
+#[cfg(not(target_family = "wasm"))]
+impl ConnAddr for tokio::net::TcpStream {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        TcpStream::local_addr(self)
+        tokio::net::TcpStream::local_addr(self)
     }
 
     fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        TcpStream::peer_addr(self)
+        tokio::net::TcpStream::peer_addr(self)
     }
 }
 
@@ -169,6 +170,7 @@ pub mod simulator {
     }
 
     impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkConnSimulator<T> {
+        #[cfg_attr(target_family = "wasm", allow(dead_code))]
         pub(crate) fn new(min_lag: usize, inner: T) -> Self {
             let inner = Arc::new(inner);
             let inner_fwd = inner.clone();
