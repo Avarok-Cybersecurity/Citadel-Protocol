@@ -1,10 +1,14 @@
 [package]
 name = "citadel_proto"
 version = "0.1.0"
-authors = ["Thomas Braun <tbraun96@gmail.com>"]
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
-workspace = "../"
-license-file = "../LICENSE-COMMERCIAL-USE.pdf"
+workspace = ".."
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = [ "network-programming", "asynchronous" ]
+license = "MIT OR Apache-2.0"
 
 [features]
 default = ["filesystem", "multi-threaded", "std"]

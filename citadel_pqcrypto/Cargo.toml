@@ -1,12 +1,13 @@
 [package]
 name = "citadel_pqcrypto"
 version = "0.1.1"
-authors = ["Thomas Braun <tbraun96@gmail.com>"]
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
-readme = "README.md"
 homepage = "https://avarok.net/"
-repository = "https://github.com/tbraun96/citadel_pqcrypto/"
-license = "MIT"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = [ "network-programming", "asynchronous" ]
+license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 exclude = [
@@ -48,6 +49,7 @@ sha3 = { version = "0.10", default-features = false }
 kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", default-features = false, branch = "master", features=["90s"] }
 packed_struct = { version = "0.10.0", features = ["serde"] }
 rand = { version = "0.8.5", default-features = false }
+getrandom = { version = "*", default-features = false, features = ["js"], optional = true }
 serde-big-array = "0.4.1"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -56,7 +58,6 @@ oqs = { version = "0.7.2", default-features = false, features = ["serde", "falco
 [target.'cfg(target_family = "wasm")'.dependencies]
 pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = ["serialization", "avx2"] }
 pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
-
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
