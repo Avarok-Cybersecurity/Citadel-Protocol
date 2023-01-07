@@ -27,14 +27,14 @@ mod tests {
     #[cfg(feature = "multi-threaded")]
     macro_rules! spawn_handle {
         ($future:expr) => {
-            $future
+            tokio::task::spawn($future)
         };
     }
 
     #[cfg(not(feature = "multi-threaded"))]
     macro_rules! spawn_handle {
         ($future:expr) => {
-            $future
+            tokio::task::spawn($future)
         };
     }
 
@@ -160,7 +160,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -225,7 +225,7 @@ mod tests {
     #[case(100, SecrecyMode::Perfect)]
     #[case(100, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -286,7 +286,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -374,7 +374,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         let _ = citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);
