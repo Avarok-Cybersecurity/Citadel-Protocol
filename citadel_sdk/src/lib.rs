@@ -39,12 +39,10 @@
 //!
 //! Whereas AES-GCM and ChaCha are only quantum resistant (as opposed to post-quantum), a novel method of encryption may be used that
 //! combines the post-quantum asymmetric encryption algorithm Kyber coupled with AES. When Kyber "scramcryption" is used, several modifications to the protocol outlined in the whitepaper
-//! is applied:
-//! [*] Falcon-1024 is used to sign each message to ensure non-repudiation
-//! [*] Ciphertext is first encrypted by AES-GCM, then, randomly scrambled in 32-byte blocks. The scrambling order is unique for each ciphertext,
+//! is applied. The first modification is the use of Falcon-1024 to sign each message to ensure non-repudiation. The second modification is more complex. Ciphertext is first encrypted by AES-GCM, then, randomly scrambled in 32-byte blocks. The scrambling order is unique for each ciphertext,
 //! and, is appended at the end of the ciphertext in encrypted form (using Kyber1024 encryption). Even if the attacker uses Grover's algorithm to
 //! discover the AES key, the attacker would also have to break the lattice-based Kyber cryptography in order to properly order
-//! the ciphertext before using the AES key. Since every 32 bytes of input into the Kyber encryption scheme produces over a 1Kb output ciphertext, and, each scramble dictionary is 32 bytes long,
+//! the ciphertext before using the AES key. Since every 32 bytes of input into the Kyber encryption scheme produces over a 1KB output ciphertext, and, each scramble dictionary is 32 bytes long,
 //! the size of each packet is increased at a constant value, helping keep packet sizes minimal and security very high.
 //!
 //! # Executor Architecture: The [`NetKernel`]
