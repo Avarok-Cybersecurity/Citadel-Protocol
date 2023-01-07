@@ -376,7 +376,7 @@ pub async fn process_connect(
                                 }
                             }
                         } else {
-                            log::error!(target: "citadel", "An invalid SUCCESS packet was received; dropping due to invalid signature");
+                            log::error!(target: "citadel", "An invalid SUCCESS packet was received; dropping due to invalid deserialization");
                             return Ok(PrimaryProcessorResult::Void);
                         }
                     } else {

@@ -69,7 +69,6 @@ uuid = { version = "1.0.0-alpha.1", features = ["serde", "v4"] }
 itertools = "0.10.3"
 tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", optional = true }
 #libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
-serde_with = { version = "2.1.0", default-features = false, features = ["macros", "alloc"] }
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }

@@ -440,7 +440,6 @@ pub(crate) mod do_connect {
     use citadel_user::prelude::MutualPeer;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
-    use serde_with::{serde_as, DefaultOnError};
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet {
@@ -485,18 +484,25 @@ pub(crate) mod do_connect {
         packet
     }
 
-    #[serde_as]
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
         pub peers: Vec<MutualPeer>,
         // in order to allow interoperability between protocols that have fields in the services object
         // and those that don't, default on error
-        #[serde_as(deserialize_as = "DefaultOnError")]
+        #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub post_login_object: citadel_user::external_services::ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8],
+    }
+
+    fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, <D as serde::Deserializer<'a>>::Error>
+    where
+        T: Deserialize<'a> + Default,
+        D: serde::Deserializer<'a>,
+    {
+        Ok(T::deserialize(deserializer).unwrap_or_default())
     }
 
     #[allow(clippy::too_many_arguments)]
