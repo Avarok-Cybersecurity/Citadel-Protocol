@@ -50,7 +50,7 @@ serde_json = "1.0.62"
 base64 = { version = "0.13.0", optional = true }
 bytes = "1.0.1"
 bstr = "0.2.15"
-sqlx = { version = "0.5.11", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
+sqlx = { version = "0.6.2", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
 redis-base = { package = "redis", version = "0.21.5", features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
 mobc = { version = "0.7.3", optional = true }
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0", optional = true }
