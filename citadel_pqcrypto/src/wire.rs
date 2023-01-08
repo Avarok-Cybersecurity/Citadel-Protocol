@@ -1,9 +1,7 @@
 use crate::{Error, KemAlgorithm, SigAlgorithm};
 use aes_gcm_siv::aead::Buffer;
-use rand::prelude::SliceRandom;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -49,11 +47,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
 
         let mut rng = rand::thread_rng();
         let mut mapping: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
-        for (idx, val) in mapping.iter_mut().enumerate() {
-            *val = idx as u8;
-        }
-
-        mapping.shuffle(&mut rng);
+        rng.fill_bytes(&mut mapping);
 
         Some(Self { mapping })
     }
@@ -99,24 +93,8 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
             return Err(Error::Generic("Bad input buffer length"));
         }
 
-        let mut has_swapped = HashSet::new();
-
-        for (lhs_idx, rhs_idx) in self.mapping.iter().map(|r| *r as usize).enumerate() {
-            if !has_swapped.contains(&lhs_idx) && !has_swapped.contains(&rhs_idx) {
-                if rhs_idx > BLOCK_SIZE || lhs_idx > BLOCK_SIZE {
-                    return Err(Error::Generic(
-                        "RHS_IDX | LHS_IDX is greater than the block size. Bad deserialization?",
-                    ));
-                }
-
-                // move the rhs into the lhs and vice versa
-                let rhs_val = buf[rhs_idx];
-                let lhs_val = buf[lhs_idx];
-                buf[lhs_idx] = rhs_val;
-                buf[rhs_idx] = lhs_val;
-                has_swapped.insert(lhs_idx);
-                has_swapped.insert(rhs_idx);
-            }
+        for (shift, buf) in self.mapping.iter().zip(buf.iter_mut()) {
+            *buf ^= *shift
         }
 
         Ok(())
