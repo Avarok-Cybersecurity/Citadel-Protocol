@@ -63,7 +63,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         }
 
         for chunk in buf.as_mut().chunks_exact_mut(BLOCK_SIZE) {
-            self.swap_in_place(chunk)?
+            self.swap_in_place(chunk, false)?
         }
 
         Ok(())
@@ -81,47 +81,29 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         }
 
         for chunk in buf.chunks_exact_mut(chunk_len) {
-            self.swap_in_place(chunk)?
+            self.swap_in_place(chunk, true)?
         }
 
         Ok(())
     }
 
-    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T) -> Result<(), Error> {
+    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T, reverse: bool) -> Result<(), Error> {
         let buf = buf.as_mut();
         if buf.len() != BLOCK_SIZE {
             return Err(Error::Generic("Bad input buffer length"));
         }
 
         for (shift, buf) in self.mapping.iter().zip(buf.iter_mut()) {
-            *buf ^= *shift
+            if reverse {
+                *buf = buf.wrapping_sub(*shift)
+            } else {
+                *buf = buf.wrapping_add(*shift)
+            }
         }
 
         Ok(())
     }
 }
-
-/*
-impl<const N: usize> TryFrom<Vec<u8>> for ScramCryptDictionary<N> {
-    type Error = EzError;
-
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let bytes = value.as_slice();
-        if bytes.len() != N {
-            return Err(EzError::Other(format!(
-                "The input bytes (len={}) for the ScramCrypt Dictionary is not {}",
-                bytes.len(),
-                N
-            )));
-        }
-
-        let mut mapping = [0u8; N];
-        mapping.copy_from_slice(bytes);
-
-        Ok(Self { mapping })
-    }
-}
-*/
 
 #[cfg(test)]
 mod tests {
