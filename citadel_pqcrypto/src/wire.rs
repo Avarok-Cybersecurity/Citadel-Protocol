@@ -1,9 +1,7 @@
 use crate::{Error, KemAlgorithm, SigAlgorithm};
 use aes_gcm_siv::aead::Buffer;
-use rand::prelude::SliceRandom;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -49,11 +47,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
 
         let mut rng = rand::thread_rng();
         let mut mapping: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
-        for (idx, val) in mapping.iter_mut().enumerate() {
-            *val = idx as u8;
-        }
-
-        mapping.shuffle(&mut rng);
+        rng.fill_bytes(&mut mapping);
 
         Some(Self { mapping })
     }
@@ -69,7 +63,7 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         }
 
         for chunk in buf.as_mut().chunks_exact_mut(BLOCK_SIZE) {
-            self.swap_in_place(chunk)?
+            self.swap_in_place(chunk, false)?
         }
 
         Ok(())
@@ -87,63 +81,29 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         }
 
         for chunk in buf.chunks_exact_mut(chunk_len) {
-            self.swap_in_place(chunk)?
+            self.swap_in_place(chunk, true)?
         }
 
         Ok(())
     }
 
-    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T) -> Result<(), Error> {
+    fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T, reverse: bool) -> Result<(), Error> {
         let buf = buf.as_mut();
         if buf.len() != BLOCK_SIZE {
             return Err(Error::Generic("Bad input buffer length"));
         }
 
-        let mut has_swapped = HashSet::new();
-
-        for (lhs_idx, rhs_idx) in self.mapping.iter().map(|r| *r as usize).enumerate() {
-            if !has_swapped.contains(&lhs_idx) && !has_swapped.contains(&rhs_idx) {
-                if rhs_idx > BLOCK_SIZE || lhs_idx > BLOCK_SIZE {
-                    return Err(Error::Generic(
-                        "RHS_IDX | LHS_IDX is greater than the block size. Bad deserialization?",
-                    ));
-                }
-
-                // move the rhs into the lhs and vice versa
-                let rhs_val = buf[rhs_idx];
-                let lhs_val = buf[lhs_idx];
-                buf[lhs_idx] = rhs_val;
-                buf[rhs_idx] = lhs_val;
-                has_swapped.insert(lhs_idx);
-                has_swapped.insert(rhs_idx);
+        for (shift, buf) in self.mapping.iter().zip(buf.iter_mut()) {
+            if reverse {
+                *buf = buf.wrapping_sub(*shift)
+            } else {
+                *buf = buf.wrapping_add(*shift)
             }
         }
 
         Ok(())
     }
 }
-
-/*
-impl<const N: usize> TryFrom<Vec<u8>> for ScramCryptDictionary<N> {
-    type Error = EzError;
-
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let bytes = value.as_slice();
-        if bytes.len() != N {
-            return Err(EzError::Other(format!(
-                "The input bytes (len={}) for the ScramCrypt Dictionary is not {}",
-                bytes.len(),
-                N
-            )));
-        }
-
-        let mut mapping = [0u8; N];
-        mapping.copy_from_slice(bytes);
-
-        Ok(Self { mapping })
-    }
-}
-*/
 
 #[cfg(test)]
 mod tests {
