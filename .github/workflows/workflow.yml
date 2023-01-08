@@ -66,16 +66,6 @@ jobs:
       - run: cargo nextest run --features=localhost-testing,multi-threaded --package citadel_proto
         env:
           RUST_LOG: citadel=trace
-      - uses: actions/github-script@v6
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
 
   nat:
     strategy:
@@ -88,16 +78,6 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
       - run: cargo nextest run --package citadel_wire --features=localhost-testing
-      - uses: actions/github-script@v6
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
 
   citadel_sdk:
     strategy:
@@ -113,16 +93,6 @@ jobs:
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only
-      - uses: actions/github-script@v6
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
 
   citadel_sdk_release:
     strategy:
@@ -137,16 +107,6 @@ jobs:
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only --release
       - name: Multi-threaded testing
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only --release
-      - uses: actions/github-script@v6
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
 
   misc_checks:
     name: miscellaneous
@@ -181,16 +141,7 @@ jobs:
 #      # Run with valgrind
 #      - name: Run valgrind pq_kems
 #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
-      - uses: actions/github-script@v6
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
+
 #  features_check:
 #    name: check features
 #    runs-on: ubuntu-latest
@@ -200,16 +151,7 @@ jobs:
 #        run: cargo install cargo-all-features
 #      - name: Check all feature combinations
 #        run: cargo check-all-features --package citadel_sdk
-#      - uses: actions/github-script@v6
-#        if: failure()
-#        with:
-#          script: |
-#            const { owner, repo } = context.repo
-#            console.log('Cancelling ...');
-#            const run_id = "${{ github.run_id }}";
-#            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-#            return 'stop'
-#          result-encoding: string
+
   coverage:
     runs-on: macos-latest
     timeout-minutes: 80
@@ -229,13 +171,3 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
-      - uses: actions/github-script@v6
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
