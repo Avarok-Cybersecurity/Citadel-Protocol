@@ -3,9 +3,7 @@
 pub mod exports {
     pub use igd::PortMappingProtocol;
     pub use openssl;
-    pub use quinn::{
-        Connecting, Connection, Endpoint, Incoming, NewConnection, RecvStream, SendStream,
-    };
+    pub use quinn::{Accept, Connecting, Connection, Endpoint, RecvStream, SendStream};
     pub use rustls::ClientConfig;
     pub use rustls::{Certificate, PrivateKey};
     pub use rustls_pemfile;
