@@ -138,9 +138,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.60"
+version = "0.1.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677d1d8ab452a3936018a687b20e6f7cf5363d713b732b8884001317b0e48aa3"
+checksum = "705339e0e4a9690e2908d2b3d049d85682cf19fbd5782494498fbf7003a6a282"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -505,7 +505,7 @@ name = "citadel_logging"
 version = "0.1.0"
 dependencies = [
  "log",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing-subscriber",
 ]
 
@@ -565,7 +565,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "ureq",
  "uuid 1.2.2",
  "webrtc-util 0.5.4",
@@ -596,7 +596,7 @@ dependencies = [
  "rstest",
  "serde",
  "tokio",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 1.2.2",
 ]
 
@@ -673,7 +673,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "tracing 0.1.37 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
+ "tracing 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 1.2.2",
 ]
 
@@ -3532,7 +3532,7 @@ checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
 dependencies = [
  "cfg-if 1.0.0",
  "pin-project-lite",
- "tracing-attributes 0.1.23 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing-attributes",
  "tracing-core 0.1.30 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -3543,7 +3543,6 @@ source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#b28c9351dd4f
 dependencies = [
  "cfg-if 1.0.0",
  "pin-project-lite",
- "tracing-attributes 0.1.23 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
  "tracing-core 0.1.30 (git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x)",
 ]
 
@@ -3552,16 +3551,6 @@ name = "tracing-attributes"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4017f8f45139870ca7e672686113917c71c7a6e02d4924eda67186083c03081a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "tracing-attributes"
-version = "0.1.23"
-source = "git+https://github.com/tokio-rs/tracing.git?branch=v0.1.x#b28c9351dd4f34ed3c7d5df88bb5c2e694d9c951"
 dependencies = [
  "proc-macro2",
  "quote",
