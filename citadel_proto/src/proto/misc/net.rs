@@ -20,7 +20,7 @@ use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_user::serialization::SyncIO;
-use citadel_wire::exports::{Endpoint, NewConnection, RecvStream, SendStream};
+use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
 use citadel_wire::quic::{QuicEndpointListener, QuicNode};
 use citadel_wire::tls::TLSQUICInterop;
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ pub enum GenericNetworkStream {
         SendStream,
         RecvStream,
         Endpoint,
-        Option<NewConnection>,
+        Option<Connection>,
         SocketAddr,
     ),
 }
@@ -100,7 +100,7 @@ impl GenericNetworkStream {
         }
     }
 
-    pub fn take_quic_connection(&mut self) -> Option<NewConnection> {
+    pub fn take_quic_connection(&mut self) -> Option<Connection> {
         match self {
             Self::Quic(_, _, _, conn, ..) => conn.take(),
             _ => None,
@@ -416,7 +416,7 @@ pub struct QuicListener {
     is_self_signed: bool,
 }
 
-type IncomingQuicConnection = (NewConnection, SendStream, RecvStream, SocketAddr, Endpoint);
+type IncomingQuicConnection = (Connection, SendStream, RecvStream, SocketAddr, Endpoint);
 
 impl QuicListener {
     pub fn new(mut server: QuicNode, is_self_signed: bool) -> Self {
@@ -450,7 +450,7 @@ impl QuicListener {
 
                 acceptor_stream
                     .try_for_each_concurrent(None, |(conn, tx, rx)| async move {
-                        let addr = conn.connection.remote_address();
+                        let addr = conn.remote_address();
                         log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
                         send.send(Ok((conn, tx, rx, addr, endpoint.clone())))
                             .await
@@ -472,7 +472,7 @@ trait StreamOutputImpl: Future<Output = std::io::Result<()>> + SyncContextRequir
 impl<T: Future<Output = std::io::Result<()>> + SyncContextRequirements> StreamOutputImpl for T {}
 
 impl Stream for QuicListener {
-    type Item = std::io::Result<(NewConnection, SendStream, RecvStream, SocketAddr, Endpoint)>;
+    type Item = std::io::Result<(Connection, SendStream, RecvStream, SocketAddr, Endpoint)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
