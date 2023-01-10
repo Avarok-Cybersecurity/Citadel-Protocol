@@ -18,7 +18,7 @@ use super::includes::*;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use citadel_wire::exports::NewConnection;
+use citadel_wire::exports::Connection;
 use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::sync::atomic::Ordering;
@@ -660,7 +660,7 @@ fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
     ))
 }
 
-fn get_quic_udp_interface(quic_conn: NewConnection, local_addr: SocketAddr) -> UdpSplittableTypes {
+fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpSplittableTypes {
     log::trace!(target: "citadel", "Will use QUIC UDP for UDP transmission");
     UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(quic_conn, local_addr))
 }

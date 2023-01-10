@@ -5,7 +5,7 @@ use crate::macros::ContextRequirements;
 use crate::proto::codec::BytesCodec;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use bytes::{Bytes, BytesMut};
-use citadel_wire::exports::{Connection, NewConnection};
+use citadel_wire::exports::Connection;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{Sink, Stream, StreamExt};
@@ -99,12 +99,22 @@ pub(crate) struct QuicUdpSocketConnector {
 }
 
 impl QuicUdpSocketConnector {
-    pub fn new(conn: NewConnection, local_addr: SocketAddr) -> Self {
+    pub fn new(conn: Connection, local_addr: SocketAddr) -> Self {
+        let addr = conn.remote_address();
+        let conn_stream = conn.clone();
+        let receiver = Box::pin(async_stream::try_stream! {
+            // TODO: on PR stabalization, return BytesMut, not Bytes, from Quinn datagrams stream
+            loop {
+                yield conn_stream.read_datagram()
+                .await
+                .map(|packet| (BytesMut::from(&packet[..]), addr))
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+            }
+        });
+
         Self {
-            sink: QuicUdpSendHalf {
-                sink: conn.connection.clone(),
-            },
-            stream: QuicUdpRecvHalf { stream: conn },
+            sink: QuicUdpSendHalf { sink: conn },
+            stream: QuicUdpRecvHalf { receiver },
             local_addr,
         }
     }
@@ -115,8 +125,11 @@ pub(crate) struct QuicUdpSendHalf {
 }
 
 pub(crate) struct QuicUdpRecvHalf {
-    stream: NewConnection,
+    receiver: ReceiverStream,
 }
+
+type ReceiverStream =
+    Pin<Box<dyn Stream<Item = Result<(BytesMut, SocketAddr), std::io::Error>> + Send + 'static>>;
 
 impl Sink<Bytes> for QuicUdpSendHalf {
     type Error = NetworkError;
@@ -144,12 +157,7 @@ impl Stream for QuicUdpRecvHalf {
     type Item = Result<(BytesMut, SocketAddr), std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let addr = self.stream.connection.remote_address();
-        // TODO: Upon quinn PR resolution, this will receive a BytesMut instead of a Bytes and we'll no longer need to copy
-        Pin::new(&mut self.stream.datagrams)
-            .poll_next(cx)
-            .map_err(generic_error)
-            .map_ok(|r| (BytesMut::from(&r[..]), addr))
+        self.receiver.as_mut().poll_next(cx)
     }
 }
 
