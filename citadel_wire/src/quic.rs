@@ -1,7 +1,7 @@
-use futures::{Future, StreamExt};
+use futures::Future;
 use quinn::{
-    ClientConfig, Endpoint, EndpointConfig, Incoming, NewConnection, RecvStream, SendStream,
-    ServerConfig,
+    Accept, ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream, SendStream,
+    ServerConfig, TokioRuntime,
 };
 
 use async_trait_with_sync::async_trait;
@@ -24,7 +24,6 @@ pub struct QuicClient;
 
 pub struct QuicNode {
     pub endpoint: Endpoint,
-    pub listener: Incoming,
     pub tls_domain_opt: Option<String>,
 }
 
@@ -37,7 +36,7 @@ pub trait QuicEndpointConnector {
         addr: SocketAddr,
         tls_domain: &str,
         cfg: Option<ClientConfig>,
-    ) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+    ) -> Result<(Connection, SendStream, RecvStream), anyhow::Error>
     where
         Self: Sized,
     {
@@ -49,7 +48,7 @@ pub trait QuicEndpointConnector {
         };
 
         let conn = connecting.await?;
-        let (mut sink, stream) = conn.connection.open_bi().await?;
+        let (mut sink, stream) = conn.open_bi().await?;
         // must send some data before the adjacent node can receive a bidirectional connection
         sink.write(&[]).await?;
 
@@ -61,7 +60,7 @@ pub trait QuicEndpointConnector {
         &self,
         addr: SocketAddr,
         tls_domain: &str,
-    ) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+    ) -> Result<(Connection, SendStream, RecvStream), anyhow::Error>
     where
         Self: Sized,
     {
@@ -71,7 +70,7 @@ pub trait QuicEndpointConnector {
 
 pub type QuicNextConnectionFuture<'a> = Pin<
     Box<
-        dyn Future<Output = Result<(NewConnection, SendStream, RecvStream), anyhow::Error>>
+        dyn Future<Output = Result<(Connection, SendStream, RecvStream), anyhow::Error>>
             + Send
             + Sync
             + 'a,
@@ -79,7 +78,7 @@ pub type QuicNextConnectionFuture<'a> = Pin<
 >;
 
 pub trait QuicEndpointListener {
-    fn listener(&mut self) -> &mut Incoming;
+    fn listener(&self) -> Accept;
     fn next_connection(&mut self) -> QuicNextConnectionFuture
     where
         Self: Sized + Send + Sync,
@@ -87,15 +86,13 @@ pub trait QuicEndpointListener {
         Box::pin(async move {
             let connecting = self
                 .listener()
-                .next()
                 .await
                 .ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
-            let mut conn = connecting.await?;
+            let conn = connecting.await?;
             let (sink, stream) = conn
-                .bi_streams
-                .next()
+                .accept_bi()
                 .await
-                .ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+                .map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
             Ok((conn, sink, stream))
         })
@@ -103,12 +100,6 @@ pub trait QuicEndpointListener {
 }
 
 pub const QUIC_LISTENER_DIED: &str = "No QUIC connections available";
-
-impl QuicEndpointListener for Incoming {
-    fn listener(&mut self) -> &mut Incoming {
-        self
-    }
-}
 
 impl QuicEndpointConnector for QuicNode {
     fn endpoint(&self) -> &Endpoint {
@@ -123,8 +114,8 @@ impl QuicEndpointConnector for Endpoint {
 }
 
 impl QuicEndpointListener for QuicNode {
-    fn listener(&mut self) -> &mut Incoming {
-        &mut self.listener
+    fn listener(&self) -> Accept {
+        self.endpoint.accept()
     }
 }
 
@@ -140,10 +131,9 @@ impl QuicClient {
         socket: UdpSocket,
         client_config: Option<Arc<rustls::ClientConfig>>,
     ) -> Result<QuicNode, anyhow::Error> {
-        let (endpoint, listener) = make_client_endpoint(socket, client_config)?;
+        let endpoint = make_client_endpoint(socket, client_config)?;
         Ok(QuicNode {
             endpoint,
-            listener,
             tls_domain_opt: None,
         })
     }
@@ -167,10 +157,9 @@ impl QuicServer {
         socket: UdpSocket,
         crypt: Option<(Vec<Certificate>, PrivateKey)>,
     ) -> Result<QuicNode, anyhow::Error> {
-        let (endpoint, listener) = make_server_endpoint(socket, crypt)?;
+        let endpoint = make_server_endpoint(socket, crypt)?;
         Ok(QuicNode {
             endpoint,
-            listener,
             tls_domain_opt: None,
         })
     }
@@ -201,7 +190,7 @@ impl QuicServer {
 fn make_server_endpoint(
     socket: UdpSocket,
     crypt: Option<(Vec<Certificate>, PrivateKey)>,
-) -> Result<(Endpoint, quinn::Incoming), anyhow::Error> {
+) -> Result<Endpoint, anyhow::Error> {
     let mut server_cfg = match crypt {
         Some((certs, key)) => configure_server_with_crypto(certs, key)?,
         None => configure_server_self_signed()?.0,
@@ -210,14 +199,14 @@ fn make_server_endpoint(
     load_hole_punch_friendly_quic_transport_config(Either::Left(&mut server_cfg));
     let endpoint_config = EndpointConfig::default();
     let socket = socket.into_std()?; // Quinn sets nonblocking to true
-    let (endpoint, incoming) = Endpoint::new(endpoint_config, Some(server_cfg), socket)?;
-    Ok((endpoint, incoming))
+    let endpoint = Endpoint::new(endpoint_config, Some(server_cfg), socket, TokioRuntime)?;
+    Ok(endpoint)
 }
 
 fn make_client_endpoint(
     socket: UdpSocket,
     client_config: Option<Arc<rustls::ClientConfig>>,
-) -> Result<(Endpoint, Incoming), anyhow::Error> {
+) -> Result<Endpoint, anyhow::Error> {
     let mut client_cfg = match client_config {
         Some(cfg) => quinn::ClientConfig::new(cfg),
         None => insecure::configure_client(),
@@ -225,10 +214,10 @@ fn make_client_endpoint(
 
     let socket = socket.into_std()?; // Quinn handles setting nonblocking to true
     load_hole_punch_friendly_quic_transport_config(Either::Right(&mut client_cfg));
-    let (mut endpoint, incoming) = Endpoint::new(EndpointConfig::default(), None, socket)?;
+    let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, TokioRuntime)?;
     endpoint.set_default_client_config(client_cfg);
 
-    Ok((endpoint, incoming))
+    Ok(endpoint)
 }
 
 /// only one side needs to set this transport config
@@ -240,9 +229,12 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(
     transport_cfg.max_concurrent_uni_streams(0u8.into());
 
     match cfg {
-        Either::Left(cfg) => cfg.transport = Arc::new(transport_cfg),
-
-        Either::Right(cfg) => cfg.transport = Arc::new(transport_cfg),
+        Either::Left(cfg) => {
+            cfg.transport_config(Arc::new(transport_cfg));
+        }
+        Either::Right(cfg) => {
+            cfg.transport_config(Arc::new(transport_cfg));
+        }
     }
 }
 
@@ -369,6 +361,7 @@ mod tests {
     use std::net::SocketAddr;
 
     #[rstest]
+    #[timeout(std::time::Duration::from_secs(3))]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[trace]
@@ -390,10 +383,13 @@ mod tests {
             log::trace!(target: "citadel", "Starting server @ {:?}", addr);
             start_tx.send(()).unwrap();
             let (conn, _tx, mut rx) = server.next_connection().await.unwrap();
-            let addr = conn.connection.remote_address();
+            let addr = conn.remote_address();
             log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
             let buf = &mut [0u8; 3];
-            rx.read_exact(buf as &mut [u8]).await.unwrap();
+            let read_res = rx.read(buf as &mut [u8]).await;
+            log::trace!(target: "citadel", "AB0 {:?}", read_res);
+            read_res.unwrap();
+            log::trace!(target: "citadel", "AB1");
             assert_eq!(buf, &[1, 2, 3]);
             end_tx.send(()).unwrap();
         };
