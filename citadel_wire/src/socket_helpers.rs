@@ -1,4 +1,4 @@
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -11,19 +11,11 @@ pub fn get_unused_udp_socket_at_bind_ip(bind_addr: IpAddr) -> std::io::Result<Ud
 }
 
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
-    Ok(socket2::Socket::new(
-        domain,
-        Type::DGRAM,
-        Some(Protocol::UDP),
-    )?)
+    Ok(socket2::Socket::new(domain, Type::DGRAM, None)?)
 }
 
 fn get_tcp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
-    Ok(socket2::Socket::new(
-        domain,
-        Type::STREAM,
-        Some(Protocol::TCP),
-    )?)
+    Ok(socket2::Socket::new(domain, Type::STREAM, None)?)
 }
 
 fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(), anyhow::Error> {
