@@ -30,14 +30,14 @@ localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-onl
 
 [dependencies]
 citadel_proto = { path = "../citadel_proto", default-features = false }
-tokio = { version = "1.24", default-features = false, features = [] }
+tokio = { version = "1.24", default-features = false }
 futures = { version = "0.3.25", default-features = false }
-parking_lot = "0.12.1"
-log = "0.4.17"
-lazy_static = "1.4.0"
-uuid = { version = "1.2.2", features = ["v4"] }
-dirs2 = { version = "3.0.1", optional = true }
-tracing = { version = "0.1.37", optional = true }
+parking_lot = { default-features = false, version = "0.12.1" }
+log = { default-features = false, version = "0.4.17" }
+lazy_static = { default-features = false, version = "1.4.0" }
+uuid = { version = "1.2.2", default-features = false, features = ["v4"] }
+dirs2 = { version = "3.0.1", default-features = false, optional = true }
+tracing = { version = "0.1.37", default-features = false, optional = true }
 citadel_logging = { path = "../citadel_logging", version = "0.1.0", optional = true }
 
 [dev-dependencies]

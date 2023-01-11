@@ -42,32 +42,31 @@ wasm = [
 
 [dependencies]
 futures = { version = "0.3.25", default-features = false }
-log = "0.4.17"
-async-trait = "0.1.61"
+log = { default-features = false, version = "0.4.17" }
+async-trait = { default-features = false, version = "0.1.61" }
 tokio-util = { version = "0.7.4", features = ["net", "codec", "time", "io"] }
 tokio = { version = "1.24", default-features = false, features = [] }
-auto_impl = "1.0.1"
-tokio-stream = "0.1.11"
-parking_lot = "0.12.1"
-zerocopy = "0.6.1"
-#bytes = "0.5.6"
-bytes = {version = "^1.3.0", features = ["serde"]}
-byteorder = "1.4.3"
-atomic = "0.5.1"
+auto_impl = { default-features = false, version = "1.0.1" }
+tokio-stream = { default-features = false, version = "0.1.11" }
+parking_lot = { default-features = false, version = "0.12.1" }
+zerocopy = { default-features = false, version = "0.6.1" }
+bytes = {version = "^1.3.0", default-features = false, features = ["serde"]}
+byteorder = { default-features = false, version = "1.4.3" }
+atomic = { default-features = false, version = "0.5.1" }
 serde = { version = "^1.0.152", features=["derive"] }
-anyhow = "1.0.68"
-either = "1.8.0"
-async-stream = "0.3.3"
+anyhow = { default-features = false, version = "1.0.68" }
+either = { default-features = false, version = "1.8.0" }
+async-stream = { default-features = false, version = "0.3.3" }
 citadel_crypt = { path = "../citadel_crypt", version = "0.1.0", default-features=false }
 citadel_user = { path = "../citadel_user", version = "0.1.0", default-features=false }
 citadel_wire = { path = "../citadel_wire", version = "0.1.0", default-features=false }
 citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features=false }
 netbeam = { path = "../netbeam", version = "0.1.0", default-features=false }
-once_cell = "1.17.0"
+once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.5.4", optional = true }
-uuid = { version = "1.2.2", features = ["serde", "v4"] }
-itertools = "0.10.5"
-tracing = { version = "0.1.37", optional = true }
+uuid = { version = "1.2.2", default-features = false, features = ["serde", "v4"] }
+itertools = { default-features = false, version = "0.10.5" }
+tracing = { version = "0.1.37", default-features = false, optional = true }
 #libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
 
 [dev-dependencies]
