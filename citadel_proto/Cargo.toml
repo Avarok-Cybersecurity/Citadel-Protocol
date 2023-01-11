@@ -27,7 +27,8 @@ std = [
     "citadel_crypt/std",
     "citadel_pqcrypto/std",
     "citadel_wire/std",
-    "netbeam/std"
+    "netbeam/std",
+    "atomic/std"
 ]
 
 wasm = [
@@ -52,7 +53,7 @@ parking_lot = { default-features = false, version = "0.12.1" }
 zerocopy = { default-features = false, version = "0.6.1" }
 bytes = {version = "^1.3.0", default-features = false, features = ["serde"]}
 byteorder = { default-features = false, version = "1.4.3" }
-atomic = { default-features = false, version = "0.5.1" }
+atomic = { default-features = false, version = "0.5.1", features = ["fallback"] }
 serde = { version = "^1.0.152", features=["derive"] }
 anyhow = { default-features = false, version = "1.0.68" }
 either = { default-features = false, version = "1.8.0" }

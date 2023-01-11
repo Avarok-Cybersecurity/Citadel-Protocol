@@ -22,7 +22,7 @@ pub async fn calculate_optimal_argon_params(
     }
 
     let system = sysinfo::System::new_all();
-    let total_memory_kb = std::cmp::max(system.available_memory(), 1024 * 512); // ensure we don't start at too low of a value
+    let total_memory_kb = std::cmp::min(system.available_memory(), 1024 * 512); // ensure we don't start at too low of a value
     let hash_length = hash_length.unwrap_or(DEFAULT_HASH_LENGTH);
 
     let lanes: u32 = num_cpus::get() as _;
