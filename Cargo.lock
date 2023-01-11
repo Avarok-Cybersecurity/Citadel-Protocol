@@ -1824,6 +1824,7 @@ dependencies = [
  "futures-timer",
  "futures-util",
  "log",
+ "tokio",
 ]
 
 [[package]]
