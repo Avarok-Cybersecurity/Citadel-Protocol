@@ -21,12 +21,16 @@ pub struct AsyncArgon {
 impl AsyncArgon {
     pub fn hash(password: SecBuffer, settings: ArgonSettings) -> Self {
         let task = crate::misc::blocking_spawn::spawn_blocking(move || {
+            log::trace!(target: "citadel", "AB0");
             match argon2::hash_raw(
                 password.as_ref(),
                 settings.inner.salt.as_slice(),
                 &settings.as_argon_config(),
             ) {
-                Ok(hashed) => ArgonStatus::HashSuccess(SecBuffer::from(hashed)),
+                Ok(hashed) => {
+                    log::trace!(target: "citadel", "AB1");
+                    ArgonStatus::HashSuccess(SecBuffer::from(hashed))
+                }
                 Err(err) => ArgonStatus::HashFailed(err.to_string()),
             }
         });
