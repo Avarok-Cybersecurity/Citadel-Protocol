@@ -19,7 +19,11 @@ fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
 }
 
 fn get_tcp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
-    Ok(socket2::Socket::new(domain, Type::STREAM, None)?)
+    Ok(socket2::Socket::new(
+        domain,
+        Type::STREAM,
+        Some(Protocol::TCP),
+    )?)
 }
 
 fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(), anyhow::Error> {
@@ -73,13 +77,11 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     } else {
         Domain::IPV6
     };
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s1]", reuse, &addr);
     let socket = get_udp_socket_builder(domain)?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s2]", reuse, &addr);
     setup_bind(addr, &socket, reuse)?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s3]", reuse, &addr);
-    let tokio_socket = tokio::net::UdpSocket::from_std(socket.into())?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s4]", reuse, &addr);
+    let std_socket: std::net::UdpSocket = socket.into();
+    std_socket.set_nonblocking(true)?;
+    let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
     Ok(tokio_socket)
 }
 
@@ -99,8 +101,10 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     };
     let socket = get_tcp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
+    let std_tcp_socket: std::net::TcpStream = socket.into();
+    std_tcp_socket.set_nonblocking(true)?;
 
-    Ok(tokio::net::TcpSocket::from_std_stream(socket.into()).listen(1024)?)
+    Ok(tokio::net::TcpSocket::from_std_stream(std_tcp_socket).listen(1024)?)
 }
 
 async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
