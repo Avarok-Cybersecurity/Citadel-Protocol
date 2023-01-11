@@ -73,10 +73,14 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     } else {
         Domain::IPV6
     };
+    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s1]", reuse, &addr);
     let socket = get_udp_socket_builder(domain)?;
+    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s2]", reuse, &addr);
     setup_bind(addr, &socket, reuse)?;
-
-    Ok(tokio::net::UdpSocket::from_std(socket.into())?)
+    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s3]", reuse, &addr);
+    let tokio_socket = tokio::net::UdpSocket::from_std(socket.into())?;
+    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [s4]", reuse, &addr);
+    Ok(tokio_socket)
 }
 
 fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
