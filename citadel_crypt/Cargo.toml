@@ -47,7 +47,7 @@ citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-fe
 citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
 bitvec = { default-features = false, version = "1.0.1", features = ["alloc"]}
 serde-big-array = { default-features = false, version = "0.4.1"}
-rust-argon2 = { default-features = false, version = "1.0.0", features = ["crossbeam-utils"] }
+rust-argon2 = "1.0.0"
 sysinfo = { default-features = false, version = "0.27.4" }
 num_cpus = { default-features = false, version = "1.15.0" }
 tokio = { version = "1.24", default-features=false, features = ["rt", "macros", "time"] }
