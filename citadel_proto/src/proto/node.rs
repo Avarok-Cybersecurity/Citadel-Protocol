@@ -363,11 +363,13 @@ impl HdpServer {
 
             ServerUnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
                 log::trace!(target: "citadel", "Setting up QUIC listener socket on {:?} | Self-signed? {}", bind, is_self_signed);
-
+                log::trace!(target: "citadel", "[Create primary 2.1] for underlying proto QUIC");
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
                 } else {
+                    log::trace!(target: "citadel", "[Create primary 2.2] for underlying proto QUIC");
                     let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
+                    log::trace!(target: "citadel", "[Create primary 2.3] for underlying proto QUIC");
                     QuicServer::create(udp_socket, crypto).map_err(generic_error)?
                 };
 
