@@ -368,7 +368,10 @@ impl HdpServer {
                     quic
                 } else {
                     log::trace!(target: "citadel", "[Create primary 2.2] for underlying proto QUIC");
+                    #[cfg(not(target_os = "windows"))]
                     let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
+                    #[cfg(target_os = "windows")]
+                    let udp_socket = tokio::net::UdpSocket::bind(bind).await.map_err(generic_error)?;
                     log::trace!(target: "citadel", "[Create primary 2.3] for underlying proto QUIC");
                     QuicServer::create(udp_socket, crypto).map_err(generic_error)?
                 };
