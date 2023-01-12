@@ -373,11 +373,18 @@ impl HdpServer {
                     QuicServer::create(udp_socket, crypto).map_err(generic_error)?
                 };
 
+                log::trace!(target: "citadel", "[Create primary 2.4] for underlying proto QUIC");
+
                 let bind = quic.endpoint.local_addr()?;
+
+                log::trace!(target: "citadel", "[Create primary 2.5] for underlying proto QUIC");
 
                 quic.tls_domain_opt = domain;
 
-                Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed)?, bind))
+                let qnode = GenericNetworkListener::from_quic_node(quic, is_self_signed)?;
+                log::trace!(target: "citadel", "[Create primary 2.6] for underlying proto QUIC");
+
+                Ok((qnode, bind))
             }
         }
     }
