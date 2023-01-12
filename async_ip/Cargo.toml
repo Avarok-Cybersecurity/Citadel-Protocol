@@ -21,12 +21,12 @@ wasm = [
 ]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-reqwest = { version = "0.11.14", package = "reqwest-wasm" }
+reqwest = { version = "0.11.16", package = "reqwest-wasm" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-reqwest = "0.11.4"
+reqwest = "0.11.13"
 
 [dependencies]
 tokio = { version = "1.24", default-features = false, features = ["macros"] }
-serde = { version = "1.0.126", default-features = false, features = ["derive"] }
-futures = { version = "0.3.16", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.152", default-features = false, features = ["derive"] }
+futures = { version = "0.3.25", default-features = false, features = ["alloc"] }

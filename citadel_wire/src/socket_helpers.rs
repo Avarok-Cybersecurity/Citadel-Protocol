@@ -1,4 +1,4 @@
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -11,11 +11,7 @@ pub fn get_unused_udp_socket_at_bind_ip(bind_addr: IpAddr) -> std::io::Result<Ud
 }
 
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
-    Ok(socket2::Socket::new(
-        domain,
-        Type::DGRAM,
-        Some(Protocol::UDP),
-    )?)
+    Ok(socket2::Socket::new(domain, Type::DGRAM, None)?)
 }
 
 fn get_tcp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
@@ -75,8 +71,10 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     };
     let socket = get_udp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
-
-    Ok(tokio::net::UdpSocket::from_std(socket.into())?)
+    let std_socket: std::net::UdpSocket = socket.into();
+    std_socket.set_nonblocking(true)?;
+    let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
+    Ok(tokio_socket)
 }
 
 fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
@@ -95,8 +93,10 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     };
     let socket = get_tcp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
+    let std_tcp_socket: std::net::TcpStream = socket.into();
+    std_tcp_socket.set_nonblocking(true)?;
 
-    Ok(tokio::net::TcpSocket::from_std_stream(socket.into()).listen(1024)?)
+    Ok(tokio::net::TcpSocket::from_std_stream(std_tcp_socket).listen(1024)?)
 }
 
 async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
@@ -139,7 +139,16 @@ pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
 }
 
 pub fn get_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
-    get_udp_socket_inner(addr, false)
+    #[cfg(not(target_os = "windows"))]
+    {
+        get_udp_socket_inner(addr, false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let std_socket = std::net::UdpSocket::bind(addr)?;
+        std_socket.set_nonblocking(true)?;
+        Ok(tokio::net::UdpSocket::from_std(std_socket)?)
+    }
 }
 
 /// `backlog`: the max number of unprocessed TCP connections

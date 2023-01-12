@@ -73,7 +73,7 @@ use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_user::backend::PersistenceHandler;
 use citadel_wire::exports::tokio_rustls::rustls;
-use citadel_wire::exports::NewConnection;
+use citadel_wire::exports::Connection;
 use citadel_wire::nat_identification::NatType;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -188,7 +188,7 @@ pub struct HdpSessionInner {
     pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
-    pub(super) primary_stream_quic_conn: DualRwLock<Option<NewConnection>>,
+    pub(super) primary_stream_quic_conn: DualRwLock<Option<Connection>>,
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
