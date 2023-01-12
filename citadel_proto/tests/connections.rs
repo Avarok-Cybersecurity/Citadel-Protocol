@@ -59,7 +59,7 @@ pub mod tests {
     #[case("[::1]:0")]
     #[timeout(Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_tcp_or_tls(
+    async fn test_underlying_protocols(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerUnderlyingProtocol>,
         client_config: &Arc<ClientConfig>,
