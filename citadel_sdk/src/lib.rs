@@ -20,8 +20,7 @@
 //! Streaming is also available in this crate. When the use of webrtc is desired for an application, the *webrtc* feature can be enabled to allow interoperability between the [`UdpChannel`] and the [WebRTC.rs](https://webrtc.rs) ecosystem.
 //!
 //! # Feature Flags
-//! - `single-threaded`: Uses a single-threaded !Send executor for the inner protocol
-//! - `multi-threaded`: Uses a multi-threaded Send executor for the inner protocol
+//! - `multi-threaded`: Uses a multi-threaded (Send) executor for the inner protocol
 //! - `redis`: Enables the use of Redis for the backend
 //! - `sql`: Enables the use of sql for the backend
 //! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
