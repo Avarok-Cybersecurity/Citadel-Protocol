@@ -305,10 +305,10 @@ impl HdpServer {
                     None,
                     full_bind_addr,
                 )?;
-                log::trace!(target: "citadel", "[Create primary 2] for underlying proto: {:?}", underlying_proto);
+                log::trace!(target: "citadel", "[Create primary 2] for underlying proto QUIC");
                 let (quic_listener, _bind_addr_quic) =
                     Self::create_listen_socket(underlying_proto, None, None, bind_addr)?;
-                log::trace!(target: "citadel", "[Create primary 3] for underlying proto: {:?}", underlying_proto);
+                log::trace!(target: "citadel", "[Create primary 3] for underlying proto QUIC");
                 Ok((
                     DualListener::new(tcp_listener, Some(quic_listener)),
                     bind_addr,
