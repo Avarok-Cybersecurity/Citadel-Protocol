@@ -297,6 +297,7 @@ impl HdpServer {
             }
 
             ServerUnderlyingProtocol::Quic(_, domain, is_self_signed) => {
+                log::trace!(target: "citadel", "[Create primary 1] for underlying proto: {:?}", underlying_proto);
                 // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
                 let (tcp_listener, bind_addr) = Self::create_listen_socket(
                     ServerUnderlyingProtocol::Tcp,
@@ -304,8 +305,10 @@ impl HdpServer {
                     None,
                     full_bind_addr,
                 )?;
+                log::trace!(target: "citadel", "[Create primary 2] for underlying proto: {:?}", underlying_proto);
                 let (quic_listener, _bind_addr_quic) =
                     Self::create_listen_socket(underlying_proto, None, None, bind_addr)?;
+                log::trace!(target: "citadel", "[Create primary 3] for underlying proto: {:?}", underlying_proto);
                 Ok((
                     DualListener::new(tcp_listener, Some(quic_listener)),
                     bind_addr,
