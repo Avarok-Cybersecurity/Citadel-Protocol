@@ -139,7 +139,16 @@ pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
 }
 
 pub fn get_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
-    get_udp_socket_inner(addr, false)
+    #[cfg(not(target_os = "windows"))]
+    {
+        get_udp_socket_inner(addr, false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let std_socket = std::net::UdpSocket::bind(addr)?;
+        std_socket.set_nonblocking(true)?;
+        Ok(tokio::net::UdpSocket::from_std(std_socket)?)
+    }
 }
 
 /// `backlog`: the max number of unprocessed TCP connections
