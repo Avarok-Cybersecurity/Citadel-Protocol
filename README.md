@@ -13,10 +13,10 @@ The whitepaper for the Citadel Protocol can be found in the repository [here](Th
 For examples on building applications, please check [the docs](https://avarok-cybersecurity.github.io/Citadel-Protocol/docs/)
 
 ## Build instructions
-OpenSSL and clang are required in order to compile the libraries. View the CI files in .github for an example of getting the code to compile on a bare machine
+OpenSSL and Clang are required in order to compile the libraries. View the CI files in .github for an example of getting the code to compile on a bare machine
 
 ## Testing instructions
-When running unit tests inside `citadel_sdk`, you **must** run the tests with the feature `localhost-testing` enabled, and, allow only one test to run at a time (b/c of a static `Arc<Barrier>` for synchronizing between peers) via `-- --test-threads=1`
+When running unit tests inside `citadel_sdk`, you **must** run the tests with the feature `localhost-testing` enabled and allow only one test to run at a time (b/c of a static `Arc<Barrier>` for synchronizing between peers) via `-- --test-threads=1`
 
 example: `cargo test --package citadel_sdk --features=localhost-testing -- --test-threads=1`
 
@@ -49,4 +49,4 @@ Additionally, the feature `wasm` should be enabled when checking/compiling.
 [Thomas Braun](https://thomaspbraun.com) - Founder
 # Contributing
 
-Contributions are welcome! I have been the only developer for the past 5 years, and, need more people to help make the ecosystem flourish.
+Contributions are welcome! I have been the only developer for the past 5 years, and I need more people to help make the ecosystem flourish.
