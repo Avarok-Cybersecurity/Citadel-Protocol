@@ -69,17 +69,11 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     } else {
         Domain::IPV6
     };
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [v0]", reuse, &addr);
     let socket = get_udp_socket_builder(domain)?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [v1]", reuse, &addr);
     setup_bind(addr, &socket, reuse)?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [v2]", reuse, &addr);
     let std_socket: std::net::UdpSocket = socket.into();
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [v3]", reuse, &addr);
     std_socket.set_nonblocking(true)?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [v4]", reuse, &addr);
     let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ... [v5]", reuse, &addr);
     Ok(tokio_socket)
 }
 

@@ -289,6 +289,7 @@ impl HdpServer {
         underlying_proto: ServerUnderlyingProtocol,
         full_bind_addr: T,
     ) -> io::Result<(DualListener, SocketAddr)> {
+        log::trace!(target: "citadel", "[Create primary] for underlying proto: {:?}", underlying_proto);
         match &underlying_proto {
             ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp => {
                 Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
