@@ -32,32 +32,31 @@ wasm = [
 ]
 
 [dependencies]
-async-trait = "0.1.24"
-bincode2 = "2.0.1"
-serde = { version="1.0.104", features=["rc", "derive"] }
-futures = { version = "0.3.16", default-features = false }
-log = "0.4.8"
-byteorder = { version = "1.3.2", default-features=false }
-bytes = { version = "^1.0.1", features = ["serde"] }
-num-integer = "0.1.43"
+async-trait = { default-features = false, version = "0.1.61" }
+bincode2 = { default-features = false, version = "2.0.1" }
+serde = { version="1.0.152", default-features = false, features=["rc", "derive"] }
+futures = { version = "0.3.25", default-features = false }
+log = { default-features = false, version = "0.4.17" }
+byteorder = { version = "1.4.3", default-features=false }
+bytes = { version = "^1.3.0", features = ["serde"] }
+num-integer = { default-features = false, version = "0.1.45" }
 rand = { version = "0.8.5", default-features = false }
-rayon = "1.5.1"
-arrayvec = { version = "0.7.0", features = ["serde"] }
+rayon = { default-features = false, version = "1.6.1" }
+arrayvec = { version = "0.7.2", default-features = false, features = ["serde"] }
 citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features = false }
 citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
-bitvec = "1.0.0"
-serde-big-array = "0.4.1"
+bitvec = { default-features = false, version = "1.0.1", features = ["alloc"]}
+serde-big-array = { default-features = false, version = "0.4.1"}
 rust-argon2 = "1.0.0"
-sysinfo = "0.23.2"
-num_cpus = "1.13.0"
-linked-hash-map = "*"
-tokio = { version = "1.24", default-features=false, features = ["rt", "macros"] }
-sha3 = "0.10.1"
-tokio-stream = "0.1.7"
-auto_impl = "1.0.1"
+sysinfo = { default-features = false, version = "0.27.4" }
+num_cpus = { default-features = false, version = "1.15.0" }
+tokio = { version = "1.24", default-features=false, features = ["rt", "macros", "time"] }
+sha3 = { default-features = false, version = "0.10.6" }
+tokio-stream = { default-features = false, version = "0.1.11" }
+auto_impl = { default-features = false, version = "1.0.1" }
 
 [target.'cfg(target_family = "unix")'.dependencies]
-libc = "0.2.80"
+libc = "0.2.139"
 
 [target.'cfg(target_family = "windows")'.dependencies]
 kernel32-sys = "0.2.2"
