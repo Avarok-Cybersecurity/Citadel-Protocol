@@ -386,10 +386,7 @@ mod tests {
             let addr = conn.remote_address();
             log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
             let buf = &mut [0u8; 3];
-            let read_res = rx.read(buf as &mut [u8]).await;
-            log::trace!(target: "citadel", "AB0 {:?}", read_res);
-            read_res.unwrap();
-            log::trace!(target: "citadel", "AB1");
+            rx.read(buf as &mut [u8]).await.unwrap();
             assert_eq!(buf, &[1, 2, 3]);
             end_tx.send(()).unwrap();
         };
