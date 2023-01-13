@@ -433,6 +433,6 @@ mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 mod inner_arg;
 /// Contains the streams for creating connections
-mod kernel;
+pub mod kernel;
 /// The primary module of this crate
 mod proto;

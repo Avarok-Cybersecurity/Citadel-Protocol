@@ -69,38 +69,42 @@
 //! When building either a client/peer or server node, a [`NetKernel`] is expected. In the case below, an EmptyKernel is used that does no additional processing of inbound connections:
 //! ```
 //! use citadel_sdk::prelude::*;
-//! use std::net::SocketAddr;
-//! use std::str::FromStr;
-//! use citadel_sdk::prefabs::server::empty_kernel::EmptyKernel;
+//! use citadel_sdk::prefabs::server::empty::EmptyKernel;
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults. When calling 'build', a NetKernel is specified
 //! let server = NodeBuilder::default()
-//! .with_node_type(NodeType::Server(SocketAddr::from_str("127.0.0.1:25021").unwrap()))
+//! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .build(EmptyKernel::default())?;
 //!
 //! // await the server to execute
+//! # async move {
 //! let result = server.await;
+//! # };
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! ## Client/Peer
 //! This client will connect to the server above. It will first register (if the account is not yet registered), and thereafter, connect to the server, calling the provided future to handle the received channel
 //! ```
 //! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-//! use std::net::SocketAddr;
-//! use std::str::FromStr;
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::NodeBuilder;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("John Doe", "john.doe", "password", SocketAddr::from_str("127.0.0.1:25021").unwrap(), |connect_success, remote| async move {
+//! let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("John Doe", "john.doe", "password", "127.0.0.1:25021", |connect_success, remote| async move {
 //!     // handle program logic here
 //!     let (sink, mut stream) = connect_success.channel.split();
 //!     while let Some(message) = stream.next().await {
 //!         // message received in the form of a SecBuffer (memory-protected)
 //!     }
-//! });
 //!
-//! let client = NodeBuilder::default().build(client_kernel).unwrap();
+//!     Ok(())
+//! })?;
+//!
+//! let client = NodeBuilder::default().build(client_kernel)?;
+//! # async move {
 //! let result = client.await;
+//! # };
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! [`UdpChannel`]: crate::prelude::UdpChannel
@@ -129,6 +133,7 @@
 pub mod prelude {
     pub use crate::backend_kv_store::BackendHandler;
     pub use crate::builder::node_builder::*;
+    pub use crate::prefabs::client::peer_connection::PeerConnectionSetupAggregator;
     pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
@@ -147,3 +152,8 @@ pub mod remote_ext;
 pub mod responses;
 #[doc(hidden)]
 pub mod test_common;
+
+#[macro_use]
+pub(crate) mod macros;
+/// Convenience for SDK users
+pub use citadel_proto::prelude::async_trait;

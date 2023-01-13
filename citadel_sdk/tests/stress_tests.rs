@@ -208,7 +208,8 @@ mod tests {
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawn_handle!(server);
@@ -269,7 +270,8 @@ mod tests {
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawn_handle!(server);
@@ -331,7 +333,8 @@ mod tests {
                 client0_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client_kernel1 = PeerConnectionKernel::new_passwordless(
             uuid1,
@@ -350,7 +353,8 @@ mod tests {
                 client1_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
@@ -423,7 +427,7 @@ mod tests {
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
                     remote.shutdown_kernel().await
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             let task = async move { client.await.map(|_| ()) };

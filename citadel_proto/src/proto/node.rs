@@ -158,7 +158,7 @@ impl HdpServer {
 
         let (outbound_send_request_tx, outbound_send_request_rx) =
             BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
-        let kernel_async_callback_handler = KernelAsyncCallbackHandler::new();
+        let kernel_async_callback_handler = KernelAsyncCallbackHandler::default();
         let remote = NodeRemote::new(
             outbound_send_request_tx,
             kernel_async_callback_handler.clone(),

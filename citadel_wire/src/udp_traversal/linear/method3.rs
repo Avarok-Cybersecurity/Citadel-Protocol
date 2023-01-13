@@ -262,7 +262,7 @@ impl Method3 {
                 Ok(NatPacket::SynAck(adjacent_unique_id, adjacent_node_type)) => {
                     log::trace!(target: "citadel", "RECV SYN_ACK");
                     if adjacent_node_type == this_node_type {
-                        log::warn!(target: "citadel", "RECV hairpin packet; will discard");
+                        log::warn!(target: "citadel", "RECV self-referential packet; will discard");
                         continue;
                     }
 
