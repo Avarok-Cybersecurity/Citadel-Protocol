@@ -18,10 +18,4 @@ pub fn setup_log() {
 
     // NOTE: emitted events from span's ret/err do not work with custom targets.
     // Tracking issue: https://github.com/tokio-rs/tracing/issues/2183
-
-    log::trace!(target: "citadel", "TRACE enabled");
-    log::debug!(target: "citadel", "DEBUG enabled");
-    log::info!(target: "citadel", "INFO enabled");
-    log::warn!(target: "citadel", "WARN enabled");
-    log::error!(target: "citadel", "ERROR enabled");
 }
