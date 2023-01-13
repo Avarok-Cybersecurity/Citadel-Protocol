@@ -4,7 +4,7 @@
 **/.DS_Store
 /.idea/
 .idea/workspace.xml
-/resources/
 /logs/
 /wasi-sysroot/
 /*/report.json
+Cargo.lock
