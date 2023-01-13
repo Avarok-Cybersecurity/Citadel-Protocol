@@ -45,8 +45,6 @@ impl HolePunchConfig {
 
         #[cfg(feature = "localhost-testing-loopback-only")]
         {
-            let _ = peer_nat_info;
-            let _ = local_nat_info;
             return Ok(Self {
                 bands: vec![AddrBand {
                     necessary_ip: IpAddr::from([127, 0, 0, 1]),
