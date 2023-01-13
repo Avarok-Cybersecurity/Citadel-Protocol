@@ -1,5 +1,7 @@
+use crate::impl_remote;
 use citadel_proto::prelude::*;
 use parking_lot::Mutex;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
 /// Kernels for clients
@@ -19,6 +21,8 @@ pub struct ClientServerRemote {
     unprocessed_signals_rx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NodeResult>>>>,
     conn_type: VirtualTargetType,
 }
+
+impl_remote!(ClientServerRemote);
 
 impl ClientServerRemote {
     /// Can only be called once per remote. Allows receiving events
@@ -57,4 +61,11 @@ impl ClientServerRemote {
         let implicated_cid = self.conn_type.get_implicated_cid();
         self.inner.get_hyperlan_peers(implicated_cid, limit).await
     }
+}
+
+pub(self) fn get_socket_addr<T: ToSocketAddrs>(addr: T) -> Result<SocketAddr, NetworkError> {
+    addr.to_socket_addrs()
+        .map_err(|err| NetworkError::SocketError(err.to_string()))?
+        .next()
+        .ok_or_else(|| NetworkError::msg("Invalid socket address specified"))
 }

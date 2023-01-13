@@ -148,10 +148,11 @@ impl AddedPeer {
 impl PeerConnectionSetupAggregator {
     /// Adds a peer with default connection settings
     /// ```
-    ///     PeerIDAggregator::default()
-    ///         .with_peer("john.doe")
-    ///         .with_peer("alice")
-    ///         .with_peer("bob")
+    /// use citadel_sdk::prelude::*;
+    /// let peers = PeerConnectionSetupAggregator::default()
+    ///     .with_peer("john.doe")
+    ///     .with_peer("alice")
+    ///     .with_peer("bob");
     /// ```
     pub fn with_peer<T: Into<UserIdentifier>>(self, peer: T) -> PeerConnectionSetupAggregator {
         self.with_peer_custom(peer).add()
@@ -159,17 +160,18 @@ impl PeerConnectionSetupAggregator {
 
     /// Adds a peer with custom settings
     /// ```
-    ///     // Set up a p2p connection to john.doe with udp enabled,
-    ///     // and, a p2p connection to alice with udp disabled and
-    ///     // custom security settings
-    ///     PeerIDAggregator::default()
-    ///         .with_peer_custom("john.doe")
-    ///         .with_udp_mode(UdpMode::Enabled)
-    ///         .add()
-    ///         .with_peer_custom("alice")
-    ///         .with_udp_mode(UdpMode::Disabled)
-    ///         .with_session_security_settings(...)
-    ///         .add()
+    /// use citadel_sdk::prelude::*;
+    /// // Set up a p2p connection to john.doe with udp enabled,
+    /// // and, a p2p connection to alice with udp disabled and
+    /// // custom security settings
+    /// let peers = PeerConnectionSetupAggregator::default()
+    ///     .with_peer_custom("john.doe")
+    ///     .with_udp_mode(UdpMode::Enabled)
+    ///     .add()
+    ///     .with_peer_custom("alice")
+    ///     .with_udp_mode(UdpMode::Disabled)
+    ///     .with_session_security_settings(Default::default())
+    ///     .add();
     /// ```
     pub fn with_peer_custom<T: Into<UserIdentifier>>(self, peer: T) -> AddedPeer {
         AddedPeer {
@@ -271,7 +273,6 @@ where
                     let mut handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(implicated_cid, id).await?
                     } else {
-                        // do both register + connect
                         // TODO: optimize peer registration + connection in one go
                         let mut handle = remote.propose_target(implicated_cid, id.clone()).await?;
                         let _reg_success = handle.register_to_peer().await?;
@@ -433,7 +434,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -526,7 +527,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -653,7 +654,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -732,7 +733,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });

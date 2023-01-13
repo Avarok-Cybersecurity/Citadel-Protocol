@@ -359,7 +359,7 @@ mod tests {
                     std::mem::drop(channel);
                     remote.shutdown_kernel().await
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -477,7 +477,7 @@ mod tests {
                         "signals_recv ended unexpectdly",
                     ))
                 },
-            );
+            ).unwrap();
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });

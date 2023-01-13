@@ -1,3 +1,4 @@
+use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
@@ -256,9 +257,12 @@ pub trait ProtocolRemoteExt: Remote {
 
     /// Creates a valid target identifier used to make protocol requests. Raw user IDs or usernames can be used
     /// ```
-    /// use citadel_proto::prelude::*;
-    /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await?;
+    /// use citadel_sdk::prelude::*;
+    /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    /// # SingleClientServerConnectionKernel::new_connect_defaults("", "", |_, mut remote| async move {
+    /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
     /// // or: remote.find_target(1234, "my_peer").await? [...]
+    /// # });
     /// ```
     async fn find_target<T: Into<UserIdentifier> + Send, R: Into<UserIdentifier> + Send>(
         &mut self,
@@ -417,6 +421,12 @@ pub(crate) fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError>
 impl ProtocolRemoteExt for NodeRemote {
     fn remote_ref_mut(&mut self) -> &mut NodeRemote {
         self
+    }
+}
+
+impl ProtocolRemoteExt for ClientServerRemote {
+    fn remote_ref_mut(&mut self) -> &mut NodeRemote {
+        &mut self.inner
     }
 }
 
@@ -975,7 +985,8 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 

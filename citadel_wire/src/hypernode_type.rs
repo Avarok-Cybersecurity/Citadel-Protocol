@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 /// Used for determining the proper action when loading the server
 #[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
@@ -11,6 +11,13 @@ pub enum NodeType {
 }
 
 impl NodeType {
+    pub fn server<T: ToSocketAddrs>(addr: T) -> Result<Self, anyhow::Error> {
+        addr.to_socket_addrs()?
+            .next()
+            .ok_or_else(|| anyhow::Error::msg("Invalid input server socket address"))
+            .map(NodeType::Server)
+    }
+
     pub fn bind_addr(&self) -> Option<SocketAddr> {
         match self {
             Self::Server(addr) => Some(*addr),

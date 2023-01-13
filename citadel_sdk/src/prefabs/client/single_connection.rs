@@ -1,4 +1,4 @@
-use crate::prefabs::ClientServerRemote;
+use crate::prefabs::{get_socket_addr, ClientServerRemote};
 use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
 use citadel_proto::auth::AuthenticationRequest;
@@ -6,7 +6,7 @@ use citadel_proto::prelude::*;
 use futures::Future;
 use parking_lot::Mutex;
 use std::marker::PhantomData;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -86,16 +86,17 @@ where
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
-    pub fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(
+    pub fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>, V: ToSocketAddrs>(
         full_name: T,
         username: R,
         password: P,
-        server_addr: SocketAddr,
+        server_addr: V,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         on_channel_received: F,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, NetworkError> {
+        let server_addr = get_socket_addr(server_addr)?;
+        Ok(Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
             auth_info: Mutex::new(Some(ConnectionType::Register {
@@ -108,17 +109,22 @@ where
             unprocessed_signal_filter_tx: Default::default(),
             remote: None,
             _pd: Default::default(),
-        }
+        })
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with default parameters
-    pub fn new_register_defaults<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(
+    pub fn new_register_defaults<
+        T: Into<String>,
+        R: Into<String>,
+        P: Into<SecBuffer>,
+        V: ToSocketAddrs,
+    >(
         full_name: T,
         username: R,
         password: P,
-        server_addr: SocketAddr,
+        server_addr: V,
         on_channel_received: F,
-    ) -> Self {
+    ) -> Result<Self, NetworkError> {
         Self::new_register(
             full_name,
             username,
@@ -131,14 +137,15 @@ where
     }
 
     /// Creates a new authless connection with custom arguments
-    pub fn new_passwordless(
+    pub fn new_passwordless<V: ToSocketAddrs>(
         uuid: Uuid,
-        server_addr: SocketAddr,
+        server_addr: V,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         on_channel_received: F,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, NetworkError> {
+        let server_addr = get_socket_addr(server_addr)?;
+        Ok(Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
             auth_info: Mutex::new(Some(ConnectionType::Passwordless { uuid, server_addr })),
@@ -146,15 +153,15 @@ where
             unprocessed_signal_filter_tx: Default::default(),
             remote: None,
             _pd: Default::default(),
-        }
+        })
     }
 
     /// Creates a new authless connection with default arguments
-    pub fn new_passwordless_defaults(
+    pub fn new_passwordless_defaults<V: ToSocketAddrs>(
         uuid: Uuid,
-        server_addr: SocketAddr,
+        server_addr: V,
         on_channel_received: F,
-    ) -> Self {
+    ) -> Result<Self, NetworkError> {
         Self::new_passwordless(
             uuid,
             server_addr,
@@ -351,7 +358,8 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -403,7 +411,8 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -453,7 +462,8 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -528,7 +538,8 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -577,7 +588,8 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        );
+        )
+        .unwrap();
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 

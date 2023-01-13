@@ -8,6 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+#[derive(Default)]
 pub struct KernelAsyncCallbackHandler {
     pub inner: Arc<Mutex<KernelAsyncCallbackHandlerInner>>,
 }
@@ -32,12 +33,6 @@ impl CallbackNotifier {
 }
 
 impl KernelAsyncCallbackHandler {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(Default::default())),
-        }
-    }
-
     pub fn register_future(
         &self,
         ticket: Ticket,

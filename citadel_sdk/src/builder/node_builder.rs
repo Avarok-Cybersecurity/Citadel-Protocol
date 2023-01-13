@@ -46,27 +46,12 @@ impl<K> Future for NodeFuture<'_, K> {
     }
 }
 
-#[derive(Debug)]
-/// Returned when an error occurs while building the node
-pub enum NodeBuilderError {
-    /// Denotes that the supplied configuration was invalid
-    InvalidConfiguration(&'static str),
-    /// Denotes any other error during the building process
-    Other(String),
-}
-
-impl<T: ToString> From<T> for NodeBuilderError {
-    fn from(err: T) -> Self {
-        NodeBuilderError::Other(err.to_string())
-    }
-}
-
 impl NodeBuilder {
     /// Returns a future that represents the both the protocol and kernel execution
     pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(
         &'a mut self,
         kernel: K,
-    ) -> Result<NodeFuture<'b, K>, NodeBuilderError> {
+    ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = self.backend_type.take().unwrap_or_else(|| {
@@ -93,7 +78,7 @@ impl NodeBuilder {
         } else {
             // default to TLS self-signed to enforce hybrid cryptography
             ServerUnderlyingProtocol::new_tls_self_signed()
-                .map_err(|err| NodeBuilderError::Other(err.into_string()))?
+                .map_err(|err| anyhow::Error::msg(err.into_string()))?
         };
 
         Ok(NodeFuture {
@@ -218,7 +203,7 @@ impl NodeBuilder {
     /// Loads the accepted cert chain stored by the local operating system
     /// If a custom set of certs is required, run [`Self::with_custom_certs`]
     /// This is the default if no [`RustlsClientConfig`] is specified
-    pub async fn with_native_certs(&mut self) -> Result<&mut Self, NodeBuilderError> {
+    pub async fn with_native_certs(&mut self) -> anyhow::Result<&mut Self> {
         let certs = citadel_proto::re_imports::load_native_certs_async().await?;
         self.client_tls_config = Some(citadel_proto::re_imports::cert_vec_to_secure_client_config(
             &certs,
@@ -238,17 +223,14 @@ impl NodeBuilder {
     pub fn with_custom_certs<T: AsRef<[u8]>>(
         &mut self,
         custom_certs: &[T],
-    ) -> Result<&mut Self, NodeBuilderError> {
+    ) -> anyhow::Result<&mut Self> {
         let cfg = citadel_proto::re_imports::create_rustls_client_config(custom_certs)?;
         self.client_tls_config = Some(cfg);
         Ok(self)
     }
 
     /// The file should be a DER formatted certificate
-    pub async fn with_pem_file<P: AsRef<Path>>(
-        &mut self,
-        path: P,
-    ) -> Result<&mut Self, NodeBuilderError> {
+    pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
         let mut der = std::io::Cursor::new(tokio::fs::read(path).await?);
         let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der)?;
         self.client_tls_config = Some(citadel_proto::re_imports::create_rustls_client_config(
@@ -257,11 +239,11 @@ impl NodeBuilder {
         Ok(self)
     }
 
-    fn check(&self) -> Result<(), NodeBuilderError> {
+    fn check(&self) -> anyhow::Result<()> {
         #[cfg(feature = "google-services")]
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
-                return Err(NodeBuilderError::InvalidConfiguration(
+                return Err(anyhow::Error::msg(
                     "Google realtime database is enabled, yet, a services path is not provided",
                 ));
             }

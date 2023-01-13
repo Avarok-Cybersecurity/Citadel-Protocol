@@ -39,6 +39,7 @@ uuid = { version = "1.2.2", default-features = false, features = ["v4"] }
 dirs2 = { version = "3.0.1", default-features = false, optional = true }
 tracing = { version = "0.1.37", default-features = false, optional = true }
 citadel_logging = { path = "../citadel_logging", version = "0.1.0", optional = true }
+anyhow = { version = "1", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.24", default-features = false, features = ["rt"] }
@@ -50,7 +51,7 @@ serde = { version = "1.0.152", features = ["derive"] }
 rand = "0.8.5"
 
 [lib]
-doctest = false
+#doctest = false
 
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them
