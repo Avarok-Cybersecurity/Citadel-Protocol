@@ -7,7 +7,7 @@ workspace = ".."
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "post-quantum", "quantum", "encryption", "network-programming", "asynchronous"]
+categories = ["cryptography", "post-quantum", "quantum", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
