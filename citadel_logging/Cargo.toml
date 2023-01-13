@@ -3,6 +3,7 @@ name = "citadel_logging"
 version = "0.1.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
+description = "logging library for the Citadel Protocol"
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
