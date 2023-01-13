@@ -29,7 +29,7 @@ localhost-testing-assert-no-proxy = ["citadel_proto/localhost-testing-assert-no-
 localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-only"]
 
 [dependencies]
-citadel_proto = { path = "../citadel_proto", default-features = false }
+citadel_proto = { version = "0.1.0", path = "../citadel_proto", default-features = false }
 tokio = { version = "1.24", default-features = false }
 futures = { version = "0.3.25", default-features = false }
 parking_lot = { default-features = false, version = "0.12.1" }
