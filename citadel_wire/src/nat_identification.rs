@@ -81,6 +81,7 @@ impl NatType {
 
     /// Identifies the NAT which the local node is behind
     pub async fn identify_timeout(_timeout: Duration) -> Result<Self, FirewallError> {
+        /*
         #[cfg(feature = "localhost-testing-loopback-only")]
         {
             let lock = LOCALHOST_TESTING_NAT_TYPE.lock();
@@ -88,7 +89,7 @@ impl NatType {
                 log::warn!(target: "citadel", "Will not detect NAT type since local already has it: {:?}", nat_type);
                 return Ok(nat_type);
             }
-        }
+        }*/
         match tokio::time::timeout(_timeout, get_nat_type()).await {
             Ok(res) => res
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))
