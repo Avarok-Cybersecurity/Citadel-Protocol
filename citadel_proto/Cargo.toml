@@ -73,7 +73,7 @@ tracing = { version = "0.1.37", default-features = false, optional = true }
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
 tracing = "0.1.37"
-ureq = "2.6.1"
+#ureq = "2.6.1"
 rand = "0.8.5"
 rstest = "0.16.0"
 

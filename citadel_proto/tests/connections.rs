@@ -7,7 +7,6 @@ pub mod tests {
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use futures::{SinkExt, StreamExt};
-    use itertools::Itertools;
     use rstest::*;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,7 +16,8 @@ pub mod tests {
     #[fixture]
     #[once]
     fn protocols() -> Vec<ServerUnderlyingProtocol> {
-        use std::io::Read;
+        /*use std::io::Read;
+          use itertools::Itertools;
         // NOTE: This is a dev-only pkcs12 bundle that is periodically renewed. It is not used
         // to actually protect any sensitive data
         let pkcs_12_der = ureq::get("https://thomaspbraun.com/dev_certificate.p12")
@@ -26,13 +26,13 @@ pub mod tests {
             .into_reader()
             .bytes()
             .try_collect::<u8, Vec<u8>, _>()
-            .unwrap();
+            .unwrap();*/
 
         vec![
             ServerUnderlyingProtocol::Tcp,
             ServerUnderlyingProtocol::new_tls_self_signed().unwrap(),
             ServerUnderlyingProtocol::new_quic_self_signed(),
-            ServerUnderlyingProtocol::load_tls_from_bytes(
+            /*ServerUnderlyingProtocol::load_tls_from_bytes(
                 &pkcs_12_der,
                 "password",
                 "thomaspbraun.com",
@@ -43,7 +43,7 @@ pub mod tests {
                 "password",
                 "thomaspbraun.com",
             )
-            .unwrap(),
+            .unwrap(),*/
         ]
     }
 
