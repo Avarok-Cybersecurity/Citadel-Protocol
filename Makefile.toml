@@ -40,6 +40,7 @@ dependencies = ["install-nextest"]
 [tasks.test]
 command = "cargo"
 description = "Tests all available unit/integration tests locally using SQL/redis backends and appropriate localhost network settings"
+condition = { env_set = [ "TESTING_SQL_SERVER_ADDR_CLIENT", "TESTING_SQL_SERVER_ADDR_SERVER" ], env_not_set = ["SKIP_EXT_BACKENDS"] }
 args = ["nextest", "run", "--features", "localhost-testing"]
 dependencies = ["install-nextest"]
 
