@@ -19,25 +19,11 @@ concurrency:
 jobs:
   docs:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
     steps:
       - uses: actions/checkout@v3.0.2
-        with:
-          submodules: true
-
-      - uses: actions-rs/toolchain@v1.0.7
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-
-      - uses: actions-rs/cargo@v1.0.3
-        with:
-          command: doc
-          args: --package citadel_sdk --features webrtc --no-deps
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Compile documentation
+        run: cargo make docs
 
       - name: Deploy documentation
         if: success()

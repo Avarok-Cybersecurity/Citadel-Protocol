@@ -1,9 +1,9 @@
 //! A list of helpers making the response phase simple and intuitive
 //!
 //! Generally, when making a response, the response must be sent outbound through
-//! the [`NodeRemote`] with a custom ticket equivalent to the ticket receieved by
+//! the [NodeRemote](crate::prelude::NodeRemote) with a custom ticket equivalent to the ticket receieved by
 //! the external request in order for the peer to listen for a response. Additionally,
-//! [`PeerConnectionType`] data must be `.reverse()`'d. Finally, some response types
+//! [PeerConnectionType](crate::prelude::PeerConnectionType) data must be `.reverse()`'d. Finally, some response types
 //! require the manual input of usernames, and as such, this helper library enforces
 //! all these requirements
 use crate::prelude::*;

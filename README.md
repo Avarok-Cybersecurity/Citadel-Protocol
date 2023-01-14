@@ -13,14 +13,33 @@ The whitepaper for the Citadel Protocol can be found in the repository [here](Th
 For examples on building applications, please check [the docs](https://avarok-cybersecurity.github.io/Citadel-Protocol/docs/)
 
 ## Build instructions
-OpenSSL and clang are required in order to compile the libraries. View the CI files in .github for an example of getting the code to compile on a bare machine
+OpenSSL and Clang are required in order to compile the libraries. View the CI files in .github for an example of getting the code to compile on a bare machine.
+Alternatively, you can run the following command to setup the environment
+
+```shell
+cargo make install
+```
 
 ## Testing instructions
-When running unit tests inside `citadel_sdk`, you **must** run the tests with the feature `localhost-testing` enabled, and, allow only one test to run at a time (b/c of a static `Arc<Barrier>` for synchronizing between peers) via `-- --test-threads=1`
+When running unit tests inside `citadel_sdk`, you **must** use the Makefile. The Makefile contains special
+flags and environmental variables set to interface with `cargo test`. First, install cargo make:
 
-example: `cargo test --package citadel_sdk --features=localhost-testing -- --test-threads=1`
+```shell
+cargo install --force cargo-make
+```
 
-Not only does allowing one test at a time help with synchronization, it also helps with reading debug info too.
+To run tests locally with limited setup, run:
+
+```shell
+cargo make test-local
+```
+
+To run a comprehensive set of tests that require a SQL and/or redis server set up (please check the description in `Makefile.toml` for help setting up the environment variables),
+run:
+
+```shell
+cargo make test
+```
 
 ## WASM (dev only WIP)
 The target triple `wasm32-wasi` is a WIP for support. These commands should be executed in order to compile to wasm
@@ -43,6 +62,13 @@ export CC="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/clang"
 ```
 
 Additionally, the feature `wasm` should be enabled when checking/compiling.
+
+# Disclaimer
+This project has not (yet) been audited by a third party. While some of the underlying cryptographic primitives come from the verified
+Open Quantum Safe (OQS) project and/or the PQClean project, the Kyber library has not yet received an audit (the known answer tests pass, however).
+
+As such, we recommend that, if you choose to use this library and accept the risks associated with its use, you use hybrid cryptography by using either
+TLS or QUIC as an underlying protocol to ensure that the protocol is at least as secure as elliptical curve cryptography.
 
 # Authors
 

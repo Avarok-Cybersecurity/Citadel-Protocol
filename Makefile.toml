@@ -1,0 +1,82 @@
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[tasks.clean]
+command = "cargo"
+args = ["clean"]
+
+[tasks.clippy]
+command = "cargo"
+args = ["clippy"]
+
+[tasks.fmt]
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.docs-html]
+command = "cargo"
+args = ["doc", "--package", "citadel_sdk", "--features", "webrtc", "--no-deps", "--release"]
+
+[tasks.pr]
+dependencies = ["fmt", "clippy"]
+
+[tasks.install-binstall]
+command = "cargo"
+args = ["install", "cargo-binstall"]
+
+[tasks.install-nextest]
+command = "cargo"
+args = ["binstall", "cargo-nextest", "--secure", "-y"]
+dependencies = ["install-binstall"]
+
+[tasks.test-local]
+command = "cargo"
+description = "Tests all available unit/integration tests locally without using SQL/redis backends and appropriate localhost network settings"
+env = { "SKIP_EXT_BACKENDS" = "true" }
+args = ["nextest", "run", "--features", "localhost-testing"]
+dependencies = ["install-nextest"]
+
+[tasks.test]
+command = "cargo"
+description = "Tests all available unit/integration tests locally using SQL/redis backends and appropriate localhost network settings"
+condition = { env_set = [ "TESTING_SQL_SERVER_ADDR_CLIENT", "TESTING_SQL_SERVER_ADDR_SERVER" ], env_not_set = ["SKIP_EXT_BACKENDS"] }
+args = ["nextest", "run", "--features", "localhost-testing"]
+dependencies = ["install-nextest"]
+
+[tasks.install.mac]
+command = "brew"
+args = ["install", "llvm@13", "openssl", "cmake"]
+
+[tasks.install.windows]
+command = "set"
+args = ["OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64"]
+dependencies = ["install_deps"]
+
+[tasks.install_deps.windows]
+command = "choco"
+args = ["install", "-y", "llvm", "openssl", "cmake"]
+
+[tasks.docs]
+script_runner = "@rust"
+env = { "CARGO_MAKE_RUST_SCRIPT_PROVIDER" = "cargo-script" }
+dependencies = ["docs-html"]
+script = '''
+//! ```cargo
+fn main() {
+    std::fs::copy(
+        "./resources/avarok.png",
+        "./target/doc/citadel_sdk/avarok.png",
+    )
+    .expect("Failed to copy crate logo when building documentation.");
+    std::fs::copy(
+        "./resources/favicon.png",
+        "./target/doc/citadel_sdk/favicon.png",
+    )
+    .expect("Failed to copy crate favicon when building documentation.");
+}
+'''
+
+[tasks.check-docs]
+command = "cargo"
+args = ["doc", "--package", "citadel_sdk", "--features", "webrtc", "--no-deps", "--dry-run"]

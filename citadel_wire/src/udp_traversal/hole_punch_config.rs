@@ -43,10 +43,9 @@ impl HolePunchConfig {
             }
         }
 
+        /*
         #[cfg(feature = "localhost-testing-loopback-only")]
         {
-            let _ = peer_nat_info;
-            let _ = local_nat_info;
             return Ok(Self {
                 bands: vec![AddrBand {
                     necessary_ip: IpAddr::from([127, 0, 0, 1]),
@@ -55,7 +54,7 @@ impl HolePunchConfig {
 
                 locally_bound_sockets: Some(vec![first_local_socket]),
             });
-        }
+        }*/
 
         // below is only needed if the peer is behind a random port NAT
         let peer_average_delta_opt = peer_nat_info.get_average_delta_for_rand_port();
@@ -195,11 +194,7 @@ impl HolePunchConfig {
         _local_nat_info: &NatType,
         first_local_socket: UdpSocket,
     ) -> Result<Vec<UdpSocket>, anyhow::Error> {
-        // one addr will bind on 0.0.0.0 (or [::]), and the other on 127.0.0.1 (or [::1])
-        let _local_bind_addr = first_local_socket.local_addr()?;
         let ret = vec![first_local_socket];
-        // note: we only bind to a single addr now, to drastically reduce complexity
-
         Ok(ret)
     }
 
