@@ -1,3 +1,4 @@
+#![doc(html_logo_url = "avarok.png", html_favicon_url = "favicon.png")]
 //! Software development kit for creating high performance, extremely-secure, and post-quantum network applications. Supports p2p (NAT traversal + WebRTC) and standard client/server architectures for
 //! messaging and streaming. The underlying asynchronous runtime is [Tokio](https://tokio.rs).
 //!
@@ -118,6 +119,7 @@
 //! [`NodeRemote::shutdown`]: crate::prelude::NodeRemote::shutdown
 //! [`NodeType`]: crate::prelude::NodeType
 //! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
+//! [`PeerConnectionType`]: crate::prelude::PeerConnectionType
 #![cfg_attr(not(feature = "localhost-testing"), deny(unsafe_code))]
 #![deny(
     clippy::cognitive_complexity,

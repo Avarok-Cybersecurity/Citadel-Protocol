@@ -128,7 +128,7 @@ pub struct ConnectionSuccess {
 pub struct RegisterSuccess {}
 
 #[async_trait]
-/// Endows the ['HdpServerRemote'] with additional functions
+/// Endows the [NodeRemote](crate::prelude::NodeRemote) with additional functions
 pub trait ProtocolRemoteExt: Remote {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
