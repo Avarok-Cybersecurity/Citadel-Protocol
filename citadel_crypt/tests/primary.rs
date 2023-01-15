@@ -22,13 +22,12 @@ mod tests {
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use rstest::rstest;
     use std::path::PathBuf;
-    use std::time::Instant;
 
     #[tokio::test]
     #[cfg(not(coverage))]
     async fn argon_autotuner() {
         citadel_logging::setup_log();
-        let start_time = Instant::now();
+        let start_time = std::time::Instant::now();
         let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None)
             .await
             .unwrap();
