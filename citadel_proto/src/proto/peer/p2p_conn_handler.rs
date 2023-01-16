@@ -117,10 +117,11 @@ async fn p2p_conn_handler(
                 let session = HdpSession::upgrade_weak(weak)
                     .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
 
+                /*
                 if p2p_stream.peer_addr()?.ip() != necessary_remote_addr.ip() {
                     log::warn!(target: "citadel", "Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
                     continue;
-                }
+                }*/
 
                 handle_p2p_stream(
                     p2p_stream,
