@@ -2,9 +2,9 @@ name: Validate PR
 on:
   workflow_call:
 
-concurrency:
-  group: ${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+#concurrency:
+#  group: ${{ github.head_ref || github.run_id }}
+#  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
