@@ -97,7 +97,7 @@ async fn setup_listener_non_initiator(
 async fn p2p_conn_handler(
     mut p2p_listener: GenericNetworkListener,
     session: HdpSession,
-    necessary_remote_addr: SocketAddr,
+    _necessary_remote_addr: SocketAddr,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
@@ -110,45 +110,42 @@ async fn p2p_conn_handler(
 
     log::trace!(target: "citadel", "[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
-    // loop until we get the right peer
-    loop {
-        return match p2p_listener.next().await {
-            Some(Ok((p2p_stream, _))) => {
-                let session = HdpSession::upgrade_weak(weak)
-                    .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
+    return match p2p_listener.next().await {
+        Some(Ok((p2p_stream, _))) => {
+            let session = HdpSession::upgrade_weak(weak)
+                .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
 
-                /*
-                if p2p_stream.peer_addr()?.ip() != necessary_remote_addr.ip() {
-                    log::warn!(target: "citadel", "Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
-                    continue;
-                }*/
+            /*
+            if p2p_stream.peer_addr()?.ip() != necessary_remote_addr.ip() {
+                log::warn!(target: "citadel", "Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
+                continue;
+            }*/
 
-                handle_p2p_stream(
-                    p2p_stream,
-                    implicated_cid,
-                    session,
-                    kernel_tx,
-                    true,
-                    v_conn,
-                    hole_punched_addr,
-                    ticket,
-                )?;
-                Ok(())
-            }
+            handle_p2p_stream(
+                p2p_stream,
+                implicated_cid,
+                session,
+                kernel_tx,
+                true,
+                v_conn,
+                hole_punched_addr,
+                ticket,
+            )?;
+            Ok(())
+        }
 
-            Some(Err(err)) => {
-                // on android/ios, when the program is backgrounded for days then turned on, this error will loop endlessly. As such, drop this future and end the session to give the program the chance to create a session anew
-                //const ERR_INVALID_ARGUMENT: i32 = 22;
-                log::error!(target: "citadel", "[P2P-stream] ERR: {:?}", err);
-                Err(NetworkError::Generic(err.to_string()))
-            }
+        Some(Err(err)) => {
+            // on android/ios, when the program is backgrounded for days then turned on, this error will loop endlessly. As such, drop this future and end the session to give the program the chance to create a session anew
+            //const ERR_INVALID_ARGUMENT: i32 = 22;
+            log::error!(target: "citadel", "[P2P-stream] ERR: {:?}", err);
+            Err(NetworkError::Generic(err.to_string()))
+        }
 
-            None => {
-                log::error!(target: "citadel", "P2P listener returned None. Stream dead");
-                Err(NetworkError::InternalError("P2P Listener returned None"))
-            }
-        };
-    }
+        None => {
+            log::error!(target: "citadel", "P2P listener returned None. Stream dead");
+            Err(NetworkError::InternalError("P2P Listener returned None"))
+        }
+    };
 }
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
