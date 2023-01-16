@@ -656,7 +656,7 @@ fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
     log::trace!(target: "citadel", "Will use Raw UDP for UDP transmission");
     UdpSplittableTypes::Raw(RawUdpSocketConnector::new(
         socket.socket,
-        socket.addr.receive_address,
+        socket.addr.send_address,
     ))
 }
 

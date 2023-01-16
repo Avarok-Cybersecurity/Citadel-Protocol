@@ -300,9 +300,9 @@ impl Method3 {
                     }
 
                     // this means there was a successful ping-pong.
-                    // initial would be address_we_went_to, natted would be peer_external_addr. For now, don't use these values (Wip)
+                    // initial should be address_we_went_to, natted would be peer_external_addr
                     let hole_punched_addr = TargettedSocketAddr::new(
-                        peer_external_addr,
+                        address_we_sent_to,
                         peer_external_addr,
                         adjacent_unique_id,
                     );

@@ -294,7 +294,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             .begin_udp_hole_punch(encrypted_config_container)
             .await
             .map_err(generic_error)?;
-        let remote_connect_addr = hole_punched_socket.addr.receive_address;
+        let remote_connect_addr = hole_punched_socket.addr.send_address;
         let addr = hole_punched_socket.addr;
         let local_addr = hole_punched_socket.socket.local_addr()?;
         log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
