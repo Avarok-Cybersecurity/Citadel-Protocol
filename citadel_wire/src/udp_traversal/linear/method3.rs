@@ -92,6 +92,17 @@ impl Method3 {
         let socket_wrapper = &UdpWrapper::new(socket);
 
         const MILLIS_DELTA: u64 = 20;
+        let packet_send_params = &SendPacketBarrageParams {
+            ttl_init: 20,
+            delta_ttl: Some(60),
+            socket: socket_wrapper,
+            endpoints,
+            encryptor,
+            millis_delta: MILLIS_DELTA,
+            count: 2,
+            unique_id: *unique_id,
+            this_node_type,
+        };
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
@@ -104,6 +115,7 @@ impl Method3 {
                     observed_addrs_on_syn,
                     MILLIS_DELTA,
                     this_node_type,
+                    packet_send_params,
                 ),
             )
             .await
@@ -119,19 +131,9 @@ impl Method3 {
 
         let sender_task = async move {
             //tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(
-                20,
-                Some(60),
-                socket_wrapper,
-                endpoints,
-                encryptor,
-                MILLIS_DELTA,
-                2,
-                *unique_id,
-                this_node_type,
-            )
-            .await
-            .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_packet_barrage(packet_send_params, true)
+                .await
+                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             //Self::send_syn_barrage(120, None, socket_wrapper, endpoints, encryptor,  MILLIS_DELTA, 3,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             Ok(()) as Result<(), FirewallError>
         };
@@ -155,20 +157,25 @@ impl Method3 {
 
     /// Some research papers explain that incrementing the TTL on the packet may be beneficial
     #[allow(clippy::too_many_arguments)]
-    async fn send_syn_barrage(
-        ttl_init: u32,
-        delta_ttl: Option<u32>,
-        socket: &UdpWrapper<'_>,
-        endpoints: &Vec<SocketAddr>,
-        encryptor: &EncryptedConfigContainer,
-        millis_delta: u64,
-        count: u32,
-        unique_id: HolePunchID,
-        this_node_type: RelativeNodeType,
+    async fn send_packet_barrage(
+        params: &SendPacketBarrageParams<'_>,
+        syn: bool,
     ) -> Result<(), anyhow::Error> {
-        let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
+        let SendPacketBarrageParams {
+            ttl_init,
+            delta_ttl,
+            socket,
+            endpoints,
+            encryptor,
+            millis_delta,
+            count,
+            unique_id,
+            this_node_type,
+        } = params;
+
+        let mut sleep = tokio::time::interval(Duration::from_millis(*millis_delta));
         let delta_ttl = delta_ttl.unwrap_or(0);
-        let ttls = (0..count)
+        let ttls = (0..*count)
             .into_iter()
             .map(|idx| ttl_init + (idx * delta_ttl))
             .collect::<Vec<u32>>();
@@ -176,10 +183,17 @@ impl Method3 {
         // fan-out all packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
             let _ = sleep.tick().await;
-            for endpoint in endpoints {
-                let packet = encryptor.generate_packet(
-                    &bincode2::serialize(&NatPacket::Syn(unique_id, ttl, this_node_type)).unwrap(),
-                );
+            let packet_ty = if syn {
+                NatPacket::Syn(*unique_id, ttl, *this_node_type)
+            } else {
+                // SynAck
+                NatPacket::SynAck(*unique_id, *this_node_type)
+            };
+
+            let packet_plaintext = bincode2::serialize(&packet_ty).unwrap();
+
+            for endpoint in endpoints.iter() {
+                let packet = encryptor.generate_packet(&packet_plaintext);
                 log::trace!(target: "citadel", "Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
                 if !socket.send(&packet, *endpoint, Some(ttl)).await? {
                     log::trace!(target: "citadel", "Early-terminating SYN barrage");
@@ -195,10 +209,11 @@ impl Method3 {
     async fn recv_until(
         socket: &UdpWrapper<'_>,
         encryptor: &EncryptedConfigContainer,
-        unique_id: &HolePunchID,
+        _unique_id: &HolePunchID,
         observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>,
-        millis_delta: u64,
+        _millis_delta: u64,
         this_node_type: RelativeNodeType,
+        send_packet_params: &SendPacketBarrageParams<'_>,
     ) -> Result<TargettedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
         log::trace!(target: "citadel", "[Hole-punch] Listening on {:?}", socket.socket.local_addr().unwrap());
@@ -239,23 +254,24 @@ impl Method3 {
                     observed_addrs_on_syn
                         .lock()
                         .insert(peer_unique_id, hole_punched_addr);
-
-                    let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
-
                     log::trace!(target: "citadel", "Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
 
                     has_received_syn = true;
                     expected_response_addr = Some(peer_external_addr);
 
-                    for ttl in [4, 60, 120] {
-                        sleep.tick().await;
-                        let packet = &encryptor.generate_packet(
-                            &bincode2::serialize(&NatPacket::SynAck(*unique_id, this_node_type))
-                                .unwrap(),
-                        );
-                        log::trace!(target: "citadel", "[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
-                        socket.send(packet, peer_external_addr, Some(ttl)).await?;
-                    }
+                    let send_addrs = send_packet_params
+                        .endpoints
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(peer_external_addr))
+                        .collect::<Vec<SocketAddr>>();
+
+                    let mut send_params = send_packet_params.clone();
+                    send_params.endpoints = &send_addrs;
+
+                    Self::send_packet_barrage(&send_params, false)
+                        .await
+                        .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
@@ -354,4 +370,17 @@ impl UdpWrapper<'_> {
     async fn stop_outgoing_traffic(&self) {
         *self.lock.lock().await = false
     }
+}
+
+#[derive(Clone)]
+struct SendPacketBarrageParams<'a> {
+    ttl_init: u32,
+    delta_ttl: Option<u32>,
+    socket: &'a UdpWrapper<'a>,
+    endpoints: &'a Vec<SocketAddr>,
+    encryptor: &'a EncryptedConfigContainer,
+    millis_delta: u64,
+    count: u32,
+    unique_id: HolePunchID,
+    this_node_type: RelativeNodeType,
 }
