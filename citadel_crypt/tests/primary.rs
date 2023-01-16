@@ -24,7 +24,6 @@ mod tests {
     use std::path::PathBuf;
 
     #[tokio::test]
-    #[cfg(not(coverage))]
     async fn argon_autotuner() {
         citadel_logging::setup_log();
         let start_time = std::time::Instant::now();
