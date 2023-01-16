@@ -4,7 +4,6 @@ mod tests {
     use citadel_crypt::argon::argon_container::{
         ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
     };
-    #[cfg(not(coverage))]
     use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_crypt::entropy_bank::SecurityLevel;
