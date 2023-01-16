@@ -28,8 +28,11 @@ localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_logg
 localhost-testing-assert-no-proxy = ["citadel_proto/localhost-testing-assert-no-proxy"]
 localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-only"]
 
+doc-images = ["embed-doc-image"]
+
 [dependencies]
 citadel_proto = { version = "0.1.0", path = "../citadel_proto", default-features = false }
+embed-doc-image = { version = "0.1.4", optional = true }
 tokio = { version = "1.24", default-features = false }
 futures = { version = "0.3.25", default-features = false }
 parking_lot = { default-features = false, version = "0.12.1" }

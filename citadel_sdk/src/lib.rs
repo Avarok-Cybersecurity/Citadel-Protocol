@@ -46,6 +46,14 @@
 //! the size of each packet is increased at a minimum constant value, helping keep packet sizes minimal and security very high.
 //!
 //! # Executor Architecture: The [`NetKernel`]
+#![cfg_attr(
+    feature = "doc-images",
+    doc = ::embed_doc_image::embed_image!(
+        "proto_kernel_iface",
+        "../resources/proto_kernel_iface.png"
+    )
+)]
+//! ![Protocol/Executor/NetKernel Architecture][proto_kernel_iface]
 //! Any node in the network may act as **both** a server and a client/peer (except for when [`NodeType::Peer`] or the default node type is specified). Since multiple parallel connections may exist, handling events is necessary. When the lower-level protocol produces events,
 //! they are sent to the [`NetKernel`]. The [`NetKernel`] is where your application logic must be written.
 //!

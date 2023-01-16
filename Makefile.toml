@@ -16,7 +16,7 @@ args = ["fmt", "--all"]
 
 [tasks.docs-html]
 command = "cargo"
-args = ["doc", "--package", "citadel_sdk", "--features", "webrtc", "--no-deps", "--release"]
+args = ["doc", "--package", "citadel_sdk", "--features=webrtc,doc-images", "--no-deps", "--release"]
 
 [tasks.pr]
 dependencies = ["fmt", "clippy"]
