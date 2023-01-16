@@ -14,9 +14,19 @@ args = ["clippy"]
 command = "cargo"
 args = ["fmt", "--all"]
 
+[tasks.git_lfs_fetch]
+command = "git"
+args = ["lfs", "fetch"]
+
+[tasks.git_lfs]
+command = "git"
+args = ["lfs", "pull"]
+dependencies = ["git_lfs_fetch"]
+
 [tasks.docs-html]
 command = "cargo"
 args = ["doc", "--package", "citadel_sdk", "--features=webrtc,doc-images", "--no-deps", "--release"]
+dependencies = ["git_lfs"]
 
 [tasks.pr]
 dependencies = ["fmt", "clippy"]
