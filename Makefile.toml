@@ -86,7 +86,7 @@ dependencies = ["install-llvm-tools"]
 
 [tasks.cov]
 command = "cargo"
-description = "Used to generate coverage information. add --html or --lcov"
+description = "Used to generate coverage information. Add --html (local) or --lcov (pipeline) for an exportable report"
 env = { "SKIP_EXT_BACKENDS" = "true" }
 args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs\"", "${@}"]
 dependencies = ["install-nextest", "install-llvm-cov"]
