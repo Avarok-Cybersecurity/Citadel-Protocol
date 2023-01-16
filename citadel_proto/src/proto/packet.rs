@@ -1,6 +1,4 @@
-use std::io;
-
-use byteorder::{NetworkEndian, WriteBytesExt};
+use byteorder::NetworkEndian;
 use bytes::{BufMut, Bytes, BytesMut};
 use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, I64, U128, U32, U64};
 
@@ -176,52 +174,12 @@ impl AsRef<[u8]> for HdpHeader {
 
 impl HdpHeader {
     /// Inscribes the header onto the packet
-    pub fn inscribe_into<B: BufMut>(&self, writer: &mut B) {
-        writer.put_u8(self.cmd_primary);
-        writer.put_u8(self.cmd_aux);
-        writer.put_u8(self.algorithm);
-        writer.put_u8(self.security_level);
-        writer.put_u128(self.context_info.get());
-        writer.put_u64(self.group.get());
-        writer.put_u32(self.wave_id.get());
-        writer.put_u64(self.session_cid.get());
-        writer.put_u32(self.drill_version.get());
-        writer.put_i64(self.timestamp.get());
-        writer.put_u64(self.target_cid.get());
-    }
-
-    /// similar to inscribe_into, except is meant for raw mutable buffers
-    pub fn inscribe_into_slice(&self, output: &mut [u8]) {
-        debug_assert_eq!(output.len(), HDP_HEADER_BYTE_LEN);
-
-        let mut writer = io::Cursor::new(output);
-        writer.write_u8(self.cmd_primary).unwrap();
-        writer.write_u8(self.cmd_aux).unwrap();
-        writer.write_u8(self.algorithm).unwrap();
-        writer.write_u8(self.security_level).unwrap();
-        writer
-            .write_u128::<NetworkEndian>(self.context_info.get())
-            .unwrap();
-        writer.write_u64::<NetworkEndian>(self.group.get()).unwrap();
-        writer
-            .write_u32::<NetworkEndian>(self.wave_id.get())
-            .unwrap();
-        writer
-            .write_u64::<NetworkEndian>(self.session_cid.get())
-            .unwrap();
-        writer
-            .write_u32::<NetworkEndian>(self.drill_version.get())
-            .unwrap();
-        writer
-            .write_i64::<NetworkEndian>(self.timestamp.get())
-            .unwrap();
-        writer
-            .write_u64::<NetworkEndian>(self.target_cid.get())
-            .unwrap();
+    pub fn inscribe_into<B: BufMut>(&self, mut writer: B) {
+        writer.put_slice(self.as_bytes())
     }
 
     /// Creates a packet from self
-    pub fn into_packet(self) -> BytesMut {
+    pub fn as_packet(&self) -> BytesMut {
         BytesMut::from(self.as_bytes())
     }
 }

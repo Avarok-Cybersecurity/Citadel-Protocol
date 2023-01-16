@@ -230,6 +230,8 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(
 
     match cfg {
         Either::Left(cfg) => {
+            // enable migration on the server to allow NAT rebinding
+            cfg.migration(true);
             cfg.transport_config(Arc::new(transport_cfg));
         }
         Either::Right(cfg) => {

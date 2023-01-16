@@ -5,6 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-APACHE)
 [![Slack](https://img.shields.io/badge/Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://avarokcybersecurity.slack.com)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)
+![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ### A post-quantum signal-like protocol that makes developing hyper-secure client-to-server and p2p applications easy
 # Whitepaper
 The whitepaper for the Citadel Protocol can be found in the repository [here](The_Citadel_Protocol.pdf). Note: this whitepaper has not been updated since July 2022. While the protocol is very similar to what is covered in the whitepaper, it has since evolved. The whitepaper will be synced to the source code in the near future.

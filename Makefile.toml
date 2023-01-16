@@ -22,8 +22,7 @@ args = ["doc", "--package", "citadel_sdk", "--features", "webrtc", "--no-deps", 
 dependencies = ["fmt", "clippy"]
 
 [tasks.install-binstall]
-command = "cargo"
-args = ["install", "cargo-binstall"]
+install_crate = { crate_name = "cargo-binstall", binary = "cargo", test_arg = ["binstall", "--help"] }
 
 [tasks.install-nextest]
 command = "cargo"
@@ -77,6 +76,17 @@ fn main() {
 }
 '''
 
-[tasks.check-docs]
+[tasks.install-llvm-tools]
+command = "rustup"
+args = ["component", "add", "llvm-tools-preview", "--toolchain", "nightly"]
+
+[tasks.install-llvm-cov]
+install_crate = { crate_name = "cargo-llvm-cov", binary = "cargo", test_arg = ["llvm-cov", "--help"] }
+dependencies = ["install-llvm-tools"]
+
+[tasks.cov]
 command = "cargo"
-args = ["doc", "--package", "citadel_sdk", "--features", "webrtc", "--no-deps", "--dry-run"]
+description = "Used to generate coverage information. Add --html (local) or --lcov (pipeline) for an exportable report"
+env = { "SKIP_EXT_BACKENDS" = "true" }
+args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs\"", "${@}"]
+dependencies = ["install-nextest", "install-llvm-cov"]

@@ -266,7 +266,7 @@ pub(crate) mod group {
             let mut packet = processor.get_unencrypted_oneshot_packet().unwrap().inner;
             packet
                 .write_header(|buf| {
-                    header.inscribe_into_slice(&mut *buf);
+                    header.inscribe_into(&mut *buf);
                     Ok(())
                 })
                 .unwrap();
@@ -362,7 +362,7 @@ pub(crate) mod group {
         scramble_drill: &EntropyBank,
         object_id: u32,
         target_cid: u64,
-        buffer: &mut BytesMut,
+        mut buffer: &mut BytesMut,
     ) {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -379,7 +379,7 @@ pub(crate) mod group {
         };
 
         // inscribe the header into the supplied buffer
-        header.inscribe_into(buffer);
+        header.inscribe_into(&mut buffer);
         let src_port = coords.local_port;
         let remote_port = coords.remote_port;
         debug_assert!(src_port <= scramble_drill.get_multiport_width() as u16);
@@ -614,7 +614,7 @@ pub(crate) mod keep_alive {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
@@ -668,7 +668,7 @@ pub(crate) mod do_register {
         };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
-        packet.put(header.into_packet());
+        packet.put(header.as_packet());
 
         DoRegisterStage0 {
             transfer,
@@ -851,7 +851,7 @@ pub mod do_disconnect {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
@@ -881,7 +881,7 @@ pub mod do_disconnect {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
@@ -1081,7 +1081,7 @@ pub(crate) mod do_deregister {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
 
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
@@ -1117,7 +1117,7 @@ pub(crate) mod do_deregister {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
 
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
@@ -1321,7 +1321,7 @@ pub(crate) mod pre_connect {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
 
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
@@ -1348,7 +1348,7 @@ pub(crate) mod pre_connect {
             target_cid: U64::new(0),
         };
 
-        let mut packet = header.into_packet();
+        let mut packet = header.as_packet();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
