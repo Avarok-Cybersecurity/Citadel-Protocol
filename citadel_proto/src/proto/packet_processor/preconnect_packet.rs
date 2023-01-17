@@ -679,6 +679,7 @@ fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpS
     UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(quic_conn, local_addr))
 }
 
+#[cfg(test)]
 mod tests {
     use crate::constants::PROTOCOL_VERSION;
     use crate::proto::packet_processor::preconnect_packet::proto_version_out_of_sync;
