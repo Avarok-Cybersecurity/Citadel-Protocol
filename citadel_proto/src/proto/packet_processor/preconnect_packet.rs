@@ -678,3 +678,61 @@ fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpS
     log::trace!(target: "citadel", "Will use QUIC UDP for UDP transmission");
     UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(quic_conn, local_addr))
 }
+
+mod tests {
+    use crate::constants::PROTOCOL_VERSION;
+    use crate::proto::packet_processor::preconnect_packet::proto_version_out_of_sync;
+
+    #[test]
+    fn test_good_version() {
+        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
+        for shift in 1..3 {
+            let their_version = embedded_semver::Semver::new(
+                our_version.major,
+                our_version.minor,
+                our_version.patch + shift,
+            );
+            assert_eq!(
+                false,
+                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn test_bad_major_version() {
+        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
+        for shift in 1..3 {
+            let their_version = embedded_semver::Semver::new(
+                our_version.major + shift,
+                our_version.minor,
+                our_version.patch,
+            );
+            assert_eq!(
+                true,
+                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn test_bad_minor_version() {
+        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
+        for shift in 1..3 {
+            let their_version = embedded_semver::Semver::new(
+                our_version.major,
+                our_version.minor + shift,
+                our_version.patch,
+            );
+            assert_eq!(
+                true,
+                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn test_bad_parse() {
+        assert!(proto_version_out_of_sync(u32::MAX).is_err());
+    }
+}
