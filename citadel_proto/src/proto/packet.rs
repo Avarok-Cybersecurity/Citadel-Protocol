@@ -150,6 +150,7 @@ pub struct HdpHeader {
     pub algorithm: u8,
     /// A value [0,4]
     pub security_level: u8,
+    pub protocol_version: U32<NetworkEndian>,
     /// Some commands require arguments; the u128 can hold 16 bytes
     pub context_info: U128<NetworkEndian>,
     /// A unique ID given to a subset of a singular object

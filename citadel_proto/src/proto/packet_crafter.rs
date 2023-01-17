@@ -249,6 +249,7 @@ pub(crate) mod group {
         let is_fast_message = u8::from(processor.is_message);
 
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
             algorithm: is_fast_message,
@@ -323,6 +324,7 @@ pub(crate) mod group {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER_ACK,
             algorithm: 0,
@@ -365,6 +367,7 @@ pub(crate) mod group {
         mut buffer: &mut BytesMut,
     ) {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_PAYLOAD,
             algorithm: 0,
@@ -401,6 +404,7 @@ pub(crate) mod group {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::WAVE_ACK,
             algorithm: 0,
@@ -455,6 +459,7 @@ pub(crate) mod do_connect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_connect::STAGE0,
             algorithm: 0,
@@ -530,6 +535,7 @@ pub(crate) mod do_connect {
         };
 
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
             cmd_aux,
             algorithm: 0,
@@ -562,6 +568,7 @@ pub(crate) mod do_connect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_connect::SUCCESS_ACK,
             algorithm: 0,
@@ -601,6 +608,7 @@ pub(crate) mod keep_alive {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::KEEP_ALIVE,
             cmd_aux: 0,
             algorithm: 0,
@@ -654,6 +662,7 @@ pub(crate) mod do_register {
         proposed_cid: u64,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
             algorithm,
@@ -688,6 +697,7 @@ pub(crate) mod do_register {
         proposed_cid: u64,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE1,
             algorithm,
@@ -724,6 +734,7 @@ pub(crate) mod do_register {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
             algorithm,
@@ -763,6 +774,7 @@ pub(crate) mod do_register {
         let success_message = success_message.as_ref();
         let success_message_len = success_message.len();
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::SUCCESS,
             algorithm,
@@ -797,6 +809,7 @@ pub(crate) mod do_register {
         let error_message = error_message.as_ref();
 
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::FAILURE,
             algorithm,
@@ -838,6 +851,7 @@ pub mod do_disconnect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DISCONNECT,
             cmd_aux: packet_flags::cmd::aux::do_disconnect::STAGE0,
             algorithm: 0,
@@ -868,6 +882,7 @@ pub mod do_disconnect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DISCONNECT,
             cmd_aux: packet_flags::cmd::aux::do_disconnect::FINAL,
             algorithm: 0,
@@ -912,6 +927,7 @@ pub(crate) mod do_drill_update {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
             algorithm: 0,
@@ -949,6 +965,7 @@ pub(crate) mod do_drill_update {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE1,
             algorithm: 0,
@@ -988,6 +1005,7 @@ pub(crate) mod do_drill_update {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE,
             algorithm: 0,
@@ -1027,6 +1045,7 @@ pub(crate) mod do_drill_update {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE_ACK,
             algorithm: 0,
@@ -1068,6 +1087,7 @@ pub(crate) mod do_deregister {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DEREGISTER,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
             algorithm: 0,
@@ -1104,6 +1124,7 @@ pub(crate) mod do_deregister {
         };
 
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DEREGISTER,
             cmd_aux,
             algorithm: 0,
@@ -1172,12 +1193,13 @@ pub(crate) mod pre_connect {
         connect_mode: ConnectMode,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
-            group: U64::new(crate::constants::BUILD_VERSION as u64),
+            group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
             drill_version: U32::new(static_aux_hr.version()),
@@ -1220,6 +1242,7 @@ pub(crate) mod pre_connect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN_ACK,
             algorithm: 0,
@@ -1260,6 +1283,7 @@ pub(crate) mod pre_connect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE0,
             algorithm: 0,
@@ -1308,6 +1332,7 @@ pub(crate) mod pre_connect {
         };
 
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux,
             algorithm,
@@ -1335,6 +1360,7 @@ pub(crate) mod pre_connect {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::BEGIN_CONNECT,
             algorithm: 0,
@@ -1357,6 +1383,7 @@ pub(crate) mod pre_connect {
 
     pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &HdpHeader, fail_reason: T) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::HALT,
             algorithm: 0,
@@ -1407,6 +1434,7 @@ pub(crate) mod peer_cmd {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
             algorithm: 0,
@@ -1444,6 +1472,7 @@ pub(crate) mod peer_cmd {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
             algorithm: 0,
@@ -1482,6 +1511,7 @@ pub(crate) mod peer_cmd {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::CHANNEL,
             algorithm: 0,
@@ -1519,6 +1549,7 @@ pub(crate) mod peer_cmd {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST,
             algorithm: 0,
@@ -1569,6 +1600,7 @@ pub(crate) mod file {
         let metadata_serialized = file_metadata.serialize();
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
             cmd_aux: packet_flags::cmd::aux::file::FILE_HEADER,
             algorithm: 0,
@@ -1614,6 +1646,7 @@ pub(crate) mod file {
         let success: u64 = u64::from(success);
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
             cmd_aux: packet_flags::cmd::aux::file::FILE_HEADER_ACK,
             algorithm: 0,
@@ -1657,6 +1690,7 @@ pub(crate) mod udp {
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::UDP,
             cmd_aux,
             algorithm: 0,
@@ -1697,6 +1731,7 @@ pub(crate) mod hole_punch {
         target_cid: u64,
     ) -> BytesMut {
         let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::HOLE_PUNCH,
             cmd_aux: packet_flags::cmd::aux::udp::HOLE_PUNCH,
             algorithm: 0,

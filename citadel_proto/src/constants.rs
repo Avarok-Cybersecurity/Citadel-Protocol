@@ -1,7 +1,12 @@
 use crate::proto::packet::HdpHeader;
 use crate::proto::peer::peer_layer::UdpMode;
+use embedded_semver::prelude::*;
+use lazy_static::lazy_static;
 
-pub const BUILD_VERSION: usize = 7463;
+lazy_static! {
+    pub static ref PROTOCOL_VERSION: u32 = Semver::new(0, 1, 1).to_u32().unwrap();
+}
+
 /// by default, the UDP is not initialized
 pub const UDP_MODE: UdpMode = UdpMode::Disabled;
 /// Setting this option to zero will imply an RST gets sent once close() is called. This will lead to packets possibly being undelivered
