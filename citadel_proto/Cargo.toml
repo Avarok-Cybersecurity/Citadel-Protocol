@@ -42,6 +42,8 @@ wasm = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+embedded-semver = { version = "0.3.0", default-features = false }
+lazy_static = { version = "1.4.0", default-features = false }
 futures = { version = "0.3.25", default-features = false }
 log = { default-features = false, version = "0.4.17" }
 async-trait = { default-features = false, version = "0.1.61" }

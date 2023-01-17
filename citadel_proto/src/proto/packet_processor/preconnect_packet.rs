@@ -46,6 +46,12 @@ pub async fn process_preconnect(
         match header.cmd_aux {
             packet_flags::cmd::aux::do_preconnect::SYN => {
                 log::trace!(target: "citadel", "RECV STAGE SYN PRE_CONNECT PACKET");
+                // TODO: prevent logins if semvers out of sync. For now, don't
+                let adjacent_proto_version = header.protocol_version.get();
+                if proto_version_out_of_sync(adjacent_proto_version)? {
+                    log::warn!(target: "citadel", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", *crate::constants::PROTOCOL_VERSION, adjacent_proto_version);
+                    // TODO: protocol translations for inter-version compatibility
+                }
                 // first make sure the cid isn't already connected
                 let session_already_active = session
                     .session_manager
@@ -70,7 +76,6 @@ pub async fn process_preconnect(
                     .await?
                 {
                     let mut state_container = inner_mut_state!(session.state_container);
-                    let adjacent_proto_version = header.group.get();
 
                     match validation::pre_connect::validate_syn(
                         &cnac,
@@ -92,11 +97,6 @@ pub async fn process_preconnect(
                                 Some(new_hyper_ratchet);
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level;
-
-                            // TODO: prevent logins if semvers out of sync. For now, don't
-                            if proto_version_out_of_sync(adjacent_proto_version) {
-                                log::warn!(target: "citadel", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
-                            }
 
                             log::trace!(target: "citadel", "Synchronizing toolsets. UDP mode: {:?}. Session security level: {:?}", udp_mode, new_session_sec_lvl);
                             // TODO: Rate limiting to prevent SYN flooding
@@ -648,8 +648,22 @@ pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
     (sync_time_instant, sync_time_ns)
 }
 
-fn proto_version_out_of_sync(adjacent_proto_version: u64) -> bool {
-    adjacent_proto_version as usize != crate::constants::BUILD_VERSION
+fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, NetworkError> {
+    use embedded_semver::Semver;
+    match Semver::from_u32(adjacent_proto_version) {
+        Ok(their_version) => {
+            let our_version = Semver::from_u32(*crate::constants::PROTOCOL_VERSION).unwrap();
+            // if either major or minor releases are not equal, assume breaking change
+            Ok(
+                their_version.major != our_version.major
+                    || their_version.minor != our_version.minor,
+            )
+        }
+
+        Err(_) => Err(NetworkError::InvalidRequest(
+            "Unable to parse incoming protocol semver",
+        )),
+    }
 }
 
 fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
@@ -663,4 +677,63 @@ fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
 fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpSplittableTypes {
     log::trace!(target: "citadel", "Will use QUIC UDP for UDP transmission");
     UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(quic_conn, local_addr))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::constants::PROTOCOL_VERSION;
+    use crate::proto::packet_processor::preconnect_packet::proto_version_out_of_sync;
+
+    #[test]
+    fn test_good_version() {
+        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
+        for shift in 1..3 {
+            let their_version = embedded_semver::Semver::new(
+                our_version.major,
+                our_version.minor,
+                our_version.patch + shift,
+            );
+            assert_eq!(
+                false,
+                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn test_bad_major_version() {
+        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
+        for shift in 1..3 {
+            let their_version = embedded_semver::Semver::new(
+                our_version.major + shift,
+                our_version.minor,
+                our_version.patch,
+            );
+            assert_eq!(
+                true,
+                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn test_bad_minor_version() {
+        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
+        for shift in 1..3 {
+            let their_version = embedded_semver::Semver::new(
+                our_version.major,
+                our_version.minor + shift,
+                our_version.patch,
+            );
+            assert_eq!(
+                true,
+                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn test_bad_parse() {
+        assert!(proto_version_out_of_sync(u32::MAX).is_err());
+    }
 }
