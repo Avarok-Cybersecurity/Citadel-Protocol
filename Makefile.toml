@@ -100,3 +100,116 @@ description = "Used to generate coverage information. Add --html (local) or --lc
 env = { "SKIP_EXT_BACKENDS" = "true" }
 args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs\"", "${@}"]
 dependencies = ["install-nextest", "install-llvm-cov"]
+
+[tasks.bump]
+script_runner = "@rust"
+script = '''
+//! ```cargo
+use std::str::FromStr;
+
+fn main() {
+    let bump_major = std::env::var("BUMP_PROTO_CITADEL_MAJOR").ok();
+    let bump_minor = std::env::var("BUMP_PROTO_CITADEL_MINOR").ok();
+    let bump_patch = std::env::var("BUMP_PROTO_CITADEL_PATCH").ok();
+    const MAJOR_VERS_STR: &str = "pub const MAJOR_VERSION: u8 = ";
+    const MINOR_VERS_STR: &str = "pub const MINOR_VERSION: u8 = ";
+    const PATCH_VERS_STR: &str = "pub const PATCH_VERSION: u8 = ";
+
+    let cnt = bump_major.is_some() as u8 + bump_minor.is_some() as u8 + bump_patch.is_some() as u8;
+
+    if cnt == 0 || cnt > 1 {
+        panic!("Exactly one relevant environment variable must be set")
+    }
+
+    let constants_file_str = std::fs::read_to_string("./citadel_proto/src/constants.rs").unwrap();
+    let mut new_constants_file = vec![];
+
+    let mut current_major_version = None;
+    let mut current_minor_version = None;
+    let mut current_patch_version = None;
+
+    // step 1: extract current values
+    for line in constants_file_str.lines() {
+        if let Some(major) = maybe_extract_value_for(line, MAJOR_VERS_STR) {
+            current_major_version = Some(major)
+        }
+
+        if let Some(minor) = maybe_extract_value_for(line, MINOR_VERS_STR) {
+            current_minor_version = Some(minor)
+        }
+
+        if let Some(patch) = maybe_extract_value_for(line, PATCH_VERS_STR) {
+            current_patch_version = Some(patch)
+        }
+
+        if current_major_version.is_some()
+            && current_minor_version.is_some()
+            && current_patch_version.is_some()
+        {
+            break;
+        }
+    }
+
+    let (current_major_version, current_minor_version, current_patch_version) = (
+        current_major_version.unwrap(),
+        current_minor_version.unwrap(),
+        current_patch_version.unwrap(),
+    );
+
+    // step 2: calculate next values
+    let (new_major, new_minor, new_patch) = if bump_major.is_some() {
+        (current_major_version + 1, 0u8, 0u8)
+    } else if bump_minor.is_some() {
+        (current_major_version, current_minor_version + 1, 0u8)
+    } else {
+        // bump patch
+        (
+            current_major_version,
+            current_minor_version,
+            current_patch_version + 1,
+        )
+    };
+
+    // step 3: begin writing the new file
+    for line in constants_file_str.lines() {
+        if line.contains(MAJOR_VERS_STR) {
+            new_constants_file.push(format!("{}{};", MAJOR_VERS_STR, new_major));
+            continue;
+        }
+
+        if line.contains(MINOR_VERS_STR) {
+            new_constants_file.push(format!("{}{};", MINOR_VERS_STR, new_minor));
+            continue;
+        }
+
+        if line.contains(PATCH_VERS_STR) {
+            new_constants_file.push(format!("{}{};", PATCH_VERS_STR, new_patch));
+            continue;
+        }
+
+        new_constants_file.push(line.to_string())
+    }
+
+    std::fs::write(
+        "./citadel_proto/src/constants.rs",
+        new_constants_file.join("\n"),
+    )
+    .unwrap()
+}
+
+fn maybe_extract_value_for(line: &str, line_str_name: &str) -> Option<u8> {
+    if line.contains(line_str_name) {
+        let current_value = line
+            .split(line_str_name)
+            .skip(1)
+            .next()
+            .unwrap()
+            .trim()
+            .replace(";", "");
+
+        Some(u8::from_str(&current_value).unwrap())
+    } else {
+        None
+    }
+}
+'''

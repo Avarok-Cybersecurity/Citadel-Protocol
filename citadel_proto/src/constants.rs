@@ -3,8 +3,17 @@ use crate::proto::peer::peer_layer::UdpMode;
 use embedded_semver::prelude::*;
 use lazy_static::lazy_static;
 
+// Note: these values can each be up to 1024 in size, but, to be safe, we fix the upper
+// bound to 255 (u8::MAX) to ensure that the values fit inside the u32 bit packer
+pub const MAJOR_VERSION: u8 = 0;
+pub const MINOR_VERSION: u8 = 1;
+pub const PATCH_VERSION: u8 = 1;
+
 lazy_static! {
-    pub static ref PROTOCOL_VERSION: u32 = Semver::new(0, 1, 1).to_u32().unwrap();
+    pub static ref PROTOCOL_VERSION: u32 =
+        Semver::new(MAJOR_VERSION as _, MINOR_VERSION as _, PATCH_VERSION as _)
+            .to_u32()
+            .unwrap();
 }
 
 /// by default, the UDP is not initialized
