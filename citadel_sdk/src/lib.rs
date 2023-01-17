@@ -45,6 +45,37 @@
 //! the ciphertext before using the AES key. Since every 32 bytes of input into the Kyber encryption scheme produces over a 1KB output ciphertext, and, each quasi-OTP is 32 bytes long,
 //! the size of each packet is increased at a minimum constant value, helping keep packet sizes minimal and security very high.
 //!
+//! # Network Architecture
+#![cfg_attr(
+    feature = "doc-images",
+    doc = ::embed_doc_image::embed_image!(
+    "network_direct_p2p",
+    "../resources/network_direct_p2p.png"
+    )
+)]
+//! ![Network Architecture w/ direct P2P][network_direct_p2p]
+//! Each network has a central node that peers may connect to. This central node helps facilitate P2P connections, and, can itself serve
+//! as a peer on a network if the program implementation on the central server so chooses.
+//!
+//! The peers Alice and Bob can only connect to each other after they use the central server to **register** to each other. Once registered, the two peers
+//! may begin attempting connecting to each other via NAT traversal. Each peer begins NAT traversal by attempting to determine what type of NAT
+//! they're each behind by communicating to 3 different STUN servers to find a predictable pattern in their internal/external socket mappings.
+//! If at least one has a predictable pattern, a direct P2P connection bypassing the central server may be facilitated.
+//!
+//! If, however, both Alice and Bob do not have predictable internal/external socket mappings (e.g., both are behind symmetric NATs), then, both will use
+//! their central server to relay their packets to each other using endpoint to endpoint encryption, preventing the central server from
+//! decrypting the packets.
+//!
+#![cfg_attr(
+    feature = "doc-images",
+    doc = ::embed_doc_image::embed_image!(
+    "network_relay_p2p",
+    "../resources/network_relay_p2p.png"
+    )
+)]
+//! ![Network Architecture w/ relay P2P][network_relay_p2p]
+//!
+//!
 //! # Executor Architecture: The [`NetKernel`]
 #![cfg_attr(
     feature = "doc-images",
