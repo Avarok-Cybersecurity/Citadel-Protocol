@@ -24,7 +24,6 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - name: Compile documentation
         run: cargo make docs
-
       - name: Deploy documentation
         if: success()
         uses: crazy-max/ghaction-github-pages@v2.6.0
