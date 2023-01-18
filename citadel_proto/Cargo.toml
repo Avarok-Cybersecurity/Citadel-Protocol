@@ -67,7 +67,7 @@ citadel_wire = { path = "../citadel_wire", version = "0.3.0", default-features=f
 citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.3.0", default-features=false }
 netbeam = { path = "../netbeam", version = "0.3.0", default-features=false }
 once_cell = { default-features = false, version = "1.17.0" }
-webrtc-util = { version = "0.5.4", optional = true }
+webrtc-util = { version = "0.7.0", optional = true }
 uuid = { version = "1.2.2", default-features = false, features = ["serde", "v4"] }
 itertools = { default-features = false, version = "0.10.5" }
 tracing = { version = "0.1.37", default-features = false, optional = true }
