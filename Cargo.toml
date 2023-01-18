@@ -11,8 +11,8 @@ members = [
     "firebase-rtdb",
     "netbeam",
 	"citadel_logging",
-    "citadel_runtime",
-    "citadel_runtime"
+    "citadel_io",
+    "citadel_io"
 ]
 
 exclude = [

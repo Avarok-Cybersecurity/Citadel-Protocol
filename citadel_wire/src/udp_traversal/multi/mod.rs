@@ -114,7 +114,7 @@ async fn drive(
         tokio::sync::broadcast::channel(hole_punchers.len());
     let (ref post_rebuild_tx, post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    let final_candidate_tx = &mut citadel_runtime::Mutex::new(Some(final_candidate_tx));
+    let final_candidate_tx = &mut citadel_io::Mutex::new(Some(final_candidate_tx));
 
     let submit_final_candidate = &(|candidate: HolePunchedUdpSocket| -> Result<(), anyhow::Error> {
         let tx = final_candidate_tx
@@ -135,7 +135,7 @@ async fn drive(
         post_rebuild_rx: Some(post_rebuild_rx),
     });
 
-    let loser_value_set = &citadel_runtime::Mutex::new(None);
+    let loser_value_set = &citadel_io::Mutex::new(None);
 
     let mut futures = FuturesUnordered::new();
     for (kill_switch_rx, mut hole_puncher) in hole_punchers
@@ -155,7 +155,7 @@ async fn drive(
     }
 
     let current_enqueued = &tokio::sync::Mutex::new(None);
-    let finished_count = &citadel_runtime::Mutex::new(0);
+    let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
     // This is called to scan currently-running tasks to terminate, and, returning the rebuilt
@@ -206,7 +206,7 @@ async fn drive(
     };
 
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
-    let done_tx = citadel_runtime::Mutex::new(Some(done_tx));
+    let done_tx = citadel_io::Mutex::new(Some(done_tx));
 
     let signal_done = || -> Result<(), anyhow::Error> {
         let tx = done_tx

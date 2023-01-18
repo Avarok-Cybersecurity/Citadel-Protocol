@@ -65,7 +65,7 @@ impl Default for NatType {
 
 // we only need to check the NAT type once per node
 lazy_static::lazy_static! {
-    pub static ref LOCALHOST_TESTING_NAT_TYPE: citadel_runtime::Mutex<Option<NatType>> = citadel_runtime::Mutex::new(None);
+    pub static ref LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> = citadel_io::Mutex::new(None);
 }
 
 impl NatType {

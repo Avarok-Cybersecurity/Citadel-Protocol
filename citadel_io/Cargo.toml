@@ -1,5 +1,5 @@
 [package]
-name = "citadel_runtime"
+name = "citadel_io"
 version = "0.3.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"

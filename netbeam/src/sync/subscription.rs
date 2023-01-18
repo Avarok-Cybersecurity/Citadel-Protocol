@@ -6,7 +6,7 @@ use crate::sync::network_application::{
 use crate::sync::RelativeNodeType;
 use async_trait::async_trait;
 use bytes::Bytes;
-use citadel_runtime::RwLock;
+use citadel_io::RwLock;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;

@@ -25,11 +25,11 @@ std = [
     "byteorder/std",
     "rand/std",
     "tokio/default",
-    "citadel_runtime/std"
+    "citadel_io/std"
 ]
 wasm = [
     "citadel_pqcrypto/wasm",
-    "citadel_runtime/wasm"
+    "citadel_io/wasm"
 ]
 
 [dependencies]
@@ -45,7 +45,7 @@ rand = { version = "0.8.5", default-features = false }
 rayon = { default-features = false, version = "1.6.1" }
 arrayvec = { version = "0.7.2", default-features = false, features = ["serde"] }
 citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.3.0", default-features = false }
-citadel_runtime = { path = "../citadel_runtime", version = "0.3.0", default-features = false }
+citadel_io = { path = "../citadel_io", version = "0.3.0", default-features = false }
 bitvec = { default-features = false, version = "1.0.1", features = ["alloc"]}
 serde-big-array = { default-features = false, version = "0.4.1"}
 rust-argon2 = "1.0.0"
