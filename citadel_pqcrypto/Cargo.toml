@@ -1,6 +1,6 @@
 [package]
 name = "citadel_pqcrypto"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Lower-level cryptographic library for the Citadel Protocol"
 edition = "2021"
@@ -61,7 +61,7 @@ pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = 
 pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
 
 [dev-dependencies]
-citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.2.0" }
 
 [lib]
 doctest = false
