@@ -50,7 +50,7 @@ sha3 = { version = "0.10", default-features = false }
 kyber-pke = { version = "0.3.0", default-features = false, features=["90s"] }
 packed_struct = { version = "0.10.1", features = ["serde"] }
 rand = { version = "0.8.5", default-features = false }
-getrandom = { version = "*", default-features = false, features = ["js"], optional = true }
+getrandom = { version = "0.2.8", default-features = false, features = ["js"], optional = true }
 serde-big-array = { default-features = false, version = "0.4.1"}
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
