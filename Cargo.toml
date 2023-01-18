@@ -10,7 +10,6 @@ members = [
 	"citadel_proto",
     "firebase-rtdb",
     "netbeam",
-	"dpb_kem",
 	"citadel_logging",
     "citadel_runtime",
     "citadel_runtime"
