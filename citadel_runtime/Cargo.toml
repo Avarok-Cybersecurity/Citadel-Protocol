@@ -1,6 +1,6 @@
 [package]
 name = "citadel_runtime"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
 description = "Underlying runtime for interfacing with I/O for std/wasm targets"

@@ -1,6 +1,6 @@
 [package]
 name = "firebase-rtdb"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Firebase client for the Citadel Protocol"
 edition = "2021"
@@ -20,4 +20,4 @@ serde = { version = "1.0.152", features = ["derive"] }
 
 [dev-dependencies]
 tokio = { version = "1.24", features = ["full"] }
-citadel_logging = { path = "../citadel_logging", version = "0.2.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.3.0" }
