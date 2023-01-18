@@ -220,15 +220,18 @@ install_crate = { crate_name = "cargo-workspaces", binary = "cargo", test_arg = 
 
 [tasks.publish-patch]
 command = "cargo"
-args = ["workspaces", "publish", "patch"]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "--yes", "patch"]
 dependencies = ["publish-install-deps"]
 
 [tasks.publish-minor]
 command = "cargo"
-args = ["workspaces", "publish", "minor"]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "--yes", "minor"]
 dependencies = ["publish-install-deps"]
 
 [tasks.publish-major]
 command = "cargo"
-args = ["workspaces", "publish", "major"]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "--yes", "major"]
 dependencies = ["publish-install-deps"]
