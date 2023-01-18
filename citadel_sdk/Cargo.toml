@@ -2,6 +2,7 @@
 name = "citadel_sdk"
 version = "0.1.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "High-level library to build applications on the Citadel Protocol"
 edition = "2021"
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"

@@ -2,6 +2,7 @@
 name = "citadel_user"
 version = "0.1.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "User backend library for the Citadel Protocol"
 edition = "2021"
 workspace = ".."
 homepage = "https://avarok.net/"
@@ -39,7 +40,6 @@ serde_millis = { default-features = false, version = "0.1.1" }
 tokio = { version = "1.24", default-features = false, features = ["io-util"] }
 async-trait = { default-features = false, version = "0.1.61" }
 futures = { version = "0.3.25", default-features = false }
-#future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
 rand = { version = "0.8.5", default-features = false }
 multimap = { default-features = false, version = "0.8.3", features = ["serde_impl"] }
 parking_lot = { version = "0.12.1", features = ["serde"] }

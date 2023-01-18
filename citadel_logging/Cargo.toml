@@ -14,6 +14,5 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 tracing = "0.1.37"
-#tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", features = ["env-filter"] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 log = "0.4.17"
