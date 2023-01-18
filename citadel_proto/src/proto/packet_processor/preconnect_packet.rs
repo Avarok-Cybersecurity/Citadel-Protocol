@@ -652,11 +652,10 @@ fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, Networ
     use embedded_semver::Semver;
     match Semver::from_u32(adjacent_proto_version) {
         Ok(their_version) => {
-            let our_version = Semver::from_u32(*crate::constants::PROTOCOL_VERSION).unwrap();
             // if either major or minor releases are not equal, assume breaking change
             Ok(
-                their_version.major != our_version.major
-                    || their_version.minor != our_version.minor,
+                their_version.major != crate::constants::MAJOR_VERSION as usize
+                    || their_version.minor != crate::constants::MINOR_VERSION as usize,
             )
         }
 

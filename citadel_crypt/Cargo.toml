@@ -1,7 +1,8 @@
 [package]
 name = "citadel_crypt"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "Higher-level cryptographic library for the Citadel Protocol"
 edition = "2021"
 workspace = ".."
 homepage = "https://avarok.net/"
@@ -43,8 +44,8 @@ num-integer = { default-features = false, version = "0.1.45" }
 rand = { version = "0.8.5", default-features = false }
 rayon = { default-features = false, version = "1.6.1" }
 arrayvec = { version = "0.7.2", default-features = false, features = ["serde"] }
-citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.1.1", default-features = false }
-citadel_runtime = { path = "../citadel_runtime", version = "0.1.0", default-features = false }
+citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.2.0", default-features = false }
+citadel_runtime = { path = "../citadel_runtime", version = "0.2.0", default-features = false }
 bitvec = { default-features = false, version = "1.0.1", features = ["alloc"]}
 serde-big-array = { default-features = false, version = "0.4.1"}
 rust-argon2 = "1.0.0"
@@ -62,7 +63,7 @@ libc = "0.2.139"
 kernel32-sys = "0.2.2"
 
 [dev-dependencies]
-citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.2.0" }
 rstest = "0.16.0"
 
 

@@ -1,7 +1,8 @@
 [package]
 name = "citadel_pqcrypto"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "Lower-level cryptographic library for the Citadel Protocol"
 edition = "2021"
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
@@ -46,7 +47,7 @@ parking_lot = { version = "0.12.1", features = ["serde"] }
 log = { default-features = false, version = "0.4.17" }
 strum = { version = "0.24.1", default-features = false, features = ["derive"] }
 sha3 = { version = "0.10", default-features = false }
-kyber-pke = { git = "https://github.com/Avarok-Cybersecurity/kyber-pke", default-features = false, branch = "master", features=["90s"] }
+kyber-pke = { version = "0.3.0", default-features = false, features=["90s"] }
 packed_struct = { version = "0.10.1", features = ["serde"] }
 rand = { version = "0.8.5", default-features = false }
 getrandom = { version = "*", default-features = false, features = ["js"], optional = true }
@@ -60,7 +61,7 @@ pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = 
 pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
 
 [dev-dependencies]
-citadel_logging = { path = "../citadel_logging", version = "0.1.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.2.0" }
 
 [lib]
 doctest = false
