@@ -1,5 +1,6 @@
 # Avarok Cybersecurity | Citadel Protocol
 [![Website shields.io](https://img.shields.io/website-up-down-green-red/http/shields.io.svg)](https://avarok.net)
+[![crates.io](https://img.shields.io/crates/v/citadel_sdk.svg)](https://crates.io/crates/citadel_sdk)
 [![codecov](https://codecov.io/gh/Avarok-Cybersecurity/Lusna/branch/master/graph/badge.svg?token=J739KOHOZR)](https://codecov.io/gh/Avarok-Cybersecurity/Lusna)
 [![Build docs](https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/workflows/deploy.yml/badge.svg)](https://avarok-cybersecurity.github.io/Citadel-Protocol/docs/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
