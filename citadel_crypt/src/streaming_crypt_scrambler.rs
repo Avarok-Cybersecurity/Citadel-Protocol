@@ -9,10 +9,10 @@ use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
-use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
 use citadel_io::Mutex;
+use citadel_io::{BlockingSpawn, BlockingSpawnError};
 use futures::Future;
 use num_integer::Integer;
 use std::sync::Arc;
@@ -262,7 +262,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 let target_cid = *target_cid;
                 let object_id = *object_id;
 
-                let task = crate::misc::blocking_spawn::spawn_blocking(move || {
+                let task = citadel_io::spawn_blocking(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,

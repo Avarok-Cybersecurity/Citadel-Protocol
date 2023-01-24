@@ -9,7 +9,11 @@
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 ![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-000000?style=for-the-badge&logo=ios&logoColor=white)
+![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+
 ### A post-quantum signal-like protocol that makes developing hyper-secure client-to-server and p2p applications easy
+
 # Whitepaper
 The whitepaper for the Citadel Protocol can be found in the repository [here](The_Citadel_Protocol.pdf). Note: this whitepaper has not been updated since July 2022. While the protocol is very similar to what is covered in the whitepaper, it has since evolved. The whitepaper will be synced to the source code in the near future.
 
@@ -48,6 +52,8 @@ cargo make test
 ## WASM (dev only WIP)
 The target triple `wasm32-wasi` is a WIP for support. These commands should be executed in order to compile to wasm
 ```bash
+# Allows execution of `cargo wasi test --package citadel_pqcrypto`
+cargo install cargo-wasi
 # install wasmtime
 curl https://wasmtime.dev/install.sh -sSf | bash
 # get the include/build files

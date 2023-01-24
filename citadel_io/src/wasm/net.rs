@@ -1,16 +1,18 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use ws_stream_wasm::WsMeta;
 
-pub type TcpStream = ws_stream_wasm::WsStreamIo;
-pub type UdpSocketType = ws_stream_wasm::WsStreamIo;
-pub type TcpListener = ws_stream_wasm::WsStreamIo;
+pub type TcpStream = tokio::net::TcpStream;
+pub type UdpSocket = UdpSocketImpl;
+pub type TcpListener = tokio::net::TcpListener;
 
-pub struct UdpSocket {
-    inner: UdpSocketType,
+pub struct UdpSocketImpl {
+    #[allow(dead_code)]
+    inner: ws_stream_wasm::WsStreamIo,
+    #[allow(dead_code)]
     meta: WsMeta,
 }
 
-impl UdpSocket {
+impl UdpSocketImpl {
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> std::io::Result<Self> {
         let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(
             std::io::ErrorKind::AddrNotAvailable,
@@ -19,8 +21,8 @@ impl UdpSocket {
         let (meta, stream) = ws_stream_wasm::WsMeta::connect(addr.to_string(), None)
             .await
             .map_err(ws_to_io)?;
-        let inner = UdpSocketType::new(stream);
-        Ok(UdpSocket { inner, meta })
+        let inner = ws_stream_wasm::WsStreamIo::new(stream);
+        Ok(UdpSocketImpl { inner, meta })
     }
 }
 

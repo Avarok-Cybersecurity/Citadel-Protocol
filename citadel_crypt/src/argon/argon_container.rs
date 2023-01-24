@@ -1,6 +1,6 @@
-use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::prelude::SecBuffer;
 use argon2::Config;
+use citadel_io::{BlockingSpawn, BlockingSpawnError};
 use futures::Future;
 use rand::rngs::ThreadRng;
 use rand::Rng;
@@ -20,7 +20,7 @@ pub struct AsyncArgon {
 
 impl AsyncArgon {
     pub fn hash(password: SecBuffer, settings: ArgonSettings) -> Self {
-        let task = crate::misc::blocking_spawn::spawn_blocking(move || {
+        let task = citadel_io::spawn_blocking(move || {
             match argon2::hash_raw(
                 password.as_ref(),
                 settings.inner.salt.as_slice(),
@@ -35,7 +35,7 @@ impl AsyncArgon {
     }
 
     pub fn verify(proposed_password: SecBuffer, settings: ServerArgonContainer) -> Self {
-        let task = crate::misc::blocking_spawn::spawn_blocking(move || {
+        let task = citadel_io::spawn_blocking(move || {
             match argon2::verify_raw(
                 proposed_password.as_ref(),
                 settings.settings.inner.salt.as_slice(),
