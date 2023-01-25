@@ -5,6 +5,7 @@ use quinn::{
 };
 
 use async_trait_with_sync::async_trait;
+use citadel_io::UdpSocket;
 use either::Either;
 use quinn::TransportConfig;
 use rustls::{Certificate, PrivateKey};
@@ -14,7 +15,6 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::UdpSocket;
 
 /// Used in the protocol especially to receive bidirectional connections
 pub struct QuicServer;
@@ -375,7 +375,7 @@ mod tests {
             return Ok(());
         }
         let mut server =
-            QuicServer::new_self_signed(tokio::net::UdpSocket::bind(addr).await?).unwrap();
+            QuicServer::new_self_signed(citadel_io::UdpSocket::bind(addr).await?).unwrap();
         let client_bind_addr = SocketAddr::from((addr.ip(), 0));
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
@@ -396,7 +396,7 @@ mod tests {
         let client = async move {
             start_rx.await.unwrap();
             let client = QuicClient::new_no_verify(
-                tokio::net::UdpSocket::bind(client_bind_addr).await.unwrap(),
+                citadel_io::UdpSocket::bind(client_bind_addr).await.unwrap(),
             )
             .unwrap();
             let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;

@@ -37,7 +37,7 @@ wasm = [
     "citadel_crypt/wasm",
     "citadel_pqcrypto/wasm",
     "citadel_wire/wasm",
-    "netbeam/wasm"
+    "netbeam/wasm",
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -1,8 +1,8 @@
 use crate::udp_traversal::HolePunchID;
+use citadel_io::UdpSocket;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, SocketAddr};
-use tokio::net::UdpSocket;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TargettedSocketAddr {

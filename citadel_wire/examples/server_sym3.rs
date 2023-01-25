@@ -7,7 +7,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[tokio::main]
 async fn main() {
     //setup_log();
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:25025")
+    let listener = citadel_io::TcpListener::bind("0.0.0.0:25025")
         .await
         .unwrap();
     let (client_stream, peer_addr) = listener.accept().await.unwrap();

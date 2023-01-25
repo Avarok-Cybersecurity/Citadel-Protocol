@@ -12,10 +12,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use citadel_io::UdpSocket;
 use stun::client::ClientBuilder;
 use stun::message::{Getter, Message, BINDING_REQUEST};
 use stun::xoraddr::XorMappedAddress;
-use tokio::net::UdpSocket;
 
 // TODO: Make stun servers configurable
 const STUN_SERVERS: [&str; 3] = [

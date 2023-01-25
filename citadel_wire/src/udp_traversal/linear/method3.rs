@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use citadel_io::UdpSocket;
 use serde::{Deserialize, Serialize};
-use tokio::net::UdpSocket;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::Duration;
 

@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 async fn main() {
     //citadel_logging::setup_log();
 
-    let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025")
+    let server_stream = citadel_io::TcpStream::connect("51.81.86.78:25025")
         .await
         .unwrap();
 

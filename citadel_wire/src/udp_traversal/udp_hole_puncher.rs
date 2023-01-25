@@ -3,6 +3,7 @@ use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
+use citadel_io::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
@@ -10,7 +11,6 @@ use netbeam::sync::subscription::Subscribable;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::net::UdpSocket;
 
 pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
@@ -190,8 +190,8 @@ mod tests {
             res.unwrap()
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
+        let server = citadel_io::spawn(server);
+        let client = citadel_io::spawn(client);
         let (res0, res1) = tokio::join!(server, client);
         log::trace!(target: "citadel", "JOIN complete! {:?} | {:?}", res0, res1);
         let (res0, res1) = (res0.unwrap(), res1.unwrap());

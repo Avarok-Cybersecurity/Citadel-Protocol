@@ -1,8 +1,8 @@
 #![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
 use crate::nat_identification::NatType;
 use async_ip::IpAddressInfo;
+use citadel_io::UdpSocket;
 use std::net::{IpAddr, SocketAddr};
-use tokio::net::UdpSocket;
 
 #[derive(Debug)]
 pub struct HolePunchConfig {

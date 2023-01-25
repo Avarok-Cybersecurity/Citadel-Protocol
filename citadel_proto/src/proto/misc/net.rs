@@ -1,31 +1,30 @@
+use crate::error::NetworkError;
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use crate::proto::misc::clean_shutdown::{
     clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream,
 };
+use crate::proto::node::TlsDomain;
+use crate::proto::peer::p2p_conn_handler::generic_error;
 use bytes::Bytes;
+use citadel_user::re_exports::__private::Formatter;
+use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
+use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
+use citadel_wire::quic::{QuicEndpointListener, QuicNode};
+use citadel_wire::tls::TLSQUICInterop;
 use futures::{Future, TryStreamExt};
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::io::Error;
 use std::net::SocketAddr;
 use std::ops::DerefMut;
+use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::codec::LengthDelimitedCodec;
-//use tokio_native_tls::native_tls::{Identity, Certificate};
-use crate::error::NetworkError;
-use crate::proto::node::TlsDomain;
-use crate::proto::peer::p2p_conn_handler::generic_error;
-use citadel_user::re_exports::__private::Formatter;
-use citadel_user::serialization::SyncIO;
-use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
-use citadel_wire::quic::{QuicEndpointListener, QuicNode};
-use citadel_wire::tls::TLSQUICInterop;
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-use std::path::Path;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop

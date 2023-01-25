@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::net::{SocketAddr, ToSocketAddrs};
 use ws_stream_wasm::WsMeta;
 
@@ -13,7 +14,7 @@ pub struct UdpSocketImpl {
 }
 
 impl UdpSocketImpl {
-    pub async fn bind<A: ToSocketAddrs>(addr: A) -> std::io::Result<Self> {
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> std::io::Result<Self> {
         let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(
             std::io::ErrorKind::AddrNotAvailable,
             "No addrs specified",
@@ -28,4 +29,11 @@ impl UdpSocketImpl {
 
 fn ws_to_io(err: ws_stream_wasm::WsErr) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", err))
+}
+
+impl Debug for UdpSocketImpl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let url = self.meta.url();
+        write!(f, "[WASM socket] Connected to: {url}")
+    }
 }

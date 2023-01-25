@@ -8,14 +8,14 @@ pub mod shared;
 #[cfg(target_family = "wasm")]
 pub use wasm::{
     locks::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    net::UdpSocket,
+    net::{TcpListener, TcpStream, UdpSocket},
     spawn::{spawn, spawn_blocking, spawn_local},
 };
 
 #[cfg(not(target_family = "wasm"))]
 pub use standard::{
     locks::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    net::UdpSocket,
+    net::{TcpListener, TcpSocket, TcpStream, UdpSocket},
     spawn::{spawn, spawn_blocking, spawn_local},
 };
 

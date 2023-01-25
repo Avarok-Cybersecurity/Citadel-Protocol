@@ -19,7 +19,7 @@ use crate::misc::{AccountError, CNACMetadata};
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
-#[cfg(feature = "filesystem")]
+#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
 pub mod filesystem_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
@@ -43,7 +43,7 @@ pub enum BackendType {
     /// access
     InMemory,
     /// Synchronization will occur on the filesystem
-    #[cfg(feature = "filesystem")]
+    #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
     Filesystem(String),
     #[cfg(all(feature = "sql", not(coverage)))]
     /// Synchronization will occur on a remote SQL database
@@ -75,7 +75,7 @@ impl BackendType {
             }
         }
 
-        #[cfg(feature = "filesystem")]
+        #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
         {
             if addr.starts_with("file:") {
                 return Ok(Self::filesystem(addr));
@@ -85,7 +85,7 @@ impl BackendType {
         Err(AccountError::msg(format!("The addr '{}' is not a valid target (hint: ensure either 'redis', 'sql' or 'filesystem' features are enabled when compiling", addr)))
     }
 
-    #[cfg(feature = "filesystem")]
+    #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
     /// For requesting the use of the local filesystem as a backend
     /// URL format: file:/path/to/directory (unix) or file:C\windows\dir (windows)
     pub fn filesystem<T: Into<String>>(path: T) -> Self {
