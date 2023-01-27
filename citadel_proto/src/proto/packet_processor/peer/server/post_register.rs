@@ -36,7 +36,9 @@ pub async fn handle_response_phase_post_register(
                                       }
                                   };
 
-                                  let _ = citadel_io::spawn(task);
+                                  let handle = citadel_io::spawn(task);
+                                  // dont process the handle
+                                  std::mem::drop(handle);
                               }
                           }, security_level).await
 }

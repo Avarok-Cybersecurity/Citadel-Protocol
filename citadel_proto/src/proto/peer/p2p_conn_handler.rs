@@ -110,7 +110,7 @@ async fn p2p_conn_handler(
 
     log::trace!(target: "citadel", "[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
-    return match p2p_listener.next().await {
+    match p2p_listener.next().await {
         Some(Ok((p2p_stream, _))) => {
             let session = HdpSession::upgrade_weak(weak)
                 .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
@@ -145,7 +145,7 @@ async fn p2p_conn_handler(
             log::error!(target: "citadel", "P2P listener returned None. Stream dead");
             Err(NetworkError::InternalError("P2P Listener returned None"))
         }
-    };
+    }
 }
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream

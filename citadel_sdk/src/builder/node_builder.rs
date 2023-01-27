@@ -313,6 +313,7 @@ mod tests {
             builder.kernel_executor_settings.clone().unwrap()
         );
 
+        #[allow(clippy::let_underscore_future)]
         let _ = builder.build(EmptyKernel::default()).unwrap();
     }
 }

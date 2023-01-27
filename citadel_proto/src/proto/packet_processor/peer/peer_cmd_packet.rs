@@ -1164,8 +1164,7 @@ async fn process_signal_command_as_server(
                                 .map(|v_conn| v_conn.is_active.store(false, Ordering::SeqCst));
 
                             let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
-                                "Peer {} closed the virtual connection to {}",
-                                implicated_cid, target_cid
+                                "Peer {implicated_cid} closed the virtual connection to {target_cid}"
                             ))));
                             let signal_to_peer = PeerSignal::Disconnect(
                                 PeerConnectionType::HyperLANPeerToHyperLANPeer(

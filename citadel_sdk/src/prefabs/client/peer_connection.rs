@@ -363,7 +363,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|idx| PEERS.get(idx).unwrap().0.clone())
             .collect::<Vec<String>>();
 
@@ -470,7 +469,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
 
@@ -564,7 +562,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
 
@@ -690,7 +687,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
 

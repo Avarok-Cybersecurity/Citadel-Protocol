@@ -1480,15 +1480,12 @@ mod tests {
         const MAX_NAME_LEN: usize = citadel_user::misc::MAX_NAME_LENGTH;
 
         let good_username = &(0..(MIN_USERNAME_LEN + 1))
-            .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
         let good_password = &(0..(MIN_PASSWORD_LEN + 1))
-            .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
         let good_name = &(0..(MIN_NAME_LEN + 1))
-            .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
 
@@ -1503,11 +1500,9 @@ mod tests {
             use citadel_user::misc::check_credential_formatting as check;
 
             let bad_below = &(0..(min - 1))
-                .into_iter()
                 .map(|r| r.to_string())
                 .collect::<String>();
             let bad_above = &(0..(max + 1))
-                .into_iter()
                 .map(|r| r.to_string())
                 .collect::<String>();
 

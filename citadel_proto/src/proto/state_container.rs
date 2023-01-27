@@ -345,24 +345,21 @@ impl Display for VirtualConnectionType {
             VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
                 write!(
                     f,
-                    "HyperLAN Peer to HyperLAN Peer ({} -> {})",
-                    implicated_cid, target_cid
+                    "HyperLAN Peer to HyperLAN Peer ({implicated_cid} -> {target_cid})"
                 )
             }
 
             VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
                 write!(
                     f,
-                    "HyperLAN Peer to HyperWAN Peer ({} -> {} -> {})",
-                    implicated_cid, icid, target_cid
+                    "HyperLAN Peer to HyperWAN Peer ({implicated_cid} -> {icid} -> {target_cid})"
                 )
             }
 
             VirtualConnectionType::ExternalGroupServer(implicated_cid, icid) => {
                 write!(
                     f,
-                    "HyperLAN Peer to HyperWAN Server ({} -> {})",
-                    implicated_cid, icid
+                    "HyperLAN Peer to HyperWAN Server ({implicated_cid} -> {icid})"
                 )
             }
         }
@@ -1254,15 +1251,13 @@ impl StateContainerInner {
         let group_key = GroupKey::new(target_cid, group_id);
         let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
             NetworkError::msg(format!(
-                "inbound_groups does not contain key for {:?}",
-                group_key
+                "inbound_groups does not contain key for {group_key:?}"
             ))
         })?;
         let file_key = FileKey::new(target_cid, grc.object_id);
         let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| {
             NetworkError::msg(format!(
-                "inbound_files does not contain key for {:?}",
-                file_key
+                "inbound_files does not contain key for {file_key:?}"
             ))
         })?;
         let file_transfer_handle =
@@ -1270,8 +1265,7 @@ impl StateContainerInner {
                 .get_mut(&file_key)
                 .ok_or_else(|| {
                     NetworkError::msg(format!(
-                        "file_transfer_handle does not contain key for {:?}",
-                        file_key
+                        "file_transfer_handle does not contain key for {file_key:?}"
                     ))
                 })?;
 
@@ -1584,8 +1578,7 @@ impl StateContainerInner {
 
         if this.state.load(Ordering::Relaxed) != SessionState::Connected {
             Err(NetworkError::Generic(format!(
-                "Attempted to send data (ticket: {}) outbound, but the session is not connected",
-                ticket
+                "Attempted to send data (ticket: {ticket}) outbound, but the session is not connected"
             )))
         } else {
             // first, make sure that there aren't already packets in the queue (unless we were called from the poll, in which case, we are getting the latest version)

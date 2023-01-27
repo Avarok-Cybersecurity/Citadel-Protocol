@@ -245,7 +245,6 @@ impl HolePunchConfig {
         let beginning_port = last_external_addr.port().wrapping_add(1);
         let ending_port = beginning_port.wrapping_add(ports_to_target_count);
         let ports = (beginning_port..ending_port)
-            .into_iter()
             .collect::<Vec<u16>>();
 
         Self::load_alternate_bands(

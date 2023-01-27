@@ -120,7 +120,7 @@ pub async fn process_register(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_register::STAGE1 => {
@@ -257,7 +257,7 @@ pub async fn process_register(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_register::SUCCESS => {
@@ -357,7 +357,7 @@ pub async fn process_register(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_register::FAILURE => {

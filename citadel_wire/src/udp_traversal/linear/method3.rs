@@ -176,7 +176,6 @@ impl Method3 {
         let mut sleep = tokio::time::interval(Duration::from_millis(*millis_delta));
         let delta_ttl = delta_ttl.unwrap_or(0);
         let ttls = (0..*count)
-            .into_iter()
             .map(|idx| ttl_init + (idx * delta_ttl))
             .collect::<Vec<u32>>();
 

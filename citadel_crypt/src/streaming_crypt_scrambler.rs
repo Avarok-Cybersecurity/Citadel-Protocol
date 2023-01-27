@@ -203,7 +203,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     ) -> Poll<Option<GroupSenderDevice<N>>> {
         let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, BlockingSpawnError> =
             futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
-        return if let Ok(Ok(sender)) = res {
+        if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;
             *read_cursor += poll_amt;
             *cur_task = None;
@@ -211,7 +211,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
         } else {
             log::error!(target: "citadel", "Unable to par_scramble_encrypt group");
             Poll::Ready(None)
-        };
+        }
     }
 }
 

@@ -216,8 +216,7 @@ impl HdpSessionManager {
                             let _ = this.provisional_connections.remove(&peer_addr);
                         } else {
                             return Err(NetworkError::Generic(format!(
-                                "Localhost is already trying to connect to {}",
-                                peer_addr
+                                "Localhost is already trying to connect to {peer_addr}"
                             )));
                         }
                     }
@@ -543,8 +542,7 @@ impl HdpSessionManager {
             )
         } else {
             Err(NetworkError::Generic(format!(
-                "Hypernode session for {} does not exist! Not going to send data ...",
-                implicated_cid
+                "Hypernode session for {implicated_cid} does not exist! Not going to send data ..."
             )))
         }
     }
@@ -564,8 +562,7 @@ impl HdpSessionManager {
             state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket))
         } else {
             Err(NetworkError::Generic(format!(
-                "Unable to initiate drill update subroutine for {} (not an active session)",
-                implicated_cid
+                "Unable to initiate drill update subroutine for {implicated_cid} (not an active session)"
             )))
         }
     }
@@ -583,8 +580,7 @@ impl HdpSessionManager {
             sess.initiate_deregister(connection_type, ticket)
         } else {
             Err(NetworkError::Generic(format!(
-                "Unable to initiate deregister subroutine for {} (not an active session)",
-                implicated_cid
+                "Unable to initiate deregister subroutine for {implicated_cid} (not an active session)"
             )))
         }
     }
@@ -1183,15 +1179,13 @@ impl HdpSessionManager {
             } else {
                 // session no longer exists. Could have been that the `implicated_cid` responded too late. Send an error back, saying it expired
                 Err(format!(
-                    "Session for {} is not active, and thus no room for consent",
-                    target_cid
+                    "Session for {target_cid} is not active, and thus no room for consent"
                 ))
             }
         } else {
             // the tracked posting doesn't exist. It may have expired. In either case, the potential session is invalid
             Err(format!(
-                "Tracked posting {} for {} -> {} does not exist",
-                ticket, target_cid, implicated_cid
+                "Tracked posting {ticket} for {target_cid} -> {implicated_cid} does not exist"
             ))
         }
     }
@@ -1227,8 +1221,7 @@ impl HdpSessionManagerInner {
             })?
         } else {
             Err(NetworkError::Generic(format!(
-                "unable to find peer sess {}",
-                target_cid
+                "unable to find peer sess {target_cid}"
             )))
         }
     }

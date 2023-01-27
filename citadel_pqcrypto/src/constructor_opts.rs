@@ -21,10 +21,7 @@ impl ConstructorOpts {
         count: usize,
     ) -> Vec<Self> {
         let settings = cryptography.map(|r| r.into()).unwrap_or_default();
-        (0..count)
-            .into_iter()
-            .map(|_| Self::new_init(Some(settings)))
-            .collect()
+        (0..count).map(|_| Self::new_init(Some(settings))).collect()
     }
 
     pub fn new_from_previous(

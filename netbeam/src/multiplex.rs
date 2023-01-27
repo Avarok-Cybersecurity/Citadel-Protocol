@@ -101,7 +101,6 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
     ) -> Self {
         let id_gen = K::generate_container();
         let ids: Vec<K> = (0..INITIAL_CAPACITY)
-            .into_iter()
             .map(|_| <K as IDGen<K>>::generate_next(&id_gen))
             .collect();
         // the next two lines will generate a list of pre-established bistreams
@@ -385,12 +384,12 @@ mod tests {
         let (next_server_stream, next_client_stream, _, _) =
             tokio::join!(server, client, server1, client1);
 
-        return nested(
+        nested(
             idx + 1,
             max,
             next_server_stream.unwrap(),
             next_client_stream.unwrap(),
         )
-        .await;
+        .await
     }
 }

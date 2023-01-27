@@ -30,6 +30,7 @@ pub(crate) const MAX_PORT_DELTA_FOR_PREDICTION: usize = 30;
 pub(crate) const MAX_LAST_OCTET_DELTA_FOR_PREDICTION: usize = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum NatType {
     /// ip_int:port_in == ip_ext:port_ext
     EIM(SocketAddr, Option<IpAddressInfo>, bool),
@@ -44,6 +45,7 @@ pub enum NatType {
     /// Possibly unpredictable Endpoint dependent Mapping NAT. Contains the detected ports.
     EDMRandomPort(SocketAddr, Option<IpAddressInfo>, Vec<u16>, bool),
     /// Unknown or could not be determined
+    #[default]
     Unknown,
 }
 
@@ -57,11 +59,7 @@ pub enum TraversalTypeRequired {
     TURN,
 }
 
-impl Default for NatType {
-    fn default() -> Self {
-        NatType::Unknown
-    }
-}
+
 
 // we only need to check the NAT type once per node
 lazy_static::lazy_static! {

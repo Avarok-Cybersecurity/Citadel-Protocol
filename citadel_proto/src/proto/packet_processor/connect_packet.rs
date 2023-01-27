@@ -176,7 +176,7 @@ pub async fn process_connect(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_connect::FAILURE => {
@@ -385,7 +385,7 @@ pub async fn process_connect(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_connect::SUCCESS_ACK => {

@@ -160,8 +160,7 @@ pub trait ProtocolRemoteExt: Remote {
         match map_errors(self.send_callback(register_request).await?)? {
             NodeResult::RegisterOkay(RegisterOkay { .. }) => Ok(RegisterSuccess {}),
             res => Err(NetworkError::msg(format!(
-                "An unexpected response occurred: {:?}",
-                res
+                "An unexpected response occurred: {res:?}"
             ))),
         }
     }
@@ -233,8 +232,7 @@ pub trait ProtocolRemoteExt: Remote {
                 error_message: err,
             }) => Err(NetworkError::Generic(err)),
             res => Err(NetworkError::msg(format!(
-                "[connect] An unexpected response occurred: {:?}",
-                res
+                "[connect] An unexpected response occurred: {res:?}"
             ))),
         }
     }
@@ -667,8 +665,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         .map_err(|err| NetworkError::msg(err.into_string()))?
                         .ok_or_else(|| {
                             NetworkError::msg(format!(
-                                "Account {:?} not found for local user {:?}",
-                                user, implicated_cid
+                                "Account {user:?} not found for local user {implicated_cid:?}"
                             ))
                         })
                         .map(|r| r.1.cid)?,

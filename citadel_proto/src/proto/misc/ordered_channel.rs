@@ -104,7 +104,6 @@ mod tests {
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
         let values_ordered = (0..COUNT)
-            .into_iter()
             .map(|r| (r as _, SecBuffer::from(&[r] as &[u8])))
             .collect::<Vec<(u64, SecBuffer)>>();
 
@@ -138,7 +137,6 @@ mod tests {
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
-            .into_iter()
             .map(|r| {
                 (
                     r as _,
@@ -181,7 +179,6 @@ mod tests {
         let (tx, mut rx) = unbounded();
         let ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
-            .into_iter()
             .map(|r| {
                 (
                     r as _,

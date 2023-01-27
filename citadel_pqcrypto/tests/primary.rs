@@ -284,7 +284,7 @@ mod tests {
         let (alice_container, bob_container) =
             gen(kem_algorithm, encryption_algorithm, signature_algorithm);
 
-        let mut packet0 = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
+        let mut packet0 = (0..TOTAL_LEN as u8).collect::<Vec<u8>>();
         let nonce = Vec::from_iter(0..nonce_len as u8);
         // encrypt the packet, but don't verify it
         alice_container
@@ -292,7 +292,7 @@ mod tests {
             .unwrap();
         // In theory, in unordered mode, we don't have to verify packet0 before HISTORY_LEN+1 packets
         for _y in 0..HISTORY_LEN + 10 {
-            let mut packet_n = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
+            let mut packet_n = (0..TOTAL_LEN as u8).collect::<Vec<u8>>();
             alice_container
                 .protect_packet_in_place(HEADER_LEN, &mut packet_n, &nonce)
                 .unwrap();

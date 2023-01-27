@@ -314,7 +314,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
         let group_id = Uuid::new_v4();
@@ -403,7 +402,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
 
