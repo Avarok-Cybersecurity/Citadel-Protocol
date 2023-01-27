@@ -29,8 +29,7 @@ const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(4500);
 pub(crate) const MAX_PORT_DELTA_FOR_PREDICTION: usize = 30;
 pub(crate) const MAX_LAST_OCTET_DELTA_FOR_PREDICTION: usize = 2;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum NatType {
     /// ip_int:port_in == ip_ext:port_ext
     EIM(SocketAddr, Option<IpAddressInfo>, bool),
@@ -58,8 +57,6 @@ pub enum TraversalTypeRequired {
     /// direct p2p not possible
     TURN,
 }
-
-
 
 // we only need to check the NAT type once per node
 lazy_static::lazy_static! {

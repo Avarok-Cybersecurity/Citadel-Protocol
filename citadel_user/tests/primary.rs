@@ -1499,12 +1499,8 @@ mod tests {
         ) {
             use citadel_user::misc::check_credential_formatting as check;
 
-            let bad_below = &(0..(min - 1))
-                .map(|r| r.to_string())
-                .collect::<String>();
-            let bad_above = &(0..(max + 1))
-                .map(|r| r.to_string())
-                .collect::<String>();
+            let bad_below = &(0..(min - 1)).map(|r| r.to_string()).collect::<String>();
+            let bad_above = &(0..(max + 1)).map(|r| r.to_string()).collect::<String>();
 
             match ty {
                 "username" => {
