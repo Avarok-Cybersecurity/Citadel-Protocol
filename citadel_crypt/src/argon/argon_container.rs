@@ -166,7 +166,10 @@ impl ArgonSettings {
             lanes: self.inner.lanes,
             mem_cost: self.inner.mem_cost,
             secret: self.inner.secret.as_slice(),
+            #[cfg(not(target_family = "wasm"))]
             thread_mode: argon2::ThreadMode::Parallel,
+            #[cfg(target_family = "wasm")]
+            thread_mode: argon2::ThreadMode::Sequential,
             time_cost: self.inner.time_cost,
             variant: argon2::Variant::Argon2id,
             version: argon2::Version::Version13,

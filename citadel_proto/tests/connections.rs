@@ -50,8 +50,8 @@ pub mod tests {
     #[fixture]
     #[once]
     fn client_config() -> Arc<ClientConfig> {
-        let certs = citadel_wire::standard::tls::load_native_certs().unwrap();
-        Arc::new(citadel_wire::standard::tls::cert_vec_to_secure_client_config(&certs).unwrap())
+        let certs = citadel_wire::tls::load_native_certs().unwrap();
+        Arc::new(citadel_wire::tls::cert_vec_to_secure_client_config(&certs).unwrap())
     }
 
     #[rstest]

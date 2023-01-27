@@ -42,8 +42,9 @@ pub struct ScramCryptDictionary<const BLOCK_SIZE: usize> {
 
 impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
     pub fn new() -> Option<Self> {
-        assert!(BLOCK_SIZE <= 256);
-        assert_eq!(BLOCK_SIZE % 2, 0);
+        if BLOCK_SIZE > 256 || BLOCK_SIZE % 2 != 0 {
+            return None;
+        }
 
         let mut rng = rand::thread_rng();
         let mut mapping: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];

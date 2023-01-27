@@ -11,8 +11,8 @@ use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::{CryptError, SecurityLevel};
 use crate::stacked_ratchet::Ratchet;
-use rayon::iter::IndexedParallelIterator;
-use rayon::prelude::*;
+#[cfg(not(target_family = "wasm"))]
+use rayon::{iter::IndexedParallelIterator, prelude::*};
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -204,8 +204,12 @@ where
         group_id,
     )?;
 
-    let packets = plain_text
-        .par_chunks(cfg.max_plaintext_wave_length)
+    #[cfg(not(target_family = "wasm"))]
+    let chunks = plain_text.par_chunks(cfg.max_plaintext_wave_length);
+    #[cfg(target_family = "wasm")]
+    let chunks = plain_text.chunks(cfg.max_plaintext_wave_length);
+
+    let packets = chunks
         .enumerate()
         .map(|(wave_idx, bytes_to_encrypt_for_this_wave)| {
             scramble_encrypt_wave(
