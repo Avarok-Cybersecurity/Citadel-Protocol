@@ -182,7 +182,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         redis_base::Script::new(&format!(
             r"
             local username = redis.call('get', KEYS[4])
-            local username_key = '{}.' .. username
+            local username_key = '{LOCAL_USERNAME_PREFIX}.' .. username
             local peer_cids = redis.call('hvals', KEYS[3])
             redis.call('del', username_key)
             redis.call('del', KEYS[7])
@@ -194,13 +194,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
             for _,peer_cid in ipairs(peer_cids)
             do
-                local hkey_cid = '{}.' .. peer_cid
-                local hkey_username = '{}.' .. peer_cid
+                local hkey_cid = '{PEER_CID_PREFIX}.' .. peer_cid
+                local hkey_username = '{PEER_USERNAME_PREFIX}.' .. peer_cid
                 redis.call('hdel', hkey_cid, username)
                 redis.call('hdel', hkey_username, KEYS[1])
             end
         ",
-            LOCAL_USERNAME_PREFIX, PEER_CID_PREFIX, PEER_USERNAME_PREFIX
         ))
         .key(cid) // 1
         .key(get_cid_to_cnac_key()) // 2
@@ -767,10 +766,7 @@ fn get_peer_username_key(implicated_cid: u64) -> String {
 }
 
 fn get_byte_map_key(implicated_cid: u64, peer_cid: u64, key: &str) -> String {
-    format!(
-        "{}.{}.{}.{}",
-        BYTE_MAP_PREFIX, implicated_cid, peer_cid, key
-    )
+    format!("{BYTE_MAP_PREFIX}.{implicated_cid}.{peer_cid}.{key}",)
 }
 
 fn get_impersonal_status_key() -> &'static str {

@@ -252,12 +252,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     ) -> Result<Option<Vec<u64>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let cmd = limit
-            .map(|limit| {
-                format!(
-                    "SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {}",
-                    limit
-                )
-            })
+            .map(|limit| format!("SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {limit}",))
             .unwrap_or_else(|| "SELECT cid FROM cnacs WHERE is_personal = ?".to_string());
         let query: Vec<AnyRow> = sqlx::query(self.format(cmd).as_str())
             .bind(false)
@@ -442,8 +437,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
         let query = if let Some(limit) = limit {
             format!(
-                "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {}",
-                limit
+                "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {limit}",
             )
         } else {
             "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs".to_string()
