@@ -747,7 +747,7 @@ const CID_TO_IMPERSONALS: &str = "clients.impersonals";
 const CID_TO_PERSONALS: &str = "clients.personals";
 
 fn get_username_key(username: &str) -> String {
-    format!("{}.{}", LOCAL_USERNAME_PREFIX, username)
+    format!("{LOCAL_USERNAME_PREFIX}.{username}")
 }
 
 fn get_cid_to_cnac_key() -> &'static str {
@@ -755,15 +755,15 @@ fn get_cid_to_cnac_key() -> &'static str {
 }
 
 fn get_cid_to_username_key(cid: u64) -> String {
-    format!("{}.{}", LOCAL_CID_TO_USERNAME, cid)
+    format!("{LOCAL_CID_TO_USERNAME}.{cid}")
 }
 
 fn get_peer_cid_key(implicated_cid: u64) -> String {
-    format!("{}.{}", PEER_CID_PREFIX, implicated_cid)
+    format!("{PEER_CID_PREFIX}.{implicated_cid}")
 }
 
 fn get_peer_username_key(implicated_cid: u64) -> String {
-    format!("{}.{}", PEER_USERNAME_PREFIX, implicated_cid)
+    format!("{PEER_USERNAME_PREFIX}.{implicated_cid}")
 }
 
 fn get_byte_map_key(implicated_cid: u64, peer_cid: u64, key: &str) -> String {

@@ -82,7 +82,7 @@ impl BackendType {
             }
         }
 
-        Err(AccountError::msg(format!("The addr '{}' is not a valid target (hint: ensure either 'redis', 'sql' or 'filesystem' features are enabled when compiling", addr)))
+        Err(AccountError::msg(format!("The addr '{addr}' is not a valid target (hint: ensure either 'redis', 'sql' or 'filesystem' features are enabled when compiling")))
     }
 
     #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]

@@ -339,7 +339,7 @@ impl Display for VirtualConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             VirtualConnectionType::LocalGroupServer(cid) => {
-                write!(f, "HyperLAN Peer to HyperLAN Server ({})", cid)
+                write!(f, "HyperLAN Peer to HyperLAN Server ({cid})")
             }
 
             VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {

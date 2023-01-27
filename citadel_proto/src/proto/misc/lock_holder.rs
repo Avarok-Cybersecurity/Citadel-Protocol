@@ -95,7 +95,7 @@ impl<T> Default for LockHolder<'_, T> {
 #[cfg(test)]
 mod test {
     use crate::proto::misc::lock_holder::LockHolder;
-    use parking_lot::{Mutex, MutexGuard};
+    use citadel_io::{Mutex, MutexGuard};
     /*
     fn accessor(t: &u8) -> u8 {
         t.wrapping_add(1)

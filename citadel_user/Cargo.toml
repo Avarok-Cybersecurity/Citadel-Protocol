@@ -66,6 +66,7 @@ tokio-stream = { version = "0.1.11", default-features = false, optional = true }
 [dev-dependencies]
 tokio = { version = "1.24", features = ["macros"] }
 citadel_logging = { path = "../citadel_logging", version = "0.3.0" }
+citadel_io = { path = "../citadel_io", version = "0.3.0", default-features=false }
 dirs2 = "3.0.1"
 rstest = "0.16.0"
 lazy_static = "1.4.0"

@@ -36,7 +36,7 @@ pub async fn handle_response_phase_post_register(
                                       }
                                   };
 
-                                  let _ = tokio::task::spawn(task);
+                                  let _ = citadel_io::spawn(task);
                               }
                           }, security_level).await
 }

@@ -283,10 +283,7 @@ impl PostQuantumContainer {
         let (chain, keys) =
             Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex)
                 .map_err(|err| {
-                    Error::Other(format!(
-                        "Error while calculating recursive keystore: {:?}",
-                        err
-                    ))
+                    Error::Other(format!("Error while calculating recursive keystore: {err}",))
                 })?;
 
         let keys = Some(keys);
@@ -829,7 +826,7 @@ pub mod algorithm_dictionary {
 
         fn names() -> Vec<String> {
             Self::iter()
-                .map(|r| format!("{:?}", r).to_lowercase())
+                .map(|r| format!("{r:?}").to_lowercase())
                 .collect()
         }
 

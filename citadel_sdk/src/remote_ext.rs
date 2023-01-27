@@ -932,7 +932,7 @@ mod tests {
         switch: Arc<AtomicBool>,
     ) -> (NodeFuture<'a, ReceiverFileTransferKernel>, SocketAddr) {
         let port = crate::test_common::get_unused_tcp_port();
-        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap();
         let server = crate::test_common::server_test_node(
             bind_addr,
             ReceiverFileTransferKernel(None, switch),
@@ -959,9 +959,9 @@ mod tests {
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        let _ = citadel_logging::setup_log();
-        let ref client_success = AtomicBool::new(false);
-        let ref server_success = Arc::new(AtomicBool::new(false));
+        citadel_logging::setup_log();
+        let client_success = &AtomicBool::new(false);
+        let server_success = &Arc::new(AtomicBool::new(false));
         let (server, server_addr) = server_info(server_success.clone());
         let uuid = Uuid::new_v4();
 

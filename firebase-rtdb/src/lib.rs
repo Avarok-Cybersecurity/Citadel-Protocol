@@ -76,8 +76,7 @@ impl FirebaseRTDB {
         // auth first
         let resp: AuthResponsePayload = client
             .post(format!(
-                "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}",
-                api_key
+                "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={api_key}",
             ))
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)

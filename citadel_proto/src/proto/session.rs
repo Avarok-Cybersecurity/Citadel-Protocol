@@ -1170,7 +1170,7 @@ impl HdpSession {
         let this = self;
 
         if this.state.load(Ordering::Relaxed) != SessionState::Connected {
-            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, src: {:?}) outbound, but the session is not connected", ticket, source.get_source_name())))
+            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {ticket}, src: {:?}) outbound, but the session is not connected", source.get_source_name())))
         } else {
             let file_name = source
                 .get_source_name()
@@ -1524,7 +1524,7 @@ impl HdpSession {
 
                                                 if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                     ticket_opt: Some(ticket),
-                                                    message: format!("Timeout on ticket {}", ticket)
+                                                    message: format!("Timeout on ticket {ticket}")
                                                 })).is_err() {
                                                     log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
                                                     QueueWorkerResult::EndSession

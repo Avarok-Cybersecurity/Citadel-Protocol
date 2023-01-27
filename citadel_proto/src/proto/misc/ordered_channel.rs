@@ -120,7 +120,7 @@ mod tests {
             }
         };
 
-        let recv_handle = tokio::task::spawn(recv_task);
+        let recv_handle = citadel_io::spawn(recv_task);
 
         for (id, packet) in values_ordered {
             ordered_channel.on_packet_received(id, packet)?;
@@ -164,7 +164,7 @@ mod tests {
             }
         };
 
-        let recv_handle = tokio::task::spawn(recv_task);
+        let recv_handle = citadel_io::spawn(recv_task);
 
         for (id, packet) in values_unordered {
             ordered_channel.on_packet_received(id, packet)?;
@@ -209,7 +209,7 @@ mod tests {
             }
         };
 
-        let recv_handle = tokio::task::spawn(recv_task);
+        let recv_handle = citadel_io::spawn(recv_task);
 
         tokio_stream::iter(values_unordered)
             .for_each_concurrent(None, |(id, packet)| async move {

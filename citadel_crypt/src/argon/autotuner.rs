@@ -93,8 +93,7 @@ pub async fn calculate_optimal_argon_params(
             }
             res => {
                 return Err(CryptError::Encrypt(format!(
-                    "Unable to hash password: {:?}",
-                    res
+                    "Unable to hash password: {res:?}",
                 )))
             }
         }

@@ -334,7 +334,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket)
                 .await
-                .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {:?}", err)))
+                .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
         }
     };
 

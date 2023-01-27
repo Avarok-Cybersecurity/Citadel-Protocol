@@ -79,7 +79,7 @@ impl std::fmt::Debug for PrimaryProcessorResult {
                 write!(f, "PrimaryProcessorResult::Void")
             }
             PrimaryProcessorResult::EndSession(reason) => {
-                write!(f, "PrimaryProcessorResult::EndSession({})", reason)
+                write!(f, "PrimaryProcessorResult::EndSession({reason})")
             }
             PrimaryProcessorResult::ReplyToSender(packet) => {
                 write!(

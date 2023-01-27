@@ -3,11 +3,11 @@ use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
+use citadel_io::Mutex;
 use citadel_proto::prelude::{PeerConnectionType, SessionSecuritySettings, UdpMode};
 use citadel_proto::re_imports::async_trait;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -348,7 +348,7 @@ mod tests {
         #[case] debug_force_nat_timeout: bool,
     ) {
         assert!(peer_count > 1);
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let udp_mode = if debug_force_nat_timeout {
@@ -415,7 +415,7 @@ mod tests {
                     let network_peers = remote.get_peers(None).await.unwrap();
                     for user in agg.inner {
                         let peer_cid = user.id.get_cid();
-                        assert!(network_peers.iter().find(|r| r.cid == peer_cid).is_some())
+                        assert!(network_peers.iter().any(|r| r.cid == peer_cid))
                     }
 
                     // test to make sure the mutuals are valid
@@ -426,7 +426,7 @@ mod tests {
                         .await
                         .unwrap();
                     for (peer_cid, _) in p2p_remotes {
-                        assert!(mutual_peers.iter().find(|r| r.cid == peer_cid).is_some())
+                        assert!(mutual_peers.iter().any(|r| r.cid == peer_cid))
                     }
 
                     log::trace!(target: "citadel", "***PEER {} CONNECT RESULT: {}***", username, success);
@@ -460,7 +460,7 @@ mod tests {
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let do_deregister = peer_count == 2;
@@ -554,7 +554,7 @@ mod tests {
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let client_success = &AtomicBool::new(false);
@@ -682,7 +682,7 @@ mod tests {
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let client_success = &AtomicUsize::new(0);

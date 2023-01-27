@@ -232,7 +232,7 @@ mod tests {
                 res
             };
 
-            let (server, client) = (tokio::task::spawn(server), tokio::task::spawn(client));
+            let (server, client) = (citadel_io::spawn(server), citadel_io::spawn(client));
 
             let joined = futures::future::join(server, client).then(|(res0, res1)| async move {
                 let (res0, res1) = (res0.unwrap(), res1.unwrap());
@@ -240,7 +240,7 @@ mod tests {
                 tx.unbounded_send(()).unwrap();
             });
 
-            tokio::task::spawn(joined);
+            citadel_io::spawn(joined);
         }
 
         rx.take(COUNT).collect::<()>().await;

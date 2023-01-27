@@ -40,7 +40,7 @@ impl NetworkError {
 
             NetworkError::Generic(err) => err.to_string(),
             NetworkError::Timeout(val) => {
-                format!("Timeout at {}", val)
+                format!("Timeout at {val}")
             }
             NetworkError::InternalError(err) => (*err).to_string(),
             NetworkError::InvalidPacketSize(size) => {
@@ -58,11 +58,11 @@ impl NetworkError {
 
             NetworkError::Generic(err) => err,
             NetworkError::Timeout(val) => {
-                format!("Timeout at {}", val)
+                format!("Timeout at {val}")
             }
             NetworkError::InternalError(err) => err.to_string(),
             NetworkError::InvalidPacketSize(size) => {
-                format!("Excess packet size requested: {}", size)
+                format!("Excess packet size requested: {size}")
             }
             NetworkError::InvalidRequest(err) => err.to_string(),
             NetworkError::InvalidPacket(err) => err.to_string(),

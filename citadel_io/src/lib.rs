@@ -21,6 +21,12 @@ pub use standard::{
 
 pub use shared::spawn::{BlockingSpawn, BlockingSpawnError};
 
+#[cfg(all(feature = "deadlock-detection", not(target_family = "wasm")))]
+pub use parking_lot::deadlock;
+
+#[cfg(not(target_family = "wasm"))]
+pub use parking_lot::{const_mutex, const_rwlock};
+
 #[derive(Debug)]
 pub enum Error {
     IoError(std::io::Error),

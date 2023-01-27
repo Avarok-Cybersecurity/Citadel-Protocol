@@ -73,7 +73,7 @@ impl MessageGroupKey {
 
 impl std::fmt::Debug for MessageGroupKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 

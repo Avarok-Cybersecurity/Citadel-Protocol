@@ -397,7 +397,7 @@ impl HdpSessionManager {
                             if peer_cid != implicated_cid {
                                 log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
                                 let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
-                                let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
+                                let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly"))));
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
                                 }) {
@@ -518,7 +518,7 @@ impl HdpSessionManager {
             inner_mut_state!(existing_session.1.state_container)
                 .process_outbound_broadcast_command(ticket, &command)
         } else {
-            Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to handle group broadcast signal {:?} ...", implicated_cid, command)))
+            Err(NetworkError::Generic(format!("Hypernode session for {implicated_cid} does not exist! Not going to handle group broadcast signal {command:?} ...")))
         }
     }
 
@@ -612,7 +612,7 @@ impl HdpSessionManager {
             if let Some(sess) = this.sessions.get(&implicated_cid) {
                 sess.1.clone()
             } else {
-                return Err(NetworkError::msg(format!("Session for {} not found in session manager. Failed to dispatch peer command {:?}", implicated_cid, peer_command)));
+                return Err(NetworkError::msg(format!("Session for {implicated_cid} not found in session manager. Failed to dispatch peer command {peer_command:?}")));
             }
         };
 
@@ -976,7 +976,7 @@ impl HdpSessionManager {
         let (_, sess_ref) = lock
             .sessions
             .get(&target_cid)
-            .ok_or_else(|| format!("Target cid {} does not exist (route err)", target_cid))?;
+            .ok_or_else(|| format!("Target cid {target_cid} does not exist (route err)"))?;
         let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
         let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
         accessor.borrow_hr(None, |hr, _| {
@@ -1048,7 +1048,7 @@ impl HdpSessionManager {
                     .map_err(|err| err.into_string())
             }
         } else {
-            Err(format!("CID {} is not registered locally", target_cid))
+            Err(format!("CID {target_cid} is not registered locally"))
         }
     }
 

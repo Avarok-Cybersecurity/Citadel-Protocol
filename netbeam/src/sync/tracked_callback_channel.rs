@@ -34,7 +34,7 @@ impl<T> Debug for TrackedCallbackError<T> {
             }
 
             Self::InternalError(err) => {
-                write!(f, "Callback Error: {}", err)
+                write!(f, "Callback Error: {err}")
             }
         }
     }
@@ -220,6 +220,6 @@ mod tests {
         let err0 = TrackedCallbackError::SendError(0u8);
         let err1 = TrackedCallbackError::<u8>::RecvError;
         let err2 = TrackedCallbackError::<u8>::InternalError("other");
-        let _data = format!("{:?} {:?} {:?}", err0, err1, err2);
+        let _data = format!("{err0:?} {err1:?} {err2:?}");
     }
 }

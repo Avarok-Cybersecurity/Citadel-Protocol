@@ -95,7 +95,7 @@ impl Debug for ServerUnderlyingProtocol {
             ServerUnderlyingProtocol::Quic(..) => "QUIC",
         };
 
-        write!(f, "{}", label)
+        write!(f, "{label}")
     }
 }
 

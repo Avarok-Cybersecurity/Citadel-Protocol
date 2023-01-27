@@ -1,8 +1,8 @@
 use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
 use crate::proto::remote::Ticket;
+use citadel_io::Mutex;
 use futures::{Future, Stream};
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;

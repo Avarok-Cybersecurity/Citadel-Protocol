@@ -70,7 +70,7 @@ impl Debug for GenericNetworkStream {
             Self::Quic(..) => "QUIC",
         };
 
-        write!(f, "{}", tag)
+        write!(f, "{tag}")
     }
 }
 

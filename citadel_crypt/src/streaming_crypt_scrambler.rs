@@ -102,8 +102,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
         return Err(CryptError::Encrypt(format!(
-            "Maximum group size cannot be larger than {} bytes",
-            MAX_BYTES_PER_GROUP
+            "Maximum group size cannot be larger than {MAX_BYTES_PER_GROUP} bytes",
         )));
     }
 
@@ -138,7 +137,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         cur_task: None,
     };
 
-    let _ = tokio::task::spawn(async move {
+    let handle = citadel_io::spawn(async move {
         let res = tokio::select! {
             res0 = stopper(stop) => res0,
             res1 = file_streamer(group_sender.clone(), file_scrambler) => res1
@@ -148,6 +147,9 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
             let _ = group_sender.try_send(Err(err));
         }
     });
+
+    // drop the handle, we will not be using it
+    std::mem::drop(handle);
 
     Ok((object_len, total_groups))
 }

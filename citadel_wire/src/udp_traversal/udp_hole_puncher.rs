@@ -96,8 +96,7 @@ async fn driver(
     .await;
     res.map_err(|err| {
         anyhow::Error::msg(format!(
-            "**HOLE-PUNCH-ERR**: {:?} | local_nat_type: {:?} | peer_nat_type: {:?}",
-            err, local_nat_type, peer_nat_type
+            "**HOLE-PUNCH-ERR**: {err:?} | local_nat_type: {local_nat_type:?} | peer_nat_type: {peer_nat_type:?}",
         ))
     })
 }

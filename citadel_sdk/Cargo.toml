@@ -25,7 +25,7 @@ wasm = ["citadel_proto/wasm"]
 google-services = ["citadel_proto/google-services"]
 
 # for testing only
-localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_logging"]
+localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_logging", "citadel_io/deadlock-detection"]
 localhost-testing-assert-no-proxy = ["citadel_proto/localhost-testing-assert-no-proxy"]
 localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-only"]
 
@@ -33,10 +33,10 @@ doc-images = ["embed-doc-image"]
 
 [dependencies]
 citadel_proto = { version = "0.3.0", path = "../citadel_proto", default-features = false }
+citadel_io = { version = "0.3.0", path = "../citadel_io", default-features = false }
 embed-doc-image = { version = "0.1.4", optional = true }
 tokio = { version = "1.24", default-features = false }
 futures = { version = "0.3.25", default-features = false }
-parking_lot = { default-features = false, version = "0.12.1" }
 log = { default-features = false, version = "0.4.17" }
 lazy_static = { default-features = false, version = "1.4.0" }
 uuid = { version = "1.2.2", default-features = false, features = ["v4"] }
@@ -47,7 +47,7 @@ anyhow = { version = "1", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.24", default-features = false, features = ["rt"] }
-parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
+citadel_io = { version = "0.3.0", path = "../citadel_io", default-features = false }
 dirs2 = "3.0.1"
 citadel_logging = { path = "../citadel_logging", version = "0.3.0" }
 rstest = "0.16.0"

@@ -1,6 +1,6 @@
 use crate::impl_remote;
+use citadel_io::Mutex;
 use citadel_proto::prelude::*;
-use parking_lot::Mutex;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 

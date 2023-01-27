@@ -27,7 +27,7 @@ impl<T> Debug for CallbackError<T> {
             }
 
             Self::InternalError(err) => {
-                write!(f, "Callback Error: {}", err)
+                write!(f, "Callback Error: {err}")
             }
         }
     }

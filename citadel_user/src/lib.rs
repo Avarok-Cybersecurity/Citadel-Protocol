@@ -8,8 +8,7 @@
     unused_import_braces,
     variant_size_differences,
     unused_features,
-    unused_results,
-    warnings
+    unused_results
 )]
 #![allow(rustdoc::broken_intra_doc_links)]
 

@@ -35,11 +35,11 @@ impl AccountError {
             AccountError::Generic(e) => e,
             AccountError::InvalidUsername => "Invalid username".to_string(),
             AccountError::InvalidPassword => "Invalid password".to_string(),
-            AccountError::ClientExists(cid) => format!("Client {} already exists", cid),
-            AccountError::ClientNonExists(cid) => format!("Client {} does not exist", cid),
-            AccountError::ServerExists(cid) => format!("Server {} already exists", cid),
-            AccountError::ServerNonExists(cid) => format!("Server {} does not exist", cid),
-            AccountError::Disengaged(cid) => format!("Server {} is not engaged", cid),
+            AccountError::ClientExists(cid) => format!("Client {cid} already exists"),
+            AccountError::ClientNonExists(cid) => format!("Client {cid} does not exist"),
+            AccountError::ServerExists(cid) => format!("Server {cid} already exists"),
+            AccountError::ServerNonExists(cid) => format!("Server {cid} does not exist"),
+            AccountError::Disengaged(cid) => format!("Server {cid} is not engaged"),
         }
     }
 }
