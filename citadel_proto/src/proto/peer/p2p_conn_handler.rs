@@ -110,7 +110,7 @@ async fn p2p_conn_handler(
 
     log::trace!(target: "citadel", "[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
-    return match p2p_listener.next().await {
+    match p2p_listener.next().await {
         Some(Ok((p2p_stream, _))) => {
             let session = HdpSession::upgrade_weak(weak)
                 .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
@@ -145,7 +145,7 @@ async fn p2p_conn_handler(
             log::error!(target: "citadel", "P2P listener returned None. Stream dead");
             Err(NetworkError::InternalError("P2P Listener returned None"))
         }
-    };
+    }
 }
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
@@ -334,7 +334,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket)
                 .await
-                .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {:?}", err)))
+                .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
         }
     };
 

@@ -629,8 +629,7 @@ impl HdpServer {
                                 InternalServerError {
                                     ticket_opt: None,
                                     message: format!(
-                                        "HDP Server dropping connection to {}. Reason: {}",
-                                        peer_addr, err
+                                        "HDP Server dropping connection to {peer_addr}. Reason: {err}"
                                     ),
                                 },
                             ))?;

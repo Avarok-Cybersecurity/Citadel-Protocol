@@ -25,8 +25,6 @@ pub const fn build_tag() -> &'static str {
 #[cfg(not(feature = "multi-threaded"))]
 #[macro_use]
 pub mod macros {
-    use std::future::Future;
-
     use either::Either;
 
     use crate::proto::session::HdpSessionInner;
@@ -44,14 +42,6 @@ pub mod macros {
 
     pub trait SyncContextRequirements: 'static {}
     impl<T: 'static> SyncContextRequirements for T {}
-
-    #[allow(unused_results, dead_code)]
-    pub fn tokio_spawn_async_then_sync<F: Future>(
-        future: impl FnOnce() -> F + 'static,
-        fx: impl FnOnce(<F as Future>::Output) + 'static,
-    ) {
-        tokio::task::spawn_local(async move { (fx)(future().await) });
-    }
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
     pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
@@ -145,7 +135,7 @@ pub mod macros {
 
     macro_rules! spawn {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn_local(
                 $future,
             ))
         };
@@ -153,7 +143,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn_local(
                 $future,
             ))
         };
@@ -185,14 +175,12 @@ pub mod macros {
 #[cfg(feature = "multi-threaded")]
 #[macro_use]
 pub mod macros {
-    use std::future::Future;
-
     use either::Either;
 
     use crate::proto::session::HdpSessionInner;
 
-    pub type OwnedReadGuard<'a, T> = parking_lot::RwLockReadGuard<'a, T>;
-    pub type OwnedWriteGuard<'a, T> = parking_lot::RwLockWriteGuard<'a, T>;
+    pub type OwnedReadGuard<'a, T> = citadel_io::RwLockReadGuard<'a, T>;
+    pub type OwnedWriteGuard<'a, T> = citadel_io::RwLockWriteGuard<'a, T>;
 
     pub type EitherOwnedGuard<'a, T> = Either<OwnedReadGuard<'a, T>, OwnedWriteGuard<'a, T>>;
 
@@ -205,21 +193,11 @@ pub mod macros {
     pub trait SyncContextRequirements: Send + Sync + 'static {}
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
 
-    #[allow(unused_results, dead_code)]
-    pub fn tokio_spawn_async_then_sync<F: Future + ContextRequirements>(
-        future: impl FnOnce() -> F + ContextRequirements,
-        fx: impl FnOnce(<F as Future>::Output) + ContextRequirements,
-    ) where
-        <F as Future>::Output: Send,
-    {
-        tokio::task::spawn(async move { (fx)(future().await) });
-    }
-
-    pub type WeakBorrowType<T> = std::sync::Weak<parking_lot::RwLock<T>>;
-    pub type SessionBorrow<'a> = parking_lot::RwLockWriteGuard<'a, HdpSessionInner>;
+    pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
+    pub type SessionBorrow<'a> = citadel_io::RwLockWriteGuard<'a, HdpSessionInner>;
 
     pub struct WeakBorrow<T> {
-        pub inner: std::sync::Weak<parking_lot::RwLock<T>>,
+        pub inner: std::sync::Weak<citadel_io::RwLock<T>>,
     }
 
     impl<T> Clone for WeakBorrow<T> {
@@ -262,7 +240,7 @@ pub mod macros {
         ($struct_name:ident, $inner:ty) => {
             #[derive(Clone)]
             pub struct $struct_name {
-                pub inner: std::sync::Arc<parking_lot::RwLock<$inner>>,
+                pub inner: std::sync::Arc<citadel_io::RwLock<$inner>>,
             }
 
             impl $struct_name {
@@ -303,7 +281,7 @@ pub mod macros {
 
     macro_rules! create_inner {
         ($item:expr) => {
-            std::sync::Arc::new(parking_lot::RwLock::new($item))
+            std::sync::Arc::new(citadel_io::RwLock::new($item))
         };
     }
 
@@ -311,17 +289,16 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future)));
+            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn($future)));
         } else {
             log::warn!(target: "citadel", "Unable to spawn future: {:?}", stringify!($future));
         }
-        //tokio::task::spawn($future)
     };
 }
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn($future))
         };
     }
 
@@ -348,6 +325,7 @@ pub mod macros {
     }
 }
 
+#[cfg(not(target_host = "wasm"))]
 pub mod re_imports {
     pub use async_trait::*;
     pub use bytes::BufMut;

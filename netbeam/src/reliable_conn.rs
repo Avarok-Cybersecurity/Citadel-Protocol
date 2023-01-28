@@ -176,7 +176,7 @@ pub mod simulator {
             let inner_fwd = inner.clone();
             let (fwd, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
-            tokio::task::spawn(async move {
+            citadel_io::spawn(async move {
                 while let Some(packet) = rx.recv().await {
                     if min_lag != 0 {
                         let rnd = {

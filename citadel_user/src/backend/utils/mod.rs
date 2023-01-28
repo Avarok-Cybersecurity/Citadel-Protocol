@@ -152,7 +152,7 @@ impl std::fmt::Display for ObjectTransferStatus {
             }
 
             ObjectTransferStatus::ReceptionBeginning(_, vfm) => {
-                write!(f, "Download for object {:?} beginning", vfm)
+                write!(f, "Download for object {vfm:?} beginning")
             }
 
             ObjectTransferStatus::TransferTick(relative_group_id, total_groups, transfer_rate) => {
@@ -172,7 +172,7 @@ impl std::fmt::Display for ObjectTransferStatus {
             }
 
             ObjectTransferStatus::Fail(reason) => {
-                write!(f, "Failure. Reason: {}", reason)
+                write!(f, "Failure. Reason: {reason}")
             }
         }
     }

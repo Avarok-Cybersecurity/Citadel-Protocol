@@ -77,7 +77,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
         let shared_state = this.shared_state.clone();
         let channel = this.app.clone();
 
-        tokio::task::spawn(async move {
+        citadel_io::spawn(async move {
             if let Err(err) =
                 passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
                     .await

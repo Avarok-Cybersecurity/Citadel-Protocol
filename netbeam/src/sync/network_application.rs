@@ -108,7 +108,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         let this = Self::new(relative_node_type, t);
         let conn_task = this.clone();
 
-        tokio::task::spawn(async move {
+        citadel_io::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
                     log::warn!(target: "citadel", "Unable to forward packet: {:?}", err);

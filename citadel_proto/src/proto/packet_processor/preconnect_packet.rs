@@ -136,7 +136,7 @@ pub async fn process_preconnect(
                     }
                 } else {
                     let bad_cid = header.session_cid.get();
-                    let error = format!("CID {} is not registered to this node", bad_cid);
+                    let error = format!("CID {bad_cid} is not registered to this node");
                     let packet = packet_crafter::pre_connect::craft_halt(&header, error);
                     Ok(PrimaryProcessorResult::ReplyToSender(packet))
                 }
@@ -692,10 +692,7 @@ mod tests {
                 our_version.minor,
                 our_version.patch + shift,
             );
-            assert_eq!(
-                false,
-                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
-            )
+            assert!(!proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
         }
     }
 
@@ -708,10 +705,7 @@ mod tests {
                 our_version.minor,
                 our_version.patch,
             );
-            assert_eq!(
-                true,
-                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
-            )
+            assert!(proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
         }
     }
 
@@ -724,10 +718,7 @@ mod tests {
                 our_version.minor + shift,
                 our_version.patch,
             );
-            assert_eq!(
-                true,
-                proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap()
-            )
+            assert!(proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
         }
     }
 

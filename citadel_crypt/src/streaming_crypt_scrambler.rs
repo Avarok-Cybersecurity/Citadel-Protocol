@@ -9,10 +9,10 @@ use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
-use crate::misc::blocking_spawn::{BlockingSpawn, BlockingSpawnError};
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
 use citadel_io::Mutex;
+use citadel_io::{BlockingSpawn, BlockingSpawnError};
 use futures::Future;
 use num_integer::Integer;
 use std::sync::Arc;
@@ -102,8 +102,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
         return Err(CryptError::Encrypt(format!(
-            "Maximum group size cannot be larger than {} bytes",
-            MAX_BYTES_PER_GROUP
+            "Maximum group size cannot be larger than {MAX_BYTES_PER_GROUP} bytes",
         )));
     }
 
@@ -138,7 +137,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         cur_task: None,
     };
 
-    let _ = tokio::task::spawn(async move {
+    let handle = citadel_io::spawn(async move {
         let res = tokio::select! {
             res0 = stopper(stop) => res0,
             res1 = file_streamer(group_sender.clone(), file_scrambler) => res1
@@ -148,6 +147,9 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
             let _ = group_sender.try_send(Err(err));
         }
     });
+
+    // drop the handle, we will not be using it
+    std::mem::drop(handle);
 
     Ok((object_len, total_groups))
 }
@@ -201,7 +203,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     ) -> Poll<Option<GroupSenderDevice<N>>> {
         let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, BlockingSpawnError> =
             futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
-        return if let Ok(Ok(sender)) = res {
+        if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;
             *read_cursor += poll_amt;
             *cur_task = None;
@@ -209,7 +211,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
         } else {
             log::error!(target: "citadel", "Unable to par_scramble_encrypt group");
             Poll::Ready(None)
-        };
+        }
     }
 }
 
@@ -262,7 +264,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 let target_cid = *target_cid;
                 let object_id = *object_id;
 
-                let task = crate::misc::blocking_spawn::spawn_blocking(move || {
+                let task = citadel_io::spawn_blocking(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,

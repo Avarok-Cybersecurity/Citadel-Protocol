@@ -35,11 +35,11 @@ impl AccountError {
             AccountError::Generic(e) => e,
             AccountError::InvalidUsername => "Invalid username".to_string(),
             AccountError::InvalidPassword => "Invalid password".to_string(),
-            AccountError::ClientExists(cid) => format!("Client {} already exists", cid),
-            AccountError::ClientNonExists(cid) => format!("Client {} does not exist", cid),
-            AccountError::ServerExists(cid) => format!("Server {} already exists", cid),
-            AccountError::ServerNonExists(cid) => format!("Server {} does not exist", cid),
-            AccountError::Disengaged(cid) => format!("Server {} is not engaged", cid),
+            AccountError::ClientExists(cid) => format!("Client {cid} already exists"),
+            AccountError::ClientNonExists(cid) => format!("Client {cid} does not exist"),
+            AccountError::ServerExists(cid) => format!("Server {cid} already exists"),
+            AccountError::ServerNonExists(cid) => format!("Server {cid} does not exist"),
+            AccountError::Disengaged(cid) => format!("Server {cid} is not engaged"),
         }
     }
 }
@@ -77,8 +77,7 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
 
     if username.len() < MIN_USERNAME_LENGTH || username.len() > MAX_USERNAME_LENGTH {
         return Err(AccountError::Generic(format!(
-            "Username must be between {} and {} characters",
-            MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH
+            "Username must be between {MIN_USERNAME_LENGTH} and {MAX_USERNAME_LENGTH} characters",
         )));
     }
 
@@ -92,8 +91,7 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
         let password = password.as_ref();
         if password.len() < MIN_PASSWORD_LENGTH || password.len() > MAX_PASSWORD_LENGTH {
             return Err(AccountError::Generic(format!(
-                "Password must be between {} and {} characters",
-                MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH
+                "Password must be between {MIN_PASSWORD_LENGTH} and {MAX_PASSWORD_LENGTH} characters",
             )));
         }
 
@@ -106,8 +104,7 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
 
     if full_name.len() < MIN_NAME_LENGTH || full_name.len() > MAX_NAME_LENGTH {
         return Err(AccountError::Generic(format!(
-            "Full name must be between {} and {} characters",
-            MIN_NAME_LENGTH, MAX_NAME_LENGTH
+            "Full name must be between {MIN_NAME_LENGTH} and {MAX_NAME_LENGTH} characters",
         )));
     }
 

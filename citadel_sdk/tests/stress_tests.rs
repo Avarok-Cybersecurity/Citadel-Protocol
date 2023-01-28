@@ -27,14 +27,14 @@ mod tests {
     #[cfg(feature = "multi-threaded")]
     macro_rules! spawn_handle {
         ($future:expr) => {
-            tokio::task::spawn($future)
+            citadel_io::spawn($future)
         };
     }
 
     #[cfg(not(feature = "multi-threaded"))]
     macro_rules! spawn_handle {
         ($future:expr) => {
-            tokio::task::spawn($future)
+            citadel_io::spawn($future)
         };
     }
 
@@ -91,7 +91,7 @@ mod tests {
             cur_idx += 1;
         }
 
-        assert_eq!(cur_idx as usize, count);
+        assert_eq!(cur_idx, count);
         let _ = barrier.wait().await;
 
         Ok(())
@@ -131,7 +131,7 @@ mod tests {
                 GroupBroadcastPayload::Event { payload } => {
                     if let GroupBroadcast::MessageResponse(..) = &payload {
                     } else {
-                        panic!("Received invalid message type: {:?}", payload);
+                        panic!("Received invalid message type: {payload:?}");
                     }
                 }
             }
@@ -171,7 +171,7 @@ mod tests {
         )]
         enx: EncryptionAlgorithm,
     ) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -233,7 +233,7 @@ mod tests {
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -299,7 +299,7 @@ mod tests {
         )]
         enx: EncryptionAlgorithm,
     ) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
@@ -380,7 +380,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);
 
         static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
@@ -389,7 +389,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
         let group_id = Uuid::new_v4();

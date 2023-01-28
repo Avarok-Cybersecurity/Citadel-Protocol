@@ -1,5 +1,4 @@
 use crate::error::FirewallError;
-use crate::ip_addr::get_local_ip;
 use igd::aio::Gateway;
 use igd::{PortMappingProtocol, SearchOptions};
 use std::fmt::Formatter;
@@ -22,7 +21,9 @@ impl UPnPHandler {
             ..Default::default()
         };
 
-        let local_ip_address = get_local_ip().await.ok_or(FirewallError::LocalIPAddrFail)?;
+        let local_ip_address = async_ip::get_internal_ip(false)
+            .await
+            .ok_or(FirewallError::LocalIPAddrFail)?;
 
         if local_ip_address.is_ipv6() {
             return Err(FirewallError::UPNP(

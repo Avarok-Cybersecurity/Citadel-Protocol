@@ -1170,7 +1170,7 @@ impl HdpSession {
         let this = self;
 
         if this.state.load(Ordering::Relaxed) != SessionState::Connected {
-            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, src: {:?}) outbound, but the session is not connected", ticket, source.get_source_name())))
+            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {ticket}, src: {:?}) outbound, but the session is not connected", source.get_source_name())))
         } else {
             let file_name = source
                 .get_source_name()
@@ -1524,7 +1524,7 @@ impl HdpSession {
 
                                                 if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                     ticket_opt: Some(ticket),
-                                                    message: format!("Timeout on ticket {}", ticket)
+                                                    message: format!("Timeout on ticket {ticket}")
                                                 })).is_err() {
                                                     log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
                                                     QueueWorkerResult::EndSession
@@ -1706,8 +1706,7 @@ impl HdpSession {
                 .as_ref()
                 .ok_or_else(|| {
                     NetworkError::msg(format!(
-                        "C2S container not loaded; cannot send peer command {:?}",
-                        signal_processed
+                        "C2S container not loaded; cannot send peer command {signal_processed:?}"
                     ))
                 })?
                 .peer_session_crypto
@@ -1896,8 +1895,7 @@ impl HdpSessionInner {
     /// When a successful login occurs, this function gets called. Must return any AsRef<[u8]> type
     pub(super) fn create_welcome_message(&self, cid: u64) -> String {
         format!(
-            "Citadel login::success. Welcome to the Post-quantum network. Implicated CID: {}",
-            cid
+            "Citadel login::success. Welcome to the Post-quantum network. Implicated CID: {cid}"
         )
     }
 

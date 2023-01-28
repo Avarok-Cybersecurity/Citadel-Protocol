@@ -298,7 +298,7 @@ mod tests {
         let _ = builder
             .with_underlying_protocol(underlying_protocol.clone())
             .with_backend(backend_type.clone())
-            .with_node_type(node_type.clone())
+            .with_node_type(node_type)
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
             .with_native_certs()
@@ -307,12 +307,13 @@ mod tests {
 
         assert!(builder.underlying_protocol.is_some());
         assert_eq!(backend_type, builder.backend_type.clone().unwrap());
-        assert_eq!(node_type, builder.hypernode_type.clone().unwrap());
+        assert_eq!(node_type, builder.hypernode_type.unwrap());
         assert_eq!(
             kernel_settings,
             builder.kernel_executor_settings.clone().unwrap()
         );
 
+        #[allow(clippy::let_underscore_future)]
         let _ = builder.build(EmptyKernel::default()).unwrap();
     }
 }

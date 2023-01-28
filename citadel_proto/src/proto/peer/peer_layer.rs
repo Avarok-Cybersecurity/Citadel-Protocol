@@ -35,7 +35,7 @@ pub struct HyperNodePeerLayerInner {
     pub(crate) persistence_handler: PersistenceHandler,
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
     waker: Arc<AtomicWaker>,
-    inner: Arc<parking_lot::RwLock<SharedInner>>,
+    inner: Arc<citadel_io::RwLock<SharedInner>>,
 }
 
 #[derive(Default)]
@@ -56,7 +56,7 @@ pub struct HyperNodePeerLayer {
 }
 
 pub struct HyperNodePeerLayerExecutor {
-    inner: Arc<parking_lot::RwLock<SharedInner>>,
+    inner: Arc<citadel_io::RwLock<SharedInner>>,
     waker: Arc<AtomicWaker>,
 }
 
@@ -87,7 +87,7 @@ impl HyperNodePeerLayer {
         let waker = std::sync::Arc::new(AtomicWaker::new());
         let inner = HyperNodePeerLayerInner {
             waker: waker.clone(),
-            inner: Arc::new(parking_lot::RwLock::new(Default::default())),
+            inner: Arc::new(citadel_io::RwLock::new(Default::default())),
             persistence_handler,
             message_groups: HashMap::new(),
         };
@@ -639,10 +639,10 @@ impl Display for PeerConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                write!(f, "hLAN {} <-> {}", implicated_cid, target_cid)
+                write!(f, "hLAN {implicated_cid} <-> {target_cid}")
             }
             PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
-                write!(f, "hWAN {} <-> {} <-> {}", implicated_cid, icid, target_cid)
+                write!(f, "hWAN {implicated_cid} <-> {icid} <-> {target_cid}")
             }
         }
     }

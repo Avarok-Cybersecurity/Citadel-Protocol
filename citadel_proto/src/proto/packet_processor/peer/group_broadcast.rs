@@ -575,7 +575,7 @@ fn forward_signal(
             ticket,
             event: broadcast,
         }))
-        .map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {:?}", err)))?;
+        .map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {err:?}")))?;
     Ok(PrimaryProcessorResult::Void)
 }
 

@@ -160,8 +160,7 @@ pub trait ProtocolRemoteExt: Remote {
         match map_errors(self.send_callback(register_request).await?)? {
             NodeResult::RegisterOkay(RegisterOkay { .. }) => Ok(RegisterSuccess {}),
             res => Err(NetworkError::msg(format!(
-                "An unexpected response occurred: {:?}",
-                res
+                "An unexpected response occurred: {res:?}"
             ))),
         }
     }
@@ -233,8 +232,7 @@ pub trait ProtocolRemoteExt: Remote {
                 error_message: err,
             }) => Err(NetworkError::Generic(err)),
             res => Err(NetworkError::msg(format!(
-                "[connect] An unexpected response occurred: {:?}",
-                res
+                "[connect] An unexpected response occurred: {res:?}"
             ))),
         }
     }
@@ -667,8 +665,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         .map_err(|err| NetworkError::msg(err.into_string()))?
                         .ok_or_else(|| {
                             NetworkError::msg(format!(
-                                "Account {:?} not found for local user {:?}",
-                                user, implicated_cid
+                                "Account {user:?} not found for local user {implicated_cid:?}"
                             ))
                         })
                         .map(|r| r.1.cid)?,
@@ -932,7 +929,7 @@ mod tests {
         switch: Arc<AtomicBool>,
     ) -> (NodeFuture<'a, ReceiverFileTransferKernel>, SocketAddr) {
         let port = crate::test_common::get_unused_tcp_port();
-        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap();
         let server = crate::test_common::server_test_node(
             bind_addr,
             ReceiverFileTransferKernel(None, switch),
@@ -959,9 +956,9 @@ mod tests {
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        let _ = citadel_logging::setup_log();
-        let ref client_success = AtomicBool::new(false);
-        let ref server_success = Arc::new(AtomicBool::new(false));
+        citadel_logging::setup_log();
+        let client_success = &AtomicBool::new(false);
+        let server_success = &Arc::new(AtomicBool::new(false));
         let (server, server_addr) = server_info(server_success.clone());
         let uuid = Uuid::new_v4();
 

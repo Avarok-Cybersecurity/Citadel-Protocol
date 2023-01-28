@@ -4,7 +4,6 @@ mod tests {
     use citadel_crypt::argon::argon_container::{
         ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
     };
-    use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_crypt::entropy_bank::SecurityLevel;
     use citadel_crypt::misc::CryptError;
@@ -20,10 +19,13 @@ mod tests {
     };
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use rstest::rstest;
+    #[cfg(not(target_family = "wasm"))]
     use std::path::PathBuf;
 
+    #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
     async fn argon_autotuner() {
+        use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
         citadel_logging::setup_log();
         let start_time = std::time::Instant::now();
         let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None)

@@ -21,7 +21,7 @@ pub struct BroadcastKernel<'a, F, Fut> {
 
 pub struct BroadcastShared {
     route_registers: AtomicBool,
-    register_rx: parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<PeerSignal>>>,
+    register_rx: citadel_io::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<PeerSignal>>>,
     register_tx: tokio::sync::mpsc::UnboundedSender<PeerSignal>,
 }
 
@@ -241,7 +241,7 @@ where
         Self {
             shared: Arc::new(BroadcastShared {
                 route_registers: AtomicBool::new(false),
-                register_rx: parking_lot::Mutex::new(Some(rx)),
+                register_rx: citadel_io::Mutex::new(Some(rx)),
                 register_tx: tx,
             }),
             inner_kernel: kernel,
@@ -306,7 +306,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn group_connect(#[case] peer_count: usize) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let client_success = &AtomicUsize::new(0);
@@ -314,7 +314,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
         let group_id = Uuid::new_v4();
@@ -393,7 +392,7 @@ mod tests {
            who engage in a manual mode
         */
         assert!(peer_count > 1);
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let client_success = &AtomicBool::new(false);
@@ -403,7 +402,6 @@ mod tests {
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
-            .into_iter()
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
 

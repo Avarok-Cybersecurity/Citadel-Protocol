@@ -141,7 +141,7 @@ impl Sink<Bytes> for QuicUdpSendHalf {
     fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
         self.sink
             .send_datagram(item)
-            .map_err(|err| NetworkError::Generic(format!("{:?}", err)))
+            .map_err(|err| NetworkError::Generic(format!("{err:?}")))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -173,7 +173,7 @@ impl UdpSplittable for RawUdpSocketConnector {
         self.local_addr
             .as_ref()
             .map(|r| *r)
-            .map_err(|err| generic_error(format!("{:?}", err)))
+            .map_err(|err| generic_error(format!("{err:?}")))
     }
 }
 

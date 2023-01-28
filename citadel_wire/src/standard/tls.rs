@@ -101,7 +101,9 @@ pub fn create_server_config(
 /// This can be an expensive operation, empirically lasting upwards of 200ms on some systems
 /// This should only be called once, preferably at init of the protocol
 pub async fn load_native_certs_async() -> Result<Vec<Certificate>, Error> {
-    tokio::task::spawn_blocking(load_native_certs).await?
+    citadel_io::spawn_blocking(load_native_certs)
+        .await
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}")))?
 }
 
 /// Loads native certs. This is an expensive operation, and should be called once per node
@@ -112,7 +114,7 @@ pub fn load_native_certs() -> Result<Vec<Certificate>, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tls::create_server_self_signed_config;
+    use crate::standard::tls::create_server_self_signed_config;
 
     #[test]
     fn main() {

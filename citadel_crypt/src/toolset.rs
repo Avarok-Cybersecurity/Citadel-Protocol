@@ -154,8 +154,7 @@ impl<R: Ratchet> Toolset<R> {
         let oldest = self.get_oldest_hyper_ratchet_version();
         if oldest != version {
             Err(CryptError::DrillUpdateError(format!(
-                "Unable to deregister. Provided version: {}, expected version: {}",
-                version, oldest
+                "Unable to deregister. Provided version: {version}, expected version: {oldest}",
             )))
         } else {
             self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;

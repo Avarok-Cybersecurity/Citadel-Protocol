@@ -1,8 +1,8 @@
 #![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
 use crate::nat_identification::NatType;
 use async_ip::IpAddressInfo;
+use citadel_io::UdpSocket;
 use std::net::{IpAddr, SocketAddr};
-use tokio::net::UdpSocket;
 
 #[derive(Debug)]
 pub struct HolePunchConfig {
@@ -244,9 +244,7 @@ impl HolePunchConfig {
         // ports_to_target_count
         let beginning_port = last_external_addr.port().wrapping_add(1);
         let ending_port = beginning_port.wrapping_add(ports_to_target_count);
-        let ports = (beginning_port..ending_port)
-            .into_iter()
-            .collect::<Vec<u16>>();
+        let ports = (beginning_port..ending_port).collect::<Vec<u16>>();
 
         Self::load_alternate_bands(
             bands,

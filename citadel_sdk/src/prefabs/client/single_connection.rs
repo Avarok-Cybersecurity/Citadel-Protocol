@@ -1,10 +1,10 @@
 use crate::prefabs::{get_socket_addr, ClientServerRemote};
 use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
+use citadel_io::Mutex;
 use citadel_proto::auth::AuthenticationRequest;
 use citadel_proto::prelude::*;
 use futures::Future;
-use parking_lot::Mutex;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
@@ -328,7 +328,7 @@ mod tests {
         #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap())]
         underlying_protocol: ServerUnderlyingProtocol,
     ) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(2);
 
         let client_success = &AtomicBool::new(false);
@@ -380,7 +380,7 @@ mod tests {
         #[case] debug_force_nat_timeout: bool,
         #[case] udp_mode: UdpMode,
     ) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(2);
 
         if debug_force_nat_timeout {
@@ -433,7 +433,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless_deregister(#[case] udp_mode: UdpMode) {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(2);
 
         let client_success = &AtomicBool::new(false);
@@ -479,7 +479,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_backend_store_c2s() {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(2);
 
         let udp_mode = UdpMode::Disabled;
@@ -505,8 +505,8 @@ mod tests {
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
 
-                const KEY: &'static str = "HELLO_WORLD";
-                const KEY2: &'static str = "HELLO_WORLD2";
+                const KEY: &str = "HELLO_WORLD";
+                const KEY2: &str = "HELLO_WORLD2";
                 let value: Vec<u8> = Vec::from("Hello, world!");
                 let value2: Vec<u8> = Vec::from("Hello, world!2");
 
@@ -517,8 +517,8 @@ mod tests {
                 assert_eq!(remote.get(KEY2).await?.as_deref(), Some(value2.as_slice()));
 
                 let map = remote.get_all().await?;
-                assert_eq!(map.get(KEY).as_deref(), Some(&value));
-                assert_eq!(map.get(KEY2).as_deref(), Some(&value2));
+                assert_eq!(map.get(KEY), Some(&value));
+                assert_eq!(map.get(KEY2), Some(&value2));
 
                 assert_eq!(
                     remote.remove(KEY2).await?.as_deref(),
@@ -528,7 +528,7 @@ mod tests {
                 assert_eq!(remote.remove(KEY2).await?.as_deref(), None);
 
                 let map = remote.remove_all().await?;
-                assert_eq!(map.get(KEY).as_deref(), Some(&value));
+                assert_eq!(map.get(KEY), Some(&value));
                 assert_eq!(map.get(KEY2), None);
 
                 assert_eq!(remote.get_all().await?.len(), 0);
@@ -555,7 +555,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_rekey_c2s() {
-        let _ = citadel_logging::setup_log();
+        citadel_logging::setup_log();
         TestBarrier::setup(2);
 
         let udp_mode = UdpMode::Disabled;

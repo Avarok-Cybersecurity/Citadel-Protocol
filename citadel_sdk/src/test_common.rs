@@ -28,7 +28,7 @@ pub fn server_test_node<'a, K: NetKernel + 'a>(
 #[cfg(feature = "localhost-testing")]
 pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
     let port = get_unused_tcp_port();
-    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap();
     let server = crate::test_common::server_test_node(bind_addr, EmptyKernel::default(), |_| {});
     (server, bind_addr)
 }
@@ -44,7 +44,7 @@ where
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     let port = get_unused_tcp_port();
-    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap();
     let server = crate::test_common::server_test_node(
         bind_addr,
         Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>,
@@ -66,7 +66,7 @@ pub fn get_unused_tcp_port() -> u16 {
 lazy_static::lazy_static! {
     pub static ref PEERS: Vec<(String, String, String)> = {
         ["alpha", "beta", "charlie", "echo", "delta", "epsilon", "foxtrot"]
-        .iter().map(|base| (format!("{}.username", base), format!("{}.password", base), format!("{}.full_name", base)))
+        .iter().map(|base| (format!("{base}.username"), format!("{base}.password"), format!("{base}.full_name")))
         .collect()
     };
 }
@@ -85,7 +85,7 @@ pub async fn wait_for_peers() {
 pub async fn wait_for_peers() {}
 
 #[cfg(feature = "localhost-testing")]
-pub static TEST_BARRIER: parking_lot::Mutex<Option<TestBarrier>> = parking_lot::const_mutex(None);
+pub static TEST_BARRIER: citadel_io::Mutex<Option<TestBarrier>> = citadel_io::const_mutex(None);
 
 #[derive(Clone)]
 pub struct TestBarrier {
@@ -115,7 +115,7 @@ lazy_static::lazy_static! {
             log::info!(target: "citadel", "Executing deadlock detector ...");
             use std::thread;
             use std::time::Duration;
-            use parking_lot::deadlock;
+            use citadel_io::deadlock;
             loop {
                 std::thread::sleep(Duration::from_secs(5));
                 let deadlocks = deadlock::check_deadlock();

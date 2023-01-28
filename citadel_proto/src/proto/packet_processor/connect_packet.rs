@@ -142,7 +142,7 @@ pub async fn process_connect(
                                     is_personal,
                                     v_conn_type: cxn_type,
                                     services: post_login_object,
-                                    welcome_message: format!("Client {} successfully established a connection to the local HyperNode", cid),
+                                    welcome_message: format!("Client {cid} successfully established a connection to the local HyperNode"),
                                     channel,
                                     udp_rx_opt: udp_channel_rx
                                 });
@@ -176,7 +176,7 @@ pub async fn process_connect(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_connect::FAILURE => {
@@ -385,7 +385,7 @@ pub async fn process_connect(
                     }
                 };
 
-                return task.await;
+                task.await
             }
 
             packet_flags::cmd::aux::do_connect::SUCCESS_ACK => {

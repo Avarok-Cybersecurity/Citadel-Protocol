@@ -104,7 +104,6 @@ mod tests {
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
         let values_ordered = (0..COUNT)
-            .into_iter()
             .map(|r| (r as _, SecBuffer::from(&[r] as &[u8])))
             .collect::<Vec<(u64, SecBuffer)>>();
 
@@ -120,7 +119,7 @@ mod tests {
             }
         };
 
-        let recv_handle = tokio::task::spawn(recv_task);
+        let recv_handle = citadel_io::spawn(recv_task);
 
         for (id, packet) in values_ordered {
             ordered_channel.on_packet_received(id, packet)?;
@@ -138,7 +137,6 @@ mod tests {
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
-            .into_iter()
             .map(|r| {
                 (
                     r as _,
@@ -164,7 +162,7 @@ mod tests {
             }
         };
 
-        let recv_handle = tokio::task::spawn(recv_task);
+        let recv_handle = citadel_io::spawn(recv_task);
 
         for (id, packet) in values_unordered {
             ordered_channel.on_packet_received(id, packet)?;
@@ -181,7 +179,6 @@ mod tests {
         let (tx, mut rx) = unbounded();
         let ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
-            .into_iter()
             .map(|r| {
                 (
                     r as _,
@@ -209,7 +206,7 @@ mod tests {
             }
         };
 
-        let recv_handle = tokio::task::spawn(recv_task);
+        let recv_handle = citadel_io::spawn(recv_task);
 
         tokio_stream::iter(values_unordered)
             .for_each_concurrent(None, |(id, packet)| async move {

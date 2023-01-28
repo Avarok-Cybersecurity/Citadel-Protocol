@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
+use citadel_io::UdpSocket;
 use either::Either;
 use igd::PortMappingProtocol;
-use tokio::net::UdpSocket;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;

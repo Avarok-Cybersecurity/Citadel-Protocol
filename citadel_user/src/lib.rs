@@ -8,8 +8,7 @@
     unused_import_braces,
     variant_size_differences,
     unused_features,
-    unused_results,
-    warnings
+    unused_results
 )]
 #![allow(rustdoc::broken_intra_doc_links)]
 
@@ -23,7 +22,7 @@ pub mod prelude {
 
 /// Serde and others
 pub mod re_exports {
-    #[cfg(feature = "filesystem")]
+    #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
     pub use crate::directory_store::DirectoryStore;
     #[cfg(feature = "google-services")]
     pub use firebase_rtdb::FirebaseRTDB;
@@ -49,7 +48,7 @@ pub mod network_account;
 /// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!HyperWAN)
 pub mod client_account;
 
-#[cfg(feature = "filesystem")]
+#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
 /// This provides methods to load all locally-stored files
 pub mod account_loader;
 /// The server in legacy_citadel_proto requires a means of handling the user database. This module contains the means of achieving this

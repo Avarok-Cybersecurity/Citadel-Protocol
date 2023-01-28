@@ -107,10 +107,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             "LONGTEXT"
         };
         // we no longer use bool due to postgresql bug with t/f not being mapped properly
-        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid VARCHAR(20) NOT NULL, is_personal BOOL, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin {}, PRIMARY KEY (cid))", MAX_USERNAME_LENGTH, bin_type);
-        let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid VARCHAR(20), username VARCHAR({}), cid VARCHAR(20), CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", MAX_USERNAME_LENGTH);
+        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid VARCHAR(20) NOT NULL, is_personal BOOL, username VARCHAR({MAX_USERNAME_LENGTH}) UNIQUE, full_name TEXT, creation_date TEXT, bin {bin_type}, PRIMARY KEY (cid))");
+        let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid VARCHAR(20), username VARCHAR({MAX_USERNAME_LENGTH}), cid VARCHAR(20), CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
         //let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), key TEXT, bin TEXT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
-        let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), id TEXT, sub_id TEXT, bin {}, CONSTRAINT fk_cid2 FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", bin_type);
+        let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), id TEXT, sub_id TEXT, bin {bin_type}, CONSTRAINT fk_cid2 FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
 
         // The following commands below allow us to remove entries and automatically remove corresponding values
         let cmd4 = match self.variant {
@@ -192,7 +192,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let _query = sqlx::query_with(query.as_str(), args)
             .execute(conn)
             .await
-            .map_err(|err| AccountError::Generic(format!("{:?}", err)))?;
+            .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
 
         Ok(())
     }
@@ -252,12 +252,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     ) -> Result<Option<Vec<u64>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let cmd = limit
-            .map(|limit| {
-                format!(
-                    "SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {}",
-                    limit
-                )
-            })
+            .map(|limit| format!("SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {limit}",))
             .unwrap_or_else(|| "SELECT cid FROM cnacs WHERE is_personal = ?".to_string());
         let query: Vec<AnyRow> = sqlx::query(self.format(cmd).as_str())
             .bind(false)
@@ -442,8 +437,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
         let query = if let Some(limit) = limit {
             format!(
-                "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {}",
-                limit
+                "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {limit}",
             )
         } else {
             "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs".to_string()
@@ -535,7 +529,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let insert = self.construct_arg_insert_any(peers);
 
-        let query = format!("WITH input(peer_cid) AS (VALUES {}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {}", insert, limit);
+        let query = format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}");
 
         let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str())
             .bind(implicated_cid.to_string())
@@ -568,7 +562,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let insert = self.construct_arg_insert_any(peers);
 
-        let query = format!("WITH input(peer_cid) AS (VALUES {}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {}", insert, limit);
+        let query = format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}");
 
         let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str())
             .bind(implicated_cid.to_string())
@@ -862,11 +856,11 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     }
 
     fn construct_arg_insert_mysql(&self, vals: &[u64]) -> String {
-        vals.iter().map(|val| format!("ROW('{}')", val)).join(",")
+        vals.iter().map(|val| format!("ROW('{val}')")).join(",")
     }
 
     fn construct_arg_insert_postgre(&self, vals: &[u64]) -> String {
-        vals.iter().map(|val| format!("('{}')", val)).join(",")
+        vals.iter().map(|val| format!("('{val}')")).join(",")
     }
 
     fn construct_arg_insert_sqlite(&self, vals: &[u64]) -> String {
@@ -886,7 +880,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
                         output.push(char);
                     } else {
                         idx += 1;
-                        let val = format!("${}", idx);
+                        let val = format!("${idx}");
                         output.push_str(val.as_str());
                     }
                 }

@@ -193,8 +193,7 @@ pub(crate) mod kyber_module {
             let sha_ciphertext = sha3_256(ciphertext);
             if sha_ciphertext != sha_required {
                 return Err(Error::Other(format!(
-                    "Invalid ciphertext checksum. {:?} != {:?}",
-                    sha_ciphertext, sha_required
+                    "Invalid ciphertext checksum. {sha_ciphertext:?} != {sha_required:?}",
                 )));
             }
 
@@ -253,7 +252,7 @@ pub(crate) mod kyber_module {
         local_sk: T,
         ciphertext: R,
     ) -> Result<Vec<u8>, Error> {
-        kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| Error::Other(format!("{:?}", err)))
+        kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| Error::Other(format!("{err:?}")))
     }
 
     fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), Error> {
@@ -279,8 +278,7 @@ pub(crate) mod kyber_module {
 
         if object_len > total_len {
             return Err(Error::Other(format!(
-                "Decoded length = {}, yet, input buffer's len is only {}",
-                object_len, total_len
+                "Decoded length = {object_len}, yet, input buffer's len is only {total_len}",
             )));
         }
 

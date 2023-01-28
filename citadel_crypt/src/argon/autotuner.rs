@@ -28,7 +28,7 @@ pub async fn calculate_optimal_argon_params(
     let lanes: u32 = num_cpus::get() as _;
 
     let mut iters = 0;
-    let fake_password = SecBuffer::from((0u8..15u8).into_iter().collect::<Vec<u8>>());
+    let fake_password = SecBuffer::from((0u8..15u8).collect::<Vec<u8>>());
 
     let mut mem_cost_tuned = false;
     // start with 1
@@ -93,8 +93,7 @@ pub async fn calculate_optimal_argon_params(
             }
             res => {
                 return Err(CryptError::Encrypt(format!(
-                    "Unable to hash password: {:?}",
-                    res
+                    "Unable to hash password: {res:?}",
                 )))
             }
         }

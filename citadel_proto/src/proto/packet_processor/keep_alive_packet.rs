@@ -80,7 +80,7 @@ pub async fn process_keep_alive(
                 }
             };
 
-            return task.await;
+            task.await
         } else {
             // timeout
             log::error!(target: "citadel", "Keep alive invalid!");

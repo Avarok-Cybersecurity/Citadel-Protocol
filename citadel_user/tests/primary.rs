@@ -151,7 +151,7 @@ mod tests {
     fn generate_random_filesystem_dir() -> BackendType {
         let mut home = dirs2::home_dir().unwrap();
         let rand = uuid::Uuid::new_v4().to_string();
-        home.push(format!("tmp/{}/", rand));
+        home.push(format!("tmp/{rand}/"));
 
         if home.exists() {
             return generate_random_filesystem_dir();
@@ -227,7 +227,7 @@ mod tests {
                 container.server_acc_mgr.get_persistence_handler().clone(),
             );
             log::trace!(target: "citadel", "About to execute test on thread ...");
-            let res = tokio::task::spawn((t)(container.clone(), pers_cl, pers_se))
+            let res = citadel_io::spawn((t)(container.clone(), pers_cl, pers_se))
                 .await
                 .map_err(|err| AccountError::Generic(err.to_string()));
             log::info!(target: "citadel", "About to clear test container ...");
@@ -262,7 +262,7 @@ mod tests {
     lazy_static::lazy_static! {
         pub static ref PEERS: Vec<(String, String, String)> = {
             ["alpha", "beta", "charlie", "echo", "delta", "epsilon", "foxtrot"]
-            .iter().map(|base| (format!("{}.username", base), format!("{}.password", base), format!("{}.full_name", base)))
+            .iter().map(|base| (format!("{base}.username"), format!("{base}.password"), format!("{base}.full_name")))
             .collect()
         };
     }
@@ -1480,15 +1480,12 @@ mod tests {
         const MAX_NAME_LEN: usize = citadel_user::misc::MAX_NAME_LENGTH;
 
         let good_username = &(0..(MIN_USERNAME_LEN + 1))
-            .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
         let good_password = &(0..(MIN_PASSWORD_LEN + 1))
-            .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
         let good_name = &(0..(MIN_NAME_LEN + 1))
-            .into_iter()
             .map(|r| r.to_string())
             .collect::<String>();
 
@@ -1502,14 +1499,8 @@ mod tests {
         ) {
             use citadel_user::misc::check_credential_formatting as check;
 
-            let bad_below = &(0..(min - 1))
-                .into_iter()
-                .map(|r| r.to_string())
-                .collect::<String>();
-            let bad_above = &(0..(max + 1))
-                .into_iter()
-                .map(|r| r.to_string())
-                .collect::<String>();
+            let bad_below = &(0..(min - 1)).map(|r| r.to_string()).collect::<String>();
+            let bad_above = &(0..(max + 1)).map(|r| r.to_string()).collect::<String>();
 
             match ty {
                 "username" => {

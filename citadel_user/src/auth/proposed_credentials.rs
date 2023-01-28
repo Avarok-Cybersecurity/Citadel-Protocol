@@ -101,8 +101,7 @@ impl ProposedCredentials {
         {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
             other => Err(AccountError::Generic(format!(
-                "Unable to hash input password: {:?}",
-                other
+                "Unable to hash input password: {other:?}",
             ))),
         }
     }
