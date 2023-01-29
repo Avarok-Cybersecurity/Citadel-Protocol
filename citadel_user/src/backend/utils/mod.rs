@@ -22,6 +22,7 @@ pub struct VirtualObjectMetadata {
     pub plaintext_length: usize,
     pub group_count: usize,
     pub object_id: u32,
+    pub cid: u64,
 }
 
 impl VirtualObjectMetadata {
@@ -37,6 +38,10 @@ impl VirtualObjectMetadata {
 impl StreamableTargetInformation for VirtualObjectMetadata {
     fn get_target_name(&self) -> &String {
         &self.name
+    }
+
+    fn get_cid(&self) -> u64 {
+        self.cid
     }
 }
 

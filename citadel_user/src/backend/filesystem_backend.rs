@@ -339,9 +339,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     ) -> Result<(), AccountError> {
         let directory_store = self.directory_store.as_ref().unwrap();
         let name = sink_metadata.get_target_name();
-        let save_path = directory_store.virtual_dir.as_str();
-        let save_location = format!("{save_path}{name}");
+        let source_cid = sink_metadata.get_cid();
+        let save_path = directory_store.file_transfer_dir.as_str();
+        let save_location = format!("{save_path}{source_cid}/{name}");
         let save_location = PathBuf::from(save_location);
+
         log::info!(target: "citadel", "Will stream object to {:?}", save_location);
         let file = tokio::fs::File::create(&save_location)
             .await

@@ -1226,6 +1226,7 @@ impl HdpSession {
                             author: "N/A".to_string(),
                             plaintext_length: file_size,
                             group_count: groups_needed,
+                            cid: implicated_cid,
                         };
 
                         // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
@@ -1298,6 +1299,7 @@ impl HdpSession {
                                     author: "".to_string(),
                                     plaintext_length: file_size,
                                     group_count: groups_needed,
+                                    cid: implicated_cid,
                                 };
 
                                 let file_header = packet_crafter::file::craft_file_header_packet(

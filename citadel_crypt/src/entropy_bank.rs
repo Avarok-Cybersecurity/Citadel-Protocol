@@ -54,7 +54,7 @@ impl EntropyBank {
     #[inline]
     fn get_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
         let mut base = Default::default();
-        let nonce_len = self.algorithm.nonce_len();
+        let nonce_len = LARGEST_NONCE_LEN; // all ciphers now potentially use Kyber for local encryption/decryption
         let f64s_needed = num_integer::Integer::div_ceil(&nonce_len, &8);
         let mut outer_idx = 0;
 
@@ -148,6 +148,28 @@ impl EntropyBank {
         let header = header.as_ref();
         quantum_container
             .validate_packet_in_place(header, payload, nonce)
+            .map_err(|err| CryptError::Encrypt(err.to_string()))
+    }
+
+    pub fn local_encrypt<T: EzBuffer>(
+        &self,
+        quantum_container: &PostQuantumContainer,
+        payload: &T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
+        let nonce = &self.get_nonce(0);
+        quantum_container
+            .local_encrypt(payload, nonce)
+            .map_err(|err| CryptError::Encrypt(err.to_string()))
+    }
+
+    pub fn local_decrypt<T: EzBuffer>(
+        &self,
+        quantum_container: &PostQuantumContainer,
+        payload: &T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
+        let nonce = &self.get_nonce(0);
+        quantum_container
+            .local_decrypt(payload, nonce)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 

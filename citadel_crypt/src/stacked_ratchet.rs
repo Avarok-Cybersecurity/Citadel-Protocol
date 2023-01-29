@@ -340,6 +340,36 @@ impl StackedRatchet {
         )
     }
 
+    pub fn local_encrypt<T: Into<Vec<u8>>>(
+        &self,
+        contents: T,
+        security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError> {
+        let idx = self.verify_level(Some(security_level))?;
+        let mut data = contents.into();
+        for n in 0..=idx {
+            let (pqc, drill) = self.message_pqc_drill(Some(n));
+            data = drill.local_encrypt(pqc, &data)?;
+        }
+
+        Ok(data)
+    }
+
+    pub fn local_decrypt<T: Into<Vec<u8>>>(
+        &self,
+        contents: T,
+        security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError> {
+        let idx = self.verify_level(Some(security_level))?;
+        let mut data = contents.into();
+        for n in (0..=idx).rev() {
+            let (pqc, drill) = self.message_pqc_drill(Some(n));
+            data = drill.local_decrypt(pqc, &data)?;
+        }
+
+        Ok(data)
+    }
+
     /// Returns the message drill
     pub fn get_message_drill(&self, idx: Option<usize>) -> &EntropyBank {
         &self.inner.message.inner[idx.unwrap_or(0)].drill

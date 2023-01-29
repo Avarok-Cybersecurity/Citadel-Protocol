@@ -5,4 +5,6 @@ pub trait StreamableTargetInformation: Debug + Send + Sync + 'static {
     /// Returns the target name. Should not include the full path,
     /// as this is determined by the backend
     fn get_target_name(&self) -> &String;
+    /// Returns the CID.
+    fn get_cid(&self) -> u64;
 }

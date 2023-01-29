@@ -17,6 +17,7 @@ pub enum BasePath {
     ServerDir,
     ConfigDir,
     VirtualDir,
+    FileTransferDir,
 }
 
 #[derive(Clone)]
@@ -34,8 +35,10 @@ pub struct DirectoryStore {
     pub server_dir: String,
     /// Configuration files for either server or client
     pub config_dir: String,
-    /// Directory for the virtual file-sharing platform
+    /// Directory for the virtual encrypted filesystem
     pub virtual_dir: String,
+    /// Directory for basic file transfer
+    pub file_transfer_dir: String,
 }
 
 impl DirectoryStore {
@@ -49,6 +52,7 @@ impl DirectoryStore {
             BasePath::ServerDir => &self.server_dir,
             BasePath::ConfigDir => &self.config_dir,
             BasePath::VirtualDir => &self.virtual_dir,
+            BasePath::FileTransferDir => &self.file_transfer_dir,
         };
 
         PathBuf::from(append_to_path(base.clone(), file.as_ref()))
@@ -82,7 +86,8 @@ fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError>
         nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
         server_dir: hyxe_server_dir,
         config_dir: append_to_path(home.clone(), "config/"),
-        virtual_dir: append_to_path(home, "virtual/"),
+        virtual_dir: append_to_path(home.clone(), "virtual/"),
+        file_transfer_dir: append_to_path(home, "transfers/"),
     };
 
     Ok(dirs)
@@ -115,6 +120,7 @@ pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, AccountErro
         .and(mkdir(store.server_dir.as_str()))
         .and(mkdir(store.config_dir.as_str()))
         .and(mkdir(store.virtual_dir.as_str()))
+        .and(mkdir(store.file_transfer_dir.as_str()))
         .map_err(|err| AccountError::IoError(err.to_string()))?;
 
     Ok(store)

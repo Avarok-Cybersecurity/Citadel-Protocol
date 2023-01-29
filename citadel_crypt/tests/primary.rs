@@ -753,11 +753,14 @@ mod tests {
         }
     }
 
-    const DATA: &[u8] = b"Hello, world!";
-
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -772,16 +775,21 @@ mod tests {
         #[case] sig: SigAlgorithm,
     ) {
         citadel_logging::setup_log();
-        test_harness(enx + kem + sig, |alice, bob| {
-            let encrypted = alice.encrypt(DATA).unwrap();
+        test_harness(enx + kem + sig, |alice, bob, _, data| {
+            let encrypted = alice.encrypt(data).unwrap();
             let decrypted = bob.decrypt(encrypted).unwrap();
-            assert_eq!(decrypted, DATA);
+            assert_eq!(decrypted, data);
         });
     }
 
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -796,16 +804,56 @@ mod tests {
         #[case] sig: SigAlgorithm,
     ) {
         citadel_logging::setup_log();
-        test_harness(enx + kem + sig, |alice, bob| {
-            let encrypted = alice.encrypt_scrambler(DATA).unwrap();
+        test_harness(enx + kem + sig, |alice, bob, _, data| {
+            let encrypted = alice.encrypt_scrambler(data).unwrap();
             let decrypted = bob.decrypt_scrambler(encrypted).unwrap();
-            assert_eq!(decrypted, DATA);
+            assert_eq!(decrypted, data);
         });
     }
 
-    fn test_harness(params: CryptoParameters, fx: impl FnOnce(&StackedRatchet, &StackedRatchet)) {
-        let (hr_alice, hr_bob) = gen::<StackedRatchet>(0, 0, SecurityLevel::High, params);
-        (fx)(&hr_alice, &hr_bob);
+    #[rstest]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Kyber,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::Falcon1024
+    )]
+    fn test_drill_local_encrypt_decrypt(
+        #[case] enx: EncryptionAlgorithm,
+        #[case] kem: KemAlgorithm,
+        #[case] sig: SigAlgorithm,
+    ) {
+        citadel_logging::setup_log();
+        test_harness(enx + kem + sig, |alice, bob, sec, data| {
+            let encrypted = alice.local_encrypt(data, sec).unwrap();
+            assert!(bob.local_decrypt(&*encrypted, sec).is_err());
+            let decrypted = alice.local_decrypt(encrypted, sec).unwrap();
+            assert_eq!(decrypted, data);
+        });
+    }
+
+    fn test_harness(
+        params: CryptoParameters,
+        fx: impl Fn(&StackedRatchet, &StackedRatchet, SecurityLevel, &[u8]),
+    ) {
+        let data = Vec::from("Hello, world!");
+
+        for sec in 0..5 {
+            let security_level = SecurityLevel::from(sec);
+            let (hr_alice, hr_bob) = gen::<StackedRatchet>(0, 0, security_level, params);
+            for idx in 0..data.len() {
+                (fx)(&hr_alice, &hr_bob, security_level, &data[..idx]);
+            }
+        }
     }
 
     struct VecWrapper {
