@@ -241,14 +241,14 @@ impl PostQuantumContainer {
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
             .map_err(|err| Error::Other(err.to_string()))?;
-        let aes_gcm_key = None;
+        let key_store = None;
         log::trace!(target: "citadel", "Success creating new ALICE container");
 
         Ok(Self {
             params,
             data,
             chain: previous_symmetric_key,
-            key_store: aes_gcm_key,
+            key_store,
             anti_replay_attack: AntiReplayAttackContainer::default(),
             node: PQNode::Alice,
         })
@@ -437,7 +437,7 @@ impl PostQuantumContainer {
     fn get_decryption_key(&self) -> Option<&dyn AeadModule> {
         if let EncryptionAlgorithm::Kyber = self.params.encryption_algorithm {
             // use multi-modal asymmetric + symmetric ratcheted encryption
-            // alices key is in alice, bob's key is in bob. Thus, use encryption key
+            // alice's key is in alice, bob's key is in bob. Thus, use encryption key
             self.get_encryption_key()
         } else {
             // use symmetric encryption only (NOT post quantum, only quantum-resistant, but faster)
@@ -546,8 +546,46 @@ impl PostQuantumContainer {
 
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.get_encryption_key() {
-            aes_gcm_key.encrypt(nonce, input)
+        if let Some(symmetric_key) = self.get_encryption_key() {
+            symmetric_key.encrypt(nonce, input)
+        } else {
+            Err(Error::SharedSecretNotLoaded)
+        }
+    }
+
+    /// Encrypts the data using the local public key. This implies
+    /// only local's private key may be used for decryption.
+    pub fn local_encrypt<T: AsRef<[u8]>, R: AsRef<[u8]>>(
+        &self,
+        input: T,
+        nonce: R,
+    ) -> Result<Vec<u8>, Error> {
+        let input = input.as_ref();
+        let nonce = nonce.as_ref();
+
+        // if the shared secret is loaded, the AES GCM abstraction should too.
+
+        if let Some(symmetric_key) = self.get_encryption_key() {
+            symmetric_key.local_user_encrypt(nonce, input)
+        } else {
+            Err(Error::SharedSecretNotLoaded)
+        }
+    }
+
+    /// Encrypts the data using the local public key. This implies
+    /// only local's private key may be used for decryption.
+    pub fn local_decrypt<T: AsRef<[u8]>, R: AsRef<[u8]>>(
+        &self,
+        input: T,
+        nonce: R,
+    ) -> Result<Vec<u8>, Error> {
+        let input = input.as_ref();
+        let nonce = nonce.as_ref();
+
+        // if the shared secret is loaded, the AES GCM abstraction should too.
+
+        if let Some(symmetric_key) = self.get_encryption_key() {
+            symmetric_key.local_user_decrypt(nonce, input)
         } else {
             Err(Error::SharedSecretNotLoaded)
         }
@@ -569,8 +607,8 @@ impl PostQuantumContainer {
 
         let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len)
             .ok_or(Error::Generic("Bad window range"))?;
-        if let Some(aes_gcm_key) = self.get_encryption_key() {
-            aes_gcm_key
+        if let Some(symmetric_key) = self.get_encryption_key() {
+            symmetric_key
                 .encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload)
                 .map_err(|_| Error::EncryptionFailure)?;
             header.unsplit(payload);
@@ -593,8 +631,8 @@ impl PostQuantumContainer {
 
         let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len)
             .ok_or(Error::Generic("Bad window range"))?;
-        if let Some(aes_gcm_key) = self.get_decryption_key() {
-            aes_gcm_key
+        if let Some(symmetric_key) = self.get_decryption_key() {
+            symmetric_key
                 .decrypt_in_place(nonce, header, &mut in_place_payload)
                 .and_then(|_| {
                     // get the last 8 bytes of the payload
@@ -637,8 +675,8 @@ impl PostQuantumContainer {
         let nonce = nonce.as_ref();
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.get_decryption_key() {
-            aes_gcm_key.decrypt(nonce, input)
+        if let Some(symmetric_key) = self.get_decryption_key() {
+            symmetric_key.decrypt(nonce, input)
         } else {
             Err(Error::SharedSecretNotLoaded)
         }
@@ -914,7 +952,7 @@ pub struct PostQuantumMetaKex {
     remote_public_key: Option<Arc<Vec<u8>>>,
     /// The public key. Both Alice and Bob get this
     public_key: Arc<Vec<u8>>,
-    /// Only Alice gets this one
+    /// secret key pair of the public key
     secret_key: Option<Arc<Vec<u8>>>,
     /// Both Bob and Alice get this one
     ciphertext: Option<Arc<Vec<u8>>>,

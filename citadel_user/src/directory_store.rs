@@ -22,33 +22,33 @@ pub enum BasePath {
 #[derive(Clone)]
 /// Stores important information for the filesystem
 pub struct DirectoryStore {
-    /// The hyxe home-directory ~/
-    pub hyxe_home: String,
+    /// The program home-directory ~/
+    pub home: String,
     /// base for the nac dir
-    pub hyxe_nac_dir_base: String,
+    pub nac_dir_base: String,
     /// directory for impersonal accounts
-    pub hyxe_nac_dir_impersonal: String,
+    pub nac_dir_impersonal: String,
     /// Directory for personal accounts
-    pub hyxe_nac_dir_personal: String,
+    pub nac_dir_personal: String,
     /// For server-only files
-    pub hyxe_server_dir: String,
+    pub server_dir: String,
     /// Configuration files for either server or client
-    pub hyxe_config_dir: String,
+    pub config_dir: String,
     /// Directory for the virtual file-sharing platform
-    pub hyxe_virtual_dir: String,
+    pub virtual_dir: String,
 }
 
 impl DirectoryStore {
     /// Creates a properly formatted path given the `base` value (the base value should come from self)
     pub fn make_path<T: AsRef<str>>(&self, base: BasePath, file: T) -> PathBuf {
         let base = match base {
-            BasePath::Home => &self.hyxe_home,
-            BasePath::NacDirBase => &self.hyxe_nac_dir_base,
-            BasePath::NacDirImpersonal => &self.hyxe_nac_dir_impersonal,
-            BasePath::NacDirPersonal => &self.hyxe_nac_dir_personal,
-            BasePath::ServerDir => &self.hyxe_server_dir,
-            BasePath::ConfigDir => &self.hyxe_config_dir,
-            BasePath::VirtualDir => &self.hyxe_virtual_dir,
+            BasePath::Home => &self.home,
+            BasePath::NacDirBase => &self.nac_dir_base,
+            BasePath::NacDirImpersonal => &self.nac_dir_impersonal,
+            BasePath::NacDirPersonal => &self.nac_dir_personal,
+            BasePath::ServerDir => &self.server_dir,
+            BasePath::ConfigDir => &self.config_dir,
+            BasePath::VirtualDir => &self.virtual_dir,
         };
 
         PathBuf::from(append_to_path(base.clone(), file.as_ref()))
@@ -76,13 +76,13 @@ fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError>
     let hyxe_server_dir = append_to_path(home.clone(), "server/");
 
     let dirs = DirectoryStore {
-        hyxe_home: home.clone(),
-        hyxe_nac_dir_base: append_to_path(home.clone(), "accounts/"),
-        hyxe_nac_dir_impersonal: append_to_path(home.clone(), "accounts/impersonal/"),
-        hyxe_nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
-        hyxe_server_dir,
-        hyxe_config_dir: append_to_path(home.clone(), "config/"),
-        hyxe_virtual_dir: append_to_path(home, "virtual/"),
+        home: home.clone(),
+        nac_dir_base: append_to_path(home.clone(), "accounts/"),
+        nac_dir_impersonal: append_to_path(home.clone(), "accounts/impersonal/"),
+        nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
+        server_dir: hyxe_server_dir,
+        config_dir: append_to_path(home.clone(), "config/"),
+        virtual_dir: append_to_path(home, "virtual/"),
     };
 
     Ok(dirs)
@@ -107,14 +107,14 @@ fn append_to_path(base: String, addition: &str) -> String {
 /// Sets up local directories that are pre-requisite to launching either client or server application
 pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, AccountError> {
     let store = setup_directory(home_dir)?;
-    let base = mkdir(store.hyxe_home.as_str());
+    let base = mkdir(store.home.as_str());
 
-    base.and(mkdir(store.hyxe_nac_dir_base.as_str()))
-        .and(mkdir(store.hyxe_nac_dir_impersonal.as_str()))
-        .and(mkdir(store.hyxe_nac_dir_personal.as_str()))
-        .and(mkdir(store.hyxe_server_dir.as_str()))
-        .and(mkdir(store.hyxe_config_dir.as_str()))
-        .and(mkdir(store.hyxe_virtual_dir.as_str()))
+    base.and(mkdir(store.nac_dir_base.as_str()))
+        .and(mkdir(store.nac_dir_impersonal.as_str()))
+        .and(mkdir(store.nac_dir_personal.as_str()))
+        .and(mkdir(store.server_dir.as_str()))
+        .and(mkdir(store.config_dir.as_str()))
+        .and(mkdir(store.virtual_dir.as_str()))
         .map_err(|err| AccountError::IoError(err.to_string()))?;
 
     Ok(store)

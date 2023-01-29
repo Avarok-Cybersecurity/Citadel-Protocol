@@ -92,7 +92,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         }
 
         // delete the home directory
-        let home_dir = self.directory_store.as_ref().unwrap().hyxe_home.as_str();
+        let home_dir = self.directory_store.as_ref().unwrap().home.as_str();
         tokio::fs::remove_dir_all(home_dir)
             .await
             .map_err(|err| AccountError::Generic(err.to_string()))?;
@@ -339,7 +339,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     ) -> Result<(), AccountError> {
         let directory_store = self.directory_store.as_ref().unwrap();
         let name = sink_metadata.get_target_name();
-        let save_path = directory_store.hyxe_virtual_dir.as_str();
+        let save_path = directory_store.virtual_dir.as_str();
         let save_location = format!("{save_path}{name}");
         let save_location = PathBuf::from(save_location);
         log::info!(target: "citadel", "Will stream object to {:?}", save_location);
@@ -387,14 +387,14 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
         if is_personal {
             PathBuf::from(format!(
                 "{}{}.{}",
-                dirs.hyxe_nac_dir_personal.as_str(),
+                dirs.nac_dir_personal.as_str(),
                 cid,
                 CNAC_SERIALIZED_EXTENSION
             ))
         } else {
             PathBuf::from(format!(
                 "{}{}.{}",
-                dirs.hyxe_nac_dir_impersonal.as_str(),
+                dirs.nac_dir_impersonal.as_str(),
                 cid,
                 CNAC_SERIALIZED_EXTENSION
             ))

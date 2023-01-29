@@ -387,6 +387,7 @@ pub(crate) async fn no_backend_streaming(
     _sink_metadata: Arc<dyn StreamableTargetInformation>,
     _status_tx: UnboundedSender<ObjectTransferStatus>,
 ) -> Result<(), AccountError> {
+    // TODO: on client-side, immediately block client file upload requests
     log::warn!(target: "citadel", "Attempted to stream object to backend, but, streaming is not enabled for this backend");
 
     while source.recv().await.is_some() {

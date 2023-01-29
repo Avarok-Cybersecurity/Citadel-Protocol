@@ -105,14 +105,13 @@ mod tests {
                 plaintext.push((x % 256) as u8)
             }
 
-            let nonce = &Vec::from_iter(0..(encryption_algorithm.nonce_len()) as u8);
+            let nonce = &Vec::from_iter(0..citadel_pqcrypto::LARGEST_NONCE_LEN as u8);
 
             let mut ciphertext = alice_container
                 .encrypt(plaintext.as_slice(), nonce)
                 .unwrap();
             let mut ptr = &mut ciphertext[..];
 
-            //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
             let decrypted = bob_container.decrypt(&mut ptr, nonce).unwrap();
             assert_eq!(plaintext.as_slice(), decrypted);
 
@@ -123,9 +122,33 @@ mod tests {
             let decrypted = alice_container.decrypt(&mut ptr, nonce).unwrap();
 
             assert_eq!(plaintext.as_slice(), decrypted);
+
+            // test local encryption
+            local_encryption(&alice_container, &bob_container, &plaintext, nonce);
         }
 
         Ok(())
+    }
+
+    fn local_encryption(
+        alice_container: &PostQuantumContainer,
+        bob_container: &PostQuantumContainer,
+        plaintext: impl AsRef<[u8]>,
+        nonce: impl AsRef<[u8]>,
+    ) {
+        let plaintext = plaintext.as_ref();
+        let nonce = nonce.as_ref();
+        // alice wants to save her contents on bob's machine
+        let ciphertext = alice_container.local_encrypt(plaintext, nonce).unwrap();
+        assert_ne!(&ciphertext, plaintext);
+        // Alice sends her ciphertext remotely to bob. Bob receives ciphertext
+        // prove that bob cannot get the valid ciphertext
+        assert!(bob_container.local_decrypt(&ciphertext, nonce).is_err());
+        assert!(bob_container.decrypt(&ciphertext, nonce).is_err());
+        // Alice now wants the ciphertext back
+        // prove that alice can still decrypt her data
+        let decrypted = alice_container.local_decrypt(ciphertext, nonce).unwrap();
+        assert_eq!(plaintext, decrypted);
     }
 
     #[test]

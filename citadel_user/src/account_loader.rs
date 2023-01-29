@@ -11,8 +11,8 @@ use std::collections::HashMap;
 pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
     ds: &DirectoryStore,
 ) -> Result<HashMap<u64, ClientNetworkAccount<R, Fcm>>, AccountError> {
-    let hyxe_nac_dir_impersonal = ds.hyxe_nac_dir_impersonal.as_str();
-    let hyxe_nac_dir_personal = ds.hyxe_nac_dir_personal.as_str();
+    let hyxe_nac_dir_impersonal = ds.nac_dir_impersonal.as_str();
+    let hyxe_nac_dir_personal = ds.nac_dir_personal.as_str();
 
     let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(
         CNAC_SERIALIZED_EXTENSION,
