@@ -399,6 +399,9 @@ pub mod prelude {
     pub use crate::proto::node_request::*;
     pub use crate::proto::node_result::*;
     pub use crate::proto::remote::*;
+
+    pub use citadel_crypt::misc::TransferType;
+    pub use citadel_user::misc::validate_virtual_directory;
 }
 
 pub mod auth;

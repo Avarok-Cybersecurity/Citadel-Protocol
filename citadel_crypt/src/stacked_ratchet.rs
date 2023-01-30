@@ -10,6 +10,7 @@ use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
 use citadel_pqcrypto::PostQuantumContainer;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -56,6 +57,17 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
             Some(self.get_default_security_level()),
         )
     }
+
+    fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
+        &self,
+        contents: T,
+        security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError>;
+    fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
+        &self,
+        contents: T,
+        security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError>;
 }
 
 /// For returning a variable hyper ratchet from a function
@@ -154,6 +166,36 @@ impl Ratchet for StackedRatchet {
         packet: &mut T,
     ) -> Result<(), CryptError<String>> {
         self.validate_message_packet(security_level, header, packet)
+    }
+
+    fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
+        &self,
+        contents: T,
+        security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError> {
+        let idx = self.verify_level(Some(security_level))?;
+        let mut data = contents.into();
+        for n in 0..=idx {
+            let (pqc, drill) = self.message_pqc_drill(Some(n));
+            data = Cow::Owned(drill.local_encrypt(pqc, &data)?);
+        }
+
+        Ok(data.into_owned())
+    }
+
+    fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
+        &self,
+        contents: T,
+        security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError> {
+        let idx = self.verify_level(Some(security_level))?;
+        let mut data = contents.into();
+        for n in (0..=idx).rev() {
+            let (pqc, drill) = self.message_pqc_drill(Some(n));
+            data = Cow::Owned(drill.local_decrypt(pqc, &data)?);
+        }
+
+        Ok(data.into_owned())
     }
 }
 
@@ -338,36 +380,6 @@ impl StackedRatchet {
             pqc,
             contents,
         )
-    }
-
-    pub fn local_encrypt<T: Into<Vec<u8>>>(
-        &self,
-        contents: T,
-        security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError> {
-        let idx = self.verify_level(Some(security_level))?;
-        let mut data = contents.into();
-        for n in 0..=idx {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            data = drill.local_encrypt(pqc, &data)?;
-        }
-
-        Ok(data)
-    }
-
-    pub fn local_decrypt<T: Into<Vec<u8>>>(
-        &self,
-        contents: T,
-        security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError> {
-        let idx = self.verify_level(Some(security_level))?;
-        let mut data = contents.into();
-        for n in (0..=idx).rev() {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            data = drill.local_decrypt(pqc, &data)?;
-        }
-
-        Ok(data)
     }
 
     /// Returns the message drill

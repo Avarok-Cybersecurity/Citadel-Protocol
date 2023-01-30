@@ -8,6 +8,7 @@ use crate::directory_store::DirectoryStore;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::CNAC_SERIALIZED_EXTENSION;
 use async_trait::async_trait;
+use citadel_crypt::misc::TransferType;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -340,12 +341,28 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let directory_store = self.directory_store.as_ref().unwrap();
         let name = sink_metadata.get_target_name();
         let source_cid = sink_metadata.get_cid();
-        let save_path = directory_store.file_transfer_dir.as_str();
-        let save_location = format!("{save_path}{source_cid}/{name}");
-        let save_location = PathBuf::from(save_location);
+        let mut base_path = match sink_metadata.get_virtual_directory() {
+            TransferType::FileTransfer => {
+                let save_path = directory_store.file_transfer_dir.as_str();
+                PathBuf::from(format!("{save_path}{source_cid}"))
+            }
+            TransferType::RemoteVirtualEncryptedFilesystem(virtual_dir) => {
+                crate::misc::validate_virtual_directory(virtual_dir)?;
+                let save_path = directory_store.virtual_dir.as_str();
+                PathBuf::from(format!("{save_path}{source_cid}{}", virtual_dir.display()))
+            }
+        };
 
-        log::info!(target: "citadel", "Will stream object to {:?}", save_location);
-        let file = tokio::fs::File::create(&save_location)
+        // create the directory in case it doesn't exist
+        tokio::fs::create_dir_all(&base_path)
+            .await
+            .map_err(|err| AccountError::IoError(err.to_string()))?;
+
+        // finally, add the file name
+        base_path.push(name);
+
+        log::info!(target: "citadel", "Will stream object to {base_path:?}");
+        let file = tokio::fs::File::create(&base_path)
             .await
             .map_err(|err| AccountError::IoError(err.to_string()))?;
 
@@ -357,7 +374,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         );
 
         let _ = status_tx.send(ObjectTransferStatus::ReceptionBeginning(
-            save_location,
+            base_path,
             sink_metadata,
         ));
 

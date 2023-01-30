@@ -151,10 +151,10 @@ impl EntropyBank {
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
-    pub fn local_encrypt<T: EzBuffer>(
+    pub fn local_encrypt<T: AsRef<[u8]>>(
         &self,
         quantum_container: &PostQuantumContainer,
-        payload: &T,
+        payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let nonce = &self.get_nonce(0);
         quantum_container
@@ -162,10 +162,10 @@ impl EntropyBank {
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
-    pub fn local_decrypt<T: EzBuffer>(
+    pub fn local_decrypt<T: AsRef<[u8]>>(
         &self,
         quantum_container: &PostQuantumContainer,
-        payload: &T,
+        payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         let nonce = &self.get_nonce(0);
         quantum_container

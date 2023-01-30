@@ -8,6 +8,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::misc::AccountError;
+use citadel_crypt::misc::TransferType;
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -23,6 +24,7 @@ pub struct VirtualObjectMetadata {
     pub group_count: usize,
     pub object_id: u32,
     pub cid: u64,
+    pub transfer_type: TransferType,
 }
 
 impl VirtualObjectMetadata {
@@ -42,6 +44,10 @@ impl StreamableTargetInformation for VirtualObjectMetadata {
 
     fn get_cid(&self) -> u64 {
         self.cid
+    }
+
+    fn get_virtual_directory(&self) -> &TransferType {
+        &self.transfer_type
     }
 }
 

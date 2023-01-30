@@ -9,7 +9,7 @@ use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
-use crate::misc::CryptError;
+use crate::misc::{CryptError, TransferType};
 use crate::stacked_ratchet::StackedRatchet;
 use citadel_io::Mutex;
 use citadel_io::{BlockingSpawn, BlockingSpawnError};
@@ -89,9 +89,11 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     stop: Receiver<()>,
     security_level: SecurityLevel,
     hyper_ratchet: StackedRatchet,
+    static_aux_ratchet: StackedRatchet,
     header_size_bytes: usize,
     target_cid: u64,
     group_id: u64,
+    transfer_type: TransferType,
     header_inscriber: F,
 ) -> Result<(usize, usize), CryptError> {
     let source = source.try_get_stream()?;
@@ -128,7 +130,9 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         group_id,
         security_level,
         hyper_ratchet,
+        static_aux_ratchet,
         reader,
+        transfer_type,
         file_len: object_len,
         max_bytes_per_group,
         read_cursor: 0,
@@ -177,7 +181,9 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(
 struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     reader: BufReader<R>,
     hyper_ratchet: StackedRatchet,
+    static_aux_ratchet: StackedRatchet,
     security_level: SecurityLevel,
+    transfer_type: TransferType,
     file_len: usize,
     read_cursor: usize,
     object_id: u32,
@@ -224,6 +230,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     ) -> Poll<Option<GroupSenderDevice<N>>> {
         let Self {
             hyper_ratchet,
+            static_aux_ratchet,
             file_len,
             read_cursor,
             buffer,
@@ -237,6 +244,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             security_level,
             max_bytes_per_group,
             cur_task,
+            transfer_type,
             poll_amt,
             ..
         } = &mut *self;
@@ -253,26 +261,27 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             if reader.read_exact(bytes).is_ok() {
                 let group_id_input = *group_id + (*groups_rendered as u64);
                 std::mem::drop(lock);
-                // let mut compressed = Vec::new();
-                // flate3::Compressor::new().deflate(bytes as &[u8])
-                // let len = flate2::bufread::DeflateEncoder::new(bytes as &[u8], flate2::Compression::fast()).read_to_end(&mut compressed).unwrap();
                 let header_inscriber = header_inscriber.clone();
                 let buffer = buffer.clone();
                 let security_level = *security_level;
                 let hyper_ratchet = hyper_ratchet.clone();
+                let static_aux_ratchet = static_aux_ratchet.clone();
                 let header_size_bytes = *header_size_bytes;
                 let target_cid = *target_cid;
                 let object_id = *object_id;
+                let transfer_type = transfer_type.clone();
 
                 let task = citadel_io::spawn_blocking(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,
                         &hyper_ratchet,
+                        &static_aux_ratchet,
                         header_size_bytes,
                         target_cid,
                         object_id,
                         group_id_input,
+                        transfer_type,
                         |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
                     )
                 });

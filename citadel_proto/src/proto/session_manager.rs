@@ -42,6 +42,7 @@ use crate::proto::session::{
     ClientOnlySessionInitSettings, HdpSession, HdpSessionInitMode, SessionInitParams,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
+use citadel_crypt::misc::TransferType;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
@@ -522,6 +523,7 @@ impl HdpSessionManager {
     }
 
     /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
+    #[allow(clippy::too_many_arguments)]
     pub fn process_outbound_file(
         &self,
         ticket: Ticket,
@@ -530,6 +532,7 @@ impl HdpSessionManager {
         implicated_cid: u64,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
+        transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
@@ -539,6 +542,7 @@ impl HdpSessionManager {
                 source,
                 virtual_target,
                 security_level,
+                transfer_type,
             )
         } else {
             Err(NetworkError::Generic(format!(

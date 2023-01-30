@@ -432,10 +432,11 @@ impl ProtocolRemoteExt for ClientServerRemote {
 /// Some functions require that a target exists
 pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
-    async fn send_file_with_custom_chunking<T: Into<PathBuf> + Send>(
+    async fn send_file_with_custom_opts<T: Into<PathBuf> + Send>(
         &mut self,
         path: T,
         chunk_size: usize,
+        transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
         let chunk_size = if chunk_size == 0 {
             None
@@ -452,6 +453,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 chunk_size,
                 implicated_cid,
                 v_conn_type: user,
+                transfer_type,
             }))
             .await?;
         match map_errors(result)? {
@@ -477,7 +479,38 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
     /// Sends a file to the provided target using the default chunking size
     async fn send_file<T: Into<PathBuf> + Send>(&mut self, path: T) -> Result<(), NetworkError> {
-        self.send_file_with_custom_chunking(path, 0).await
+        self.send_file_with_custom_opts(path, 0, TransferType::FileTransfer)
+            .await
+    }
+
+    /// Sends a file to the provided target using custom chunking size with local encryption.
+    /// Only this local node may decrypt the information send to the adjacent node.
+    async fn virtual_remote_filesystem_send_custom_chunking<
+        T: Into<PathBuf> + Send,
+        R: Into<PathBuf> + Send,
+    >(
+        &mut self,
+        path: T,
+        virtual_directory: R,
+        chunk_size: usize,
+    ) -> Result<(), NetworkError> {
+        let virtual_dir = virtual_directory.into();
+        validate_virtual_directory(&virtual_dir)
+            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+        let tx_type = TransferType::RemoteVirtualEncryptedFilesystem(virtual_dir);
+        self.send_file_with_custom_opts(path, chunk_size, tx_type)
+            .await
+    }
+
+    /// Sends a file to the provided target using the default chunking size with local encryption.
+    /// Only this local node may decrypt the information send to the adjacent node.
+    async fn virtual_remote_filesystem_send<T: Into<PathBuf> + Send, R: Into<PathBuf> + Send>(
+        &mut self,
+        path: T,
+        virtual_directory: R,
+    ) -> Result<(), NetworkError> {
+        self.virtual_remote_filesystem_send_custom_chunking(path, virtual_directory, 0)
+            .await
     }
 
     /// Connects to the peer with custom settings

@@ -5,8 +5,9 @@ mod tests {
         ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
     };
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-    use citadel_crypt::entropy_bank::SecurityLevel;
-    use citadel_crypt::misc::CryptError;
+    use citadel_crypt::entropy_bank::{EntropyBank, SecurityLevel};
+    use citadel_crypt::misc::{CryptError, TransferType};
+    use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::secure_buffer::sec_bytes::SecBuffer;
     use citadel_crypt::secure_buffer::sec_string::SecString;
@@ -582,6 +583,8 @@ mod tests {
 
         let mut data = BytesMut::with_capacity(1500);
         let (ratchet_alice, ratchet_bob) = gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
+        let (pseudo_static_aux_ratchet_alice, _pseudo_static_aux_ratchet_bob) =
+            gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
 
         for x in 0..1500_usize {
             data.put_u8((x % 256) as u8);
@@ -592,10 +595,12 @@ mod tests {
                     input_data,
                     SECURITY_LEVEL,
                     &ratchet_alice,
+                    &pseudo_static_aux_ratchet_alice,
                     HEADER_SIZE_BYTES,
                     0,
                     0,
                     0,
+                    TransferType::FileTransfer,
                     |_vec, _drill, _target_cid, _, buffer| {
                         for x in 0..HEADER_SIZE_BYTES {
                             buffer.put_u8(x as u8)
@@ -628,6 +633,13 @@ mod tests {
         }
     }
 
+    const HEADER_LEN: usize = 52;
+    fn header_inscribe(_: &PacketVector, _: &EntropyBank, _: u32, _: u64, packet: &mut BytesMut) {
+        for x in 0..HEADER_LEN {
+            packet.put_u8((x % 255) as u8)
+        }
+    }
+
     #[cfg(feature = "filesystem")]
     #[rstest]
     #[case(
@@ -641,46 +653,75 @@ mod tests {
         SigAlgorithm::Falcon1024
     )]
     #[tokio::test]
-    async fn encrypt_decrypt_test(
+    async fn encrypt_decrypt_file_transfer(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        use bytes::{BufMut, BytesMut};
-        use citadel_crypt::entropy_bank::SecurityLevel;
-        use citadel_crypt::scramble::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
+        citadel_logging::setup_log();
+
+        let (bytes, bytes_ret, _sa_alice, _sa_bob) =
+            test_file_transfer_inner(TransferType::FileTransfer, enx, kem, sig).await;
+        assert_eq!(bytes, bytes_ret);
+    }
+
+    #[cfg(feature = "filesystem")]
+    #[rstest]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Kyber,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::Falcon1024
+    )]
+    #[tokio::test]
+    async fn encrypt_decrypt_file_transfer_remote(
+        #[case] enx: EncryptionAlgorithm,
+        #[case] kem: KemAlgorithm,
+        #[case] sig: SigAlgorithm,
+    ) {
+        citadel_logging::setup_log();
+
+        let (plaintext, bytes_ret, sa_alice, sa_bob) = test_file_transfer_inner(
+            TransferType::RemoteVirtualEncryptedFilesystem(PathBuf::from("/")),
+            enx,
+            kem,
+            sig,
+        )
+        .await;
+        assert_ne!(plaintext, bytes_ret);
+        let decrypted = sa_alice
+            .local_decrypt(&bytes_ret, SecurityLevel::Standard)
+            .unwrap();
+        assert_eq!(decrypted, plaintext);
+        assert!(sa_bob
+            .local_decrypt(&bytes_ret, SecurityLevel::Standard)
+            .is_err());
+    }
+
+    async fn test_file_transfer_inner(
+        transfer_type: TransferType,
+        enx: EncryptionAlgorithm,
+        kem: KemAlgorithm,
+        sig: SigAlgorithm,
+    ) -> (&'static [u8], Vec<u8>, StackedRatchet, StackedRatchet) {
+        use citadel_crypt::scramble::crypt_splitter::GroupReceiverStatus;
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
 
-        use citadel_crypt::prelude::{EntropyBank, PacketVector};
-        use citadel_crypt::stacked_ratchet::StackedRatchet;
         use citadel_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
-        citadel_logging::setup_log();
-        fn header_inscribe(
-            _: &PacketVector,
-            _: &EntropyBank,
-            _: u32,
-            _: u64,
-            packet: &mut BytesMut,
-        ) {
-            for x in 0..HEADER_LEN {
-                packet.put_u8((x % 255) as u8)
-            }
-        }
 
         let security_level = SecurityLevel::Standard;
 
         let (alice, bob) = gen::<StackedRatchet>(0, 0, security_level, enx + kem + sig);
-        const HEADER_LEN: usize = 52;
+        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) =
+            gen::<StackedRatchet>(0, 0, security_level, enx + kem + sig);
 
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
         let source = PathBuf::from("../resources/TheBridge.pdf");
-        // TODO: why does packets needed *JUMP* from 14 to 31 when going from 60000 to 70000 bytes input?
-        /*let cmp = (0..70000)
-            .into_iter()
-            .map(|r| (r % 256) as u8)
-            .collect::<Vec<u8>>();
-        let source = VecWrapper { inner: cmp.clone() };*/
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let (bytes, _num_groups) = scramble_encrypt_source::<_, _, HEADER_LEN>(
@@ -691,9 +732,11 @@ mod tests {
             stop_rx,
             security_level,
             alice.clone(),
+            pseudo_static_aux_ratchet_alice.clone(),
             HEADER_LEN,
             bob.get_cid(),
             0,
+            transfer_type,
             header_inscribe,
         )
         .unwrap();
@@ -740,17 +783,12 @@ mod tests {
             bytes,
             mbs
         );
-
-        assert_eq!(bytes, bytes_ret.len());
-        if bytes_ret.as_slice() != &cmp[..] {
-            log::error!("{:?} != {:?}", &bytes_ret.as_slice()[..10], &cmp[..10]);
-            log::error!(
-                "{:?} != {:?}",
-                &bytes_ret.as_slice()[bytes_ret.len() - 10..],
-                &cmp[cmp.len() - 10..]
-            );
-            panic!("Vectors not equal")
-        }
+        (
+            cmp,
+            bytes_ret,
+            pseudo_static_aux_ratchet_alice,
+            pseudo_static_aux_ratchet_bob,
+        )
     }
 
     #[rstest]

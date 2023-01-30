@@ -21,6 +21,7 @@ use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
+use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
 };
@@ -840,6 +841,7 @@ impl HdpServer {
                     chunk_size,
                     implicated_cid,
                     v_conn_type: virtual_target,
+                    transfer_type,
                 }) => {
                     if let Err(err) = session_manager.process_outbound_file(
                         ticket_id,
@@ -848,9 +850,23 @@ impl HdpServer {
                         implicated_cid,
                         virtual_target,
                         SecurityLevel::Standard,
+                        transfer_type,
                     ) {
                         send_error(ticket_id, err)?;
                     }
+                }
+
+                #[allow(unused_variables)]
+                NodeRequest::PullObject(PullObject {
+                    virtual_dir,
+                    delete_on_pull,
+                }) => {
+                    unimplemented!()
+                }
+
+                #[allow(unused_variables)]
+                NodeRequest::DeleteObject(DeleteObject { virtual_dir }) => {
+                    unimplemented!()
                 }
 
                 NodeRequest::GetActiveSessions => {

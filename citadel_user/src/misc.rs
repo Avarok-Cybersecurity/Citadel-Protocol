@@ -1,4 +1,5 @@
 use chrono::Utc;
+use std::path::Path;
 
 /// Default Error type for this crate
 #[derive(Debug)]
@@ -162,4 +163,15 @@ pub mod base64_string {
 /// Returns the present timestamp in ISO 8601 format
 pub fn get_present_formatted_timestamp() -> String {
     Utc::now().to_rfc3339()
+}
+
+pub fn validate_virtual_directory<R: AsRef<Path>>(virtual_dir: R) -> Result<(), AccountError> {
+    let virtual_dir = virtual_dir.as_ref();
+    if !virtual_dir.has_root() {
+        return Err(AccountError::IoError(format!(
+            "Path {virtual_dir:?} is not a valid remote encrypted virtual directory"
+        )));
+    }
+
+    Ok(())
 }

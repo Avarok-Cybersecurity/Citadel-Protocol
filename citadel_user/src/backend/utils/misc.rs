@@ -1,3 +1,4 @@
+use citadel_crypt::misc::TransferType;
 use std::fmt::Debug;
 
 /// Used for determining location
@@ -7,4 +8,6 @@ pub trait StreamableTargetInformation: Debug + Send + Sync + 'static {
     fn get_target_name(&self) -> &String;
     /// Returns the CID.
     fn get_cid(&self) -> u64;
+    /// Returns the
+    fn get_virtual_directory(&self) -> &TransferType;
 }

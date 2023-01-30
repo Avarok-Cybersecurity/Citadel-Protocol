@@ -3,9 +3,11 @@ use crate::prelude::{
     ConnectMode, GroupBroadcast, PeerSignal, SessionSecuritySettings, UdpMode, VirtualTargetType,
 };
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_crypt::misc::TransferType;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 pub struct RegisterToHypernode {
     pub remote_addr: SocketAddr,
@@ -35,11 +37,22 @@ pub struct ReKey {
     pub v_conn_type: VirtualTargetType,
 }
 
+// Also used for updating objects
 pub struct SendObject {
     pub source: Box<dyn ObjectSource>,
     pub chunk_size: Option<usize>,
     pub implicated_cid: u64,
     pub v_conn_type: VirtualTargetType,
+    pub transfer_type: TransferType,
+}
+
+pub struct PullObject {
+    pub virtual_dir: PathBuf,
+    pub delete_on_pull: bool,
+}
+
+pub struct DeleteObject {
+    pub virtual_dir: PathBuf,
 }
 
 pub struct GroupBroadcastCommand {
@@ -66,8 +79,12 @@ pub enum NodeRequest {
     ConnectToHypernode(ConnectToHypernode),
     /// Updates the drill for the given CID
     ReKey(ReKey),
-    /// Send a file
+    /// Sends or updates a file
     SendObject(SendObject),
+    /// Pulls a file from the remote virtual encrypted filesystem
+    PullObject(PullObject),
+    /// Deletes a file from the remote virtual encrypted filesystem
+    DeleteObject(DeleteObject),
     /// A group-message related command
     GroupBroadcastCommand(GroupBroadcastCommand),
     /// Tells the server to disconnect a session (implicated cid, target_cid)

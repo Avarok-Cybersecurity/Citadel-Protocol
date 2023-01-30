@@ -12,6 +12,7 @@ use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferPar
 use citadel_pqcrypto::PostQuantumContainer;
 use citadel_pqcrypto::LARGEST_NONCE_LEN;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -116,6 +117,24 @@ impl Ratchet for ThinRatchet {
     ) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.validate_packet_in_place_split(pqc, header, packet)
+    }
+
+    fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
+        &self,
+        contents: T,
+        _security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError> {
+        let (pqc, drill) = self.message_pqc_drill(None);
+        drill.local_encrypt(pqc, contents.into())
+    }
+
+    fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
+        &self,
+        contents: T,
+        _security_level: SecurityLevel,
+    ) -> Result<Vec<u8>, CryptError> {
+        let (pqc, drill) = self.message_pqc_drill(None);
+        drill.local_decrypt(pqc, contents.into())
     }
 }
 

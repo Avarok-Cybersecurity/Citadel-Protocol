@@ -69,6 +69,7 @@ use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSen
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
 use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
+use citadel_crypt::misc::TransferType;
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_user::backend::PersistenceHandler;
@@ -1166,6 +1167,7 @@ impl HdpSession {
         source: Box<dyn ObjectSource>,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
+        transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
         let this = self;
 
@@ -1201,6 +1203,10 @@ impl HdpSession {
                         let object_id = crypt_container.get_and_increment_object_id();
                         let group_id_start = crypt_container.get_and_increment_group_id();
                         let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                        let static_aux_ratchet = crypt_container
+                            .toolset
+                            .get_static_auxiliary_ratchet()
+                            .clone();
 
                         let to_primary_stream = this.to_primary_stream.clone().unwrap();
                         let target_cid = 0;
@@ -1212,9 +1218,11 @@ impl HdpSession {
                             stop_rx,
                             security_level,
                             latest_hr.clone(),
+                            static_aux_ratchet,
                             HDP_HEADER_BYTE_LEN,
                             target_cid,
                             group_id_start,
+                            transfer_type.clone(),
                             packet_crafter::group::craft_wave_payload_packet_into,
                         )
                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -1227,6 +1235,7 @@ impl HdpSession {
                             plaintext_length: file_size,
                             group_count: groups_needed,
                             cid: implicated_cid,
+                            transfer_type,
                         };
 
                         // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
@@ -1272,6 +1281,12 @@ impl HdpSession {
                                     .get_hyper_ratchet(None)
                                     .unwrap();
 
+                                let static_aux_ratchet = endpoint_container
+                                    .endpoint_crypto
+                                    .toolset
+                                    .get_static_auxiliary_ratchet()
+                                    .clone();
+
                                 let preferred_primary_stream = endpoint_container
                                     .get_direct_p2p_primary_stream()
                                     .cloned()
@@ -1285,9 +1300,11 @@ impl HdpSession {
                                     stop_rx,
                                     security_level,
                                     latest_usable_ratchet.clone(),
+                                    static_aux_ratchet,
                                     HDP_HEADER_BYTE_LEN,
                                     target_cid,
                                     start_group_id,
+                                    transfer_type.clone(),
                                     packet_crafter::group::craft_wave_payload_packet_into,
                                 )
                                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -1300,6 +1317,7 @@ impl HdpSession {
                                     plaintext_length: file_size,
                                     group_count: groups_needed,
                                     cid: implicated_cid,
+                                    transfer_type,
                                 };
 
                                 let file_header = packet_crafter::file::craft_file_header_packet(
