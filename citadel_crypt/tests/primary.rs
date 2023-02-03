@@ -608,7 +608,10 @@ mod tests {
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        let tx_type = TransferType::RemoteVirtualEncryptedFilesystem(PathBuf::from("/"));
+        let tx_type = TransferType::RemoteEncryptedVirtualFilesystem {
+            virtual_path: PathBuf::from("/"),
+            security_level: SecurityLevel::Standard,
+        };
 
         fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
             assert_ne!(decrypted, plaintext);
@@ -621,7 +624,7 @@ mod tests {
                 .is_err());
         }
 
-        scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type.clone(), verifier);
+        scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
         #[cfg(feature = "fcm")]
         scrambler_transmission_spectrum::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(
             enx, kem, sig, tx_type, verifier,
@@ -727,8 +730,14 @@ mod tests {
     ) {
         citadel_logging::setup_log();
 
-        let (bytes, bytes_ret, _sa_alice, _sa_bob) =
-            test_file_transfer_inner(TransferType::FileTransfer, enx, kem, sig).await;
+        let (bytes, bytes_ret, _sa_alice, _sa_bob) = test_file_transfer_inner(
+            TransferType::FileTransfer,
+            enx,
+            kem,
+            sig,
+            Default::default(),
+        )
+        .await;
         assert_eq!(bytes, bytes_ret);
     }
 
@@ -754,24 +763,24 @@ mod tests {
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
+        #[values(SecurityLevel::Standard, SecurityLevel::Reinforced)] security_level: SecurityLevel,
     ) {
         citadel_logging::setup_log();
-
         let (plaintext, bytes_ret, sa_alice, sa_bob) = test_file_transfer_inner(
-            TransferType::RemoteVirtualEncryptedFilesystem(PathBuf::from("/")),
+            TransferType::RemoteEncryptedVirtualFilesystem {
+                virtual_path: PathBuf::from("/"),
+                security_level,
+            },
             enx,
             kem,
             sig,
+            security_level,
         )
         .await;
         assert_ne!(plaintext, bytes_ret);
-        let decrypted = sa_alice
-            .local_decrypt(&bytes_ret, SecurityLevel::Standard)
-            .unwrap();
+        let decrypted = sa_alice.local_decrypt(&bytes_ret, security_level).unwrap();
         assert_eq!(decrypted, plaintext);
-        assert!(sa_bob
-            .local_decrypt(&bytes_ret, SecurityLevel::Standard)
-            .is_err());
+        assert!(sa_bob.local_decrypt(&bytes_ret, security_level).is_err());
     }
 
     async fn test_file_transfer_inner(
@@ -779,14 +788,13 @@ mod tests {
         enx: EncryptionAlgorithm,
         kem: KemAlgorithm,
         sig: SigAlgorithm,
+        security_level: SecurityLevel,
     ) -> (&'static [u8], Vec<u8>, StackedRatchet, StackedRatchet) {
         use citadel_crypt::scramble::crypt_splitter::GroupReceiverStatus;
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
 
         use citadel_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
-
-        let security_level = SecurityLevel::Standard;
 
         let (alice, bob) = gen::<StackedRatchet>(0, 0, security_level, enx + kem + sig);
         let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) =

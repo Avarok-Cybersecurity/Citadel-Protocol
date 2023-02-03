@@ -563,7 +563,7 @@ impl HdpSessionManager {
         delete_on_pull: bool,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
-        let lock = self.inner.read();
+        let lock = inner!(self);
         if let Some((_, sess)) = lock.sessions.get(&implicated_cid) {
             sess.revfs_pull(ticket, v_conn, virtual_path, delete_on_pull, security_level)
         } else {
@@ -581,7 +581,7 @@ impl HdpSessionManager {
         virtual_path: PathBuf,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
-        let lock = self.inner.read();
+        let lock = inner!(self);
         if let Some((_, sess)) = lock.sessions.get(&implicated_cid) {
             sess.revfs_delete(ticket, v_conn, virtual_path, security_level)
         } else {

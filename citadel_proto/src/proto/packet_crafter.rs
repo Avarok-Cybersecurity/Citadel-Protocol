@@ -1597,6 +1597,7 @@ pub(crate) mod file {
         pub local_encryption_level: Option<SecurityLevel>,
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_file_header_packet(
         hyper_ratchet: &StackedRatchet,
         group_start: u64,
@@ -1692,7 +1693,7 @@ pub(crate) mod file {
     }
 
     #[derive(Serialize, Deserialize, Debug)]
-    pub(crate) struct ReVFSPullPacket {
+    pub struct ReVFSPullPacket {
         pub virtual_path: PathBuf,
         pub delete_on_pull: bool,
         pub security_level: SecurityLevel,

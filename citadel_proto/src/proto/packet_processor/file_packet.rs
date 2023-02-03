@@ -71,7 +71,7 @@ pub fn process_file_packet(
                             };
 
                             let preferred_primary_stream = return_if_none!(
-                                get_preferred_primary_stream(&*header, session, &*state_container)
+                                get_preferred_primary_stream(&header, session, &state_container)
                             );
 
                             if !state_container.on_file_header_received(
@@ -146,11 +146,11 @@ pub fn process_file_packet(
                         Some(packet) => {
                             let session = session.clone();
                             let preferred_primary_stream = return_if_none!(
-                                get_preferred_primary_stream(&*header, &session, &*state_container)
+                                get_preferred_primary_stream(&header, &session, &state_container)
                             );
-                            let virtual_target = header_to_response_vconn_type(&*header);
+                            let virtual_target = header_to_response_vconn_type(&header);
                             let revfs_cid = header.session_cid.get();
-                            let resp_target_cid = get_resp_target_cid_from_header(&*header);
+                            let resp_target_cid = get_resp_target_cid_from_header(&header);
                             let delete_on_pull = packet.delete_on_pull;
 
                             // get the real_path and security level used from the backend
@@ -222,11 +222,11 @@ pub fn process_file_packet(
                             let virtual_path = payload.virtual_path;
                             // we use the cid of the sender, because, they are requesting to alter data here
                             let re_vfs_cid = header.session_cid.get();
-                            let resp_target_cid = get_resp_target_cid_from_header(&*header);
+                            let resp_target_cid = get_resp_target_cid_from_header(&header);
                             let pers = session.account_manager.get_persistence_handler().clone();
 
                             let preferred_primary_stream = return_if_none!(
-                                get_preferred_primary_stream(&*header, session, &*state_container)
+                                get_preferred_primary_stream(&header, session, &state_container)
                             );
 
                             let task = async move {
@@ -260,7 +260,7 @@ pub fn process_file_packet(
 
                 packet_flags::cmd::aux::file::REVFS_ACK => {
                     log::trace!(target: "citadel", "RECV REVFS ACK");
-                    match validation::file::validate_revfs_ack(&header, &*payload) {
+                    match validation::file::validate_revfs_ack(&header, &payload) {
                         Some(payload) => {
                             let response = NodeResult::ReVFS(ReVFSResult {
                                 error_message: payload.error_msg,
@@ -282,7 +282,7 @@ pub fn process_file_packet(
 
                 packet_flags::cmd::aux::file::REVFS_PULL_ACK => {
                     log::trace!(target: "citadel", "RECV REVFS PULL ACK");
-                    match validation::file::validate_revfs_pull_ack(&header, &*payload) {
+                    match validation::file::validate_revfs_pull_ack(&header, &payload) {
                         Some(payload) => match payload {
                             ReVFSPullAckPacket::Success => Ok(PrimaryProcessorResult::Void),
                             ReVFSPullAckPacket::Error { error } => {

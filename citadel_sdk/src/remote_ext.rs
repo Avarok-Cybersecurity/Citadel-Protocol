@@ -40,7 +40,7 @@ pub(crate) mod user_ids {
         target_username: Option<String>,
     }
 
-    pub trait TargetLockedRemote {
+    pub trait TargetLockedRemote: Send {
         fn user(&self) -> &VirtualTargetType;
         fn remote(&mut self) -> &mut NodeRemote;
         fn target_username(&self) -> Option<&String>;
@@ -529,20 +529,25 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     async fn remote_encrypted_virtual_filesystem_pull<R: Into<PathBuf> + Send>(
         &mut self,
         virtual_directory: R,
+        transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
     ) -> Result<BytesMut, NetworkError> {
         let request = NodeRequest::PullObject(PullObject {
-            v_conn: self.user().clone(),
+            v_conn: *self.user(),
             virtual_dir: virtual_directory.into(),
             delete_on_pull,
+            transfer_security_level,
         });
 
         let response = map_errors(self.remote().send_callback(request).await?)?;
         if let NodeResult::ReVFS(result) = response {
-            // TODO: better error message
-            result
-                .data
-                .ok_or(NetworkError::InternalError("The ReVFS command failed"))
+            if let Some(err) = result.error_message {
+                Err(NetworkError::Generic(err))
+            } else {
+                result
+                    .data
+                    .ok_or(NetworkError::InternalError("The ReVFS command failed"))
+            }
         } else {
             Err(NetworkError::InternalError("Invalid NodeRequest response"))
         }
@@ -556,7 +561,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         virtual_directory: R,
     ) -> Result<(), NetworkError> {
         let request = NodeRequest::DeleteObject(DeleteObject {
-            v_conn: self.user().clone(),
+            v_conn: *self.user(),
             virtual_dir: virtual_directory.into(),
             security_level: Default::default(),
         });

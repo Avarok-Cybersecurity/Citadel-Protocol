@@ -1295,6 +1295,7 @@ impl HdpSession {
     /// note, the desired applied encryption level. The desired applied encryption level is inside the
     /// `transfer_type` parameter
     // TODO: Reduce cognitive complexity
+    #[allow(clippy::too_many_arguments)]
     pub fn process_outbound_file(
         &self,
         ticket: Ticket,
