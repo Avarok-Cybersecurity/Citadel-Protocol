@@ -1,3 +1,4 @@
+use crate::backend::utils::VirtualObjectMetadata;
 use citadel_crypt::misc::TransferType;
 use std::fmt::Debug;
 
@@ -9,5 +10,6 @@ pub trait StreamableTargetInformation: Debug + Send + Sync + 'static {
     /// Returns the CID.
     fn get_cid(&self) -> u64;
     /// Returns the
-    fn get_virtual_directory(&self) -> &TransferType;
+    fn get_transfer_type(&self) -> &TransferType;
+    fn get_metadata_file(&self) -> &VirtualObjectMetadata;
 }

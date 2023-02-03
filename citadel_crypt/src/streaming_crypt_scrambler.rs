@@ -1,6 +1,7 @@
 use bytes::BytesMut;
 use futures::task::Context;
 use std::io::{BufReader, Read};
+use std::path::PathBuf;
 use tokio::macros::support::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
@@ -24,12 +25,12 @@ pub const MAX_BYTES_PER_GROUP: usize = crate::scramble::crypt_splitter::MAX_BYTE
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 
 /// Used for streaming sources of a fixed size
-pub trait FixedSizedStream: Read + Send + 'static {
+pub trait FixedSizedSource: Read + Send + 'static {
     fn length(&self) -> std::io::Result<u64>;
 }
 
 #[cfg(feature = "filesystem")]
-impl FixedSizedStream for std::fs::File {
+impl FixedSizedSource for std::fs::File {
     fn length(&self) -> std::io::Result<u64> {
         self.metadata().map(|r| r.len())
     }
@@ -51,24 +52,96 @@ impl<
 
 #[auto_impl::auto_impl(Box)]
 pub trait ObjectSource: Send + Sync + 'static {
-    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError>;
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError>;
     fn get_source_name(&self) -> Result<String, CryptError>;
+    fn delete_path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
-#[cfg(feature = "filesystem")]
-impl ObjectSource for std::path::PathBuf {
-    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError> {
-        std::fs::File::open(self)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
-            .map(|r| Box::new(r) as Box<dyn FixedSizedStream>)
+macro_rules! impl_file_src {
+    ($value:ty) => {
+        #[cfg(feature = "filesystem")]
+        impl ObjectSource for $value {
+            fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
+                std::fs::File::open(self)
+                    .map_err(|err| CryptError::Encrypt(err.to_string()))
+                    .map(|r| Box::new(r) as Box<dyn FixedSizedSource>)
+            }
+
+            fn get_source_name(&self) -> Result<String, CryptError> {
+                let name = std::path::Path::new(self);
+                name.file_name()
+                    .ok_or_else(|| CryptError::Encrypt("Unable to get filename".to_string()))?
+                    .to_str()
+                    .map(|r| r.to_string())
+                    .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
+            }
+
+            fn delete_path(&self) -> Option<PathBuf> {
+                let path = std::path::PathBuf::from(self);
+                Some(path)
+            }
+        }
+    };
+}
+
+impl_file_src!(std::path::PathBuf);
+impl_file_src!(&'static str);
+impl_file_src!(String);
+
+pub struct BytesSource {
+    pub inner: Option<Vec<u8>>,
+}
+
+// The only time this is cloned is for a post-file-transfer hook,
+// wherein the delete() function is called. As such, we don't need
+// the inner device
+impl Clone for BytesSource {
+    fn clone(&self) -> Self {
+        Self { inner: None }
+    }
+}
+
+impl ObjectSource for BytesSource {
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
+        struct VecReader {
+            len: usize,
+            cursor: std::io::Cursor<Vec<u8>>,
+        }
+
+        impl std::io::Read for VecReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.cursor.read(buf)
+            }
+        }
+
+        impl FixedSizedSource for VecReader {
+            fn length(&self) -> std::io::Result<u64> {
+                Ok(self.len as u64)
+            }
+        }
+
+        let inner = self
+            .inner
+            .take()
+            .ok_or_else(|| CryptError::Encrypt("Source has already been exhausted".into()))?;
+        let len = inner.len();
+        let cursor = std::io::Cursor::new(inner);
+        Ok(Box::new(VecReader { len, cursor }))
     }
 
     fn get_source_name(&self) -> Result<String, CryptError> {
-        self.file_name()
-            .ok_or_else(|| CryptError::Encrypt("Unable to get filename".to_string()))?
-            .to_str()
-            .map(|r| r.to_string())
-            .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
+        let rand_id = rand::random::<u128>();
+        Ok(format!("{rand_id}.bin"))
+    }
+}
+
+impl<T: Into<Vec<u8>>> From<T> for BytesSource {
+    fn from(value: T) -> Self {
+        Self {
+            inner: Some(value.into()),
+        }
     }
 }
 
@@ -95,7 +168,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     group_id: u64,
     transfer_type: TransferType,
     header_inscriber: F,
-) -> Result<(usize, usize), CryptError> {
+) -> Result<(usize, usize, usize), CryptError> {
     let source = source.try_get_stream()?;
     let object_len = source
         .length()
@@ -155,7 +228,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     // drop the handle, we will not be using it
     std::mem::drop(handle);
 
-    Ok((object_len, total_groups))
+    Ok((object_len, total_groups, max_bytes_per_group))
 }
 
 async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {

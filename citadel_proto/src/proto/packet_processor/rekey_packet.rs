@@ -3,7 +3,7 @@ use crate::error::NetworkError;
 use crate::prelude::ReKeyReturnType;
 use crate::proto::node::SecrecyMode;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::packet_processor::header_to_vconn_type;
+use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
     attempt_kem_as_alice_finish, attempt_kem_as_bob, get_proper_hyper_ratchet,
     get_resp_target_cid_from_header, ToolsetUpdate,
@@ -135,7 +135,7 @@ pub fn process_rekey(
                     if needs_truncate.is_none() || needs_early_kernel_alert {
                         // we only alert the user once truncate_ack received
                         state_container.ratchet_update_state.on_complete(
-                            header_to_vconn_type(&header),
+                            header_to_response_vconn_type(&header),
                             &session.kernel_tx,
                             ReKeyReturnType::Success {
                                 version: latest_hr.version(),
@@ -277,7 +277,7 @@ pub fn process_rekey(
             }
 
             state_container.ratchet_update_state.on_complete(
-                header_to_vconn_type(&header),
+                header_to_response_vconn_type(&header),
                 &session.kernel_tx,
                 ReKeyReturnType::Success {
                     version: hyper_ratchet.version(),

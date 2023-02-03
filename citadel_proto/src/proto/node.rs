@@ -856,17 +856,38 @@ impl HdpServer {
                     }
                 }
 
-                #[allow(unused_variables)]
                 NodeRequest::PullObject(PullObject {
+                    v_conn,
                     virtual_dir,
                     delete_on_pull,
+                    transfer_security_level,
                 }) => {
-                    unimplemented!()
+                    if let Err(err) = session_manager.revfs_pull(
+                        ticket_id,
+                        v_conn.get_implicated_cid(),
+                        v_conn,
+                        virtual_dir,
+                        delete_on_pull,
+                        transfer_security_level,
+                    ) {
+                        send_error(ticket_id, err)?;
+                    }
                 }
 
-                #[allow(unused_variables)]
-                NodeRequest::DeleteObject(DeleteObject { virtual_dir }) => {
-                    unimplemented!()
+                NodeRequest::DeleteObject(DeleteObject {
+                    v_conn,
+                    virtual_dir,
+                    security_level,
+                }) => {
+                    if let Err(err) = session_manager.revfs_delete(
+                        ticket_id,
+                        v_conn.get_implicated_cid(),
+                        v_conn,
+                        virtual_dir,
+                        security_level,
+                    ) {
+                        send_error(ticket_id, err)?;
+                    }
                 }
 
                 NodeRequest::GetActiveSessions => {

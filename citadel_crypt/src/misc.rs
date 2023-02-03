@@ -1,4 +1,5 @@
 use crate::entropy_bank::PORT_RANGE;
+use crate::prelude::SecurityLevel;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use serde::{Deserialize, Serialize};
@@ -170,5 +171,8 @@ unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TransferType {
     FileTransfer,
-    RemoteVirtualEncryptedFilesystem(PathBuf),
+    RemoteEncryptedVirtualFilesystem {
+        virtual_path: PathBuf,
+        security_level: SecurityLevel,
+    },
 }

@@ -6,13 +6,12 @@ mod tests {
     };
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_crypt::entropy_bank::{EntropyBank, SecurityLevel};
-    use citadel_crypt::misc::{CryptError, TransferType};
+    use citadel_crypt::misc::TransferType;
     use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::secure_buffer::sec_bytes::SecBuffer;
     use citadel_crypt::secure_buffer::sec_string::SecString;
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
-    use citadel_crypt::streaming_crypt_scrambler::{FixedSizedStream, ObjectSource};
     use citadel_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
     use citadel_pqcrypto::algorithm_dictionary::{
         AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
@@ -557,24 +556,84 @@ mod tests {
         SigAlgorithm::None
     )]
     #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
         EncryptionAlgorithm::Kyber,
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    fn scrambler_transmission_all(
+    fn scrambler_transmission_length_spectrum(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        scrambler_transmission::<StackedRatchet>(enx, kem, sig);
+        scrambler_transmission_spectrum::<StackedRatchet>(
+            enx,
+            kem,
+            sig,
+            TransferType::FileTransfer,
+            |decrypted, plaintext, _, _| debug_assert_eq!(decrypted, plaintext),
+        );
         #[cfg(feature = "fcm")]
-        scrambler_transmission::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(enx, kem, sig);
+        scrambler_transmission_spectrum::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(
+            enx,
+            kem,
+            sig,
+            TransferType::FileTransfer,
+            |decrypted, plaintext, _, _| debug_assert_eq!(decrypted, plaintext),
+        );
     }
 
-    fn scrambler_transmission<R: Ratchet>(
+    #[rstest]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Kyber,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::Falcon1024
+    )]
+    fn scrambler_transmission_length_spectrum_remote(
+        #[case] enx: EncryptionAlgorithm,
+        #[case] kem: KemAlgorithm,
+        #[case] sig: SigAlgorithm,
+    ) {
+        let tx_type = TransferType::RemoteVirtualEncryptedFilesystem(PathBuf::from("/"));
+
+        fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
+            assert_ne!(decrypted, plaintext);
+            let decrypted_real = sa_alice
+                .local_decrypt(decrypted, SecurityLevel::Standard)
+                .unwrap();
+            assert_eq!(decrypted_real, plaintext);
+            assert!(sa_bob
+                .local_decrypt(decrypted, SecurityLevel::Standard)
+                .is_err());
+        }
+
+        scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type.clone(), verifier);
+        #[cfg(feature = "fcm")]
+        scrambler_transmission_spectrum::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(
+            enx, kem, sig, tx_type, verifier,
+        );
+    }
+
+    fn scrambler_transmission_spectrum<R: Ratchet>(
         enx: EncryptionAlgorithm,
         kem: KemAlgorithm,
         sig: SigAlgorithm,
+        transfer_type: TransferType,
+        verifier: impl for<'a> Fn(&'a [u8], &'a [u8], &R, &R),
     ) {
         citadel_logging::setup_log();
 
@@ -583,7 +642,7 @@ mod tests {
 
         let mut data = BytesMut::with_capacity(1500);
         let (ratchet_alice, ratchet_bob) = gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
-        let (pseudo_static_aux_ratchet_alice, _pseudo_static_aux_ratchet_bob) =
+        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) =
             gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
 
         for x in 0..1500_usize {
@@ -600,7 +659,7 @@ mod tests {
                     0,
                     0,
                     0,
-                    TransferType::FileTransfer,
+                    transfer_type.clone(),
                     |_vec, _drill, _target_cid, _, buffer| {
                         for x in 0..HEADER_SIZE_BYTES {
                             buffer.put_u8(x as u8)
@@ -626,10 +685,13 @@ mod tests {
                 //println!("Wave {} result: {:?}", packet.vector.wave_id, result);
             }
 
-            //println!("Possibly done with the descrambling/decryption process ... ");
-
             let decrypted_descrambled_plaintext = receiver.finalize();
-            debug_assert_eq!(decrypted_descrambled_plaintext.as_slice(), input_data);
+            verifier(
+                &decrypted_descrambled_plaintext,
+                input_data,
+                &pseudo_static_aux_ratchet_alice,
+                &pseudo_static_aux_ratchet_bob,
+            )
         }
     }
 
@@ -644,6 +706,11 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -669,6 +736,11 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256_SIV,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Xchacha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -724,7 +796,7 @@ mod tests {
         let source = PathBuf::from("../resources/TheBridge.pdf");
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        let (bytes, _num_groups) = scramble_encrypt_source::<_, _, HEADER_LEN>(
+        let (bytes, _num_groups, _mxbpg) = scramble_encrypt_source::<_, _, HEADER_LEN>(
             source,
             None,
             99,
@@ -891,39 +963,6 @@ mod tests {
             for idx in 0..data.len() {
                 (fx)(&hr_alice, &hr_bob, security_level, &data[..idx]);
             }
-        }
-    }
-
-    struct VecWrapper {
-        pub inner: Vec<u8>,
-    }
-
-    impl ObjectSource for VecWrapper {
-        fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError> {
-            struct VecReader {
-                len: usize,
-                cursor: std::io::Cursor<Vec<u8>>,
-            }
-
-            impl std::io::Read for VecReader {
-                fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                    self.cursor.read(buf)
-                }
-            }
-
-            impl FixedSizedStream for VecReader {
-                fn length(&self) -> std::io::Result<u64> {
-                    Ok(self.len as u64)
-                }
-            }
-
-            let len = self.inner.len();
-            let cursor = std::io::Cursor::new(self.inner.clone());
-            Ok(Box::new(VecReader { len, cursor }))
-        }
-
-        fn get_source_name(&self) -> Result<String, CryptError> {
-            Ok(String::from("Debug object"))
         }
     }
 }

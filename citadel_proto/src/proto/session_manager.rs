@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 
@@ -543,10 +544,49 @@ impl HdpSessionManager {
                 virtual_target,
                 security_level,
                 transfer_type,
+                None,
+                |_| {},
             )
         } else {
             Err(NetworkError::Generic(format!(
                 "Hypernode session for {implicated_cid} does not exist! Not going to send data ..."
+            )))
+        }
+    }
+
+    pub fn revfs_pull(
+        &self,
+        ticket: Ticket,
+        implicated_cid: u64,
+        v_conn: VirtualConnectionType,
+        virtual_path: PathBuf,
+        delete_on_pull: bool,
+        security_level: SecurityLevel,
+    ) -> Result<(), NetworkError> {
+        let lock = self.inner.read();
+        if let Some((_, sess)) = lock.sessions.get(&implicated_cid) {
+            sess.revfs_pull(ticket, v_conn, virtual_path, delete_on_pull, security_level)
+        } else {
+            Err(NetworkError::Generic(format!(
+                "Hypernode session for {implicated_cid} does not exist! Not going to process request ..."
+            )))
+        }
+    }
+
+    pub fn revfs_delete(
+        &self,
+        ticket: Ticket,
+        implicated_cid: u64,
+        v_conn: VirtualConnectionType,
+        virtual_path: PathBuf,
+        security_level: SecurityLevel,
+    ) -> Result<(), NetworkError> {
+        let lock = self.inner.read();
+        if let Some((_, sess)) = lock.sessions.get(&implicated_cid) {
+            sess.revfs_delete(ticket, v_conn, virtual_path, security_level)
+        } else {
+            Err(NetworkError::Generic(format!(
+                "Hypernode session for {implicated_cid} does not exist! Not going to process request ..."
             )))
         }
     }

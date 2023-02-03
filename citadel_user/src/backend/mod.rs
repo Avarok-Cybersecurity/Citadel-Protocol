@@ -16,6 +16,8 @@ use crate::backend::utils::misc::StreamableTargetInformation;
 use crate::backend::utils::ObjectTransferStatus;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::misc::{AccountError, CNACMetadata};
+use citadel_crypt::prelude::SecurityLevel;
+use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
@@ -289,6 +291,29 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         sink_metadata: Arc<dyn StreamableTargetInformation>,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError>;
+    /// Returns the encrypted file from the virtual filesystem into the provided buffer.
+    /// The security level used to encrypt the data is also returned
+    #[allow(unused_variables)]
+    async fn revfs_get_file_info(
+        &self,
+        cid: u64,
+        virtual_path: std::path::PathBuf,
+    ) -> Result<(Box<dyn ObjectSource>, SecurityLevel), AccountError> {
+        Err(AccountError::Generic(
+            "The target does not support the RE-VFS protocol".into(),
+        ))
+    }
+    /// Deletes the encrypted file from the virtual filesystem
+    #[allow(unused_variables)]
+    async fn revfs_delete(
+        &self,
+        cid: u64,
+        virtual_path: std::path::PathBuf,
+    ) -> Result<(), AccountError> {
+        Err(AccountError::Generic(
+            "The target does not support the RE-VFS protocol".into(),
+        ))
+    }
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations

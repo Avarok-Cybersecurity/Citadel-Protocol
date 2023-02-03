@@ -1,17 +1,20 @@
 use super::utils::StreamableTargetInformation;
 use crate::account_loader::load_cnac_files;
 use crate::backend::memory::MemoryBackend;
-use crate::backend::utils::ObjectTransferStatus;
+use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::backend::BackendConnection;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::directory_store::DirectoryStore;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::CNAC_SERIALIZED_EXTENSION;
+use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::misc::TransferType;
+use citadel_crypt::prelude::SecurityLevel;
 use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -339,32 +342,28 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError> {
         let directory_store = self.directory_store.as_ref().unwrap();
-        let name = sink_metadata.get_target_name();
-        let source_cid = sink_metadata.get_cid();
-        let mut base_path = match sink_metadata.get_virtual_directory() {
-            TransferType::FileTransfer => {
-                let save_path = directory_store.file_transfer_dir.as_str();
-                PathBuf::from(format!("{save_path}{source_cid}"))
-            }
-            TransferType::RemoteVirtualEncryptedFilesystem(virtual_dir) => {
-                crate::misc::validate_virtual_directory(virtual_dir)?;
-                let save_path = directory_store.virtual_dir.as_str();
-                PathBuf::from(format!("{save_path}{source_cid}{}", virtual_dir.display()))
-            }
-        };
+        let is_virtual_file = matches!(
+            sink_metadata.get_transfer_type(),
+            TransferType::RemoteEncryptedVirtualFilesystem { .. }
+        );
+        let metadata = sink_metadata.get_metadata_file().clone();
+        let file_path = get_file_path(
+            sink_metadata.get_cid(),
+            sink_metadata.get_transfer_type(),
+            directory_store,
+            Some(metadata.name.as_str()),
+        )
+        .await?;
 
-        // create the directory in case it doesn't exist
-        tokio::fs::create_dir_all(&base_path)
+        log::info!(target: "citadel", "Will stream object to {file_path:?}");
+        let file = tokio::fs::File::create(&file_path)
             .await
             .map_err(|err| AccountError::IoError(err.to_string()))?;
 
-        // finally, add the file name
-        base_path.push(name);
-
-        log::info!(target: "citadel", "Will stream object to {base_path:?}");
-        let file = tokio::fs::File::create(&base_path)
-            .await
-            .map_err(|err| AccountError::IoError(err.to_string()))?;
+        let _ = status_tx.send(ObjectTransferStatus::ReceptionBeginning(
+            file_path.clone(),
+            sink_metadata,
+        ));
 
         let mut writer = tokio::io::BufWriter::new(file);
         let mut reader = tokio_util::io::StreamReader::new(
@@ -373,10 +372,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             }),
         );
 
-        let _ = status_tx.send(ObjectTransferStatus::ReceptionBeginning(
-            base_path,
-            sink_metadata,
-        ));
+        if is_virtual_file {
+            // start by writing the metadata file next to it
+            let metadata_path = get_revfs_file_metadata_path(file_path);
+            let serialized = metadata.serialize_to_vector()?;
+            tokio::fs::write(metadata_path, serialized)
+                .await
+                .map_err(|err| AccountError::IoError(err.to_string()))?
+        }
 
         if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
             log::error!(target: "citadel", "Error while copying from reader to writer: {}", err);
@@ -386,6 +389,57 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             .shutdown()
             .await
             .map_err(|err| AccountError::IoError(err.to_string()))
+    }
+
+    async fn revfs_get_file_info(
+        &self,
+        cid: u64,
+        virtual_path: std::path::PathBuf,
+    ) -> Result<(Box<dyn ObjectSource>, SecurityLevel), AccountError> {
+        let directory_store = self.directory_store.as_ref().unwrap();
+        let file_path = get_file_path(
+            cid,
+            &TransferType::RemoteEncryptedVirtualFilesystem {
+                virtual_path,
+                security_level: Default::default(),
+            },
+            directory_store,
+            None,
+        )
+        .await?;
+        let metadata_path = get_revfs_file_metadata_path(&file_path);
+        // first, figure out what security level it was encrypted at. This data should be passed back to the client pulling
+        // this file
+        let raw_metadata = tokio::fs::read(&metadata_path)
+            .await
+            .map_err(|err| AccountError::IoError(err.to_string()))?;
+        let metadata: VirtualObjectMetadata =
+            VirtualObjectMetadata::deserialize_from_owned_vector(raw_metadata)?;
+
+        let security_level = metadata.get_security_level().ok_or_else(|| AccountError::IoError("The requested file was not designated as a RE-VFS type, yet, a metadata file existed for it".into()))?;
+
+        Ok((Box::new(file_path), security_level))
+    }
+
+    async fn revfs_delete(
+        &self,
+        cid: u64,
+        virtual_path: std::path::PathBuf,
+    ) -> Result<(), AccountError> {
+        let directory_store = self.directory_store.as_ref().unwrap();
+        let file_path = get_file_path(
+            cid,
+            &TransferType::RemoteEncryptedVirtualFilesystem {
+                virtual_path,
+                security_level: Default::default(),
+            },
+            directory_store,
+            None,
+        )
+        .await?;
+        let metadata_path = get_revfs_file_metadata_path(&file_path);
+
+        delete_paths(&[metadata_path, file_path]).await
     }
 }
 
@@ -429,4 +483,69 @@ impl<R: Ratchet, Fcm: Ratchet> From<String> for FilesystemBackend<R, Fcm> {
             directory_store: None,
         }
     }
+}
+
+// works for RE-FVS and standard file transfers
+async fn get_file_path(
+    source_cid: u64,
+    transfer_type: &TransferType,
+    directory_store: &DirectoryStore,
+    target_name: Option<&str>,
+) -> Result<PathBuf, AccountError> {
+    match transfer_type {
+        TransferType::FileTransfer => {
+            // TODO: ensure for sources that come from bytes, the name is randomly generated
+            // to prevent collisions
+            let name = target_name.ok_or_else(|| {
+                AccountError::IoError(
+                    "File transfer type specified, yet, no target name given".into(),
+                )
+            })?;
+            let save_path = directory_store.file_transfer_dir.as_str();
+            let mut base_path = PathBuf::from(format!("{save_path}{source_cid}"));
+
+            // create the directory in case it doesn't exist
+            tokio::fs::create_dir_all(&base_path)
+                .await
+                .map_err(|err| AccountError::IoError(err.to_string()))?;
+
+            // finally, add the file name
+            base_path.push(name);
+
+            Ok(base_path)
+        }
+        TransferType::RemoteEncryptedVirtualFilesystem { virtual_path, .. } => {
+            let virtual_dir = &crate::misc::prepare_virtual_path(virtual_path);
+            crate::misc::validate_virtual_path(virtual_dir)?;
+            let save_path = directory_store.virtual_dir.as_str();
+            let file_path =
+                PathBuf::from(format!("{save_path}{source_cid}{}", virtual_dir.display()));
+            // create the directory for the file if it doesn't exist
+            let mut file_path_dir = file_path.clone();
+            let _ = file_path_dir.pop();
+
+            // create the directory in case it doesn't exist
+            tokio::fs::create_dir_all(&file_path_dir)
+                .await
+                .map_err(|err| AccountError::IoError(err.to_string()))?;
+            Ok(file_path)
+        }
+    }
+}
+
+fn get_revfs_file_metadata_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    let mut metadata_path = format!("{}", path.as_ref().display());
+    metadata_path.push_str(crate::misc::VIRTUAL_FILE_METADATA_EXT);
+    crate::misc::prepare_virtual_path(metadata_path)
+}
+
+async fn delete_paths<T: AsRef<Path>, R: AsRef<[T]>>(paths: R) -> Result<(), AccountError> {
+    let paths = paths.as_ref();
+    for path in paths {
+        tokio::fs::remove_file(path)
+            .await
+            .map_err(|err| AccountError::IoError(err.to_string()))?;
+    }
+
+    Ok(())
 }

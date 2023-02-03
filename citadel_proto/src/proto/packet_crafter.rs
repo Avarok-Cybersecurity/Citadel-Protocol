@@ -1582,11 +1582,20 @@ pub(crate) mod file {
     use crate::proto::packet_processor::includes::{packet_flags, HdpHeader, SecurityLevel};
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
-    use bytes::{BufMut, BytesMut};
-    use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
+    use bytes::BytesMut;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_user::backend::utils::VirtualObjectMetadata;
+    use citadel_user::serialization::SyncIO;
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
     use zerocopy::{I64, U128, U32, U64};
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct FileHeaderPacket {
+        pub file_metadata: VirtualObjectMetadata,
+        pub virtual_target: VirtualTargetType,
+        pub local_encryption_level: Option<SecurityLevel>,
+    }
 
     pub(crate) fn craft_file_header_packet(
         hyper_ratchet: &StackedRatchet,
@@ -1596,9 +1605,8 @@ pub(crate) mod file {
         virtual_target: VirtualTargetType,
         file_metadata: VirtualObjectMetadata,
         timestamp: i64,
+        local_encryption_level: Option<SecurityLevel>,
     ) -> BytesMut {
-        let metadata_serialized = file_metadata.serialize();
-        let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
@@ -1607,29 +1615,36 @@ pub(crate) mod file {
             security_level: security_level.value(),
             context_info: U128::new(ticket.0),
             group: U64::new(group_start),
-            wave_id: U32::new(serialized_vt.len() as u32),
+            wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(virtual_target.get_target_cid()),
         };
 
-        let mut packet = BytesMut::with_capacity(
-            HDP_HEADER_BYTE_LEN
-                + serialized_vt.len()
-                + metadata_serialized.len()
-                + AES_GCM_GHASH_OVERHEAD,
-        );
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
-        //processor.group_config.inscribe_into(&mut packet);
-        packet.put(serialized_vt.as_slice());
-        packet.put(metadata_serialized.as_slice());
+
+        let payload = FileHeaderPacket {
+            file_metadata,
+            virtual_target,
+            local_encryption_level,
+        };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
 
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
         packet
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct FileHeaderAckPacket {
+        pub success: bool,
+        pub virtual_target: VirtualTargetType,
+        pub object_id: u32,
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1643,8 +1658,6 @@ pub(crate) mod file {
         virtual_target: VirtualTargetType,
         timestamp: i64,
     ) -> BytesMut {
-        let success: u64 = u64::from(success);
-        let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
@@ -1652,20 +1665,199 @@ pub(crate) mod file {
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(ticket.0),
-            group: U64::new(success),
-            wave_id: U32::new(object_id),
+            group: U64::new(0),
+            wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
 
-        let mut packet = BytesMut::with_capacity(
-            HDP_HEADER_BYTE_LEN + serialized_vt.len() + AES_GCM_GHASH_OVERHEAD,
-        );
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
-        packet.put(serialized_vt.as_slice());
 
+        let payload = FileHeaderAckPacket {
+            success,
+            virtual_target,
+            object_id,
+        };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub(crate) struct ReVFSPullPacket {
+        pub virtual_path: PathBuf,
+        pub delete_on_pull: bool,
+        pub security_level: SecurityLevel,
+    }
+
+    /// This packet will essentially cause the receiving endpoint to emulate
+    /// a FILE_HEADER with auto-accept on
+    pub fn craft_revfs_pull(
+        hyper_ratchet: &StackedRatchet,
+        security_level: SecurityLevel,
+        ticket: Ticket,
+        timestamp: i64,
+        target_cid: u64,
+        virtual_path: PathBuf,
+        delete_on_pull: bool,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FILE,
+            cmd_aux: packet_flags::cmd::aux::file::REVFS_PULL,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+
+        let payload = ReVFSPullPacket {
+            virtual_path,
+            delete_on_pull,
+            security_level,
+        };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct ReVFSDeletePacket {
+        pub virtual_path: PathBuf,
+    }
+
+    pub fn craft_revfs_delete(
+        hyper_ratchet: &StackedRatchet,
+        security_level: SecurityLevel,
+        ticket: Ticket,
+        timestamp: i64,
+        target_cid: u64,
+        virtual_path: PathBuf,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FILE,
+            cmd_aux: packet_flags::cmd::aux::file::REVFS_DELETE,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+
+        let payload = ReVFSDeletePacket { virtual_path };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct ReVFSAckPacket {
+        pub success: bool,
+        pub error_msg: Option<String>,
+    }
+
+    pub fn craft_revfs_ack(
+        hyper_ratchet: &StackedRatchet,
+        security_level: SecurityLevel,
+        ticket: Ticket,
+        timestamp: i64,
+        target_cid: u64,
+        error_msg: Option<String>,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FILE,
+            cmd_aux: packet_flags::cmd::aux::file::REVFS_ACK,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+
+        let success = error_msg.is_none();
+        let payload = ReVFSAckPacket { success, error_msg };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub enum ReVFSPullAckPacket {
+        Success,
+        Error { error: String },
+    }
+
+    pub fn craft_revfs_pull_ack(
+        hyper_ratchet: &StackedRatchet,
+        security_level: SecurityLevel,
+        ticket: Ticket,
+        timestamp: i64,
+        target_cid: u64,
+        payload: ReVFSPullAckPacket,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FILE,
+            cmd_aux: packet_flags::cmd::aux::file::REVFS_PULL_ACK,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+
+        payload.serialize_into_buf(&mut packet).unwrap();
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();

@@ -204,25 +204,11 @@ where
     F: Fn(&PacketVector, &EntropyBank, u32, u64, &mut BytesMut) + Send + Sync,
 {
     let mut plain_text = Cow::Borrowed(plain_text.as_ref());
-    if matches!(
-        transfer_type,
-        TransferType::RemoteVirtualEncryptedFilesystem(..)
-    ) {
+    if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
         // pre-encrypt
-        // TODO: on-decrypt, keep this chunking in mind!
-        #[cfg(not(target_family = "wasm"))]
-        let chunks = plain_text.par_chunks(MAX_BYTES_PER_GROUP);
-        #[cfg(target_family = "wasm")]
-        let chunks = plain_text.chunks(MAX_BYTES_PER_GROUP);
-
-        let local_encrypted = chunks
-            .map(|section| {
-                static_aux_ratchet
-                    .local_encrypt(section, SecurityLevel::Standard)
-                    .unwrap()
-            })
-            .flatten()
-            .collect::<Vec<u8>>();
+        let local_encrypted = static_aux_ratchet
+            .local_encrypt(plain_text, *security_level)
+            .unwrap();
 
         plain_text = Cow::Owned(local_encrypted);
     }

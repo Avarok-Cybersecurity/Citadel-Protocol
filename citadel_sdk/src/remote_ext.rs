@@ -4,6 +4,7 @@ use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::HyperlanPeer;
 use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
+use bytes::BytesMut;
 use citadel_proto::auth::AuthenticationRequest;
 use futures::StreamExt;
 use std::path::PathBuf;
@@ -432,9 +433,9 @@ impl ProtocolRemoteExt for ClientServerRemote {
 /// Some functions require that a target exists
 pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
-    async fn send_file_with_custom_opts<T: Into<PathBuf> + Send>(
+    async fn send_file_with_custom_opts<T: ObjectSource>(
         &mut self,
-        path: T,
+        source: T,
         chunk_size: usize,
         transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
@@ -449,7 +450,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
         let result = remote
             .send_callback(NodeRequest::SendObject(SendObject {
-                source: Box::new(path.into()),
+                source: Box::new(source),
                 chunk_size,
                 implicated_cid,
                 v_conn_type: user,
@@ -478,39 +479,98 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Sends a file to the provided target using the default chunking size
-    async fn send_file<T: Into<PathBuf> + Send>(&mut self, path: T) -> Result<(), NetworkError> {
-        self.send_file_with_custom_opts(path, 0, TransferType::FileTransfer)
+    async fn send_file<T: ObjectSource>(&mut self, source: T) -> Result<(), NetworkError> {
+        self.send_file_with_custom_opts(source, 0, TransferType::FileTransfer)
             .await
     }
 
     /// Sends a file to the provided target using custom chunking size with local encryption.
     /// Only this local node may decrypt the information send to the adjacent node.
-    async fn virtual_remote_filesystem_send_custom_chunking<
-        T: Into<PathBuf> + Send,
+    async fn remote_encrypted_virtual_filesystem_push_custom_chunking<
+        T: ObjectSource,
         R: Into<PathBuf> + Send,
     >(
         &mut self,
-        path: T,
+        source: T,
         virtual_directory: R,
         chunk_size: usize,
+        security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
-        let virtual_dir = virtual_directory.into();
-        validate_virtual_directory(&virtual_dir)
+        let virtual_path = virtual_directory.into();
+        validate_virtual_path(&virtual_path)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
-        let tx_type = TransferType::RemoteVirtualEncryptedFilesystem(virtual_dir);
-        self.send_file_with_custom_opts(path, chunk_size, tx_type)
+        let tx_type = TransferType::RemoteEncryptedVirtualFilesystem {
+            virtual_path,
+            security_level,
+        };
+        self.send_file_with_custom_opts(source, chunk_size, tx_type)
             .await
     }
 
     /// Sends a file to the provided target using the default chunking size with local encryption.
     /// Only this local node may decrypt the information send to the adjacent node.
-    async fn virtual_remote_filesystem_send<T: Into<PathBuf> + Send, R: Into<PathBuf> + Send>(
+    async fn remote_encrypted_virtual_filesystem_push<T: ObjectSource, R: Into<PathBuf> + Send>(
         &mut self,
-        path: T,
+        source: T,
+        virtual_directory: R,
+        security_level: SecurityLevel,
+    ) -> Result<(), NetworkError> {
+        self.remote_encrypted_virtual_filesystem_push_custom_chunking(
+            source,
+            virtual_directory,
+            0,
+            security_level,
+        )
+        .await
+    }
+
+    /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
+    /// will be taken from the RE-VFS
+    async fn remote_encrypted_virtual_filesystem_pull<R: Into<PathBuf> + Send>(
+        &mut self,
+        virtual_directory: R,
+        delete_on_pull: bool,
+    ) -> Result<BytesMut, NetworkError> {
+        let request = NodeRequest::PullObject(PullObject {
+            v_conn: self.user().clone(),
+            virtual_dir: virtual_directory.into(),
+            delete_on_pull,
+        });
+
+        let response = map_errors(self.remote().send_callback(request).await?)?;
+        if let NodeResult::ReVFS(result) = response {
+            // TODO: better error message
+            result
+                .data
+                .ok_or(NetworkError::InternalError("The ReVFS command failed"))
+        } else {
+            Err(NetworkError::InternalError("Invalid NodeRequest response"))
+        }
+    }
+
+    /// Deletes the file from the RE-VFS. If the contents are desired on delete,
+    /// consider calling `Self::remote_encrypted_virtual_filesystem_pull` with the delete
+    /// parameter set to true
+    async fn remote_encrypted_virtual_filesystem_delete<R: Into<PathBuf> + Send>(
+        &mut self,
         virtual_directory: R,
     ) -> Result<(), NetworkError> {
-        self.virtual_remote_filesystem_send_custom_chunking(path, virtual_directory, 0)
-            .await
+        let request = NodeRequest::DeleteObject(DeleteObject {
+            v_conn: self.user().clone(),
+            virtual_dir: virtual_directory.into(),
+            security_level: Default::default(),
+        });
+
+        let response = map_errors(self.remote().send_callback(request).await?)?;
+        if let NodeResult::ReVFS(result) = response {
+            if let Some(error) = result.error_message {
+                Err(NetworkError::Generic(error))
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(NetworkError::InternalError("Invalid NodeRequest response"))
+        }
     }
 
     /// Connects to the peer with custom settings
@@ -1008,7 +1068,11 @@ mod tests {
             |_channel, mut remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote
-                    .send_file_with_custom_chunking("../resources/TheBridge.pdf", 32 * 1024)
+                    .send_file_with_custom_opts(
+                        "../resources/TheBridge.pdf",
+                        32 * 1024,
+                        TransferType::FileTransfer,
+                    )
                     .await
                     .unwrap();
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");

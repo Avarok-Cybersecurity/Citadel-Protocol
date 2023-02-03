@@ -154,6 +154,7 @@ pub(crate) struct InboundFileTransfer {
     pub metadata: VirtualObjectMetadata,
     pub stream_to_hd: UnboundedSender<Vec<u8>>,
     pub reception_complete_tx: tokio::sync::oneshot::Sender<()>,
+    pub local_encryption_level: Option<SecurityLevel>,
 }
 
 #[allow(dead_code)]
@@ -863,6 +864,25 @@ impl StateContainerInner {
         )
     }
 
+    pub fn get_peer_endpoint_container_mut(
+        &mut self,
+        target_cid: u64,
+    ) -> Result<&mut EndpointChannelContainer, NetworkError> {
+        if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
+            if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                Ok(endpoint_container)
+            } else {
+                Err(NetworkError::msg(format!(
+                    "Unabel to access endpoint container to peer {target_cid}"
+                )))
+            }
+        } else {
+            Err(NetworkError::msg(format!(
+                "Unabel to find virtual connection to peer {target_cid}"
+            )))
+        }
+    }
+
     pub fn get_c2s_crypto(&self) -> Option<&PeerSessionCrypto> {
         Some(&self.c2s_channel_container.as_ref()?.peer_session_crypto)
     }
@@ -997,11 +1017,12 @@ impl StateContainerInner {
         target_cid: u64,
         v_target_flipped: VirtualTargetType,
         preferred_primary_stream: OutboundPrimaryStreamSender,
+        local_encryption_level: Option<SecurityLevel>,
     ) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
+        let is_revfs_pull = local_encryption_level.is_some();
 
-        // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
         if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let (start_recv_tx, start_recv_rx) = tokio::sync::oneshot::channel::<bool>();
@@ -1024,6 +1045,7 @@ impl StateContainerInner {
                 metadata: metadata.clone(),
                 reception_complete_tx,
                 stream_to_hd,
+                local_encryption_level,
             };
 
             e.insert(entry);
@@ -1032,6 +1054,7 @@ impl StateContainerInner {
                 header.target_cid.get(),
                 ObjectTransferOrientation::Receiver,
                 Some(start_recv_tx),
+                is_revfs_pull,
             );
             self.file_transfer_handles.insert(
                 key,
@@ -1046,7 +1069,13 @@ impl StateContainerInner {
                 }));
 
             let task = async move {
-                let res = start_recv_rx.await;
+                let res = if is_revfs_pull {
+                    // auto-accept for pull requests
+                    Ok(true)
+                } else {
+                    start_recv_rx.await
+                };
+
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender
                 // to ensure the sender knows if the user accepted or not
@@ -1074,7 +1103,7 @@ impl StateContainerInner {
                             match pers
                                 .stream_object_to_backend(
                                     stream_to_hd_rx,
-                                    Arc::new(metadata),
+                                    Arc::new(metadata.clone()),
                                     tx_status.clone(),
                                 )
                                 .await
@@ -1152,6 +1181,7 @@ impl StateContainerInner {
                     receiver_cid,
                     ObjectTransferOrientation::Sender,
                     None,
+                    true, //this value does not matter here since start_recv_tx is false. TODO: refactor
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
                 let _ = self
@@ -1299,12 +1329,25 @@ impl StateContainerInner {
         ) {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
-                let chunk = self
+                let mut chunk = self
                     .inbound_groups
                     .remove(&group_key)
                     .unwrap()
                     .receiver
                     .finalize();
+
+                if let Some(local_encryption_level) = file_container.local_encryption_level {
+                    // which static hr do we need? Since we are receiving this chunk, always our local account's
+                    let static_aux_hr = self
+                        .cnac
+                        .as_ref()
+                        .unwrap()
+                        .get_static_auxiliary_hyper_ratchet();
+                    chunk = static_aux_hr
+                        .local_decrypt(chunk, local_encryption_level)
+                        .map_err(|err| NetworkError::msg(err.into_string()))?;
+                }
+
                 file_container
                     .stream_to_hd
                     .unbounded_send(chunk)

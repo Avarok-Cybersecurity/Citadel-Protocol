@@ -1,4 +1,4 @@
-use crate::misc::AccountError;
+use crate::misc::{format_path, AccountError};
 use std::fs::create_dir_all as mkdir;
 use std::path::PathBuf;
 
@@ -91,18 +91,6 @@ fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError>
     };
 
     Ok(dirs)
-}
-
-#[cfg(not(target_os = "windows"))]
-/// #
-pub fn format_path(input: String) -> String {
-    input.replace('\\', "/")
-}
-
-#[cfg(any(target_os = "windows"))]
-/// #
-pub fn format_path(input: String) -> String {
-    input.replace("/", "\\")
 }
 
 fn append_to_path(base: String, addition: &str) -> String {

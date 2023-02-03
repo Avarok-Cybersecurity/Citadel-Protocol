@@ -1,5 +1,5 @@
 use chrono::Utc;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Default Error type for this crate
 #[derive(Debug)]
@@ -165,13 +165,86 @@ pub fn get_present_formatted_timestamp() -> String {
     Utc::now().to_rfc3339()
 }
 
-pub fn validate_virtual_directory<R: AsRef<Path>>(virtual_dir: R) -> Result<(), AccountError> {
-    let virtual_dir = virtual_dir.as_ref();
-    if !virtual_dir.has_root() {
+pub fn validate_virtual_path<R: AsRef<Path>>(virtual_path: R) -> Result<(), AccountError> {
+    let virtual_path = virtual_path.as_ref();
+    #[cfg(not(target_os = "windows"))]
+    const REQUIRED_BEGINNING: &str = "/";
+    #[cfg(target_os = "windows")]
+    const REQUIRED_BEGINNING: &str = "\\";
+
+    if !virtual_path.starts_with(REQUIRED_BEGINNING) {
         return Err(AccountError::IoError(format!(
-            "Path {virtual_dir:?} is not a valid remote encrypted virtual directory"
+            "Path {virtual_path:?} is not a valid remote encrypted virtual directory"
+        )));
+    }
+
+    if virtual_path.is_relative() {
+        return Err(AccountError::IoError(format!(
+            "Path {virtual_path:?} is not an absolute path"
+        )));
+    }
+
+    let buf = format!("{}", virtual_path.display());
+
+    // we cannot use path.is_dir() since that checks for file existence, which we don't want
+    if buf.ends_with(REQUIRED_BEGINNING) {
+        return Err(AccountError::IoError(format!(
+            "Path {virtual_path:?} is a directory, not a file"
         )));
     }
 
     Ok(())
+}
+
+// The goal of this function is to ensure that the provided virtual path is appropriate for
+// the local operating system
+pub fn prepare_virtual_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    let path = format!("{}", path.as_ref().display());
+    format_path(path).into()
+}
+
+#[cfg(not(target_os = "windows"))]
+/// #
+pub fn format_path(input: String) -> String {
+    input.replace('\\', "/")
+}
+
+#[cfg(target_os = "windows")]
+/// #
+pub fn format_path(input: String) -> String {
+    input.replace("/", "\\")
+}
+
+pub const VIRTUAL_FILE_METADATA_EXT: &str = ".vxe";
+
+#[cfg(test)]
+mod tests {
+    use crate::misc::{prepare_virtual_path, validate_virtual_path};
+    use rstest::rstest;
+    use std::path::PathBuf;
+
+    #[rstest]
+    #[case("/hello/world/tmp.txt")]
+    #[case("/hello/world/tmp")]
+    #[case("/tmp.txt")]
+    #[case("\\hello\\world\\tmp.txt")]
+    #[case("\\hello\\world\\tmp")]
+    #[case("\\tmp.txt")]
+    fn test_virtual_dir_formatting_okay(#[case] good_path: &str) {
+        let virtual_dir = PathBuf::from(good_path);
+        let formatted = prepare_virtual_path(virtual_dir);
+        assert!(validate_virtual_path(formatted).is_ok());
+    }
+
+    #[rstest]
+    #[case("/hello/")]
+    #[case("/")]
+    #[case("tmp.txt")]
+    #[case("\\hello\\")]
+    #[case("\\")]
+    fn test_virtual_dir_formatting_bad(#[case] bad_path: &str) {
+        let virtual_dir = PathBuf::from(bad_path);
+        let formatted = prepare_virtual_path(virtual_dir);
+        assert!(validate_virtual_path(formatted).is_err());
+    }
 }

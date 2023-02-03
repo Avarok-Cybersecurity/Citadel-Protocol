@@ -4,6 +4,7 @@ use crate::prelude::{
 };
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::misc::TransferType;
+use citadel_crypt::prelude::SecurityLevel;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use std::net::SocketAddr;
@@ -47,12 +48,16 @@ pub struct SendObject {
 }
 
 pub struct PullObject {
+    pub v_conn: VirtualConnectionType,
     pub virtual_dir: PathBuf,
     pub delete_on_pull: bool,
+    pub transfer_security_level: SecurityLevel,
 }
 
 pub struct DeleteObject {
+    pub v_conn: VirtualConnectionType,
     pub virtual_dir: PathBuf,
+    pub security_level: SecurityLevel,
 }
 
 pub struct GroupBroadcastCommand {

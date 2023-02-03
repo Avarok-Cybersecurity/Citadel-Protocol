@@ -93,7 +93,7 @@ impl std::fmt::Debug for PrimaryProcessorResult {
 }
 
 /// should only be called by the receiver of a packet
-pub(crate) fn header_to_vconn_type(header: &HdpHeader) -> VirtualConnectionType {
+pub(crate) fn header_to_response_vconn_type(header: &HdpHeader) -> VirtualConnectionType {
     let session_cid = header.session_cid.get();
     let target_cid = header.target_cid.get();
     if target_cid != C2S_ENCRYPTION_ONLY {
