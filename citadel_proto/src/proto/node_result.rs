@@ -2,10 +2,11 @@ use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpC
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
-use bytes::BytesMut;
+
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_user::client_account::ClientNetworkAccount;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct RegisterOkay {
@@ -129,7 +130,7 @@ pub struct SessionList {
 #[derive(Debug)]
 pub struct ReVFSResult {
     pub error_message: Option<String>,
-    pub data: Option<BytesMut>,
+    pub data: Option<PathBuf>,
     pub ticket: Ticket,
 }
 

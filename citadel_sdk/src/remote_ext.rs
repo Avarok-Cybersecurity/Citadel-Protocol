@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::HyperlanPeer;
 use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
-use bytes::BytesMut;
+
 use citadel_proto::auth::AuthenticationRequest;
 use futures::StreamExt;
 use std::path::PathBuf;
@@ -531,7 +531,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         virtual_directory: R,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
-    ) -> Result<BytesMut, NetworkError> {
+    ) -> Result<PathBuf, NetworkError> {
         let request = NodeRequest::PullObject(PullObject {
             v_conn: *self.user(),
             virtual_dir: virtual_directory.into(),

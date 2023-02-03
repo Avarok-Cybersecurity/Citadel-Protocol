@@ -233,7 +233,7 @@ mod tests {
     fn test_virtual_dir_formatting_okay(#[case] good_path: &str) {
         let virtual_dir = PathBuf::from(good_path);
         let formatted = prepare_virtual_path(virtual_dir);
-        assert!(validate_virtual_path(formatted).is_ok());
+        validate_virtual_path(formatted).unwrap();
     }
 
     #[rstest]
