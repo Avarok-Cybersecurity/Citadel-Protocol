@@ -116,7 +116,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         base_hyper_ratchet: R,
     ) -> Result<Self, AccountError> {
         log::trace!(target: "citadel", "Creating CNAC w/valid cid: {:?}", valid_cid);
-        // TODO: move this to validation in citadel_proto (or this may be redunant)
+        // TODO: move this to validation in citadel_proto (or this may be redundant)
         check_credential_formatting::<_, &str, _>(
             auth_store.username(),
             None,

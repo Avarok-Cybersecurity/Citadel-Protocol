@@ -873,12 +873,12 @@ impl StateContainerInner {
                 Ok(endpoint_container)
             } else {
                 Err(NetworkError::msg(format!(
-                    "Unabel to access endpoint container to peer {target_cid}"
+                    "Unable to access endpoint container to peer {target_cid}"
                 )))
             }
         } else {
             Err(NetworkError::msg(format!(
-                "Unabel to find virtual connection to peer {target_cid}"
+                "Unable to find virtual connection to peer {target_cid}"
             )))
         }
     }
@@ -2005,7 +2005,7 @@ impl StateContainerInner {
                             ratchet,
                             alice_constructor
                                 .stage0_alice()
-                                .ok_or(NetworkError::InternalError("Alice Construcion failed"))?,
+                                .ok_or(NetworkError::InternalError("Alice Construction failed"))?,
                             timestamp,
                             C2S_ENCRYPTION_ONLY,
                             security_level,

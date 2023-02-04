@@ -800,7 +800,7 @@ impl GroupReceiver {
         }
     }
 
-    /// Unlike checking each indvidual wave, this checks to see if the group as a whole expired
+    /// Unlike checking each individual wave, this checks to see if the group as a whole expired
     pub fn has_expired(&self, timeout: Duration) -> bool {
         self.last_packet_recv_time.elapsed() > timeout
     }

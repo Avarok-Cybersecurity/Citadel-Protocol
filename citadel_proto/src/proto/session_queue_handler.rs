@@ -75,7 +75,7 @@ impl SessionQueueWorkerHandle {
         let _ = self.tx.send((key, timeout, Box::new(on_timeout)));
     }
 
-    /// A conveniant way to check on a task once sometime in the future
+    /// A convenient way to check on a task once sometime in the future
     #[allow(dead_code)]
     pub fn insert_oneshot(
         &self,

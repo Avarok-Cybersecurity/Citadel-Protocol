@@ -210,7 +210,7 @@ pub fn process_rekey(
             let do_poll = lock_set_by_alice.map(|r| !r).unwrap_or(false);
 
             // If we didn't have to deregister, then our job is done. alice does not need to hear from Bob
-            // But, if deregistration occured, we need to alert alice that way she can unlock hers
+            // But, if deregistration occurred, we need to alert alice that way she can unlock hers
             if let Some(truncate_vers) = truncate_packet.truncate_version {
                 let truncate_ack = packet_crafter::do_drill_update::craft_truncate_ack(
                     &hyper_ratchet,

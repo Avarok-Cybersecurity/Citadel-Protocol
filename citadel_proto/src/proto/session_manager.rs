@@ -117,7 +117,7 @@ impl HdpSessionManager {
     }
 
     /// Called by the higher-level [HdpServer] async writer loop
-    /// `nid_local` is only needed incase a provisional id is needed.
+    /// `nid_local` is only needed in case a provisional id is needed.
     ///
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
@@ -683,7 +683,7 @@ impl HdpSessionManager {
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers
                 // without cleaning itself up. It will automatically drop by itself, however,
                 // sometimes when the client attempts to re-connect, the old session will still
-                // be in place, and hence removing the old session when attemping to upgrade
+                // be in place, and hence removing the old session when attempting to upgrade
                 // from a provisional to a protected connection must be allowed. As such, issue a warning here,
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection

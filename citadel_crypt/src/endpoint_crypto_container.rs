@@ -60,7 +60,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         }
     }
 
-    /// Gets a specific drill version, or, gets the latest version comitted
+    /// Gets a specific drill version, or, gets the latest version committed
     pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<&R> {
         self.toolset
             .get_hyper_ratchet(version.unwrap_or(self.latest_usable_version))

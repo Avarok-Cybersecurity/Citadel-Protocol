@@ -472,7 +472,7 @@ mod tests {
                     }
 
                     Err(NetworkError::InternalError(
-                        "signals_recv ended unexpectdly",
+                        "signals_recv ended unexpectedly",
                     ))
                 },
             ).unwrap();
