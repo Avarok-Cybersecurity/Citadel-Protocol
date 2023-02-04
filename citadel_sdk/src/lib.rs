@@ -151,7 +151,7 @@
 //! The RE-VFS allows clients, servers, and peers to treat each other as remote endpoints for encrypted file storage.
 //! Since encrypting data locally using a symmetric key poses a vulnerability if the local node is compromised, The
 //! Citadel Protocol solves this issue by using a local 1024-Kyber public key to encrypt the data (via Kyber scramcryption for
-//! keeping the data size to a minimum), then, sending the contents to the adjacent endpoint. By doing this, the encryption
+//! keeping the data size to a minimum), then, sending the contents to the adjacent endpoint. By doing this, the private decryption
 //! key and the contents are kept separate, forcing the hacker to compromise both endpoints.
 //!
 //! In order to use the RE-VFS, both endpoints must use the Filesystem backend. Second, the endpoint serving as a storage point
