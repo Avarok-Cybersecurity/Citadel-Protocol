@@ -8,6 +8,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::misc::AccountError;
+use citadel_crypt::misc::TransferType;
+use citadel_crypt::prelude::SecurityLevel;
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -22,6 +24,8 @@ pub struct VirtualObjectMetadata {
     pub plaintext_length: usize,
     pub group_count: usize,
     pub object_id: u32,
+    pub cid: u64,
+    pub transfer_type: TransferType,
 }
 
 impl VirtualObjectMetadata {
@@ -32,11 +36,29 @@ impl VirtualObjectMetadata {
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
         Self::deserialize_from_vector(input.as_ref()).ok()
     }
+
+    pub fn get_security_level(&self) -> Option<SecurityLevel> {
+        match &self.transfer_type {
+            TransferType::FileTransfer => None,
+            TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } => {
+                Some(*security_level)
+            }
+        }
+    }
 }
 
 impl StreamableTargetInformation for VirtualObjectMetadata {
     fn get_target_name(&self) -> &String {
         &self.name
+    }
+    fn get_cid(&self) -> u64 {
+        self.cid
+    }
+    fn get_transfer_type(&self) -> &TransferType {
+        &self.transfer_type
+    }
+    fn get_metadata_file(&self) -> &VirtualObjectMetadata {
+        self
     }
 }
 
@@ -47,6 +69,7 @@ pub struct ObjectTransferHandler {
     inner: UnboundedReceiver<ObjectTransferStatus>,
     pub source: u64,
     pub receiver: u64,
+    pub is_revfs_pull: bool,
     pub orientation: ObjectTransferOrientation,
     start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
 }
@@ -65,6 +88,7 @@ impl ObjectTransferHandler {
         receiver: u64,
         orientation: ObjectTransferOrientation,
         start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
+        is_revfs_pull: bool,
     ) -> (Self, UnboundedSender<ObjectTransferStatus>) {
         let (tx, inner) = unbounded_channel();
 
@@ -74,6 +98,7 @@ impl ObjectTransferHandler {
             receiver,
             orientation,
             start_recv_tx,
+            is_revfs_pull,
         };
 
         (this, tx)
@@ -93,6 +118,10 @@ impl ObjectTransferHandler {
     }
 
     fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
+        if self.is_revfs_pull {
+            return Ok(());
+        }
+
         if matches!(self.orientation, ObjectTransferOrientation::Receiver) {
             self.start_recv_tx
                 .take()

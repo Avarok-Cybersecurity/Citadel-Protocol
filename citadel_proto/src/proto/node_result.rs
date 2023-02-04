@@ -2,9 +2,11 @@ use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpC
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
+
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_user::client_account::ClientNetworkAccount;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct RegisterOkay {
@@ -125,8 +127,14 @@ pub struct SessionList {
     pub sessions: Vec<u64>,
 }
 
-/// This type is for relaying results between the lower-level server and the higher-level kernel
-/// TODO: Convert to enum structs
+#[derive(Debug)]
+pub struct ReVFSResult {
+    pub error_message: Option<String>,
+    pub data: Option<PathBuf>,
+    pub ticket: Ticket,
+}
+
+/// This type is for relaying results between the lower-level protocol and the higher-level kernel
 #[derive(Debug)]
 pub enum NodeResult {
     /// Returns the CNAC which was created during the registration process
@@ -140,6 +148,7 @@ pub enum NodeResult {
     /// The connection was a failure
     ConnectFail(ConnectFail),
     ReKeyResult(ReKeyResult),
+    ReVFS(ReVFSResult),
     /// The outbound request was rejected
     OutboundRequestRejected(OutboundRequestRejected),
     /// For file transfers. Implicated CID, Peer/Target CID, object ID
@@ -232,6 +241,7 @@ impl NodeResult {
             }) => Some(*t),
             NodeResult::Shutdown => None,
             NodeResult::ReKeyResult(ReKeyResult { ticket, .. }) => Some(*ticket),
+            NodeResult::ReVFS(ReVFSResult { ticket, .. }) => Some(*ticket),
         }
     }
 }

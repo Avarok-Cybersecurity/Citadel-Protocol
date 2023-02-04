@@ -21,6 +21,7 @@ use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
+use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
 };
@@ -840,6 +841,7 @@ impl HdpServer {
                     chunk_size,
                     implicated_cid,
                     v_conn_type: virtual_target,
+                    transfer_type,
                 }) => {
                     if let Err(err) = session_manager.process_outbound_file(
                         ticket_id,
@@ -848,6 +850,41 @@ impl HdpServer {
                         implicated_cid,
                         virtual_target,
                         SecurityLevel::Standard,
+                        transfer_type,
+                    ) {
+                        send_error(ticket_id, err)?;
+                    }
+                }
+
+                NodeRequest::PullObject(PullObject {
+                    v_conn,
+                    virtual_dir,
+                    delete_on_pull,
+                    transfer_security_level,
+                }) => {
+                    if let Err(err) = session_manager.revfs_pull(
+                        ticket_id,
+                        v_conn.get_implicated_cid(),
+                        v_conn,
+                        virtual_dir,
+                        delete_on_pull,
+                        transfer_security_level,
+                    ) {
+                        send_error(ticket_id, err)?;
+                    }
+                }
+
+                NodeRequest::DeleteObject(DeleteObject {
+                    v_conn,
+                    virtual_dir,
+                    security_level,
+                }) => {
+                    if let Err(err) = session_manager.revfs_delete(
+                        ticket_id,
+                        v_conn.get_implicated_cid(),
+                        v_conn,
+                        virtual_dir,
+                        security_level,
                     ) {
                         send_error(ticket_id, err)?;
                     }

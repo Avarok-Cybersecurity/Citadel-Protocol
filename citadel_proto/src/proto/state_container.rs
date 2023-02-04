@@ -24,7 +24,7 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::{MessageGroupKey, ReKeyResult, ReKeyReturnType};
+use crate::prelude::{InternalServerError, MessageGroupKey, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::ordered_channel::OrderedChannel;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
@@ -33,7 +33,6 @@ use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
 use crate::proto::packet::HdpHeader;
-use crate::proto::packet_crafter;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_crafter::{
     GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket,
@@ -56,6 +55,7 @@ use crate::proto::state_subcontainers::preconnect_state_container::PreConnectSta
 use crate::proto::state_subcontainers::register_state_container::RegisterState;
 use crate::proto::state_subcontainers::rekey_container::RatchetUpdateState;
 use crate::proto::transfer_stats::TransferStats;
+use crate::proto::{packet_crafter, send_with_error_logging};
 use atomic::Atomic;
 use bytes::Bytes;
 use citadel_crypt::endpoint_crypto_container::{KemTransferStatus, PeerSessionCrypto};
@@ -153,7 +153,8 @@ pub(crate) struct InboundFileTransfer {
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualObjectMetadata,
     pub stream_to_hd: UnboundedSender<Vec<u8>>,
-    pub reception_complete_tx: tokio::sync::oneshot::Sender<()>,
+    pub reception_complete_tx: tokio::sync::oneshot::Sender<HdpHeader>,
+    pub local_encryption_level: Option<SecurityLevel>,
 }
 
 #[allow(dead_code)]
@@ -863,6 +864,25 @@ impl StateContainerInner {
         )
     }
 
+    pub fn get_peer_endpoint_container_mut(
+        &mut self,
+        target_cid: u64,
+    ) -> Result<&mut EndpointChannelContainer, NetworkError> {
+        if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
+            if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                Ok(endpoint_container)
+            } else {
+                Err(NetworkError::msg(format!(
+                    "Unabel to access endpoint container to peer {target_cid}"
+                )))
+            }
+        } else {
+            Err(NetworkError::msg(format!(
+                "Unabel to find virtual connection to peer {target_cid}"
+            )))
+        }
+    }
+
     pub fn get_c2s_crypto(&self) -> Option<&PeerSessionCrypto> {
         Some(&self.c2s_channel_container.as_ref()?.peer_session_crypto)
     }
@@ -997,11 +1017,12 @@ impl StateContainerInner {
         target_cid: u64,
         v_target_flipped: VirtualTargetType,
         preferred_primary_stream: OutboundPrimaryStreamSender,
+        local_encryption_level: Option<SecurityLevel>,
     ) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
+        let is_revfs_pull = local_encryption_level.is_some();
 
-        // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
         if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let (start_recv_tx, start_recv_rx) = tokio::sync::oneshot::channel::<bool>();
@@ -1011,8 +1032,8 @@ impl StateContainerInner {
             let object_id = metadata_orig.object_id;
             let pers = pers.clone();
             let metadata = metadata_orig.clone();
-            let (reception_complete_tx, success_receiving_rx) =
-                tokio::sync::oneshot::channel::<()>();
+            let tt = self.time_tracker;
+            let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel();
             let entry = InboundFileTransfer {
                 last_group_finish_time: Instant::now(),
                 last_group_window_len: 0,
@@ -1024,6 +1045,7 @@ impl StateContainerInner {
                 metadata: metadata.clone(),
                 reception_complete_tx,
                 stream_to_hd,
+                local_encryption_level,
             };
 
             e.insert(entry);
@@ -1032,6 +1054,7 @@ impl StateContainerInner {
                 header.target_cid.get(),
                 ObjectTransferOrientation::Receiver,
                 Some(start_recv_tx),
+                is_revfs_pull,
             );
             self.file_transfer_handles.insert(
                 key,
@@ -1046,7 +1069,15 @@ impl StateContainerInner {
                 }));
 
             let task = async move {
-                let res = start_recv_rx.await;
+                let res = if is_revfs_pull {
+                    // auto-accept for revfs pull requests
+                    log::trace!(target: "citadel", "Auto-accepting for REVFS pull request");
+                    Ok(true)
+                } else {
+                    log::trace!(target: "citadel", "Will not auto-accept");
+                    start_recv_rx.await
+                };
+
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender
                 // to ensure the sender knows if the user accepted or not
@@ -1074,15 +1105,34 @@ impl StateContainerInner {
                             match pers
                                 .stream_object_to_backend(
                                     stream_to_hd_rx,
-                                    Arc::new(metadata),
+                                    Arc::new(metadata.clone()),
                                     tx_status.clone(),
                                 )
                                 .await
                             {
                                 Ok(()) => {
-                                    log::trace!(target: "citadel", "Successfully synced file to backend");
+                                    log::info!(target: "citadel", "Successfully synced file to backend | {is_revfs_pull}");
                                     let status = match success_receiving_rx.await {
-                                        Ok(_) => ObjectTransferStatus::ReceptionComplete,
+                                        Ok(header) => {
+                                            // write the header
+                                            let wave_ack = packet_crafter::group::craft_wave_ack(
+                                                &hyper_ratchet,
+                                                header.context_info.get() as u32,
+                                                get_resp_target_cid_from_header(&header),
+                                                header.group.get(),
+                                                header.wave_id.get(),
+                                                tt.get_global_time_ns(),
+                                                None,
+                                                header.security_level.into(),
+                                            );
+
+                                            send_with_error_logging(
+                                                &preferred_primary_stream,
+                                                wave_ack,
+                                            );
+
+                                            ObjectTransferStatus::ReceptionComplete
+                                        }
 
                                         Err(_) => ObjectTransferStatus::Fail(
                                             "An unknown error occurred while receiving file"
@@ -1106,6 +1156,17 @@ impl StateContainerInner {
 
                     Err(err) => {
                         log::error!(target: "citadel", "Start_recv_rx failed: {:?}", err);
+                        let err_packet = packet_crafter::file::craft_file_header_ack_packet(
+                            &hyper_ratchet,
+                            false,
+                            object_id,
+                            target_cid,
+                            ticket,
+                            security_level_rebound,
+                            virtual_target,
+                            timestamp,
+                        );
+                        let _ = preferred_primary_stream.unbounded_send(err_packet);
                     }
                 }
             };
@@ -1152,6 +1213,7 @@ impl StateContainerInner {
                     receiver_cid,
                     ObjectTransferOrientation::Sender,
                     None,
+                    true, //this value does not matter here since start_recv_tx is false. TODO: refactor
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
                 let _ = self
@@ -1174,6 +1236,13 @@ impl StateContainerInner {
                 file_transfer.stop_tx?.send(()).ok()?;
                 // stop the async task pulling from the async cryptscrambler
                 file_transfer.start?.send(false).ok()?;
+                let _ = self
+                    .kernel_tx
+                    .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                        message: "The adjacent node did not accept the file transfer request"
+                            .into(),
+                        ticket_opt: Some(ticket),
+                    }));
             } else {
                 log::error!(target: "citadel", "Attempted to remove OutboundFileTransfer for {:?}, but it didn't exist", key);
             }
@@ -1299,12 +1368,25 @@ impl StateContainerInner {
         ) {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
-                let chunk = self
+                let mut chunk = self
                     .inbound_groups
                     .remove(&group_key)
                     .unwrap()
                     .receiver
                     .finalize();
+
+                if let Some(local_encryption_level) = file_container.local_encryption_level {
+                    // which static hr do we need? Since we are receiving this chunk, always our local account's
+                    let static_aux_hr = self
+                        .cnac
+                        .as_ref()
+                        .unwrap()
+                        .get_static_auxiliary_hyper_ratchet();
+                    chunk = static_aux_hr
+                        .local_decrypt(chunk, local_encryption_level)
+                        .map_err(|err| NetworkError::msg(err.into_string()))?;
+                }
+
                 file_container
                     .stream_to_hd
                     .unbounded_send(chunk)
@@ -1317,9 +1399,10 @@ impl StateContainerInner {
                     let file_container = self.inbound_files.remove(&file_key).unwrap();
                     // status of reception complete now located where the streaming to HD completes
                     // we need only take the sender and send a signal to prove that we finished correctly here
+                    // TODO: it seems to be sending the file before the backend streamer even gets a chance to finish
                     file_container
                         .reception_complete_tx
-                        .send(())
+                        .send(header.clone())
                         .map_err(|_| NetworkError::msg("reception_complete_tx err"))?;
                 } else {
                     file_container.last_group_finish_time = Instant::now();
@@ -1356,17 +1439,20 @@ impl StateContainerInner {
         }
 
         if send_wave_ack {
-            let wave_ack = packet_crafter::group::craft_wave_ack(
-                hr,
-                header.context_info.get() as u32,
-                get_resp_target_cid_from_header(header),
-                header.group.get(),
-                header.wave_id.get(),
-                ts,
-                None,
-                header.security_level.into(),
-            );
-            return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack));
+            // only send a wave ack if incomplete, since the backend sync will send it
+            if !complete {
+                let wave_ack = packet_crafter::group::craft_wave_ack(
+                    hr,
+                    header.context_info.get() as u32,
+                    get_resp_target_cid_from_header(header),
+                    header.group.get(),
+                    header.wave_id.get(),
+                    ts,
+                    None,
+                    header.security_level.into(),
+                );
+                return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack));
+            }
         }
 
         Ok(PrimaryProcessorResult::Void)
@@ -1429,7 +1515,9 @@ impl StateContainerInner {
                     };
 
                     if let Err(err) = tx.unbounded_send(status.clone()) {
-                        log::error!(target: "citadel", "FileTransfer receiver handle cannot be reached {:?}", err);
+                        // if the server is using an accept-only policy with no further responses, this branch
+                        // will be reached
+                        log::warn!(target: "citadel", "FileTransfer receiver handle cannot be reached {:?}", err);
                         // drop local async sending subroutines
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }

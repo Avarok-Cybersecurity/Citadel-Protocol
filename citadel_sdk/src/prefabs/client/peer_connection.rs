@@ -593,9 +593,10 @@ mod tests {
                         // one user will send the file, the other will receive the file
                         if idx == 0 {
                             conn.remote
-                                .send_file_with_custom_chunking(
+                                .send_file_with_custom_opts(
                                     "../resources/TheBridge.pdf",
                                     32 * 1024,
+                                    TransferType::FileTransfer
                                 )
                                 .await?;
 

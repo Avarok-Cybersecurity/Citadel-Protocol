@@ -1,4 +1,6 @@
 use crate::algorithm_dictionary::EncryptionAlgorithm;
+use crate::encryption::aes_impl::AesModule;
+use crate::encryption::chacha_impl::ChaChaModule;
 use crate::encryption::kyber_module::KyberModule;
 use crate::encryption::AeadModule;
 use crate::{CryptoParameters, KeyStore, PQNode, PostQuantumMetaKex, PostQuantumMetaSig};
@@ -87,29 +89,36 @@ pub(crate) fn keys_to_aead_store(
     pq_node: PQNode,
 ) -> AeadStore {
     match params.encryption_algorithm {
-        EncryptionAlgorithm::AES_GCM_256_SIV => (
-            Some(Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice))),
-            Some(Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob))),
-        ),
+        EncryptionAlgorithm::AES_GCM_256_SIV => {
+            let symmetric_key_local = Box::new(AesModule {
+                aead: aes_gcm_siv::Aes256GcmSiv::new(alice),
+                kex: kex.clone(),
+            });
 
+            let symmetric_key_remote = Box::new(AesModule {
+                aead: aes_gcm_siv::Aes256GcmSiv::new(bob),
+                kex: kex.clone(),
+            });
+
+            (Some(symmetric_key_local), Some(symmetric_key_remote))
+        }
         EncryptionAlgorithm::Xchacha20Poly_1305 => (
-            Some(Box::new(chacha20poly1305::XChaCha20Poly1305::new(alice))),
-            Some(Box::new(chacha20poly1305::XChaCha20Poly1305::new(bob))),
+            Some(Box::new(ChaChaModule {
+                aead: chacha20poly1305::XChaCha20Poly1305::new(alice),
+                kex: kex.clone(),
+            })),
+            Some(Box::new(ChaChaModule {
+                aead: chacha20poly1305::XChaCha20Poly1305::new(bob),
+                kex: kex.clone(),
+            })),
         ),
 
         EncryptionAlgorithm::Kyber => {
             let kem_alg = params.kem_algorithm;
             let sig_alg = params.sig_algorithm;
 
-            let symmetric_key_local = match pq_node {
-                PQNode::Alice => Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice)),
-                PQNode::Bob => Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob)),
-            };
-
-            let symmetric_key_remote = match pq_node {
-                PQNode::Alice => Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob)),
-                PQNode::Bob => Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice)),
-            };
+            let (symmetric_key_local, symmetric_key_remote) =
+                generate_symmetric_aes_module(pq_node, alice, bob, kex);
 
             let keys = Box::new(KyberModule {
                 kem_alg,
@@ -120,11 +129,41 @@ pub(crate) fn keys_to_aead_store(
                 symmetric_key_remote,
             }) as Box<dyn AeadModule>;
 
-            // TODO: multi-modal ratcheted encryption
             match pq_node {
                 PQNode::Alice => (Some(keys), None),
                 PQNode::Bob => (None, Some(keys)),
             }
         }
     }
+}
+
+fn generate_symmetric_aes_module(
+    pq_node: PQNode,
+    alice: &GenericArray<u8, generic_array::typenum::U32>,
+    bob: &GenericArray<u8, generic_array::typenum::U32>,
+    kex: &PostQuantumMetaKex,
+) -> (Box<dyn AeadModule>, Box<dyn AeadModule>) {
+    let symmetric_key_local = match pq_node {
+        PQNode::Alice => Box::new(AesModule {
+            aead: aes_gcm_siv::Aes256GcmSiv::new(alice),
+            kex: kex.clone(),
+        }),
+        PQNode::Bob => Box::new(AesModule {
+            aead: aes_gcm_siv::Aes256GcmSiv::new(bob),
+            kex: kex.clone(),
+        }),
+    };
+
+    let symmetric_key_remote = match pq_node {
+        PQNode::Alice => Box::new(AesModule {
+            aead: aes_gcm_siv::Aes256GcmSiv::new(bob),
+            kex: kex.clone(),
+        }),
+        PQNode::Bob => Box::new(AesModule {
+            aead: aes_gcm_siv::Aes256GcmSiv::new(alice),
+            kex: kex.clone(),
+        }),
+    };
+
+    (symmetric_key_local, symmetric_key_remote)
 }

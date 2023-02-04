@@ -107,6 +107,10 @@ pub(crate) mod packet_flags {
             pub(crate) mod file {
                 pub(crate) const FILE_HEADER: u8 = 0;
                 pub(crate) const FILE_HEADER_ACK: u8 = 1;
+                pub(crate) const REVFS_PULL: u8 = 2;
+                pub(crate) const REVFS_DELETE: u8 = 3;
+                pub(crate) const REVFS_ACK: u8 = 4;
+                pub(crate) const REVFS_PULL_ACK: u8 = 5;
             }
 
             pub(crate) mod udp {

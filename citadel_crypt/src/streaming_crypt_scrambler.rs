@@ -1,6 +1,7 @@
 use bytes::BytesMut;
 use futures::task::Context;
 use std::io::{BufReader, Read};
+use std::path::PathBuf;
 use tokio::macros::support::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
@@ -9,7 +10,7 @@ use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
-use crate::misc::CryptError;
+use crate::misc::{CryptError, TransferType};
 use crate::stacked_ratchet::StackedRatchet;
 use citadel_io::Mutex;
 use citadel_io::{BlockingSpawn, BlockingSpawnError};
@@ -24,12 +25,12 @@ pub const MAX_BYTES_PER_GROUP: usize = crate::scramble::crypt_splitter::MAX_BYTE
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 
 /// Used for streaming sources of a fixed size
-pub trait FixedSizedStream: Read + Send + 'static {
+pub trait FixedSizedSource: Read + Send + 'static {
     fn length(&self) -> std::io::Result<u64>;
 }
 
 #[cfg(feature = "filesystem")]
-impl FixedSizedStream for std::fs::File {
+impl FixedSizedSource for std::fs::File {
     fn length(&self) -> std::io::Result<u64> {
         self.metadata().map(|r| r.len())
     }
@@ -51,24 +52,96 @@ impl<
 
 #[auto_impl::auto_impl(Box)]
 pub trait ObjectSource: Send + Sync + 'static {
-    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError>;
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError>;
     fn get_source_name(&self) -> Result<String, CryptError>;
+    fn delete_path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
-#[cfg(feature = "filesystem")]
-impl ObjectSource for std::path::PathBuf {
-    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedStream>, CryptError> {
-        std::fs::File::open(self)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
-            .map(|r| Box::new(r) as Box<dyn FixedSizedStream>)
+macro_rules! impl_file_src {
+    ($value:ty) => {
+        #[cfg(feature = "filesystem")]
+        impl ObjectSource for $value {
+            fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
+                std::fs::File::open(self)
+                    .map_err(|err| CryptError::Encrypt(err.to_string()))
+                    .map(|r| Box::new(r) as Box<dyn FixedSizedSource>)
+            }
+
+            fn get_source_name(&self) -> Result<String, CryptError> {
+                let name = std::path::Path::new(self);
+                name.file_name()
+                    .ok_or_else(|| CryptError::Encrypt("Unable to get filename".to_string()))?
+                    .to_str()
+                    .map(|r| r.to_string())
+                    .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
+            }
+
+            fn delete_path(&self) -> Option<PathBuf> {
+                let path = std::path::PathBuf::from(self);
+                Some(path)
+            }
+        }
+    };
+}
+
+impl_file_src!(std::path::PathBuf);
+impl_file_src!(&'static str);
+impl_file_src!(String);
+
+pub struct BytesSource {
+    pub inner: Option<Vec<u8>>,
+}
+
+// The only time this is cloned is for a post-file-transfer hook,
+// wherein the delete() function is called. As such, we don't need
+// the inner device
+impl Clone for BytesSource {
+    fn clone(&self) -> Self {
+        Self { inner: None }
+    }
+}
+
+impl ObjectSource for BytesSource {
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
+        struct VecReader {
+            len: usize,
+            cursor: std::io::Cursor<Vec<u8>>,
+        }
+
+        impl std::io::Read for VecReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.cursor.read(buf)
+            }
+        }
+
+        impl FixedSizedSource for VecReader {
+            fn length(&self) -> std::io::Result<u64> {
+                Ok(self.len as u64)
+            }
+        }
+
+        let inner = self
+            .inner
+            .take()
+            .ok_or_else(|| CryptError::Encrypt("Source has already been exhausted".into()))?;
+        let len = inner.len();
+        let cursor = std::io::Cursor::new(inner);
+        Ok(Box::new(VecReader { len, cursor }))
     }
 
     fn get_source_name(&self) -> Result<String, CryptError> {
-        self.file_name()
-            .ok_or_else(|| CryptError::Encrypt("Unable to get filename".to_string()))?
-            .to_str()
-            .map(|r| r.to_string())
-            .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
+        let rand_id = rand::random::<u128>();
+        Ok(format!("{rand_id}.bin"))
+    }
+}
+
+impl<T: Into<Vec<u8>>> From<T> for BytesSource {
+    fn from(value: T) -> Self {
+        Self {
+            inner: Some(value.into()),
+        }
     }
 }
 
@@ -89,11 +162,13 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     stop: Receiver<()>,
     security_level: SecurityLevel,
     hyper_ratchet: StackedRatchet,
+    static_aux_ratchet: StackedRatchet,
     header_size_bytes: usize,
     target_cid: u64,
     group_id: u64,
+    transfer_type: TransferType,
     header_inscriber: F,
-) -> Result<(usize, usize), CryptError> {
+) -> Result<(usize, usize, usize), CryptError> {
     let source = source.try_get_stream()?;
     let object_len = source
         .length()
@@ -128,7 +203,9 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         group_id,
         security_level,
         hyper_ratchet,
+        static_aux_ratchet,
         reader,
+        transfer_type,
         file_len: object_len,
         max_bytes_per_group,
         read_cursor: 0,
@@ -151,7 +228,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     // drop the handle, we will not be using it
     std::mem::drop(handle);
 
-    Ok((object_len, total_groups))
+    Ok((object_len, total_groups, max_bytes_per_group))
 }
 
 async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {
@@ -177,7 +254,9 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(
 struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     reader: BufReader<R>,
     hyper_ratchet: StackedRatchet,
+    static_aux_ratchet: StackedRatchet,
     security_level: SecurityLevel,
+    transfer_type: TransferType,
     file_len: usize,
     read_cursor: usize,
     object_id: u32,
@@ -224,6 +303,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     ) -> Poll<Option<GroupSenderDevice<N>>> {
         let Self {
             hyper_ratchet,
+            static_aux_ratchet,
             file_len,
             read_cursor,
             buffer,
@@ -237,6 +317,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             security_level,
             max_bytes_per_group,
             cur_task,
+            transfer_type,
             poll_amt,
             ..
         } = &mut *self;
@@ -253,26 +334,27 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             if reader.read_exact(bytes).is_ok() {
                 let group_id_input = *group_id + (*groups_rendered as u64);
                 std::mem::drop(lock);
-                // let mut compressed = Vec::new();
-                // flate3::Compressor::new().deflate(bytes as &[u8])
-                // let len = flate2::bufread::DeflateEncoder::new(bytes as &[u8], flate2::Compression::fast()).read_to_end(&mut compressed).unwrap();
                 let header_inscriber = header_inscriber.clone();
                 let buffer = buffer.clone();
                 let security_level = *security_level;
                 let hyper_ratchet = hyper_ratchet.clone();
+                let static_aux_ratchet = static_aux_ratchet.clone();
                 let header_size_bytes = *header_size_bytes;
                 let target_cid = *target_cid;
                 let object_id = *object_id;
+                let transfer_type = transfer_type.clone();
 
                 let task = citadel_io::spawn_blocking(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,
                         &hyper_ratchet,
+                        &static_aux_ratchet,
                         header_size_bytes,
                         target_cid,
                         object_id,
                         group_id_input,
+                        transfer_type,
                         |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
                     )
                 });

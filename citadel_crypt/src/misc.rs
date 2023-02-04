@@ -1,9 +1,12 @@
 use crate::entropy_bank::PORT_RANGE;
+use crate::prelude::SecurityLevel;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 #[cfg(target_family = "unix")]
 use std::os::raw::c_void;
+use std::path::PathBuf;
 
 /// Default Error type for this crate
 pub enum CryptError<T = String> {
@@ -163,4 +166,13 @@ unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
         let ptr = dst.add(i);
         std::ptr::write_volatile(ptr, src);
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TransferType {
+    FileTransfer,
+    RemoteEncryptedVirtualFilesystem {
+        virtual_path: PathBuf,
+        security_level: SecurityLevel,
+    },
 }

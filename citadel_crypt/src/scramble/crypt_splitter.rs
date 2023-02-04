@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::time::{Duration, Instant};
@@ -68,6 +69,7 @@ pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     msg_drill: &EntropyBank,
     plain_text: T,
@@ -76,6 +78,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     group_id: u64,
     enx: EncryptionAlgorithm,
     sig_alg: SigAlgorithm,
+    transfer_type: &TransferType,
 ) -> Result<GroupReceiverConfig, CryptError<String>> {
     let plain_text = plain_text.as_ref();
 
@@ -127,7 +130,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     let cfg = GroupReceiverConfig::new_refresh(
         group_id,
         header_size_bytes,
-        plain_text,
+        plain_text.len(),
         max_packet_payload_size,
         number_of_full_waves,
         number_of_partial_waves,
@@ -135,6 +138,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
         bytes_in_last_wave,
         max_packets_per_wave,
         ciphertext_len_last_wave,
+        transfer_type,
     );
 
     Ok(cfg)
@@ -146,6 +150,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     header_size_bytes: usize,
     security_level: SecurityLevel,
     group_id: u64,
+    transfer_type: &TransferType,
 ) -> Result<
     (
         GroupReceiverConfig,
@@ -165,6 +170,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         group_id,
         msg_pqc.params.encryption_algorithm,
         msg_pqc.params.sig_algorithm,
+        transfer_type,
     )?;
     Ok((cfg, msg_drill, msg_pqc, scramble_drill))
 }
@@ -186,22 +192,34 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     plain_text: T,
     security_level: SecurityLevel,
     hyper_ratchet: &R,
+    static_aux_ratchet: &R,
     header_size_bytes: usize,
     target_cid: u64,
     object_id: u32,
     group_id: u64,
+    transfer_type: TransferType,
     header_inscriber: F,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>>
 where
     F: Fn(&PacketVector, &EntropyBank, u32, u64, &mut BytesMut) + Send + Sync,
 {
-    let plain_text = plain_text.as_ref();
+    let mut plain_text = Cow::Borrowed(plain_text.as_ref());
+    if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
+        // pre-encrypt
+        let local_encrypted = static_aux_ratchet
+            .local_encrypt(plain_text, *security_level)
+            .unwrap();
+
+        plain_text = Cow::Owned(local_encrypted);
+    }
+
     let (mut cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(
         hyper_ratchet,
-        plain_text,
+        &plain_text,
         header_size_bytes,
         security_level,
         group_id,
+        &transfer_type,
     )?;
 
     #[cfg(not(target_family = "wasm"))]
@@ -230,11 +248,13 @@ where
 
     debug_assert_ne!(cfg.last_plaintext_wave_length, 0);
 
-    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::Kyber {
+    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::Kyber
+        && matches!(&transfer_type, TransferType::FileTransfer)
+    {
         debug_assert_eq!(cfg.packets_needed, packets.len());
     } else {
         let last_wave_idx = cfg.wave_count as u32 - 1;
-        // Kyber encryptions have a non-deterministic output length sometimes. Update the cfg
+        // Kyber encryptions and remote_encrypted types have a non-deterministic output length sometimes. Update the cfg
         let ciphertext_len: usize = packets
             .values()
             .filter_map(|r| {
@@ -248,7 +268,7 @@ where
         cfg = GroupReceiverConfig::new_refresh(
             cfg.group_id as u64,
             cfg.header_size_bytes,
-            plain_text,
+            plain_text.len(),
             cfg.max_payload_size,
             cfg.number_of_full_waves,
             cfg.number_of_partial_waves,
@@ -256,6 +276,7 @@ where
             cfg.last_plaintext_wave_length,
             cfg.max_packets_per_wave,
             ciphertext_len,
+            &transfer_type,
         );
     }
 
@@ -300,13 +321,6 @@ fn scramble_encrypt_wave(
         .collect::<Vec<(usize, PacketCoordinate)>>();
     packets.shuffle(&mut ThreadRng::default());
 
-    /*
-    if cfg.wave_count - 1 == wave_idx {
-        debug_assert_eq!(packets.len(), cfg.packets_in_last_wave);
-    } else {
-        debug_assert_eq!(packets.len(), cfg.max_packets_per_wave);
-    }*/
-
     packets
 }
 
@@ -331,6 +345,7 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
         last_plaintext_wave_length: len,
         max_packets_per_wave: 1,
         packets_in_last_wave: 1,
+        transfer_type: None,
     };
 
     Ok(GroupSenderDevice::<N>::new_oneshot(
@@ -383,6 +398,7 @@ pub struct GroupReceiver {
     wave_timeout: Duration,
 }
 
+use crate::misc::TransferType;
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, SigAlgorithm};
 use citadel_pqcrypto::PostQuantumContainer;
@@ -390,7 +406,6 @@ use serde::{Deserialize, Serialize};
 
 /// For containing the data needed to receive a corresponding group
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[repr(C)]
 #[allow(missing_docs)]
 pub struct GroupReceiverConfig {
     pub packets_needed: usize,
@@ -407,6 +422,10 @@ pub struct GroupReceiverConfig {
     // this is NOT inscribed; only for transmission
     pub header_size_bytes: usize,
     pub group_id: usize,
+    // only relevant for files. Note: if transfer type is RemoteVirtualFileystem, then,
+    // the receiving endpoint won't decrypt the first level of encryption since the goal
+    // is to keep the file remotely encrypted
+    pub transfer_type: Option<TransferType>,
 }
 
 /// Used in citadel_proto
@@ -417,7 +436,7 @@ impl GroupReceiverConfig {
     pub fn new_refresh(
         group_id: u64,
         header_size_bytes: usize,
-        plain_text: &[u8],
+        plaintext_length: usize,
         max_packet_payload_size: usize,
         number_of_full_waves: usize,
         number_of_partial_waves: usize,
@@ -425,6 +444,7 @@ impl GroupReceiverConfig {
         bytes_in_last_wave: usize,
         max_packets_per_wave: usize,
         ciphertext_len_last_wave: usize,
+        transfer_type: &TransferType,
     ) -> Self {
         let number_of_waves = number_of_full_waves + number_of_partial_waves;
         let packets_in_last_wave =
@@ -441,25 +461,11 @@ impl GroupReceiverConfig {
 
         let packets_needed = (number_of_full_waves * max_packets_per_wave) + packets_in_last_wave;
 
-        //    pub packets_needed: usize,
-        //     pub max_packets_per_wave: usize,
-        //     pub plaintext_length: usize,
-        //     pub max_payload_size: usize,
-        //     pub last_payload_size: usize,
-        //     pub number_of_full_waves: usize,
-        //     pub number_of_partial_waves: usize,
-        //     pub wave_count: usize,
-        //     pub max_plaintext_wave_length: usize,
-        //     pub last_plaintext_wave_length: usize,
-        //     pub packets_in_last_wave: usize,
-        //     // this is NOT inscribed; only for transmission
-        //     pub header_size_bytes: usize,
-        //     pub group_id: usize,
         GroupReceiverConfig {
             group_id: group_id as usize,
             packets_needed,
             header_size_bytes,
-            plaintext_length: plain_text.len(),
+            plaintext_length,
             max_payload_size: max_packet_payload_size,
             last_payload_size: debug_last_payload_size,
             number_of_full_waves,
@@ -469,6 +475,7 @@ impl GroupReceiverConfig {
             last_plaintext_wave_length: bytes_in_last_wave,
             max_packets_per_wave,
             packets_in_last_wave,
+            transfer_type: Some(transfer_type.clone()),
         }
     }
 

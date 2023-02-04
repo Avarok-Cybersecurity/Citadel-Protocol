@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 
@@ -42,6 +43,7 @@ use crate::proto::session::{
     ClientOnlySessionInitSettings, HdpSession, HdpSessionInitMode, SessionInitParams,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
+use citadel_crypt::misc::TransferType;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
@@ -522,6 +524,7 @@ impl HdpSessionManager {
     }
 
     /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
+    #[allow(clippy::too_many_arguments)]
     pub fn process_outbound_file(
         &self,
         ticket: Ticket,
@@ -530,6 +533,7 @@ impl HdpSessionManager {
         implicated_cid: u64,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
+        transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
@@ -539,10 +543,50 @@ impl HdpSessionManager {
                 source,
                 virtual_target,
                 security_level,
+                transfer_type,
+                None,
+                |_| {},
             )
         } else {
             Err(NetworkError::Generic(format!(
                 "Hypernode session for {implicated_cid} does not exist! Not going to send data ..."
+            )))
+        }
+    }
+
+    pub fn revfs_pull(
+        &self,
+        ticket: Ticket,
+        implicated_cid: u64,
+        v_conn: VirtualConnectionType,
+        virtual_path: PathBuf,
+        delete_on_pull: bool,
+        security_level: SecurityLevel,
+    ) -> Result<(), NetworkError> {
+        let lock = inner!(self);
+        if let Some((_, sess)) = lock.sessions.get(&implicated_cid) {
+            sess.revfs_pull(ticket, v_conn, virtual_path, delete_on_pull, security_level)
+        } else {
+            Err(NetworkError::Generic(format!(
+                "Hypernode session for {implicated_cid} does not exist! Not going to process request ..."
+            )))
+        }
+    }
+
+    pub fn revfs_delete(
+        &self,
+        ticket: Ticket,
+        implicated_cid: u64,
+        v_conn: VirtualConnectionType,
+        virtual_path: PathBuf,
+        security_level: SecurityLevel,
+    ) -> Result<(), NetworkError> {
+        let lock = inner!(self);
+        if let Some((_, sess)) = lock.sessions.get(&implicated_cid) {
+            sess.revfs_delete(ticket, v_conn, virtual_path, security_level)
+        } else {
+            Err(NetworkError::Generic(format!(
+                "Hypernode session for {implicated_cid} does not exist! Not going to process request ..."
             )))
         }
     }
