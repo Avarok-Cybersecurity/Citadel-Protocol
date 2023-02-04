@@ -235,3 +235,7 @@ command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
 args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "major", "--from-git", "${@}"]
 dependencies = ["publish-install-deps"]
+
+[tasks.check-docs]
+command = "cargo"
+args = ["test", "--package", "citadel_sdk", "--doc"]
