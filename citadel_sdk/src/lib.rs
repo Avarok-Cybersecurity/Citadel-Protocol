@@ -118,7 +118,7 @@
 //!
 //! // await the server to execute
 //! # async move {
-//!  let result = server.await;
+//! let result = server.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -142,7 +142,7 @@
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
-//!  let result = client.await;
+//! let result = client.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -174,7 +174,7 @@
 //!
 //! // await the server to execute
 //! # async move {
-//!  let result = server.await;
+//! let result = server.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -199,7 +199,7 @@
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
-//!  let result = client.await;
+//! let result = client.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
