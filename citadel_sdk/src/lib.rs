@@ -188,7 +188,7 @@
 //! let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("John Doe", "john.doe", "password", "127.0.0.1:25021", |connect_success, remote| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";
 //!     // write the contents with reinforced security.
-//!     citadel_sdk::fs::write_with_security_level(&mut remote, "../path/to/file.txt", SecurityLevel::Reinforced, virtual_path).await?;
+//!     citadel_sdk::fs::write_with_security_level(&mut remote, "../path/to/input.pdf", SecurityLevel::Reinforced, virtual_path).await?;
 //!     // read the contents. Reading downloads the file to a local path
 //!     let stored_local_path = citadel_sdk::fs::read(&mut remote, virtual_path).await?;
 //!  
