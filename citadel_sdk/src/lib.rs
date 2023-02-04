@@ -118,7 +118,7 @@
 //!
 //! // await the server to execute
 //! # async move {
-//!     let result = server.await;
+//!  let result = server.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -142,13 +142,13 @@
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
-//!     let result = client.await;
+//!  let result = client.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! ## Remote Encrypted Virtual Filesystem (RE-VFS)
-//! The RE-VFS allows client, servers, and peers to treat each other as remote endpoints for encrypted file storage.
+//! The RE-VFS allows clients, servers, and peers to treat each other as remote endpoints for encrypted file storage.
 //! Since encrypting data locally using a symmetric key poses a vulnerability if the local node is compromised, The
 //! Citadel Protocol solves this issue by using a local 1024-Kyber public key to encrypt the data (via Kyber scramcryption for
 //! keeping the data size to a minimum(, then, sending the contents to the adjacent endpoint. By doing this, the encryption
@@ -174,7 +174,7 @@
 //!
 //! // await the server to execute
 //! # async move {
-//!     let result = server.await;
+//!  let result = server.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -199,7 +199,7 @@
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
-//!     let result = client.await;
+//!  let result = client.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
