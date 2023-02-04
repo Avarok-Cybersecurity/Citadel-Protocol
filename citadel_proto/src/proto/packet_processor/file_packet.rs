@@ -48,6 +48,7 @@ pub fn process_file_packet(
                             let v_target = payload.virtual_target;
                             let vfm = payload.file_metadata;
                             let local_encryption_level = payload.local_encryption_level;
+                            log::trace!(target: "citadel", "Declared local encryption level on file header: {local_encryption_level:?}");
                             let (target_cid, v_target_flipped) = match v_target {
                                 VirtualConnectionType::LocalGroupPeer(
                                     implicated_cid,
@@ -284,7 +285,12 @@ pub fn process_file_packet(
                     log::trace!(target: "citadel", "RECV REVFS PULL ACK");
                     match validation::file::validate_revfs_pull_ack(&header, &payload) {
                         Some(payload) => match payload {
-                            ReVFSPullAckPacket::Success => Ok(PrimaryProcessorResult::Void),
+                            ReVFSPullAckPacket::Success => {
+                                // Iwe will not send an ReVFSResult with data quite yet.
+                                // Instead, we will send it once the inbound file transfer
+                                // is complete
+                                Ok(PrimaryProcessorResult::Void)
+                            }
                             ReVFSPullAckPacket::Error { error } => {
                                 let error_signal = NodeResult::ReVFS(ReVFSResult {
                                     error_message: Some(error),

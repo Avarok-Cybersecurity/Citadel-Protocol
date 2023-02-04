@@ -403,7 +403,7 @@ pub mod prelude {
     pub use citadel_crypt::misc::TransferType;
     pub use citadel_crypt::prelude::SecurityLevel;
     pub use citadel_crypt::streaming_crypt_scrambler::{BytesSource, ObjectSource};
-    pub use citadel_user::misc::validate_virtual_path;
+    pub use citadel_user::misc::{prepare_virtual_path, validate_virtual_path};
 }
 
 pub mod auth;

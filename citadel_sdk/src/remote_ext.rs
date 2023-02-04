@@ -496,7 +496,8 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         chunk_size: usize,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
-        let virtual_path = virtual_directory.into();
+        let mut virtual_path = virtual_directory.into();
+        virtual_path = prepare_virtual_path(virtual_path);
         validate_virtual_path(&virtual_path)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
         let tx_type = TransferType::RemoteEncryptedVirtualFilesystem {
@@ -539,17 +540,35 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             transfer_security_level,
         });
 
-        let response = map_errors(self.remote().send_callback(request).await?)?;
-        if let NodeResult::ReVFS(result) = response {
-            if let Some(err) = result.error_message {
-                Err(NetworkError::Generic(err))
-            } else {
-                result
-                    .data
-                    .ok_or(NetworkError::InternalError("The ReVFS command failed"))
+        match map_errors(self.remote().send_callback(request).await?)? {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                ticket: _ticket,
+                mut handle,
+            }) => {
+                let mut local_path = None;
+                while let Some(res) = handle.next().await {
+                    log::trace!(target: "citadel", "Client received RES {:?}", res);
+                    match res {
+                        ObjectTransferStatus::ReceptionBeginning(path, _) => {
+                            local_path = Some(path)
+                        }
+                        ObjectTransferStatus::TransferComplete => {
+                            break;
+                        }
+
+                        _ => {}
+                    }
+                }
+
+                Ok(local_path.ok_or(NetworkError::InternalError("Local path never loaded"))?)
             }
-        } else {
-            Err(NetworkError::InternalError("Invalid NodeRequest response"))
+
+            res => {
+                log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res);
+                Err(NetworkError::InternalError(
+                    "Received invalid response from protocol",
+                ))
+            }
         }
     }
 

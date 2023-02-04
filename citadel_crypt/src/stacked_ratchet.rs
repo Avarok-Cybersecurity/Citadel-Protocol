@@ -188,8 +188,8 @@ impl Ratchet for StackedRatchet {
         contents: T,
         security_level: SecurityLevel,
     ) -> Result<Vec<u8>, CryptError> {
-        let idx = self.verify_level(Some(security_level))?;
         let mut data = contents.into();
+        let idx = self.verify_level(Some(security_level))?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
             data = Cow::Owned(drill.local_decrypt(pqc, &data)?);

@@ -178,12 +178,6 @@ pub fn validate_virtual_path<R: AsRef<Path>>(virtual_path: R) -> Result<(), Acco
         )));
     }
 
-    if virtual_path.is_relative() {
-        return Err(AccountError::IoError(format!(
-            "Path {virtual_path:?} is not an absolute path"
-        )));
-    }
-
     let buf = format!("{}", virtual_path.display());
 
     // we cannot use path.is_dir() since that checks for file existence, which we don't want

@@ -1536,10 +1536,10 @@ impl HdpSession {
                     return;
                 }
 
-                _ => {
-                    log::trace!(target: "citadel", "Outbound file transfer async subroutine signalled to begin!");
-                }
+                _ => {}
             }
+
+            log::trace!(target: "citadel", "Outbound file transfer async subroutine signalled to begin!");
 
             // TODO: planning/overhaul of file transmission process
             // By now, the file container has been created remotely and locally

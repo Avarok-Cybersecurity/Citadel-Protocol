@@ -16,7 +16,6 @@ use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::StreamExt;
 
@@ -365,16 +364,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             sink_metadata,
         ));
 
+        let mut size = 0;
         let mut writer = tokio::io::BufWriter::new(file);
         let mut reader = tokio_util::io::StreamReader::new(
             tokio_stream::wrappers::UnboundedReceiverStream::new(source).map(|r| {
+                size += r.len();
                 Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>
             }),
         );
 
         if is_virtual_file {
             // start by writing the metadata file next to it
-            let metadata_path = get_revfs_file_metadata_path(file_path);
+            let metadata_path = get_revfs_file_metadata_path(&file_path);
             let serialized = metadata.serialize_to_vector()?;
             tokio::fs::write(metadata_path, serialized)
                 .await
@@ -386,7 +387,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         }
 
         writer
-            .shutdown()
+            .into_inner()
+            .sync_all()
             .await
             .map_err(|err| AccountError::IoError(err.to_string()))
     }
@@ -407,6 +409,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             None,
         )
         .await?;
+
         let metadata_path = get_revfs_file_metadata_path(&file_path);
         // first, figure out what security level it was encrypted at. This data should be passed back to the client pulling
         // this file

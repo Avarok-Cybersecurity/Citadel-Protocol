@@ -185,7 +185,7 @@ where
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(target = "citadel", skip_all, err(Debug))
     )]
     async fn on_start(&self) -> Result<(), NetworkError> {
         let mut remote = self.remote.clone().unwrap();

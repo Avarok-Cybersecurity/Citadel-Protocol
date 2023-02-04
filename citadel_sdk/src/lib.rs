@@ -118,7 +118,7 @@
 //!
 //! // await the server to execute
 //! # async move {
-//! let result = server.await;
+//!     let result = server.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -142,7 +142,64 @@
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
-//! let result = client.await;
+//!     let result = client.await;
+//! # };
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Remote Encrypted Virtual Filesystem (RE-VFS)
+//! The RE-VFS allows client, servers, and peers to treat each other as remote endpoints for encrypted file storage.
+//! Since encrypting data locally using a symmetric key poses a vulnerability if the local node is compromised, The
+//! Citadel Protocol solves this issue by using a local 1024-Kyber public key to encrypt the data (via Kyber scramcryption for
+//! keeping the data size to a minimum(, then, sending the contents to the adjacent endpoint. By doing this, the encryption
+//! key and the contents are kept separate, forcing the hacker to compromise both endpoints.
+//!
+//! In order to use the RE-VFS, both endpoints must use the Filesystem backend. Second, the endpoint serving as a storage point
+//! must accept the inbound file transfer requests, otherwise, the transfer will fail. The example below for the receiving endpoint
+//! shows how to auto-accept inbound file transfer requests
+//!
+//! # Examples
+//!
+//! ## Receiving endpoint
+//! When building either a client/peer or server node, a [`NetKernel`] is expected. In the case below, an EmptyKernel is used that does no additional processing of inbound connections:
+//! ```
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
+//!
+//! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults with a kernel
+//! // that auto-accepts inbound file transfer requests
+//! let server = NodeBuilder::default()
+//! .with_node_type(NodeType::server("127.0.0.1:25021")?)
+//! .build(AcceptFileTransferKernel::default())?;
+//!
+//! // await the server to execute
+//! # async move {
+//!     let result = server.await;
+//! # };
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Sending endpoint
+//! This client will connect to the server above. It will first register (if the account is not yet registered), and thereafter, connect to the server, calling the provided future to handle the received channel
+//! ```
+//! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+//! use futures::StreamExt;
+//! use citadel_proto::prelude::*;
+//! use citadel_sdk::prelude::NodeBuilder;
+//!
+//! let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("John Doe", "john.doe", "password", "127.0.0.1:25021", |connect_success, remote| async move {
+//!     let virtual_path = "/home/virtual_user/output.pdf";
+//!     // write the contents with reinforced security.
+//!     citadel_sdk::fs::write_with_security_level(&mut remote, "../path/to/file.txt", SecurityLevel::Reinforced, virtual_path).await?;
+//!     // read the contents. Reading downloads the file to a local path
+//!     let stored_local_path = citadel_sdk::fs::read(&mut remote, virtual_path).await?;
+//!  
+//!     Ok(())
+//! })?;
+//!
+//! let client = NodeBuilder::default().build(client_kernel)?;
+//! # async move {
+//!     let result = client.await;
 //! # };
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
