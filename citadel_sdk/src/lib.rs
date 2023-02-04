@@ -106,6 +106,7 @@
 //! # Examples
 //!
 //! ## Server
+//! When building either a client/peer or server node, a [`NetKernel`] is expected. In the case below, an EmptyKernel is used that does no additional processing of inbound connections:
 //! ```
 //! use citadel_sdk::prelude::*;
 //! use citadel_sdk::prefabs::server::empty::EmptyKernel;
@@ -123,6 +124,7 @@
 //! ```
 //!
 //! ## Client/Peer
+//! This client will connect to the server above. It will first register (if the account is not yet registered), and thereafter, connect to the server, calling the provided future to handle the received channel
 //! ```
 //! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 //! use futures::StreamExt;
@@ -159,7 +161,6 @@
 //! # Examples
 //!
 //! ## Receiving endpoint
-//! When building either a client/peer or server node, a [`NetKernel`] is expected. In the case below, an EmptyKernel is used that does no additional processing of inbound connections:
 //! ```
 //! use citadel_sdk::prelude::*;
 //! use citadel_sdk::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
@@ -178,7 +179,6 @@
 //! ```
 //!
 //! ## Sending endpoint
-//! This client will connect to the server above. It will first register (if the account is not yet registered), and thereafter, connect to the server, calling the provided future to handle the received channel
 //! ```
 //! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 //! use futures::StreamExt;
