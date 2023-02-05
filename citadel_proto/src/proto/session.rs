@@ -282,7 +282,7 @@ impl HdpSession {
                             }
 
                             AuthenticationRequest::Passwordless { .. } => {
-                                // register will redirect to preconnect afterwords
+                                // register will redirect to preconnect afterwards
                                 (
                                     None,
                                     Arc::new(Atomic::new(SessionState::NeedsRegister)),

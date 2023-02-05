@@ -278,7 +278,7 @@ pub fn process_primary_packet(
                                     let target_cid = header.target_cid.get();
                                     let needs_truncate = transfer.requires_truncation();
 
-                                    let transfer_occured = transfer.has_some();
+                                    let transfer_occurred = transfer.has_some();
                                     let secrecy_mode = return_if_none!(
                                         state_container
                                             .session_security_settings
@@ -314,9 +314,9 @@ pub fn process_primary_packet(
                                         log::trace!(target: "citadel", "[Toolset Update] Needs truncation? {:?}", &needs_truncate);
 
                                         //session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
-                                        // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
+                                        // now, we need to do one last thing. We need to send a truncate packet to at least allow bob to begin sending packets using the latest HR
                                         // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
-                                        if transfer_occured {
+                                        if transfer_occurred {
                                             let target_cid = if target_cid != C2S_ENCRYPTION_ONLY {
                                                 peer_cid
                                             } else {
@@ -337,7 +337,7 @@ pub fn process_primary_packet(
 
                                         //std::mem::drop(state_container);
 
-                                        // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
+                                        // if a transfer occurred, we will get polled once we get an TRUNCATE_ACK. No need to double poll
                                         if secrecy_mode == SecrecyMode::Perfect {
                                             log::trace!(target: "citadel", "Polling next in pgp");
                                             let _ = state_container

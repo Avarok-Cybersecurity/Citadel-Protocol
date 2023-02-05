@@ -6,7 +6,7 @@ use crate::prelude::ClientNetworkAccount;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use std::collections::HashMap;
 
-/// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac incase improper shutdown)
+/// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac in case improper shutdown)
 #[allow(unused_results)]
 pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
     ds: &DirectoryStore,

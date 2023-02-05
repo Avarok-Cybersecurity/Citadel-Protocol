@@ -5,7 +5,7 @@ use bytes::BytesMut;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// Conveniant serialization methods for types that #[derive(Serialize, Deserialize)]
+/// Convenient serialization methods for types that #[derive(Serialize, Deserialize)]
 pub trait SyncIO {
     /// Serializes a bincode type to a byte vector
     fn serialize_to_vector(&self) -> Result<Vec<u8>, AccountError>

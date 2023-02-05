@@ -221,7 +221,7 @@ impl SingleUDPHolePuncher {
         self.unique_id
     }
 
-    /// this should only be called when the adjacent node verified that the connection occured
+    /// this should only be called when the adjacent node verified that the connection occurred
     pub fn recovery_mode_generate_socket_by_remote_id(
         &mut self,
         remote_id: HolePunchID,
@@ -241,7 +241,7 @@ impl SingleUDPHolePuncher {
             .is_some()
     }
 
-    /// this should only be called when the adjacent node verified that the connection occured
+    /// this should only be called when the adjacent node verified that the connection occurred
     pub fn recovery_mode_generate_socket_by_addr(
         &mut self,
         addr: TargettedSocketAddr,

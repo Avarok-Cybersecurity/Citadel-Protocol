@@ -73,11 +73,11 @@ pub struct GroupTransmitter {
 }
 
 /// The base ratchet is always required, whether between HyperLAN peer to server or hyperlan p2p.
-/// base_constructor may not be present, since a concurrent update may already be occuring
+/// base_constructor may not be present, since a concurrent update may already be occurring
 ///
 /// Fcm may be present, in which case, the innermost encryption pass goes through the fcm ratchet to ensure
 /// Google can't see the information. The fcm constructor may not be present either, since a concurrent update may
-/// be occuring
+/// be occurring
 pub struct RatchetPacketCrafterContainer<R: Ratchet = StackedRatchet> {
     pub base: R,
     pub base_constructor: Option<R::Constructor>,

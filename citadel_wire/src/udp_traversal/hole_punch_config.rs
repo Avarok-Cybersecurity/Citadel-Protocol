@@ -126,7 +126,7 @@ impl HolePunchConfig {
             }
 
             NatType::EDMRandomIp(_, _addr, _is_v6_allowed) => {
-                // Thanks to the preceeding logic, if we get here, we know the local node has a predictable address
+                // Thanks to the preceding logic, if we get here, we know the local node has a predictable address
                 // evidently, the peer does not, however, this does not matter.
                 // The packets we send likely will not make contact with the peer. However, once the peer
                 // contacts us, we can then send a packet back to them. The peer will send packets to us at

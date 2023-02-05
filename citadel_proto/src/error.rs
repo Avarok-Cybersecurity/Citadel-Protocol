@@ -9,7 +9,7 @@ use tokio::sync::mpsc::error::SendError;
 pub enum NetworkError {
     /// Thrown when the underlying socket fails
     SocketError(String),
-    /// Timeout occured for cid self.0
+    /// Timeout occurred for cid self.0
     Timeout(u64),
     /// A bad packet
     InvalidPacket(&'static str),

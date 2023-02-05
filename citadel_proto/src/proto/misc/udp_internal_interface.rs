@@ -103,7 +103,7 @@ impl QuicUdpSocketConnector {
         let addr = conn.remote_address();
         let conn_stream = conn.clone();
         let receiver = Box::pin(async_stream::try_stream! {
-            // TODO: on PR stabalization, return BytesMut, not Bytes, from Quinn datagrams stream
+            // TODO: on PR stabilization, return BytesMut, not Bytes, from Quinn datagrams stream
             loop {
                 yield conn_stream.read_datagram()
                 .await

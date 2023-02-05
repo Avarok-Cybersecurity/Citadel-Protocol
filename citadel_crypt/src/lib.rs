@@ -41,7 +41,7 @@ pub mod packet_vector;
 pub mod scramble;
 /// For secure byte handling
 pub mod secure_buffer;
-/// This is a container for holding the drill and PQC, and is intended to replace the seperate use of the drill/PQC
+/// This is a container for holding the drill and PQC, and is intended to replace the separate use of the drill/PQC
 pub mod stacked_ratchet;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod streaming_crypt_scrambler;
