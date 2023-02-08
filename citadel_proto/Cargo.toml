@@ -1,6 +1,6 @@
 [package]
 name = "citadel_proto"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Networking library for the Citadel Protocol"
 edition = "2021"
@@ -62,12 +62,12 @@ serde = { version = "^1.0.152", features=["derive"] }
 anyhow = { default-features = false, version = "1.0.68" }
 either = { default-features = false, version = "1.8.0" }
 async-stream = { default-features = false, version = "0.3.3" }
-citadel_crypt = { path = "../citadel_crypt", version = "0.3.0", default-features=false }
-citadel_user = { path = "../citadel_user", version = "0.3.0", default-features=false }
-citadel_wire = { path = "../citadel_wire", version = "0.3.0", default-features=false }
-citadel_io = { path = "../citadel_io", version = "0.3.0", default-features=false }
-citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.3.0", default-features=false }
-netbeam = { path = "../netbeam", version = "0.3.0", default-features=false }
+citadel_crypt = { path = "../citadel_crypt", version = "0.4.0", default-features=false }
+citadel_user = { path = "../citadel_user", version = "0.4.0", default-features=false }
+citadel_wire = { path = "../citadel_wire", version = "0.4.0", default-features=false }
+citadel_io = { path = "../citadel_io", version = "0.4.0", default-features=false }
+citadel_pqcrypto = { path = "../citadel_pqcrypto", version = "0.4.0", default-features=false }
+netbeam = { path = "../netbeam", version = "0.4.0", default-features=false }
 once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.5.4", optional = true }
 uuid = { version = "1.2.2", default-features = false, features = ["serde", "v4"] }
@@ -76,7 +76,7 @@ tracing = { version = "0.1.37", default-features = false, optional = true }
 #libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
 
 [dev-dependencies]
-citadel_logging = { path = "../citadel_logging", version = "0.3.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
 tracing = "0.1.37"
 #ureq = "2.6.1"
 rand = "0.8.5"
