@@ -1,6 +1,6 @@
 [package]
 name = "citadel_sdk"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "High-level library to build applications on the Citadel Protocol"
 edition = "2021"
@@ -32,8 +32,8 @@ localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-onl
 doc-images = ["embed-doc-image"]
 
 [dependencies]
-citadel_proto = { version = "0.3.0", path = "../citadel_proto", default-features = false }
-citadel_io = { version = "0.3.0", path = "../citadel_io", default-features = false }
+citadel_proto = { version = "0.4.0", path = "../citadel_proto", default-features = false }
+citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
 embed-doc-image = { version = "0.1.4", optional = true }
 tokio = { version = "1.24", default-features = false }
 futures = { version = "0.3.25", default-features = false }
@@ -42,15 +42,15 @@ lazy_static = { default-features = false, version = "1.4.0" }
 uuid = { version = "1.2.2", default-features = false, features = ["v4"] }
 dirs2 = { version = "3.0.1", default-features = false, optional = true }
 tracing = { version = "0.1.37", default-features = false, optional = true }
-citadel_logging = { path = "../citadel_logging", version = "0.3.0", optional = true }
+citadel_logging = { path = "../citadel_logging", version = "0.4.0", optional = true }
 anyhow = { version = "1", default-features = false }
 bytes = "1.4.0"
 
 [dev-dependencies]
 tokio = { version = "1.24", default-features = false, features = ["rt"] }
-citadel_io = { version = "0.3.0", path = "../citadel_io", default-features = false }
+citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
 dirs2 = "3.0.1"
-citadel_logging = { path = "../citadel_logging", version = "0.3.0" }
+citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
 rstest = "0.16.0"
 serde = { version = "1.0.152", features = ["derive"] }
 rand = "0.8.5"
