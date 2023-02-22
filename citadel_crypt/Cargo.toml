@@ -62,7 +62,7 @@ kernel32-sys = "0.2.2"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = { default-features = false, version = "1.6.1" }
-sysinfo = { default-features = false, version = "0.27.4" }
+sysinfo = { default-features = false, version = "0.28.0" }
 num_cpus = { default-features = false, version = "1.15.0" }
 
 [dev-dependencies]
