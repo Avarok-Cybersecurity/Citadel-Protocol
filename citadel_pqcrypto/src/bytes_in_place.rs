@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::Error;
-use aes_gcm_siv::aead::{Buffer, Error as AesError};
+use aes_gcm::aead::{Buffer, Error as AesError};
 use bytes::{BufMut, BytesMut};
 
 pub struct InPlaceBuffer<'a, T> {

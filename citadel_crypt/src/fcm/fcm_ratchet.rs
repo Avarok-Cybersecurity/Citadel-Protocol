@@ -1,7 +1,6 @@
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::entropy_bank::{EntropyBank, SecurityLevel};
 use crate::misc::CryptError;
-use crate::scramble::crypt_splitter::calculate_nonce_version;
 use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::stacked_ratchet::Ratchet;
 use arrayvec::ArrayVec;
@@ -24,33 +23,15 @@ pub struct ThinRatchet {
 
 impl ThinRatchet {
     /// decrypts using a custom nonce configuration
-    pub fn decrypt_custom<T: AsRef<[u8]>>(
-        &self,
-        wave_id: u32,
-        group_id: u64,
-        contents: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.decrypt(
-            calculate_nonce_version(wave_id as usize, group_id),
-            pqc,
-            contents,
-        )
+        drill.decrypt(pqc, contents)
     }
 
     /// Encrypts the data into a Vec<u8>
-    pub fn encrypt_custom<T: AsRef<[u8]>>(
-        &self,
-        wave_id: u32,
-        group: u64,
-        contents: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.encrypt(
-            calculate_nonce_version(wave_id as usize, group),
-            pqc,
-            contents,
-        )
+        drill.encrypt(pqc, contents)
     }
 }
 
