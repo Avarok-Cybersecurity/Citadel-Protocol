@@ -30,7 +30,8 @@ pub mod prelude {
 
 pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
 
-pub const CHA_CHA_NONCE_LENGTH_BYTES: usize = 24;
+pub const CHA_CHA_NONCE_LENGTH_BYTES: usize = 12;
+pub const ASCON_NONCE_LENGTH_BYTES: usize = 16;
 pub const AES_GCM_NONCE_LENGTH_BYTES: usize = 12;
 pub const KYBER_NONCE_LENGTH_BYTES: usize = 32;
 
@@ -364,13 +365,12 @@ impl PostQuantumContainer {
 
             //log::trace!(target: "citadel", "Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
 
-            let alice_key =
-                aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
-                    alice_key.as_slice().iter().cloned(),
-                )
-                .ok_or(Error::InvalidLength)?;
+            let alice_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
+                alice_key.as_slice().iter().cloned(),
+            )
+            .ok_or(Error::InvalidLength)?;
 
-            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
+            let bob_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
                 bob_key.as_slice().iter().cloned(),
             )
             .ok_or(Error::InvalidLength)?;
@@ -395,13 +395,12 @@ impl PostQuantumContainer {
             let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, true)
                 .ok_or(Error::InvalidLength)?;
 
-            let alice_key =
-                aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
-                    alice_key.iter().cloned(),
-                )
-                .ok_or(Error::InvalidLength)?;
+            let alice_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
+                alice_key.iter().cloned(),
+            )
+            .ok_or(Error::InvalidLength)?;
 
-            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
+            let bob_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
                 bob_key.iter().cloned(),
             )
             .ok_or(Error::InvalidLength)?;
@@ -707,8 +706,8 @@ impl Clone for PostQuantumContainer {
 #[allow(missing_docs)]
 pub mod algorithm_dictionary {
     use crate::{
-        validate_crypto_params, Error, AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES,
-        KYBER_NONCE_LENGTH_BYTES,
+        validate_crypto_params, Error, AES_GCM_NONCE_LENGTH_BYTES, ASCON_NONCE_LENGTH_BYTES,
+        CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
     };
     use enum_primitive::*;
     use packed_struct::prelude::*;
@@ -766,17 +765,19 @@ pub mod algorithm_dictionary {
     )]
     pub enum EncryptionAlgorithm {
         #[default]
-        AES_GCM_256_SIV = 0,
-        Xchacha20Poly_1305 = 1,
+        AES_GCM_256 = 0,
+        ChaCha20Poly_1305 = 1,
         Kyber = 2,
+        Ascon80pq = 3,
     }
 
     impl EncryptionAlgorithm {
         pub fn nonce_len(&self) -> usize {
             match self {
-                Self::AES_GCM_256_SIV => AES_GCM_NONCE_LENGTH_BYTES,
-                Self::Xchacha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
+                Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
+                Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
                 Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
+                Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
             }
         }
 
@@ -784,9 +785,10 @@ pub mod algorithm_dictionary {
         pub fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
             const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
             match self {
-                Self::AES_GCM_256_SIV => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+                Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
                 // plaintext len + 128 bit tag
-                Self::Xchacha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+                Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+                Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
                 // Add 32 for internal apendees
                 Self::Kyber => {
                     const LENGTH_FIELD: usize = 8;
@@ -805,8 +807,9 @@ pub mod algorithm_dictionary {
 
         pub fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize> {
             match self {
-                Self::AES_GCM_256_SIV => Some(ciphertext.len() - 16),
-                Self::Xchacha20Poly_1305 => Some(ciphertext.len() - 16),
+                Self::AES_GCM_256 => Some(ciphertext.len() - 16),
+                Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
+                Self::Ascon80pq => Some(ciphertext.len() - 16),
                 Self::Kyber => kyber_pke::plaintext_len(ciphertext),
             }
         }

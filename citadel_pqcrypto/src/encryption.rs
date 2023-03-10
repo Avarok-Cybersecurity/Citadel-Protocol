@@ -1,5 +1,5 @@
 use crate::ez_error::Error;
-use aes_gcm_siv::aead::Buffer;
+use aes_gcm::aead::Buffer;
 
 pub trait AeadModule: Send + Sync {
     fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, Error> {
@@ -56,12 +56,12 @@ pub(crate) mod aes_impl {
     use crate::encryption::AeadModule;
     use crate::ez_error::Error;
     use crate::PostQuantumMetaKex;
-    use aes_gcm_siv::aead::generic_array::GenericArray;
-    use aes_gcm_siv::aead::{AeadInPlace, Buffer};
-    use aes_gcm_siv::Aes256GcmSiv;
+    use aes_gcm::aead::generic_array::GenericArray;
+    use aes_gcm::aead::{AeadInPlace, Buffer};
+    use aes_gcm::Aes256Gcm;
 
     pub struct AesModule {
-        pub aead: Aes256GcmSiv,
+        pub aead: Aes256Gcm,
         pub kex: PostQuantumMetaKex,
     }
 
@@ -72,17 +72,34 @@ pub(crate) mod chacha_impl {
     use crate::encryption::AeadModule;
     use crate::ez_error::Error;
     use crate::PostQuantumMetaKex;
-    use aes_gcm_siv::aead::Buffer;
+    use aes_gcm::aead::Buffer;
     use chacha20poly1305::aead::generic_array::GenericArray;
     use chacha20poly1305::aead::AeadInPlace;
-    use chacha20poly1305::XChaCha20Poly1305;
+    use chacha20poly1305::ChaCha20Poly1305;
 
     pub struct ChaChaModule {
-        pub aead: XChaCha20Poly1305,
+        pub aead: ChaCha20Poly1305,
         pub kex: PostQuantumMetaKex,
     }
 
     crate::impl_basic_aead_module!(ChaChaModule, crate::CHA_CHA_NONCE_LENGTH_BYTES);
+}
+
+pub(crate) mod ascon_impl {
+    use crate::encryption::AeadModule;
+    use crate::ez_error::Error;
+    use crate::PostQuantumMetaKex;
+    use aes_gcm::aead::Buffer;
+    use ascon_aead::Ascon80pq;
+    use chacha20poly1305::aead::generic_array::GenericArray;
+    use chacha20poly1305::aead::AeadInPlace;
+
+    pub struct AsconModule {
+        pub aead: Ascon80pq,
+        pub kex: PostQuantumMetaKex,
+    }
+
+    crate::impl_basic_aead_module!(AsconModule, crate::ASCON_NONCE_LENGTH_BYTES);
 }
 
 pub(crate) mod kyber_module {
@@ -92,7 +109,7 @@ pub(crate) mod kyber_module {
     use crate::{
         AeadModule, Error, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
     };
-    use aes_gcm_siv::aead::Buffer;
+    use aes_gcm::aead::Buffer;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,

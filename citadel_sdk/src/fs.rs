@@ -102,7 +102,7 @@ mod tests {
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -177,7 +177,7 @@ mod tests {
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -249,7 +249,7 @@ mod tests {
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]

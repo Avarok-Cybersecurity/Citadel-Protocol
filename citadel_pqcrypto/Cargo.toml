@@ -19,8 +19,8 @@ exclude = [
 default = ["std"]
 std = [
     "serde/std",
-    "aes-gcm-siv/std",
-    "aes-gcm-siv/alloc",
+    "aes-gcm/std",
+    "aes-gcm/alloc",
     "chacha20poly1305/alloc",
     "chacha20poly1305/std",
     "bytes/std",
@@ -40,7 +40,7 @@ lazy_static = { default-features = false, version = "1.4.0" }
 enum_primitive = { default-features = false, version = "0.1.1" }
 serde = { version = "1.0.152", default-features = false, features = ["derive", "rc"] }
 bincode2 = { default-features = false, version = "2.0.1" }
-aes-gcm-siv = { version = "0.11.1", default-features = false, features = ["heapless", "aes", "alloc"]}
+aes-gcm = { version = "0.10.1", default-features = false, features = ["heapless", "aes", "alloc"]}
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["heapless", "alloc"] }
 bytes = { version = "1.3.0", default-features = false }
 parking_lot = { version = "0.12.1", features = ["serde"] }
@@ -52,6 +52,7 @@ packed_struct = { version = "0.10.1", features = ["serde"] }
 rand = { version = "0.8.5", default-features = false }
 getrandom = { version = "0.2.8", default-features = false, features = ["js"], optional = true }
 serde-big-array = { default-features = false, version = "0.5.0" }
+ascon-aead = { default-features = false, version = "0.4.0" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 oqs = { version = "0.7.2", default-features = false, features = ["serde", "falcon"] }

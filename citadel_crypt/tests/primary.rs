@@ -176,7 +176,7 @@ mod tests {
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
-        let algo = KemAlgorithm::Kyber + EncryptionAlgorithm::Xchacha20Poly_1305;
+        let algo = KemAlgorithm::Kyber + EncryptionAlgorithm::ChaCha20Poly_1305;
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
@@ -263,12 +263,12 @@ mod tests {
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::Extreme.value() {
                 let _ = hyper_ratchet::<StackedRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV,
+                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     false,
                 );
                 let _ = hyper_ratchet::<StackedRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305,
+                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     false,
                 );
@@ -282,12 +282,12 @@ mod tests {
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::Extreme.value() {
                 let _ = hyper_ratchet::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV,
+                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     true,
                 );
                 let _ = hyper_ratchet::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305,
+                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     true,
                 );
@@ -300,7 +300,7 @@ mod tests {
         citadel_logging::setup_log();
         for sec in 0..SecurityLevel::Extreme.value() {
             let ratchet = hyper_ratchet::<StackedRatchet, _>(
-                KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256_SIV,
+                KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
                 false,
             );
@@ -377,7 +377,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -483,7 +493,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -551,12 +571,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -589,12 +614,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -708,12 +738,17 @@ mod tests {
     #[cfg(feature = "filesystem")]
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -744,12 +779,17 @@ mod tests {
     #[cfg(feature = "filesystem")]
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -873,12 +913,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -902,12 +947,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
@@ -931,12 +981,17 @@ mod tests {
 
     #[rstest]
     #[case(
-        EncryptionAlgorithm::AES_GCM_256_SIV,
+        EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Xchacha20Poly_1305,
+        EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::ChaCha20Poly_1305,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]

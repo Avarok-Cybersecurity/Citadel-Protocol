@@ -1,19 +1,18 @@
 use crate::misc::{create_port_mapping, CryptError};
-use byteorder::BigEndian;
+use byteorder::{BigEndian, ByteOrder};
 use rand::{thread_rng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
-use std::ops::Div;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use citadel_pqcrypto::{PostQuantumContainer, LARGEST_NONCE_LEN};
 use rand::prelude::ThreadRng;
 
-/// This should be configured by the server admin, but it is HIGHLY ADVISED NOT TO CHANGE THIS due to possible discrepancies when connecting between HyperVPN's
 pub const PORT_RANGE: usize = 14;
-pub const BYTES_PER_STORE: usize = 256;
+pub const BYTES_PER_STORE: usize = LARGEST_NONCE_LEN;
 
 /// The default endianness for byte storage
 pub type DrillEndian = BigEndian;
@@ -27,13 +26,14 @@ impl EntropyBank {
     ) -> Result<Self, CryptError<String>> {
         Self::generate_raw_3d_array().map(|bytes| {
             let port_mappings = create_port_mapping();
-
+            let transient_counter = Default::default();
             EntropyBank {
                 algorithm,
                 version,
                 cid,
                 entropy: bytes,
                 scramble_mappings: port_mappings,
+                transient_counter,
             }
         })
     }
@@ -52,75 +52,43 @@ impl EntropyBank {
     }
 
     #[inline]
-    fn get_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
-        let mut base = Default::default();
-        let nonce_len = LARGEST_NONCE_LEN; // all ciphers now potentially use Kyber for local encryption/decryption
-        let f64s_needed = num_integer::Integer::div_ceil(&nonce_len, &8);
-        let mut outer_idx = 0;
+    // the nonce_version should come from either the transient counter, or,
+    // the appended u32 at the end of each packet
+    fn get_nonce(&self, nonce_version: u64) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
+        let mut symmetric_entropy = Vec::with_capacity(self.entropy.len() + 8);
+        symmetric_entropy.extend_from_slice(&self.entropy);
+        symmetric_entropy.put_u64(nonce_version);
 
-        for x in 0..f64s_needed {
-            let val = ((nonce_version + x) as f64).div(std::f64::consts::PI);
-            let bytes = val.to_be_bytes();
-
-            for byte in bytes {
-                if outer_idx == nonce_len {
-                    return base;
-                }
-
-                base.push(
-                    byte.wrapping_add(self.entropy[outer_idx % BYTES_PER_STORE])
-                        .wrapping_add(nonce_version as u8),
-                );
-
-                outer_idx += 1;
-            }
-        }
-
-        base
+        let mut hasher = sha3::Sha3_256::default();
+        hasher.update(symmetric_entropy);
+        let out: [u8; LARGEST_NONCE_LEN] = hasher.finalize().into();
+        out.into()
     }
 
-    /// Returns the length of the ciphertext
+    /// Returns the ciphertext
     pub fn encrypt<T: AsRef<[u8]>>(
         &self,
-        nonce_version: usize,
         quantum_container: &PostQuantumContainer,
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.encrypt_custom_nonce(&self.get_nonce(nonce_version), quantum_container, input)
+        self.wrap_with_unique_nonce_enx_vec(input, move |input, nonce| {
+            quantum_container
+                .encrypt(input, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
     }
 
     /// Returns the plaintext if successful
     pub fn decrypt<T: AsRef<[u8]>>(
         &self,
-        nonce_version: usize,
         quantum_container: &PostQuantumContainer,
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.decrypt_custom_nonce(&self.get_nonce(nonce_version), quantum_container, input)
-    }
-
-    /// Returns the length of the ciphertext
-    pub fn encrypt_custom_nonce<T: AsRef<[u8]>>(
-        &self,
-        nonce: &[u8],
-        quantum_container: &PostQuantumContainer,
-        input: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
-        quantum_container
-            .encrypt(input.as_ref(), nonce)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
-    }
-
-    /// Returns the plaintext if successful
-    pub fn decrypt_custom_nonce<T: AsRef<[u8]>>(
-        &self,
-        nonce: &[u8],
-        quantum_container: &PostQuantumContainer,
-        input: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
-        quantum_container
-            .decrypt(input.as_ref(), nonce)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
+        self.wrap_with_unique_nonce_dex_vec(input, move |input, nonce| {
+            quantum_container
+                .decrypt(input, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
     }
 
     /// Protects an already constructed packet in-place. This guarantees that replay attacks cannot happen
@@ -131,10 +99,11 @@ impl EntropyBank {
         header_len_bytes: usize,
         full_packet: &mut T,
     ) -> Result<(), CryptError<String>> {
-        let nonce = &self.get_nonce(0);
-        quantum_container
-            .protect_packet_in_place(header_len_bytes, full_packet, nonce)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
+        self.wrap_with_unique_nonce_enx(full_packet, move |full_packet, nonce| {
+            quantum_container
+                .protect_packet_in_place(header_len_bytes, full_packet, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
     }
 
     /// Unlike `protect_packet`, the returned object does NOT contain the header. The returned Bytes only contains the ciphertext
@@ -144,11 +113,80 @@ impl EntropyBank {
         header: H,
         payload: &mut T,
     ) -> Result<(), CryptError<String>> {
-        let nonce = &self.get_nonce(0);
         let header = header.as_ref();
-        quantum_container
-            .validate_packet_in_place(header, payload, nonce)
+        self.wrap_with_unique_nonce_dex(payload, move |payload, nonce| {
+            quantum_container
+                .validate_packet_in_place(header, payload, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
+    }
+
+    fn wrap_with_unique_nonce_enx<T: EzBuffer>(
+        &self,
+        buf: &mut T,
+        function: impl FnOnce(&mut T, &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<(), CryptError>,
+    ) -> Result<(), CryptError> {
+        let transient_id = self.transient_counter.fetch_add(1, Ordering::Relaxed);
+        let nonce = &self.get_nonce(transient_id);
+        function(buf, nonce)?;
+        buf.extend_from_slice(&transient_id.to_be_bytes())
             .map_err(|err| CryptError::Encrypt(err.to_string()))
+    }
+
+    fn wrap_with_unique_nonce_dex<T: EzBuffer>(
+        &self,
+        buf: &mut T,
+        function: impl FnOnce(&mut T, &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<(), CryptError>,
+    ) -> Result<(), CryptError> {
+        let starting_pos = buf.len().saturating_sub(8);
+        let transient_id_bytes = &buf.as_ref()[starting_pos..];
+        if transient_id_bytes.len() != 8 {
+            return Err(CryptError::Decrypt(format!(
+                "Bad input size of {} (transient id)",
+                buf.as_ref().len()
+            )));
+        }
+
+        let transient_id = byteorder::BigEndian::read_u64(transient_id_bytes);
+        let nonce = &self.get_nonce(transient_id);
+        // trim the last 8 bytes
+        buf.truncate(starting_pos);
+        function(buf, nonce)
+    }
+
+    fn wrap_with_unique_nonce_enx_vec<T: AsRef<[u8]>>(
+        &self,
+        input: T,
+        function: impl FnOnce(&[u8], &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<Vec<u8>, CryptError>,
+    ) -> Result<Vec<u8>, CryptError> {
+        let transient_id = self.transient_counter.fetch_add(1, Ordering::Relaxed);
+        let nonce = &self.get_nonce(transient_id);
+        let input = input.as_ref();
+        let mut out = function(input, nonce)?;
+        out.extend_from_slice(&transient_id.to_be_bytes());
+        Ok(out)
+    }
+
+    fn wrap_with_unique_nonce_dex_vec<T: AsRef<[u8]>>(
+        &self,
+        input: T,
+        function: impl FnOnce(&[u8], &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<Vec<u8>, CryptError>,
+    ) -> Result<Vec<u8>, CryptError> {
+        let buf = input.as_ref();
+        let starting_pos = buf.len().saturating_sub(8);
+        let transient_id_bytes = &buf[starting_pos..];
+        if transient_id_bytes.len() != 8 {
+            return Err(CryptError::Decrypt(format!(
+                "Bad input size of {} (transient id)",
+                buf.len()
+            )));
+        }
+
+        let transient_id = byteorder::BigEndian::read_u64(transient_id_bytes);
+        let nonce = &self.get_nonce(transient_id);
+        // trim the last 8 bytes
+        let input = &buf[..starting_pos];
+        function(input, nonce)
     }
 
     pub fn local_encrypt<T: AsRef<[u8]>>(
@@ -156,10 +194,11 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        let nonce = &self.get_nonce(0);
-        quantum_container
-            .local_encrypt(payload, nonce)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
+        self.wrap_with_unique_nonce_enx_vec(payload, move |payload, nonce| {
+            quantum_container
+                .local_encrypt(payload, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
     }
 
     pub fn local_decrypt<T: AsRef<[u8]>>(
@@ -167,10 +206,11 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        let nonce = &self.get_nonce(0);
-        quantum_container
-            .local_decrypt(payload, nonce)
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
+        self.wrap_with_unique_nonce_dex_vec(payload, move |payload, nonce| {
+            quantum_container
+                .local_decrypt(payload, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
     }
 
     /// Returns the multiport width
@@ -259,9 +299,11 @@ impl From<u8> for SecurityLevel {
 }
 
 use arrayvec::ArrayVec;
+use bytes::BufMut;
 use citadel_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
 use serde_big_array::BigArray;
+use sha3::Digest;
 
 /// A entropy bank is a fundamental dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
@@ -272,6 +314,7 @@ pub struct EntropyBank {
     #[serde(with = "BigArray")]
     pub(super) entropy: [u8; BYTES_PER_STORE],
     pub(super) scramble_mappings: Vec<(u16, u16)>,
+    pub(super) transient_counter: AtomicU64,
 }
 
 /// Returns the approximate number of bytes needed to serialize a Drill

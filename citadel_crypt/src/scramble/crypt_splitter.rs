@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ops::Range;
+use std::ops::{Range, RangeBounds};
 use std::time::{Duration, Instant};
 
 use bitvec::vec::BitVec;
@@ -33,7 +33,8 @@ pub fn get_max_packet_size(
     // for now, limit the security level to standard
     let security_exponent =
         std::cmp::min(security_level.value(), SecurityLevel::Standard.value()) as u32;
-    let starting_max_packet_size = enx.max_ciphertext_len(MAX_WAVEFORM_PACKET_SIZE, sig_alg);
+    let mut starting_max_packet_size = enx.max_ciphertext_len(MAX_WAVEFORM_PACKET_SIZE, sig_alg);
+    starting_max_packet_size += 8; // for the overhead from each encryption adding 8 bytes in the nonce tag
     std::cmp::max(
         starting_max_packet_size / (BASE.pow(security_exponent)),
         get_aes_gcm_overhead(),
@@ -51,22 +52,6 @@ pub fn calculate_aes_gcm_plaintext_length_from_ciphertext_length(
 ) -> Option<usize> {
     //ciphertext_length - get_aes_gcm_overhead()
     enx.plaintext_length(ciphertext)
-}
-
-#[inline]
-/// The goal of this is to create a unique output for each possible (input1, input2) combo
-/// Z x Z = Z, where for all Z in S = {z ...}, all z are unique
-///
-/// Use Szudzik's function: a >= b ? a * a + a + b : a + b * b;  where a, b >= 0
-///
-/// a = wave_id, b= group id
-pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
-    let b = b as usize;
-    if a < b {
-        a + (b * b)
-    } else {
-        (a * a) + a + b
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -118,7 +103,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     // calculate buffer of last wave. In the case of plain_text.len() == max_plaintext_bytes, we have 1 wave.
     let ciphertext_len_last_wave = if number_of_partial_waves != 0 {
         //calculate_aes_gcm_output_length(bytes_in_last_wave)
-        enx.max_ciphertext_len(bytes_in_last_wave, sig_alg)
+        8 + enx.max_ciphertext_len(bytes_in_last_wave, sig_alg)
     } else {
         // this will ensure that the calculation below is adjusted for the equals case
         // Also, adjust the bytes in the last wave. Since there is no partial wave, but n full waves, the last
@@ -297,11 +282,7 @@ fn scramble_encrypt_wave(
     header_inscriber: impl Fn(&PacketVector, &EntropyBank, u32, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
     let ciphertext = msg_drill
-        .encrypt(
-            calculate_nonce_version(wave_idx, cfg.group_id as u64),
-            msg_pqc,
-            bytes_to_encrypt_for_this_wave,
-        )
+        .encrypt(msg_pqc, bytes_to_encrypt_for_this_wave)
         .unwrap();
 
     let mut packets = ciphertext
@@ -479,9 +460,6 @@ impl GroupReceiverConfig {
         }
     }
 
-    /// Returns the number of packets in a given wave by id. TODO: Clean this up
-    /// this works for edge-cases, and all cases, but shouldn't be used in the future
-    /// unless absolutely necessary
     pub fn get_packet_count_in_wave(&self, wave_id: usize) -> usize {
         if wave_id == self.wave_count - 1 {
             self.packets_in_last_wave
@@ -550,6 +528,7 @@ impl GroupReceiver {
             } else {
                 None
             };
+
             let ciphertext_buffer = vec![0u8; ciphertext_buffer_alloc_size_for_single_wave];
             let tmp_wave_store_container = TempWaveStore {
                 bytes_written: 0,
@@ -584,16 +563,13 @@ impl GroupReceiver {
     /// If a wave is complete, it gets decrypted and placed into the plaintext buffer
     pub fn on_packet_received<T: AsRef<[u8]>, R: Ratchet>(
         &mut self,
-        group_id: u64,
+        _group_id: u64,
         true_sequence: usize,
         wave_id: u32,
         hyper_ratchet: &R,
         packet: T,
     ) -> GroupReceiverStatus {
         let packet = packet.as_ref();
-        // The wave_id is also the nonce_version
-
-        // this protects against replay attacks too
         let is_received =
             if let Some(mut is_received) = self.packets_received_order.get_mut(true_sequence) {
                 let is_recv = *is_received;
@@ -625,7 +601,19 @@ impl GroupReceiver {
                 self.max_payload_size,
                 wave_store,
             );
+
+            if !check_bounds(&wave_store.ciphertext_buffer, insert_index.clone()) {
+                log::error!(target: "citadel", "Bad ciphertext buffer insertion index {insert_index:?} for buf of len {}", wave_store.ciphertext_buffer.len());
+                return GroupReceiverStatus::INVALID_PACKET;
+            }
+
             let dest_bytes = &mut wave_store.ciphertext_buffer[insert_index];
+
+            if !check_bounds(&dest_bytes, ..packet.len()) {
+                log::error!(target: "citadel", "Bad dest buffer insertion index {:?} for buf of len {}", ..packet.len(), dest_bytes.len());
+                return GroupReceiverStatus::INVALID_PACKET;
+            }
+
             let dest_bytes = &mut dest_bytes[..packet.len()];
             let packet_bytes = packet;
 
@@ -642,11 +630,7 @@ impl GroupReceiver {
                     &wave_store.ciphertext_buffer[..wave_store.bytes_written];
                 let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
 
-                match msg_drill.decrypt(
-                    calculate_nonce_version(wave_id as usize, group_id),
-                    msg_pqc,
-                    ciphertext_bytes_for_this_wave,
-                ) {
+                match msg_drill.decrypt(msg_pqc, ciphertext_bytes_for_this_wave) {
                     Ok(plaintext) => {
                         let plaintext = plaintext.as_slice();
 
@@ -930,4 +914,9 @@ impl<const N: usize> GroupSenderDevice<N> {
     pub fn has_expired(&self, timeout: Duration) -> bool {
         self.last_wave_ack_received.elapsed() > timeout
     }
+}
+
+fn check_bounds<T: AsRef<[u8]>, R: RangeBounds<usize>>(buf: T, range: R) -> bool {
+    let buf = buf.as_ref();
+    !range.contains(&buf.len())
 }

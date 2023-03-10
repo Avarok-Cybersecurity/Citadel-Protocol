@@ -166,8 +166,8 @@ mod tests {
         #[case] secrecy_mode: SecrecyMode,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
-            EncryptionAlgorithm::AES_GCM_256_SIV,
-            EncryptionAlgorithm::Xchacha20Poly_1305
+            EncryptionAlgorithm::AES_GCM_256,
+            EncryptionAlgorithm::ChaCha20Poly_1305
         )]
         enx: EncryptionAlgorithm,
     ) {
@@ -294,8 +294,8 @@ mod tests {
         #[case] secrecy_mode: SecrecyMode,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
-            EncryptionAlgorithm::AES_GCM_256_SIV,
-            EncryptionAlgorithm::Xchacha20Poly_1305
+            EncryptionAlgorithm::AES_GCM_256,
+            EncryptionAlgorithm::ChaCha20Poly_1305
         )]
         enx: EncryptionAlgorithm,
     ) {

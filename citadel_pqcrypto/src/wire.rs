@@ -1,5 +1,5 @@
 use crate::{Error, KemAlgorithm, SigAlgorithm};
-use aes_gcm_siv::aead::Buffer;
+use aes_gcm::aead::Buffer;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

@@ -43,13 +43,14 @@ mod tests {
 
     #[test]
     fn runit() {
-        run(0, EncryptionAlgorithm::AES_GCM_256_SIV, SigAlgorithm::None).unwrap();
+        run(0, EncryptionAlgorithm::AES_GCM_256, SigAlgorithm::None).unwrap();
         run(
             0,
-            EncryptionAlgorithm::Xchacha20Poly_1305,
+            EncryptionAlgorithm::ChaCha20Poly_1305,
             SigAlgorithm::None,
         )
         .unwrap();
+        run(0, EncryptionAlgorithm::Ascon80pq, SigAlgorithm::None).unwrap();
     }
 
     fn run(
@@ -156,7 +157,7 @@ mod tests {
         const HEADER_LEN: usize = 50;
 
         let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
 
         let (alice_container, bob_container) =
@@ -226,7 +227,7 @@ mod tests {
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
         let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
 
         let nonce_len = encryption_algorithm.nonce_len() as u8;
@@ -301,7 +302,7 @@ mod tests {
         citadel_logging::setup_log();
 
         let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
         let nonce_len = encryption_algorithm.nonce_len();
         let (alice_container, bob_container) =
@@ -338,13 +339,19 @@ mod tests {
             log::trace!(target: "citadel", "About to test {:?}", algorithm);
             run(
                 algorithm.as_u8(),
-                EncryptionAlgorithm::AES_GCM_256_SIV,
+                EncryptionAlgorithm::AES_GCM_256,
                 SigAlgorithm::None,
             )
             .unwrap();
             run(
                 algorithm.as_u8(),
-                EncryptionAlgorithm::Xchacha20Poly_1305,
+                EncryptionAlgorithm::ChaCha20Poly_1305,
+                SigAlgorithm::None,
+            )
+            .unwrap();
+            run(
+                algorithm.as_u8(),
+                EncryptionAlgorithm::Ascon80pq,
                 SigAlgorithm::None,
             )
             .unwrap();
@@ -387,7 +394,7 @@ mod tests {
     fn test_serialize_deserialize() {
         citadel_logging::setup_log();
         let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
         let (alice_container, bob_container) =
             gen(kem_algorithm, encryption_algorithm, signature_algorithm);

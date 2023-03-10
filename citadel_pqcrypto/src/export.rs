@@ -1,10 +1,11 @@
 use crate::algorithm_dictionary::EncryptionAlgorithm;
 use crate::encryption::aes_impl::AesModule;
+use crate::encryption::ascon_impl::AsconModule;
 use crate::encryption::chacha_impl::ChaChaModule;
 use crate::encryption::kyber_module::KyberModule;
 use crate::encryption::AeadModule;
 use crate::{CryptoParameters, KeyStore, PQNode, PostQuantumMetaKex, PostQuantumMetaSig};
-use aes_gcm_siv::KeyInit;
+use aes_gcm::KeyInit;
 use generic_array::GenericArray;
 use serde::{Deserialize, Serialize};
 
@@ -89,29 +90,43 @@ pub(crate) fn keys_to_aead_store(
     pq_node: PQNode,
 ) -> AeadStore {
     match params.encryption_algorithm {
-        EncryptionAlgorithm::AES_GCM_256_SIV => {
+        EncryptionAlgorithm::AES_GCM_256 => {
             let symmetric_key_local = Box::new(AesModule {
-                aead: aes_gcm_siv::Aes256GcmSiv::new(alice),
+                aead: aes_gcm::Aes256Gcm::new(alice),
                 kex: kex.clone(),
             });
 
             let symmetric_key_remote = Box::new(AesModule {
-                aead: aes_gcm_siv::Aes256GcmSiv::new(bob),
+                aead: aes_gcm::Aes256Gcm::new(bob),
                 kex: kex.clone(),
             });
 
             (Some(symmetric_key_local), Some(symmetric_key_remote))
         }
-        EncryptionAlgorithm::Xchacha20Poly_1305 => (
+        EncryptionAlgorithm::ChaCha20Poly_1305 => (
             Some(Box::new(ChaChaModule {
-                aead: chacha20poly1305::XChaCha20Poly1305::new(alice),
+                aead: chacha20poly1305::ChaCha20Poly1305::new(alice),
                 kex: kex.clone(),
             })),
             Some(Box::new(ChaChaModule {
-                aead: chacha20poly1305::XChaCha20Poly1305::new(bob),
+                aead: chacha20poly1305::ChaCha20Poly1305::new(bob),
                 kex: kex.clone(),
             })),
         ),
+        EncryptionAlgorithm::Ascon80pq => {
+            let alice_key = ascon_aead::Key::<ascon_aead::Ascon80pq>::from_slice(&alice[..20]);
+            let bob_key = ascon_aead::Key::<ascon_aead::Ascon80pq>::from_slice(&bob[..20]);
+            (
+                Some(Box::new(AsconModule {
+                    aead: ascon_aead::Ascon80pq::new(alice_key),
+                    kex: kex.clone(),
+                })),
+                Some(Box::new(AsconModule {
+                    aead: ascon_aead::Ascon80pq::new(bob_key),
+                    kex: kex.clone(),
+                })),
+            )
+        }
 
         EncryptionAlgorithm::Kyber => {
             let kem_alg = params.kem_algorithm;
@@ -145,22 +160,22 @@ fn generate_symmetric_aes_module(
 ) -> (Box<dyn AeadModule>, Box<dyn AeadModule>) {
     let symmetric_key_local = match pq_node {
         PQNode::Alice => Box::new(AesModule {
-            aead: aes_gcm_siv::Aes256GcmSiv::new(alice),
+            aead: aes_gcm::Aes256Gcm::new(alice),
             kex: kex.clone(),
         }),
         PQNode::Bob => Box::new(AesModule {
-            aead: aes_gcm_siv::Aes256GcmSiv::new(bob),
+            aead: aes_gcm::Aes256Gcm::new(bob),
             kex: kex.clone(),
         }),
     };
 
     let symmetric_key_remote = match pq_node {
         PQNode::Alice => Box::new(AesModule {
-            aead: aes_gcm_siv::Aes256GcmSiv::new(bob),
+            aead: aes_gcm::Aes256Gcm::new(bob),
             kex: kex.clone(),
         }),
         PQNode::Bob => Box::new(AesModule {
-            aead: aes_gcm_siv::Aes256GcmSiv::new(alice),
+            aead: aes_gcm::Aes256Gcm::new(alice),
             kex: kex.clone(),
         }),
     };
