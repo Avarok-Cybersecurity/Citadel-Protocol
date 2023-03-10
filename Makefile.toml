@@ -191,7 +191,7 @@ fn main() {
         new_constants_file.push(line.to_string())
     }
 
-    new_constants_file.push("\n");
+    new_constants_file.push("\n".to_string());
 
     std::fs::write(
         "./citadel_proto/src/constants.rs",
