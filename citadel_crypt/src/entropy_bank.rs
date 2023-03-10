@@ -142,7 +142,8 @@ impl EntropyBank {
         let transient_id_bytes = &buf.as_ref()[starting_pos..];
         if transient_id_bytes.len() != 8 {
             return Err(CryptError::Decrypt(format!(
-                "Bad input size (transient id)"
+                "Bad input size of {} (transient id)",
+                buf.as_ref().len()
             )));
         }
 
@@ -176,7 +177,8 @@ impl EntropyBank {
         let transient_id_bytes = &buf[starting_pos..];
         if transient_id_bytes.len() != 8 {
             return Err(CryptError::Decrypt(format!(
-                "Bad input size (transient id)"
+                "Bad input size of {} (transient id)",
+                buf.len()
             )));
         }
 
