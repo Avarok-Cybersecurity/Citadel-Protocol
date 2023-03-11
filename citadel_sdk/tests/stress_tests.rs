@@ -167,7 +167,8 @@ mod tests {
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
-            EncryptionAlgorithm::ChaCha20Poly_1305
+            EncryptionAlgorithm::ChaCha20Poly_1305,
+            EncryptionAlgorithm::Ascon80pq
         )]
         enx: EncryptionAlgorithm,
     ) {
