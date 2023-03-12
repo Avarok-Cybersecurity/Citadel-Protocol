@@ -2,17 +2,18 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
+use zeroize::Zeroizing;
 
 /// Allows mutable access
 pub struct SecString {
-    inner: String,
+    inner: Zeroizing<String>,
 }
 
 impl SecString {
     /// Creates a new instance SecString
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: String::new(),
+            inner: Zeroizing::new(String::new()),
         }
     }
 
@@ -26,7 +27,6 @@ impl SecString {
     /// Clears and zeroizes the vector. Keeps the allocation in-tact
     pub fn clear(&mut self) {
         self.unlock();
-        self.zeroize();
         self.inner.clear();
         self.lock();
     }
@@ -61,16 +61,12 @@ impl SecString {
         let (ptr, len) = decompose(&self.inner);
         unsafe { crate::misc::munlock(ptr, len) }
     }
-
-    fn zeroize(&mut self) {
-        unsafe { crate::misc::zeroize(self.inner.as_ptr(), self.inner.len()) }
-    }
 }
 
 impl<T: Into<String>> From<T> for SecString {
     fn from(inner: T) -> Self {
         let this = Self {
-            inner: inner.into(),
+            inner: inner.into().into(),
         };
         this.lock();
         this
@@ -80,14 +76,13 @@ impl<T: Into<String>> From<T> for SecString {
 impl Drop for SecString {
     fn drop(&mut self) {
         self.unlock();
-        self.zeroize();
     }
 }
 
 impl Clone for SecString {
     fn clone(&self) -> Self {
         self.unlock();
-        let ret = Self::from(self.inner.clone());
+        let ret = Self::from(self.inner.to_string());
         self.unlock();
         ret
     }

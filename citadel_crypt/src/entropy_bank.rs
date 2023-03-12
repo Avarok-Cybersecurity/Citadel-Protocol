@@ -31,7 +31,7 @@ impl EntropyBank {
                 algorithm,
                 version,
                 cid,
-                entropy: bytes,
+                entropy: bytes.into(),
                 scramble_mappings: port_mappings,
                 transient_counter,
             }
@@ -56,7 +56,7 @@ impl EntropyBank {
     // the appended u32 at the end of each packet
     fn get_nonce(&self, nonce_version: u64) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
         let mut symmetric_entropy = Vec::with_capacity(self.entropy.len() + 8);
-        symmetric_entropy.extend_from_slice(&self.entropy);
+        symmetric_entropy.extend_from_slice(&*self.entropy);
         symmetric_entropy.put_u64(nonce_version);
 
         let mut hasher = sha3::Sha3_256::default();
@@ -302,8 +302,8 @@ use arrayvec::ArrayVec;
 use bytes::BufMut;
 use citadel_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
-use serde_big_array::BigArray;
 use sha3::Digest;
+use zeroize::Zeroizing;
 
 /// A entropy bank is a fundamental dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
@@ -311,8 +311,7 @@ pub struct EntropyBank {
     pub(super) algorithm: EncryptionAlgorithm,
     pub(super) version: u32,
     pub(super) cid: u64,
-    #[serde(with = "BigArray")]
-    pub(super) entropy: [u8; BYTES_PER_STORE],
+    pub(super) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
     pub(super) scramble_mappings: Vec<(u16, u16)>,
     pub(super) transient_counter: AtomicU64,
 }

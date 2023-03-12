@@ -53,6 +53,7 @@ tokio = { version = "1.24", default-features=false, features = ["rt", "macros", 
 sha3 = { default-features = false, version = "0.10.6" }
 tokio-stream = { default-features = false, version = "0.1.11" }
 auto_impl = { default-features = false, version = "1.0.1" }
+zeroize = { default-features = false, version = "1.5.7", features = ["zeroize_derive", "alloc", "serde"] }
 
 [target.'cfg(target_family = "unix")'.dependencies]
 libc = "0.2.139"
