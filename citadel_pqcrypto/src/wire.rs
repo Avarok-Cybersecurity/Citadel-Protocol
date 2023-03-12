@@ -3,18 +3,19 @@ use aes_gcm::aead::Buffer;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum AliceToBobTransferParameters {
     MixedAsymmetric {
-        alice_pk: Arc<Vec<u8>>,
+        alice_pk: Arc<Zeroizing<Vec<u8>>>,
         alice_pk_sig: Arc<crate::functions::PublicKeyType>,
-        alice_public_key_signature: Vec<u8>,
+        alice_public_key_signature: Zeroizing<Vec<u8>>,
         sig_scheme: SigAlgorithm,
         kem_scheme: KemAlgorithm,
     },
     PureSymmetric {
-        alice_pk: Arc<Vec<u8>>,
+        alice_pk: Arc<Zeroizing<Vec<u8>>>,
         kem_scheme: KemAlgorithm,
     },
 }
@@ -22,18 +23,18 @@ pub enum AliceToBobTransferParameters {
 #[derive(Serialize, Deserialize, Clone)]
 pub enum BobToAliceTransferParameters {
     MixedAsymmetric {
-        bob_ciphertext_signature: Arc<Vec<u8>>,
-        bob_ciphertext: Arc<Vec<u8>>,
+        bob_ciphertext_signature: Arc<Zeroizing<Vec<u8>>>,
+        bob_ciphertext: Arc<Zeroizing<Vec<u8>>>,
         bob_pk_sig: Arc<crate::functions::PublicKeyType>,
-        bob_pk: Arc<Vec<u8>>,
+        bob_pk: Arc<Zeroizing<Vec<u8>>>,
     },
     PureSymmetric {
-        bob_ciphertext: Arc<Vec<u8>>,
-        bob_pk: Arc<Vec<u8>>,
+        bob_ciphertext: Arc<Zeroizing<Vec<u8>>>,
+        bob_pk: Arc<Zeroizing<Vec<u8>>>,
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ZeroizeOnDrop)]
 #[serde(transparent)]
 pub struct ScramCryptDictionary<const BLOCK_SIZE: usize> {
     #[serde(with = "serde_big_array::BigArray")]

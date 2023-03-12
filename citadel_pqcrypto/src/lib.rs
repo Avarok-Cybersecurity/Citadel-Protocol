@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
 #[cfg(target_family = "wasm")]
 use crate::functions::AsSlice;
@@ -74,9 +75,10 @@ pub const fn get_approx_bytes_per_container() -> usize {
 pub(crate) mod functions {
     use crate::Error;
     use oqs::sig::Sig;
+    use zeroize::Zeroizing;
 
-    pub type SecretKeyType = Vec<u8>;
-    pub type PublicKeyType = Vec<u8>;
+    pub type SecretKeyType = Zeroizing<Vec<u8>>;
+    pub type PublicKeyType = Zeroizing<Vec<u8>>;
     const ALG: oqs::sig::Algorithm = oqs::sig::Algorithm::Falcon1024;
 
     pub fn signature_sign(
@@ -113,7 +115,7 @@ pub(crate) mod functions {
         get_sig()?
             .keypair()
             .map_err(|err| Error::Other(err.to_string()))
-            .map(|(l, r)| (l.into_vec(), r.into_vec()))
+            .map(|(l, r)| (l.into_vec().into(), r.into_vec().into()))
     }
 
     pub fn signature_bytes() -> usize {
@@ -304,7 +306,7 @@ impl PostQuantumContainer {
         pq_node: PQNode,
         params: CryptoParameters,
         sig: Option<PostQuantumMetaSig>,
-        ss: Arc<Vec<u8>>,
+        ss: Arc<Zeroizing<Vec<u8>>>,
         previous_chain: Option<&RecursiveChain>,
         kex: PostQuantumMetaKex,
     ) -> Result<(RecursiveChain, KeyStore), Error> {
@@ -496,24 +498,24 @@ impl PostQuantumContainer {
         }
     }
 
-    pub fn get_public_key_remote(&self) -> &Arc<Vec<u8>> {
+    pub fn get_public_key_remote(&self) -> &Arc<Zeroizing<Vec<u8>>> {
         self.data.get_public_key_remote().unwrap()
     }
 
     /// Gets the public key
-    pub fn get_public_key(&self) -> &Arc<Vec<u8>> {
+    pub fn get_public_key(&self) -> &Arc<Zeroizing<Vec<u8>>> {
         self.data.get_public_key()
     }
     /// Gets the secret key (If node is Alice type)
-    pub fn get_secret_key(&self) -> Result<&Arc<Vec<u8>>, Error> {
+    pub fn get_secret_key(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
         self.data.get_secret_key()
     }
     /// Gets the ciphertext
-    pub fn get_ciphertext(&self) -> Result<&Arc<Vec<u8>>, Error> {
+    pub fn get_ciphertext(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
         self.data.get_ciphertext()
     }
     /// Gets the shared secret
-    pub fn get_shared_secret(&self) -> Result<&Arc<Vec<u8>>, Error> {
+    pub fn get_shared_secret(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
         self.data.get_shared_secret()
     }
 
@@ -952,15 +954,15 @@ pub mod algorithm_dictionary {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PostQuantumMetaKex {
     /// The public key of remote
-    remote_public_key: Option<Arc<Vec<u8>>>,
+    remote_public_key: Option<Arc<Zeroizing<Vec<u8>>>>,
     /// The public key. Both Alice and Bob get this
-    public_key: Arc<Vec<u8>>,
+    public_key: Arc<Zeroizing<Vec<u8>>>,
     /// secret key pair of the public key
-    secret_key: Option<Arc<Vec<u8>>>,
+    secret_key: Option<Arc<Zeroizing<Vec<u8>>>>,
     /// Both Bob and Alice get this one
-    ciphertext: Option<Arc<Vec<u8>>>,
+    ciphertext: Option<Arc<Zeroizing<Vec<u8>>>>,
     /// Both Alice and Bob get this (at the end)
-    shared_secret: Option<Arc<Vec<u8>>>,
+    shared_secret: Option<Arc<Zeroizing<Vec<u8>>>>,
     /// the kem algorithm
     kem_alg: KemAlgorithm,
 }
@@ -997,10 +999,10 @@ impl PostQuantumMeta {
         let ciphertext = None;
         let shared_secret = None;
         let remote_sig_public_key = None;
-        let secret_key = Some(Arc::new(secret_key.to_vec()));
+        let secret_key = Some(Arc::new(secret_key.to_vec().into()));
 
         let kex = PostQuantumMetaKex {
-            public_key: Arc::new(public_key.to_vec()),
+            public_key: Arc::new(public_key.to_vec().into()),
             secret_key,
             ciphertext,
             shared_secret,
@@ -1051,10 +1053,10 @@ impl PostQuantumMeta {
             }
         };
 
-        let public_key = Arc::new(kem_pk_bob);
-        let secret_key = Some(Arc::new(kem_sk_bob));
-        let shared_secret = Some(Arc::new(shared_secret));
-        let ciphertext = Some(Arc::new(ciphertext));
+        let public_key = Arc::new(kem_pk_bob.into());
+        let secret_key = Some(Arc::new(kem_sk_bob.into()));
+        let shared_secret = Some(Arc::new(shared_secret.into()));
+        let ciphertext = Some(Arc::new(ciphertext.into()));
 
         match params {
             AliceToBobTransferParameters::MixedAsymmetric {
@@ -1139,7 +1141,7 @@ impl PostQuantumMeta {
         let secret_key = self.get_secret_key()?;
         let shared_secret = kyber_pke::decapsulate(&bob_ciphertext, secret_key)
             .map_err(|err| Error::Other(err.to_string()))?;
-        self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.to_vec()));
+        self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.to_vec().into()));
         self.get_kex_mut().ciphertext = Some(bob_ciphertext);
 
         match params {
@@ -1165,7 +1167,8 @@ impl PostQuantumMeta {
                 let alice_public_key_signature = crate::functions::signature_sign(
                     alice_pk.as_slice(),
                     sig.sig_private_key.as_slice(),
-                )?;
+                )?
+                .into();
                 let sig_scheme = sig.sig_alg;
                 let kem_scheme = kex.kem_alg;
 
@@ -1203,7 +1206,8 @@ impl PostQuantumMeta {
                 let bob_signed_ciphertext = crate::functions::signature_sign(
                     bob_ciphertext.as_slice(),
                     sig.sig_private_key.as_slice(),
-                )?;
+                )?
+                .into();
                 let bob_pk_sig = sig.sig_public_key.clone();
 
                 Ok(BobToAliceTransferParameters::MixedAsymmetric {
@@ -1252,21 +1256,21 @@ impl PostQuantumMeta {
         }
     }
 
-    fn get_public_key_remote(&self) -> Option<&Arc<Vec<u8>>> {
+    fn get_public_key_remote(&self) -> Option<&Arc<Zeroizing<Vec<u8>>>> {
         match self {
             PostQuantumMeta::PureSymmetricEncryption { kex }
             | PostQuantumMeta::MixedAsymmetric { kex, .. } => kex.remote_public_key.as_ref(),
         }
     }
 
-    fn get_public_key(&self) -> &Arc<Vec<u8>> {
+    fn get_public_key(&self) -> &Arc<Zeroizing<Vec<u8>>> {
         match self {
             PostQuantumMeta::PureSymmetricEncryption { kex }
             | PostQuantumMeta::MixedAsymmetric { kex, .. } => &kex.public_key,
         }
     }
 
-    fn get_secret_key(&self) -> Result<&Arc<Vec<u8>>, Error> {
+    fn get_secret_key(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
         let sk = match self {
             PostQuantumMeta::PureSymmetricEncryption { kex }
             | PostQuantumMeta::MixedAsymmetric { kex, .. } => &kex.secret_key,
@@ -1279,7 +1283,7 @@ impl PostQuantumMeta {
         }
     }
 
-    fn get_ciphertext(&self) -> Result<&Arc<Vec<u8>>, Error> {
+    fn get_ciphertext(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
         let ct = match self {
             PostQuantumMeta::PureSymmetricEncryption { kex }
             | PostQuantumMeta::MixedAsymmetric { kex, .. } => &kex.ciphertext,
@@ -1292,7 +1296,7 @@ impl PostQuantumMeta {
         }
     }
 
-    fn get_shared_secret(&self) -> Result<&Arc<Vec<u8>>, Error> {
+    fn get_shared_secret(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
         let ss = match self {
             PostQuantumMeta::PureSymmetricEncryption { kex }
             | PostQuantumMeta::MixedAsymmetric { kex, .. } => &kex.shared_secret,

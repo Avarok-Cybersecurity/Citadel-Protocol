@@ -19,6 +19,7 @@ use num_integer::Integer;
 use std::sync::Arc;
 use std::task::Poll;
 use tokio_stream::{Stream, StreamExt};
+use zeroize::Zeroizing;
 
 /// 3Mb per group
 pub const MAX_BYTES_PER_GROUP: usize = crate::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;
@@ -91,7 +92,7 @@ impl_file_src!(&'static str);
 impl_file_src!(String);
 
 pub struct BytesSource {
-    pub inner: Option<Vec<u8>>,
+    pub inner: Option<Zeroizing<Vec<u8>>>,
 }
 
 // The only time this is cloned is for a post-file-transfer hook,
@@ -107,7 +108,7 @@ impl ObjectSource for BytesSource {
     fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
         struct VecReader {
             len: usize,
-            cursor: std::io::Cursor<Vec<u8>>,
+            cursor: std::io::Cursor<Zeroizing<Vec<u8>>>,
         }
 
         impl std::io::Read for VecReader {
@@ -140,7 +141,7 @@ impl ObjectSource for BytesSource {
 impl<T: Into<Vec<u8>>> From<T> for BytesSource {
     fn from(value: T) -> Self {
         Self {
-            inner: Some(value.into()),
+            inner: Some(value.into().into()),
         }
     }
 }
