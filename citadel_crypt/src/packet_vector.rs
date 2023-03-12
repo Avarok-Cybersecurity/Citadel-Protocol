@@ -1,13 +1,13 @@
 use crate::entropy_bank::EntropyBank;
-
+use zeroize::ZeroizeOnDrop;
 /// The `scrambled_sequence` that is returned by `get_packet_coordinates` is scrambled; the true value of the sequence
 /// is NOT given, because it is expected that the values be imprinted upon the packet header and thus are public-facing
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, ZeroizeOnDrop)]
 pub struct PacketVector {
     /// The group ID of this packet
     pub group_id: u64,
     /// The sequence is the position in the wave ID. Repeating sequences CANNOT exist, and as such,
-    /// the drill generator must ensure all values in the port range are non-repeating. TODO: Unique RNG.
+    /// the drill generator must ensure all values in the port range are non-repeating.
     ///
     ///
     /// A wave is a set of packets in scrambled order in respect to the in/out ports. There are a maximum
