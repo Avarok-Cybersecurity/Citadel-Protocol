@@ -32,7 +32,7 @@ impl EntropyBank {
                 version,
                 cid,
                 entropy: bytes.into(),
-                scramble_mappings: port_mappings,
+                scramble_mappings: port_mappings.into(),
                 transient_counter,
             }
         })
@@ -312,7 +312,7 @@ pub struct EntropyBank {
     pub(super) version: u32,
     pub(super) cid: u64,
     pub(super) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
-    pub(super) scramble_mappings: Vec<(u16, u16)>,
+    pub(super) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
     pub(super) transient_counter: AtomicU64,
 }
 
