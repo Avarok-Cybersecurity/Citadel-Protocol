@@ -173,3 +173,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
+  docker_nat:
+    steps:
+      - uses: actions/checkout@v3
+      - run: docker-compose -f docker-compose.yml up --abort-on-container-exit --exit-code-from client_a

@@ -1,75 +1,45 @@
-# Use root/example as user/password credentials
 version: '3.9'
-
 services:
-
-  db_mysql:
-    image: mysql
-    platform: linux/x86_64
-    command: --default-authentication-plugin=mysql_native_password
-    restart: always
-    ports:
-      - "127.0.0.1:3306:3306"
+  client_a:
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: test_db
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://127.0.0.1:3306" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  db_postgresql:
-    image: postgres
-    platform: linux/x86_64
-    restart: always
-    ports:
-      - "127.0.0.1:5432:5432"
+      - CITADEL_SERVER_ADDR="172.16.238.12:25000"
+    build:
+      context: ./
+      dockerfile: ./docker/client/Dockerfile
+    networks:
+      my_network:
+        ipv4_address: 172.16.238.10
+    depends_on:
+      - server
+#  client_b:
+#    build:
+#      context: ./
+#      dockerfile: ./docker/client/Dockerfile
+#    networks:
+#      my_network:
+#        ipv4_address: 172.16.238.11
+#    depends_on:
+#      - server
+  server:
     environment:
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: test_db
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://127.0.0.1:5432" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  clang:
-    platform: linux/x86_64
+      - CITADEL_SERVER_ADDR="172.16.238.12:25000"
     build:
       context: ./
-      dockerfile: ./docker/rust_backend/Dockerfile
-      target: clang
-    depends_on:
-      - db_mysql
-      - db_postgresql
-
-  rust:
-    platform: linux/x86_64
+      dockerfile: ./docker/server/Dockerfile
+    networks:
+      my_network:
+        ipv4_address: 172.16.238.12
+  network:
     build:
       context: ./
-      dockerfile: ./docker/rust_backend/Dockerfile
-      target: rust
-
-  sccache:
-    platform: linux/x86_64
-    build:
-      context: ./
-      dockerfile: ./docker/rust_backend/Dockerfile
-      target: sccache
-
-  integration_tests:
-    platform: linux/x86_64
-    build:
-      context: ./
-      dockerfile: ./docker/rust_backend/Dockerfile
-      target: integration_tests
-    depends_on:
-      - db_mysql
-      - db_postgresql
-      - clang
-      - rust
-
+      dockerfile: ./docker/network/Dockerfile
+    networks:
+      my_network:
+        ipv4_address: 172.16.238.13
+    privileged: true
 networks:
-  testnet:
+  my_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.238.0/24
