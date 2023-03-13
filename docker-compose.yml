@@ -7,7 +7,7 @@ services:
       context: ./
       dockerfile: ./docker/client/Dockerfile
     networks:
-      my_network:
+      nat_network:
         ipv4_address: 172.16.238.10
     depends_on:
       - server
@@ -16,7 +16,7 @@ services:
 #      context: ./
 #      dockerfile: ./docker/client/Dockerfile
 #    networks:
-#      my_network:
+#      nat_network:
 #        ipv4_address: 172.16.238.11
 #    depends_on:
 #      - server
@@ -27,18 +27,34 @@ services:
       context: ./
       dockerfile: ./docker/server/Dockerfile
     networks:
-      my_network:
+      nat_network:
         ipv4_address: 172.16.238.12
+    depends_on:
+      - network
   network:
     build:
       context: ./
       dockerfile: ./docker/network/Dockerfile
     networks:
-      my_network:
+      nat_network:
         ipv4_address: 172.16.238.13
     privileged: true
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - nat
+  nat:
+    build:
+      context: ./
+      dockerfile: ./docker/nat/Dockerfile
+    networks:
+      nat_network:
+        ipv4_address: 172.16.238.254
+    privileged: true
+    cap_add:
+      - NET_ADMIN
 networks:
-  my_network:
+  nat_network:
     driver: bridge
     ipam:
       config:
