@@ -1,6 +1,8 @@
 FROM rust:1.67 as builder
 WORKDIR /usr/src/server
 COPY . .
-RUN apt-get update && apt-get install -y openssl libclang-dev build-essential cmake && rm -rf /var/lib/apt/lists/*
+COPY ./docker/set_nat.sh ./set_nat.sh
+RUN apt-get update && apt-get install -y openssl libclang-dev build-essential cmake iptables iproute2 && rm -rf /var/lib/apt/lists/*
+RUN ./set_nat.sh
 RUN cargo install --example server --path ./citadel_sdk --debug
 CMD ["server"]

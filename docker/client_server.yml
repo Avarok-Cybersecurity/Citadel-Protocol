@@ -3,44 +3,25 @@ services:
   client_a:
     environment:
       CITADEL_SERVER_ADDR: "172.16.238.12:25000"
+      NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
     build:
-      context: ./
+      context: ../
       dockerfile: ./docker/client/Dockerfile
     networks:
       nat_network:
         ipv4_address: 172.16.238.10
     depends_on:
       - server
-#  client_b:
-#    build:
-#      context: ./
-#      dockerfile: ./docker/client/Dockerfile
-#    networks:
-#      nat_network:
-#        ipv4_address: 172.16.238.11
-#    depends_on:
-#      - server
   server:
     environment:
       CITADEL_SERVER_ADDR: "172.16.238.12:25000"
+      NAT_TYPE: "full_cone"
     build:
-      context: ./
+      context: ../
       dockerfile: ./docker/server/Dockerfile
     networks:
       nat_network:
         ipv4_address: 172.16.238.12
-    depends_on:
-      - nat
-  nat:
-    build:
-      context: ./
-      dockerfile: ./docker/nat/Dockerfile
-    networks:
-      nat_network:
-        ipv4_address: 172.16.238.254
-    privileged: true
-    cap_add:
-      - NET_ADMIN
 networks:
   nat_network:
     driver: bridge
