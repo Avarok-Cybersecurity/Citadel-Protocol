@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Set up simulated latency
+tc qdisc add dev eth0 root netem delay 100ms
+
 # Enable IP forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward
 

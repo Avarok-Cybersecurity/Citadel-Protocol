@@ -30,18 +30,6 @@ services:
       nat_network:
         ipv4_address: 172.16.238.12
     depends_on:
-      - network
-  network:
-    build:
-      context: ./
-      dockerfile: ./docker/network/Dockerfile
-    networks:
-      nat_network:
-        ipv4_address: 172.16.238.13
-    privileged: true
-    cap_add:
-      - NET_ADMIN
-    depends_on:
       - nat
   nat:
     build:
