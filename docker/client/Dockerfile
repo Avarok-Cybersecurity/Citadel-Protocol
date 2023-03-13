@@ -1,4 +1,6 @@
 FROM rust:1.67 as builder
+ARG NAT_TYPE
+RUN export NAT_TYPE=$NAT_TYPE
 WORKDIR /usr/src/client
 COPY . .
 COPY ./docker/set_nat.sh ./set_nat.sh

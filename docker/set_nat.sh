@@ -8,7 +8,7 @@ echo "NAT TYPE: $NAT_TYPE"
 CONTAINER_IP=$(hostname -i)
 
 # Set up simulated latency
-tc qdisc add dev eth0 root netem delay 100ms
+sudo tc qdisc add dev eth0 root netem delay 100ms
 
 # Configure iptables rules based on NAT type
 

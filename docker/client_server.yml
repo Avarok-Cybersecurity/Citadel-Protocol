@@ -3,10 +3,11 @@ services:
   client_a:
     environment:
       CITADEL_SERVER_ADDR: "172.16.238.12:25000"
-      NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
     build:
       context: ../
       dockerfile: ./docker/client/Dockerfile
+      args:
+        NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
     networks:
       nat_network:
         ipv4_address: 172.16.238.10
@@ -18,10 +19,11 @@ services:
   server:
     environment:
       CITADEL_SERVER_ADDR: "172.16.238.12:25000"
-      NAT_TYPE: "full_cone"
     build:
       context: ../
       dockerfile: ./docker/server/Dockerfile
+      args:
+        NAT_TYPE: "full_cone"
     networks:
       nat_network:
         ipv4_address: 172.16.238.12
