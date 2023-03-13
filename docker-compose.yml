@@ -2,7 +2,7 @@ version: '3.9'
 services:
   client_a:
     environment:
-      - CITADEL_SERVER_ADDR="172.16.238.12:25000"
+      CITADEL_SERVER_ADDR: "172.16.238.12:25000"
     build:
       context: ./
       dockerfile: ./docker/client/Dockerfile
@@ -22,7 +22,7 @@ services:
 #      - server
   server:
     environment:
-      - CITADEL_SERVER_ADDR="172.16.238.12:25000"
+      CITADEL_SERVER_ADDR: "172.16.238.12:25000"
     build:
       context: ./
       dockerfile: ./docker/server/Dockerfile
