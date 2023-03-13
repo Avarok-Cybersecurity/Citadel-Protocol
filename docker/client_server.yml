@@ -12,6 +12,9 @@ services:
         ipv4_address: 172.16.238.10
     depends_on:
       - server
+    privileged: true
+    cap_add:
+      - NET_ADMIN
   server:
     environment:
       CITADEL_SERVER_ADDR: "172.16.238.12:25000"
@@ -22,6 +25,9 @@ services:
     networks:
       nat_network:
         ipv4_address: 172.16.238.12
+    privileged: true
+    cap_add:
+      - NET_ADMIN
 networks:
   nat_network:
     driver: bridge

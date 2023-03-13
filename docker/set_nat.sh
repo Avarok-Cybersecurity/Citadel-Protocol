@@ -1,7 +1,8 @@
 #!/bin/sh
 
 # Get the NAT type from environment variable (default to none)
-NAT_TYPE=${NAT_TYPE:-none}
+NAT_TYPE=${NAT_TYPE}
+echo "NAT TYPE: $NAT_TYPE"
 
 # Get the container IP address from hostname command
 CONTAINER_IP=$(hostname -i)
