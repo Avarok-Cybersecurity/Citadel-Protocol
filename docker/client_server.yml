@@ -32,6 +32,7 @@ services:
     networks:
       nat_network_a:
         ipv4_address: 172.16.238.254
+      server_network:
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -44,6 +45,7 @@ services:
     networks:
       server_network:
         ipv4_address: 172.16.230.254
+      nat_network_a:
     privileged: true
     cap_add:
       - NET_ADMIN
