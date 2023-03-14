@@ -2,13 +2,17 @@
 
 # Get the NAT type from environment variable (default to none)
 NAT_TYPE=${NAT_TYPE}
-echo "NAT TYPE: $NAT_TYPE"
 
 # Get the container IP address from hostname command
-CONTAINER_IP=$(hostname -i)
+#CONTAINER_IP=$(hostname -i)
+#CONTAINER_IP=$(ifconfig eth0 | grep "inet addr:" | cut -d : -f 2 | cut -d " " -f 1)
+CONTAINER_IP=$(/sbin/ip route|awk '/default/ { print $3 }')
+
+echo "NAT TYPE: $NAT_TYPE"
+echo "Container IP: $CONTAINER_IP"
 
 # Set up simulated latency
-sudo tc qdisc add dev eth0 root netem delay 100ms
+tc qdisc add dev eth0 root netem delay 100ms
 
 # Configure iptables rules based on NAT type
 
