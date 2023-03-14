@@ -18,20 +18,35 @@ services:
     build:
       context: ../
       dockerfile: ./docker/server/Dockerfile
-      args:
-        NAT_TYPE: "full_cone"
     networks:
       server_network:
         ipv4_address: 172.16.230.10
-    privileged: true
-    cap_add:
-      - NET_ADMIN
+    depends_on:
+      - nat_server
   nat_a:
     build:
       context: ../
       dockerfile: ./docker/nat/Dockerfile
       args:
         NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
+    networks:
+      nat_network_a:
+        ipv4_address: 172.16.238.254
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+  nat_server:
+    build:
+      context: ../
+      dockerfile: ./docker/nat/Dockerfile
+      args:
+        NAT_TYPE: "full_cone"
+    networks:
+      server_network:
+        ipv4_address: 172.16.230.254
+    privileged: true
+    cap_add:
+      - NET_ADMIN
 networks:
   server_network:
     driver: bridge

@@ -4,12 +4,14 @@
 NAT_TYPE=${NAT_TYPE}
 
 # Get the container IP address from hostname command
-#CONTAINER_IP=$(hostname -i)
-#CONTAINER_IP=$(ifconfig eth0 | grep "inet addr:" | cut -d : -f 2 | cut -d " " -f 1)
+CONTAINER_IP0=$(hostname -i)
+CONTAINER_IP1=$(ifconfig eth0 | grep "inet addr:" | cut -d : -f 2 | cut -d " " -f 1)
 CONTAINER_IP=$(/sbin/ip route|awk '/default/ { print $3 }')
 
 echo "NAT TYPE: $NAT_TYPE"
 echo "Container IP: $CONTAINER_IP"
+echo "Container IP0: $CONTAINER_IP0"
+echo "Container IP1: $CONTAINER_IP1"
 
 # Set up simulated latency
 tc qdisc add dev eth0 root netem delay 100ms
@@ -96,3 +98,6 @@ case $NAT_TYPE in
        echo "Address-restricted NAT translation for $CONTAINER_IP"
     ;;
 esac
+
+# Keep the container running
+tail -f /dev/null
