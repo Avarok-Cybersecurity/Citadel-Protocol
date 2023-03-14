@@ -2,7 +2,7 @@ version: '3.9'
 services:
   client_a:
     environment:
-      CITADEL_SERVER_ADDR: "172.16.240.10:25000"
+      CITADEL_SERVER_ADDR: "172.16.230.10:25000"
     build:
       context: ../
       dockerfile: ./docker/client/Dockerfile
@@ -14,7 +14,7 @@ services:
       - nat_a
   server:
     environment:
-      CITADEL_SERVER_ADDR: "172.16.240.10:25000"
+      CITADEL_SERVER_ADDR: "172.16.230.10:25000"
     build:
       context: ../
       dockerfile: ./docker/server/Dockerfile
@@ -22,7 +22,7 @@ services:
         NAT_TYPE: "full_cone"
     networks:
       server_network:
-        ipv4_address: 172.16.240.10
+        ipv4_address: 172.16.230.10
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -37,11 +37,11 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.240.0/24
-        - gateway: 172.16.240.1
+        - subnet: 172.16.230.0/16
+        - gateway: 172.16.230.1
   nat_network_a:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.238.0/24
+        - subnet: 172.16.238.0/16
         - gateway: 172.16.238.1
