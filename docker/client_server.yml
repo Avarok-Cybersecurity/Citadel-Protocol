@@ -37,11 +37,9 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.230.0/16
-        - gateway: 172.16.230.1
+        - subnet: 172.16.230.0/24
   nat_network_a:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.238.0/16
-        - gateway: 172.16.238.1
+        - subnet: 172.16.238.0/24
