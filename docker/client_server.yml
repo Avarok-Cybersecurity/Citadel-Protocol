@@ -10,7 +10,7 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
-    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping server"
+    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server"
   server:
     image: ubuntu:latest
     networks:
