@@ -1,5 +1,6 @@
 use citadel_proto::prelude::*;
 
+use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::re_imports::RustlsClientConfig;
 use futures::Future;
 use std::fmt::{Debug, Formatter};
@@ -97,8 +98,8 @@ impl NodeBuilder {
                     server_misc_settings,
                 )
                 .await?;
-                log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
-                let kernel_executor = KernelExecutor::new(
+
+                let args = KernelExecutorArguments {
                     rt,
                     hypernode_type,
                     account_manager,
@@ -107,8 +108,10 @@ impl NodeBuilder {
                     client_config,
                     kernel_executor_settings,
                     stun_servers,
-                )
-                .await?;
+                };
+
+                log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
+                let kernel_executor = KernelExecutor::new(args).await?;
                 log::trace!(target: "citadel", "[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             }),

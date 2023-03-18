@@ -31,3 +31,18 @@ networks:
     ipam:
       config:
         - subnet: 172.29.0.0/16
+  stun0:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  stun1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  stun2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16

@@ -5,20 +5,16 @@ use tokio::runtime::Handle;
 use tokio::task::LocalSet;
 
 use citadel_user::account_manager::AccountManager;
-use citadel_wire::hypernode_type::NodeType;
 
 use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::kernel_trait::NetKernel;
-use crate::kernel::{KernelExecutorSettings, RuntimeFuture};
-use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
+use crate::kernel::{KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture};
 use crate::proto::node::HdpServer;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::remote::NodeRemote;
-use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
-use std::sync::Arc;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -37,16 +33,17 @@ type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new(
-        rt: Handle,
-        hypernode_type: NodeType,
-        account_manager: AccountManager,
-        kernel: K,
-        underlying_proto: ServerUnderlyingProtocol,
-        client_config: Option<Arc<ClientConfig>>,
-        kernel_executor_settings: KernelExecutorSettings,
-        stun_servers: Option<Vec<String>>,
-    ) -> Result<Self, NetworkError> {
+    pub async fn new(args: KernelExecutorArguments<K>) -> Result<Self, NetworkError> {
+        let KernelExecutorArguments::<K> {
+            rt,
+            hypernode_type,
+            account_manager,
+            kernel,
+            underlying_proto,
+            client_config,
+            kernel_executor_settings,
+            stun_servers,
+        } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             tokio::sync::oneshot::channel();
