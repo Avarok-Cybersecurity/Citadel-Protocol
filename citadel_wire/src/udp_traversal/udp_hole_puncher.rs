@@ -1,6 +1,6 @@
 use crate::nat_identification::NatType;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use citadel_io::UdpSocket;
@@ -21,14 +21,14 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_millis(5000);
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
         conn: &'a NetworkEndpoint,
-        encrypted_config_container: EncryptedConfigContainer,
+        encrypted_config_container: HolePunchConfigContainer,
     ) -> Self {
         Self::new_timeout(conn, encrypted_config_container, DEFAULT_TIMEOUT)
     }
 
     pub fn new_timeout(
         conn: &'a NetworkEndpoint,
-        encrypted_config_container: EncryptedConfigContainer,
+        encrypted_config_container: HolePunchConfigContainer,
         timeout: Duration,
     ) -> Self {
         Self {
@@ -59,11 +59,12 @@ impl Future for UdpHolePuncher<'_> {
 )]
 async fn driver(
     conn: &NetworkEndpoint,
-    encrypted_config_container: EncryptedConfigContainer,
+    mut encrypted_config_container: HolePunchConfigContainer,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // create stream
     let stream = &(conn.initiate_subscription().await?);
-    let local_nat_type = &(NatType::identify()
+    let stun_servers = encrypted_config_container.take_stun_servers();
+    let local_nat_type = &(NatType::identify(stun_servers)
         .await
         .map_err(|err| anyhow::Error::msg(err.to_string()))?);
 
@@ -148,14 +149,14 @@ pub fn get_optimal_bind_socket(
 pub trait EndpointHolePunchExt {
     fn begin_udp_hole_punch(
         &self,
-        encrypted_config_container: EncryptedConfigContainer,
+        encrypted_config_container: HolePunchConfigContainer,
     ) -> UdpHolePuncher;
 }
 
 impl EndpointHolePunchExt for NetworkEndpoint {
     fn begin_udp_hole_punch(
         &self,
-        encrypted_config_container: EncryptedConfigContainer,
+        encrypted_config_container: HolePunchConfigContainer,
     ) -> UdpHolePuncher {
         UdpHolePuncher::new(self, encrypted_config_container)
     }

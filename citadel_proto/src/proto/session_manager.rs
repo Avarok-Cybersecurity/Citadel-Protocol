@@ -69,6 +69,7 @@ pub struct HdpSessionManagerInner {
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: Arc<rustls::ClientConfig>,
+    stun_servers: Option<Vec<String>>,
 }
 
 impl HdpSessionManager {
@@ -79,6 +80,7 @@ impl HdpSessionManager {
         account_manager: AccountManager,
         time_tracker: TimeTracker,
         client_config: Arc<rustls::ClientConfig>,
+        stun_servers: Option<Vec<String>>,
     ) -> Self {
         let incoming_cxn_count = 0;
         let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
@@ -97,6 +99,7 @@ impl HdpSessionManager {
             kernel_tx,
             time_tracker,
             client_config,
+            stun_servers,
         };
 
         Self::from(inner)
@@ -151,6 +154,7 @@ impl HdpSessionManager {
                 peer_only_connect_mode,
                 proposed_credentials,
                 peer_layer,
+                stun_servers,
             ) = {
                 let (
                     remote,
@@ -162,6 +166,7 @@ impl HdpSessionManager {
                     cnac,
                     proposed_credentials,
                     peer_layer,
+                    stun_servers,
                 ) = {
                     let (peer_addr, cnac, proposed_credentials) = {
                         match &init_mode {
@@ -209,6 +214,7 @@ impl HdpSessionManager {
                     let account_manager = this.account_manager.clone();
                     let tt = this.time_tracker;
                     let peer_layer = this.hypernode_peer_layer.clone();
+                    let stun_servers = this.stun_servers.clone();
 
                     if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
                         // Localhost is already trying to connect. However, it's possible that the entry has expired,
@@ -233,6 +239,7 @@ impl HdpSessionManager {
                         cnac,
                         proposed_credentials,
                         peer_layer,
+                        stun_servers,
                     )
                 };
 
@@ -260,6 +267,7 @@ impl HdpSessionManager {
                     peer_only_connect_mode,
                     proposed_credentials,
                     peer_layer,
+                    stun_servers,
                 )
             };
 
@@ -290,6 +298,7 @@ impl HdpSessionManager {
                 client_config: default_client_config.clone(),
                 hypernode_peer_layer: peer_layer,
                 client_only_settings: Some(client_only_settings),
+                stun_servers,
             };
 
             let (stopper, new_session) = HdpSession::new(session_init_params)?;
@@ -455,6 +464,7 @@ impl HdpSessionManager {
         let remote = this.server_remote.clone().unwrap();
         let client_config = this.client_config.clone();
         let peer_layer = this.hypernode_peer_layer.clone();
+        let stun_servers = this.stun_servers.clone();
 
         if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
             if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
@@ -488,6 +498,7 @@ impl HdpSessionManager {
             client_config,
             hypernode_peer_layer: peer_layer,
             client_only_settings: None,
+            stun_servers,
         };
 
         let (stopper, new_session) = HdpSession::new(session_init_params)?;

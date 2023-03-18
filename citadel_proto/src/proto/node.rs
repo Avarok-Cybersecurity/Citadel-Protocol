@@ -72,6 +72,7 @@ impl HdpServer {
         shutdown: tokio::sync::oneshot::Sender<()>,
         underlying_proto: ServerUnderlyingProtocol,
         client_config: Option<Arc<ClientConfig>>,
+        stun_servers: Option<Vec<String>>,
     ) -> io::Result<(
         NodeRemote,
         Pin<Box<dyn RuntimeFuture>>,
@@ -111,9 +112,12 @@ impl HdpServer {
             account_manager.clone(),
             time_tracker,
             client_config.clone(),
+            stun_servers.clone(),
         );
 
-        let nat_type = NatType::identify().await.map_err(|err| err.std())?;
+        let nat_type = NatType::identify(stun_servers)
+            .await
+            .map_err(|err| err.std())?;
 
         let inner = HdpServerInner {
             underlying_proto,

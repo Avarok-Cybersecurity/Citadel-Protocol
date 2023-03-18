@@ -1,62 +1,33 @@
-version: '3.9'
+version: '3'
 services:
   client_a:
-    environment:
-      CITADEL_SERVER_ADDR: "server:25000"
-    build:
-      context: ../
-      dockerfile: ./docker/client/Dockerfile
-    networks:
-      nat_network_a:
-        ipv4_address: 172.16.238.10
+    image: ubuntu:latest
     depends_on:
       - server
-      - nat_a
+    networks:
+      - frontend
+      - backend
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping server"
   server:
-    environment:
-      CITADEL_SERVER_ADDR: "server:25000"
-    build:
-      context: ../
-      dockerfile: ./docker/server/Dockerfile
+    image: ubuntu:latest
     networks:
-      server_network:
-        ipv4_address: 172.16.230.10
-    depends_on:
-      - nat_server
-  nat_a:
-    build:
-      context: ../
-      dockerfile: ./docker/nat/Dockerfile
-      args:
-        NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
-    networks:
-      nat_network_a:
-        ipv4_address: 172.16.238.254
-      server_network:
-    privileged: true
+      backend:
+        ipv4_address: 172.29.0.10
     cap_add:
       - NET_ADMIN
-  nat_server:
-    build:
-      context: ../
-      dockerfile: ./docker/nat/Dockerfile
-      args:
-        NAT_TYPE: "full_cone"
-    networks:
-      server_network:
-        ipv4_address: 172.16.230.254
-      nat_network_a:
     privileged: true
-    cap_add:
-      - NET_ADMIN
+    entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
 networks:
-  server_network:
+  frontend:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.230.0/24
-  nat_network_a:
+        - subnet: 172.28.0.0/16
+  backend:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.16.238.0/24
+        - subnet: 172.29.0.0/16

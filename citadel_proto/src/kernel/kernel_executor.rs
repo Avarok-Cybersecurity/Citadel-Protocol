@@ -45,6 +45,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         underlying_proto: ServerUnderlyingProtocol,
         client_config: Option<Arc<ClientConfig>>,
         kernel_executor_settings: KernelExecutorSettings,
+        stun_servers: Option<Vec<String>>,
     ) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
@@ -57,6 +58,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             server_shutdown_alerter_tx,
             underlying_proto,
             client_config,
+            stun_servers,
         )
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;
