@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn bad_config2() {
         assert!(NodeBuilder::default()
-            .with_stun_servers(&["dummy1", "dummy2"])
+            .with_stun_servers(["dummy1", "dummy2"])
             .build(EmptyKernel::default())
             .is_err());
     }
@@ -326,7 +326,7 @@ mod tests {
             .with_node_type(node_type)
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
-            .with_stun_servers(&["dummy1", "dummy1", "dummy3"])
+            .with_stun_servers(["dummy1", "dummy1", "dummy3"])
             .with_native_certs()
             .await
             .unwrap();
