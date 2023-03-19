@@ -418,7 +418,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 }
             }
 
-            _ => Err(anyhow::Error::msg("Unable to get both STUN addrs")),
+            _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
         }
     };
 

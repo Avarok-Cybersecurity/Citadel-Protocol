@@ -39,9 +39,12 @@ services:
       STUN_2_ADDR: "172.22.0.10:3468"
       RUST_LOG: "citadel=trace"
     depends_on:
-      - stun0
-      - stun1
-      - stun2
+      stun0:
+        condition: service_healthy
+      stun1:
+        condition: service_healthy
+      stun2:
+        condition: service_healthy
     networks:
       backend:
         ipv4_address: 172.29.0.10
@@ -60,7 +63,10 @@ services:
       coturn0:
         ipv4_address: 172.20.0.10
     healthcheck:
-      test: nc -vz -u 0.0.0.0 3478
+      test: [ "nc", "-vz", "-u", "0.0.0.0", "3478" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
   stun1:
     image: coturn/coturn:latest
     networks:
@@ -69,7 +75,10 @@ services:
       coturn1:
         ipv4_address: 172.21.0.10
     healthcheck:
-      test: nc -vz -u 0.0.0.0 3478
+      test: [ "nc", "-vz", "-u", "0.0.0.0", "3478" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
   stun2:
     image: coturn/coturn:latest
     networks:
@@ -78,7 +87,10 @@ services:
       coturn2:
         ipv4_address: 172.22.0.10
     healthcheck:
-      test: nc -vz -u 0.0.0.0 3478
+      test: [ "nc", "-vz", "-u", "0.0.0.0", "3478" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 networks:
   frontend:
     driver: bridge
