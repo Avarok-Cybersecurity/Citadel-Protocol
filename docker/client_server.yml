@@ -60,7 +60,7 @@ services:
       coturn0:
         ipv4_address: 172.20.0.10
     healthcheck:
-      test: nc -l -u -p 3478
+      test: nc -vz -u 0.0.0.0 3478
   stun1:
     image: coturn/coturn:latest
     networks:
@@ -69,7 +69,7 @@ services:
       coturn1:
         ipv4_address: 172.21.0.10
     healthcheck:
-      test: nc -l -u -p 3478
+      test: nc -vz -u 0.0.0.0 3478
   stun2:
     image: coturn/coturn:latest
     networks:
@@ -78,7 +78,7 @@ services:
       coturn2:
         ipv4_address: 172.22.0.10
     healthcheck:
-      test: nc -l -u -p 3478
+      test: nc -vz -u 0.0.0.0 3478
 networks:
   frontend:
     driver: bridge
