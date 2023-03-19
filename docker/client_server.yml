@@ -2,24 +2,60 @@ version: '3'
 services:
   client_a:
     image: ubuntu:latest
+    environment:
+      CITADEL_SERVER_ADDR: "server:25000"
+      STUN_0_ADDR: "stun0:3478"
+      STUN_1_ADDR: "stun1:3478"
+      STUN_2_ADDR: "stun2:3478"
+      RUST_LOG: "citadel=trace"
     depends_on:
       - server
     networks:
       - frontend
       - backend
+      - coturn0
+      - coturn1
+      - coturn2
     cap_add:
       - NET_ADMIN
     privileged: true
-    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server"
+    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
   server:
     image: ubuntu:latest
+    environment:
+      CITADEL_SERVER_ADDR: "server:25000"
+      STUN_0_ADDR: "stun0:3478"
+      STUN_1_ADDR: "stun1:3478"
+      STUN_2_ADDR: "stun2:3468"
+      RUST_LOG: "citadel=trace"
     networks:
       backend:
         ipv4_address: 172.29.0.10
+      coturn0:
+      coturn1:
+      coturn2:
     cap_add:
       - NET_ADMIN
     privileged: true
     entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
+  stun0:
+    image: coturn/coturn:latest
+    networks:
+      frontend:
+      backend:
+      coturn0:
+  stun1:
+    image: coturn/coturn:latest
+    networks:
+      frontend:
+      backend:
+      coturn1:
+  stun2:
+    image: coturn/coturn:latest
+    networks:
+      frontend:
+      backend:
+      coturn2:
 networks:
   frontend:
     driver: bridge
@@ -31,17 +67,17 @@ networks:
     ipam:
       config:
         - subnet: 172.29.0.0/16
-  stun0:
+  coturn0:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.0.0/16
-  stun1:
+  coturn1:
     driver: bridge
     ipam:
       config:
         - subnet: 172.21.0.0/16
-  stun2:
+  coturn2:
     driver: bridge
     ipam:
       config:
