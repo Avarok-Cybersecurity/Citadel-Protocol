@@ -94,6 +94,3 @@ case $NAT_TYPE in
        echo "Address-restricted NAT translation for $CONTAINER_IP"
     ;;
 esac
-
-# Keep the container running
-tail -f /dev/null

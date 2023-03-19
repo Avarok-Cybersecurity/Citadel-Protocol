@@ -1,7 +1,12 @@
 version: '3'
 services:
   client_a:
-    image: ubuntu:latest
+#    image: ubuntu:latest
+    build:
+      context: ../
+      dockerfile: ./docker/client/Dockerfile
+      args:
+        NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
     environment:
       CITADEL_SERVER_ADDR: "server:25000"
       STUN_0_ADDR: "stun0:3478"
@@ -19,9 +24,14 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
-    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
+ #   command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
   server:
-    image: ubuntu:latest
+#    image: ubuntu:latest
+    build:
+      context: ../
+      dockerfile: ./docker/server/Dockerfile
+      args:
+        NAT_TYPE: "full_cone"
     environment:
       CITADEL_SERVER_ADDR: "server:25000"
       STUN_0_ADDR: "stun0:3478"
@@ -37,7 +47,7 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
-    entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
+#    entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
   stun0:
     image: coturn/coturn:latest
     networks:
