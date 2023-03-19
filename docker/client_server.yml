@@ -63,7 +63,7 @@ services:
       coturn0:
         ipv4_address: 172.20.0.10
     healthcheck:
-      test: [ "nc", "-vz", "-u", "0.0.0.0", "3478" ]
+      test: [ "CMD", "nc", "-vz", "-u", "0.0.0.0", "3478" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -75,7 +75,7 @@ services:
       coturn1:
         ipv4_address: 172.21.0.10
     healthcheck:
-      test: [ "nc", "-vz", "-u", "0.0.0.0", "3478" ]
+      test: [ "CMD", "nc", "-vz", "-u", "0.0.0.0", "3478" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -87,7 +87,7 @@ services:
       coturn2:
         ipv4_address: 172.22.0.10
     healthcheck:
-      test: [ "nc", "-vz", "-u", "0.0.0.0", "3478" ]
+      test: [ "CMD", "nc", "-vz", "-u", "0.0.0.0", "3478" ]
       interval: 30s
       timeout: 10s
       retries: 5
