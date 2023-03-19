@@ -8,10 +8,10 @@ services:
       args:
         NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
     environment:
-      CITADEL_SERVER_ADDR: "server:25000"
-      STUN_0_ADDR: "stun0:3478"
-      STUN_1_ADDR: "stun1:3478"
-      STUN_2_ADDR: "stun2:3478"
+      CITADEL_SERVER_ADDR: "172.29.0.10:25000"
+      STUN_0_ADDR: "172.20.0.10:3478"
+      STUN_1_ADDR: "172.21.0.10:3478"
+      STUN_2_ADDR: "172.22.0.10:3478"
       RUST_LOG: "citadel=trace"
     depends_on:
       - server
@@ -33,10 +33,10 @@ services:
       args:
         NAT_TYPE: "full_cone"
     environment:
-      CITADEL_SERVER_ADDR: "server:25000"
-      STUN_0_ADDR: "stun0:3478"
-      STUN_1_ADDR: "stun1:3478"
-      STUN_2_ADDR: "stun2:3468"
+      CITADEL_SERVER_ADDR: "172.29.0.10:25000"
+      STUN_0_ADDR: "172.20.0.10:3478"
+      STUN_1_ADDR: "172.21.0.10:3478"
+      STUN_2_ADDR: "172.22.0.10:3468"
       RUST_LOG: "citadel=trace"
     networks:
       backend:
@@ -54,18 +54,21 @@ services:
       frontend:
       backend:
       coturn0:
+        ipv4_address: 172.20.0.10
   stun1:
     image: coturn/coturn:latest
     networks:
       frontend:
       backend:
       coturn1:
+        ipv4_address: 172.21.0.10
   stun2:
     image: coturn/coturn:latest
     networks:
       frontend:
       backend:
       coturn2:
+        ipv4_address: 172.22.0.10
 networks:
   frontend:
     driver: bridge
