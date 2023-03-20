@@ -36,7 +36,7 @@ services:
       CITADEL_SERVER_ADDR: "172.29.0.10:25000"
       STUN_0_ADDR: "172.20.0.10:3478"
       STUN_1_ADDR: "172.21.0.10:3478"
-      STUN_2_ADDR: "172.22.0.10:3468"
+      STUN_2_ADDR: "172.22.0.10:3478"
       RUST_LOG: "citadel=trace"
     depends_on:
       - stun0
