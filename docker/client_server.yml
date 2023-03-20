@@ -24,7 +24,7 @@ services:
     cap_add:
       - NET_ADMIN
     privileged: true
- #   command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
+#    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
   server:
 #    image: ubuntu:latest
     build:
@@ -39,12 +39,9 @@ services:
       STUN_2_ADDR: "172.22.0.10:3468"
       RUST_LOG: "citadel=trace"
     depends_on:
-      stun0:
-        condition: service_healthy
-      stun1:
-        condition: service_healthy
-      stun2:
-        condition: service_healthy
+      - stun0
+      - stun1
+      - stun2
     networks:
       backend:
         ipv4_address: 172.29.0.10
@@ -56,41 +53,26 @@ services:
     privileged: true
 #    entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
   stun0:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.6.1-debian
     networks:
       frontend:
       backend:
       coturn0:
         ipv4_address: 172.20.0.10
-    healthcheck:
-      test: [ "CMD", "nc", "-vz", "-u", "0.0.0.0", "3478" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
   stun1:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.6.1-debian
     networks:
       frontend:
       backend:
       coturn1:
         ipv4_address: 172.21.0.10
-    healthcheck:
-      test: [ "CMD", "nc", "-vz", "-u", "0.0.0.0", "3478" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
   stun2:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.6.1-debian
     networks:
       frontend:
       backend:
       coturn2:
         ipv4_address: 172.22.0.10
-    healthcheck:
-      test: [ "CMD", "nc", "-vz", "-u", "0.0.0.0", "3478" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
 networks:
   frontend:
     driver: bridge
