@@ -51,7 +51,7 @@ tokio = { version = "1.24", default-features = false, features = ["rt"] }
 citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
 dirs2 = "3.0.1"
 citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
-rstest = "0.16.0"
+rstest = "0.17.0"
 serde = { version = "1.0.152", features = ["derive"] }
 rand = "0.8.5"
 
