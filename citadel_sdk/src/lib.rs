@@ -35,6 +35,7 @@
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
 //! - AES-256-GCM-SIV
 //! - XChacha20Poly-1305
+//! - Ascon-80pq
 //! - Kyber "scramcryption" (see below for explanation)
 //!
 //! Whereas AES-GCM and ChaCha are only quantum resistant (as opposed to post-quantum), a novel method of encryption may be used that
