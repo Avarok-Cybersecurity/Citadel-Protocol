@@ -1,0 +1,101 @@
+version: '3'
+services:
+  client_a:
+#    image: ubuntu:latest
+    build:
+      context: ../
+      dockerfile: ./docker/client/Dockerfile
+      args:
+        NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
+    environment:
+      CITADEL_SERVER_ADDR: "172.29.0.10:25000"
+      STUN_0_ADDR: "172.20.0.10:3478"
+      STUN_1_ADDR: "172.21.0.10:3478"
+      STUN_2_ADDR: "172.22.0.10:3478"
+      RUST_LOG: "citadel=trace"
+    depends_on:
+      - server
+    networks:
+      - frontend
+      - backend
+      - coturn0
+      - coturn1
+      - coturn2
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+#    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
+  server:
+#    image: ubuntu:latest
+    build:
+      context: ../
+      dockerfile: ./docker/server/Dockerfile
+      args:
+        NAT_TYPE: "full_cone"
+    environment:
+      CITADEL_SERVER_ADDR: "172.29.0.10:25000"
+      STUN_0_ADDR: "172.20.0.10:3478"
+      STUN_1_ADDR: "172.21.0.10:3478"
+      STUN_2_ADDR: "172.22.0.10:3478"
+      RUST_LOG: "citadel=trace"
+    depends_on:
+      - stun0
+      - stun1
+      - stun2
+    networks:
+      backend:
+        ipv4_address: 172.29.0.10
+      coturn0:
+      coturn1:
+      coturn2:
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+#    entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
+  stun0:
+    image: coturn/coturn:4.6.1-debian
+    networks:
+      frontend:
+      backend:
+      coturn0:
+        ipv4_address: 172.20.0.10
+  stun1:
+    image: coturn/coturn:4.6.1-debian
+    networks:
+      frontend:
+      backend:
+      coturn1:
+        ipv4_address: 172.21.0.10
+  stun2:
+    image: coturn/coturn:4.6.1-debian
+    networks:
+      frontend:
+      backend:
+      coturn2:
+        ipv4_address: 172.22.0.10
+networks:
+  frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+  coturn0:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  coturn1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  coturn2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16

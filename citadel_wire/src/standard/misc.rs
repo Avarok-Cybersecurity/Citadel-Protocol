@@ -1,4 +1,4 @@
-use openssl::pkcs12::ParsedPkcs12;
+use openssl::pkcs12::ParsedPkcs12_2 as ParsedPkcs12;
 use openssl::pkey::{PKey, Private};
 use openssl::stack::Stack;
 use openssl::x509::X509;
@@ -20,8 +20,12 @@ pub fn pkcs12_to_components(
     password: &str,
 ) -> Result<Pkcs12Decomposed, anyhow::Error> {
     let openssl_pkcs12 = openssl::pkcs12::Pkcs12::from_der(pkcs12_der)?;
-    let ParsedPkcs12 { chain, cert, pkey } = openssl_pkcs12.parse(password)?;
-    Ok((chain, cert, pkey))
+    let ParsedPkcs12 { ca, cert, pkey } = openssl_pkcs12.parse2(password)?;
+    Ok((
+        ca,
+        cert.ok_or_else(|| anyhow::Error::msg("Certificate missing from Pkcs12"))?,
+        pkey.ok_or_else(|| anyhow::Error::msg("Private key missing from Pkcs12"))?,
+    ))
 }
 
 pub fn pkcs12_to_quinn_keys(

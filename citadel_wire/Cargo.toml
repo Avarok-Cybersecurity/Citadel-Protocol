@@ -54,7 +54,7 @@ socket2 = { version = "0.5.1", features = ["all"] }
 rustls-native-certs = "0.6.2"
 igd = { version = "^0.12.0", features = ["aio"] }
 quinn = { version = "0.9.3", default-features = false, features = ["rustls"] }
-openssl = { version = "0.10.45", default-features = false, features = ["vendored"] }
+openssl = { version = "0.10.46", default-features = false, features = ["vendored"] }
 stun = { default-features = false, version = "0.4.4" }
 rcgen = { default-features = false, version = "0.10.0" }
 rustls = { version = "0.20.7", features = ["quic", "dangerous_configuration"] }

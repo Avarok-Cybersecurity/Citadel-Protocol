@@ -20,7 +20,7 @@ use crate::proto::session::HdpSession;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
-use citadel_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
@@ -281,7 +281,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
     channel_signal: NodeResult,
     sync_time: Instant,
     ref app: NetworkEndpoint,
-    encrypted_config_container: EncryptedConfigContainer,
+    encrypted_config_container: HolePunchConfigContainer,
     client_config: Arc<rustls::ClientConfig>,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
