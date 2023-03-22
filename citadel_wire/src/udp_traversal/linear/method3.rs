@@ -8,7 +8,7 @@ use tokio::time::Duration;
 
 use crate::error::FirewallError;
 use crate::socket_helpers::ensure_ipv6;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use crate::udp_traversal::HolePunchID;
 use citadel_io::Mutex;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
 pub struct Method3 {
     this_node_type: RelativeNodeType,
-    encrypted_config: EncryptedConfigContainer,
+    encrypted_config: HolePunchConfigContainer,
     unique_id: HolePunchID,
     // in the case the adjacent node for id=key succeeds, yet, this node fails, recovery mode can ensue
     observed_addrs_on_syn: Mutex<HashMap<HolePunchID, TargettedSocketAddr>>,
@@ -36,7 +36,7 @@ impl Method3 {
     /// Make sure to complete the pre-process stage before calling this
     pub fn new(
         this_node_type: RelativeNodeType,
-        encrypted_config: EncryptedConfigContainer,
+        encrypted_config: HolePunchConfigContainer,
         unique_id: HolePunchID,
     ) -> Self {
         Self {
@@ -212,7 +212,7 @@ impl Method3 {
     // Handles the reception of packets, as well as sending/awaiting for a verification
     async fn recv_until(
         socket: &UdpWrapper<'_>,
-        encryptor: &EncryptedConfigContainer,
+        encryptor: &HolePunchConfigContainer,
         _unique_id: &HolePunchID,
         observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>,
         _millis_delta: u64,
@@ -383,7 +383,7 @@ struct SendPacketBarrageParams<'a> {
     delta_ttl: Option<u32>,
     socket: &'a UdpWrapper<'a>,
     endpoints: &'a Vec<SocketAddr>,
-    encryptor: &'a EncryptedConfigContainer,
+    encryptor: &'a HolePunchConfigContainer,
     millis_delta: u64,
     count: u32,
     unique_id: HolePunchID,

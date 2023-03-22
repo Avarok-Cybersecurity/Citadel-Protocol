@@ -6,7 +6,7 @@ use igd::PortMappingProtocol;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::method3::Method3;
 use crate::udp_traversal::targetted_udp_socket_addr::{HolePunchedUdpSocket, TargettedSocketAddr};
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
@@ -43,7 +43,7 @@ pub struct SingleUDPHolePuncher {
 impl SingleUDPHolePuncher {
     pub fn new(
         relative_node_type: RelativeNodeType,
-        encrypted_config_container: EncryptedConfigContainer,
+        encrypted_config_container: HolePunchConfigContainer,
         local_socket: UdpSocket,
         peer_addrs_to_ping: Vec<SocketAddr>,
     ) -> Result<Self, anyhow::Error> {
