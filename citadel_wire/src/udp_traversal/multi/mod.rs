@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
 use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
@@ -43,7 +43,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
     )]
     pub fn new(
         relative_node_type: RelativeNodeType,
-        encrypted_config_container: EncryptedConfigContainer,
+        encrypted_config_container: HolePunchConfigContainer,
         mut hole_punch_config: HolePunchConfig,
         napp: &'a NetworkEndpoint,
     ) -> Result<Self, anyhow::Error> {

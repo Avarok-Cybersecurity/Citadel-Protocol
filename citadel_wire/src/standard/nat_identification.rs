@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
+
 use crate::error::FirewallError;
 use crate::socket_helpers::is_ipv6_enabled;
 use async_ip::IpAddressInfo;
@@ -6,6 +7,7 @@ use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::pin::Pin;
@@ -17,7 +19,6 @@ use stun::client::ClientBuilder;
 use stun::message::{Getter, Message, BINDING_REQUEST};
 use stun::xoraddr::XorMappedAddress;
 
-// TODO: Make stun servers configurable
 const STUN_SERVERS: [&str; 3] = [
     "global.stun.twilio.com:3478",
     "stun1.l.google.com:19302",
@@ -70,12 +71,15 @@ impl NatType {
         feature = "localhost-testing",
         tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn identify() -> Result<Self, FirewallError> {
-        Self::identify_timeout(IDENTIFY_TIMEOUT).await
+    pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
+        Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await
     }
 
     /// Identifies the NAT which the local node is behind
-    pub async fn identify_timeout(_timeout: Duration) -> Result<Self, FirewallError> {
+    pub async fn identify_timeout(
+        _timeout: Duration,
+        stun_servers: Option<Vec<String>>,
+    ) -> Result<Self, FirewallError> {
         /*
         #[cfg(feature = "localhost-testing-loopback-only")]
         {
@@ -85,7 +89,7 @@ impl NatType {
                 return Ok(nat_type);
             }
         }*/
-        match tokio::time::timeout(_timeout, get_nat_type()).await {
+        match tokio::time::timeout(_timeout, get_nat_type(stun_servers)).await {
             Ok(res) => res
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))
                 .map(|nat_type| {
@@ -249,7 +253,13 @@ where
     feature = "localhost-testing",
     tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
 )]
-async fn get_nat_type() -> Result<NatType, anyhow::Error> {
+async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyhow::Error> {
+    let stun_servers = if let Some(stun_servers) = &stun_servers {
+        Cow::Owned(stun_servers.iter().map(|r| r.as_str()).collect())
+    } else {
+        Cow::Borrowed(&STUN_SERVERS as &[&str])
+    };
+
     let nat_type = async move {
         let mut msg = Message::new();
         msg.build(&[
@@ -261,7 +271,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
         let futures_unordered = FuturesUnordered::new();
 
-        for server in STUN_SERVERS.iter() {
+        for server in stun_servers.iter() {
             let task = async move {
                 let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
                 let new_bind_addr = udp_sck.local_addr()?;
@@ -408,7 +418,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                 }
             }
 
-            _ => Err(anyhow::Error::msg("Unable to get both STUN addrs")),
+            _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
         }
     };
 
@@ -439,7 +449,7 @@ mod tests {
     #[tokio::test]
     async fn test_identify() {
         citadel_logging::setup_log();
-        let nat_type = NatType::identify().await.unwrap();
+        let nat_type = NatType::identify(None).await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         log::trace!(target: "citadel", "NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario", nat_type, traversal_type);
     }

@@ -1,5 +1,5 @@
 use citadel_crypt::stacked_ratchet::StackedRatchet;
-use citadel_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use netbeam::sync::RelativeNodeType;
 
@@ -248,11 +248,13 @@ pub async fn process_preconnect(
                     .await
                     .map_err(|err| NetworkError::Generic(err.to_string()))?);
                 log::trace!(target: "citadel", "Initiator created");
+                let stun_servers = session.stun_servers.clone();
                 let res = conn
                     .begin_udp_hole_punch(generate_hole_punch_crypt_container(
                         new_hyper_ratchet.clone(),
                         SecurityLevel::Standard,
                         C2S_ENCRYPTION_ONLY,
+                        stun_servers,
                     ))
                     .await;
 
@@ -350,12 +352,13 @@ pub async fn process_preconnect(
                     .await
                     .map_err(|err| NetworkError::Generic(err.to_string()))?);
                 log::trace!(target: "citadel", "Receiver created");
-
+                let stun_servers = session.stun_servers.clone();
                 let res = conn
                     .begin_udp_hole_punch(generate_hole_punch_crypt_container(
                         hyper_ratchet.clone(),
                         SecurityLevel::Standard,
                         C2S_ENCRYPTION_ONLY,
+                        stun_servers,
                     ))
                     .await;
 
@@ -614,10 +617,11 @@ pub(crate) fn generate_hole_punch_crypt_container(
     hyper_ratchet: StackedRatchet,
     security_level: SecurityLevel,
     target_cid: u64,
-) -> EncryptedConfigContainer {
+    stun_servers: Option<Vec<String>>,
+) -> HolePunchConfigContainer {
     let hyper_ratchet_cloned = hyper_ratchet.clone();
 
-    EncryptedConfigContainer::new(
+    HolePunchConfigContainer::new(
         move |plaintext| {
             packet_crafter::hole_punch::generate_packet(
                 &hyper_ratchet,
@@ -633,6 +637,7 @@ pub(crate) fn generate_hole_punch_crypt_container(
                 security_level,
             )
         },
+        stun_servers,
     )
 }
 

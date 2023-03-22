@@ -1,7 +1,13 @@
+use citadel_user::account_manager::AccountManager;
+use citadel_wire::exports::ClientConfig;
+use citadel_wire::hypernode_type::NodeType;
+use std::sync::Arc;
 use tokio::macros::support::Future;
+use tokio::runtime::Handle;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
+use crate::prelude::ServerUnderlyingProtocol;
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;
@@ -27,4 +33,15 @@ impl KernelExecutorSettings {
         self.max_concurrency = max_concurrency.into();
         self
     }
+}
+
+pub struct KernelExecutorArguments<K> {
+    pub rt: Handle,
+    pub hypernode_type: NodeType,
+    pub account_manager: AccountManager,
+    pub kernel: K,
+    pub underlying_proto: ServerUnderlyingProtocol,
+    pub client_config: Option<Arc<ClientConfig>>,
+    pub kernel_executor_settings: KernelExecutorSettings,
+    pub stun_servers: Option<Vec<String>>,
 }
