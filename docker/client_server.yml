@@ -1,7 +1,6 @@
 version: '3'
 services:
   client_a:
-#    image: ubuntu:latest
     build:
       context: ../
       dockerfile: ./docker/client/Dockerfile
@@ -18,12 +17,9 @@ services:
     networks:
       frontend:
     cap_add:
-      - NET_ADMIN
-      - NET_RAW
+      - ALL
     privileged: true
-#    command: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ping -c 3 server; ping -c 3 stun0"
   server:
-#    image: ubuntu:latest
     build:
       context: ../
       dockerfile: ./docker/server/Dockerfile
@@ -43,10 +39,8 @@ services:
       frontend:
         ipv4_address: 172.28.0.100
     cap_add:
-      - NET_ADMIN
-      - NET_RAW
+      - ALL
     privileged: true
-#    entrypoint: sh -c "apt-get update && apt-get install -y iptables inetutils-ping; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; iptables -A FORWARD -j ACCEPT; iptables -t nat -A PREROUTING -i eth1 -j REDIRECT; sleep infinity"
   stun0:
     image: coturn/coturn:4.6.1-debian
     networks:
