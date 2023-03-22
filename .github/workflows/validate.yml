@@ -174,7 +174,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
   docker_nat_client_server:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v3
