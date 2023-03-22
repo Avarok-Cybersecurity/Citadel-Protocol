@@ -481,11 +481,13 @@ pub async fn process_peer_cmd(
                                             .outgoing_peer_connect_attempts
                                             .remove(&peer_cid);
                                         std::mem::drop(state_container);
+                                        let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
                                                 endpoint_hyper_ratchet,
                                                 SecurityLevel::Standard,
                                                 peer_cid,
+                                                stun_servers,
                                             );
 
                                         // we need to use the session pqc since this signal needs to get processed by the center node
@@ -652,11 +654,13 @@ pub async fn process_peer_cmd(
                                         )
                                         .await
                                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                        let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
                                                 endpoint_hyper_ratchet,
                                                 SecurityLevel::Standard,
                                                 peer_cid,
+                                                stun_servers,
                                             );
                                         let diff = Duration::from_nanos(i64::abs(
                                             timestamp - *sync_time_ns,

@@ -1,5 +1,6 @@
 use citadel_proto::prelude::*;
 
+use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::re_imports::RustlsClientConfig;
 use futures::Future;
 use std::fmt::{Debug, Formatter};
@@ -21,6 +22,7 @@ pub struct NodeBuilder {
     server_misc_settings: Option<ServerMiscSettings>,
     client_tls_config: Option<RustlsClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
+    stun_servers: Option<Vec<String>>,
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
@@ -72,6 +74,7 @@ impl NodeBuilder {
         let server_misc_settings = self.server_misc_settings.take();
         let client_config = self.client_tls_config.take().map(Arc::new);
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
+        let stun_servers = self.stun_servers.take();
 
         let underlying_proto = if let Some(proto) = self.underlying_protocol.take() {
             proto
@@ -95,8 +98,8 @@ impl NodeBuilder {
                     server_misc_settings,
                 )
                 .await?;
-                log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
-                let kernel_executor = KernelExecutor::new(
+
+                let args = KernelExecutorArguments {
                     rt,
                     hypernode_type,
                     account_manager,
@@ -104,8 +107,11 @@ impl NodeBuilder {
                     underlying_proto,
                     client_config,
                     kernel_executor_settings,
-                )
-                .await?;
+                    stun_servers,
+                };
+
+                log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
+                let kernel_executor = KernelExecutor::new(args).await?;
                 log::trace!(target: "citadel", "[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             }),
@@ -239,12 +245,26 @@ impl NodeBuilder {
         Ok(self)
     }
 
+    /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
+    pub fn with_stun_servers<T: Into<String>, R: Into<Vec<T>>>(&mut self, servers: R) -> &mut Self {
+        self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
+        self
+    }
+
     fn check(&self) -> anyhow::Result<()> {
         #[cfg(feature = "google-services")]
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
                 return Err(anyhow::Error::msg(
                     "Google realtime database is enabled, yet, a services path is not provided",
+                ));
+            }
+        }
+
+        if let Some(stun_servers) = self.stun_servers.as_ref() {
+            if stun_servers.len() != 3 {
+                return Err(anyhow::Error::msg(
+                    "There must be exactly 3 specified STUN servers",
                 ));
             }
         }
@@ -281,6 +301,14 @@ mod tests {
             .is_err());
     }
 
+    #[test]
+    fn bad_config2() {
+        assert!(NodeBuilder::default()
+            .with_stun_servers(["dummy1", "dummy2"])
+            .build(EmptyKernel::default())
+            .is_err());
+    }
+
     #[rstest]
     #[tokio::test]
     #[timeout(std::time::Duration::from_secs(60))]
@@ -301,6 +329,7 @@ mod tests {
             .with_node_type(node_type)
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
+            .with_stun_servers(["dummy1", "dummy1", "dummy3"])
             .with_native_certs()
             .await
             .unwrap();
