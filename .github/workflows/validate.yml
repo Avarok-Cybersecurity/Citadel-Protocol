@@ -176,6 +176,8 @@ jobs:
   docker_nat_client_server:
     runs-on: windows-latest
     timeout-minutes: 80
+    env:
+      NAT_TYPE_CLIENT_A: "full_cone"
     steps:
       - uses: actions/checkout@v3
-      - run: NAT_TYPE_CLIENT_A="full_cone" docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
+      - run: docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
