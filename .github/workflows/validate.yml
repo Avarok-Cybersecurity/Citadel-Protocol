@@ -178,4 +178,6 @@ jobs:
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v3
+      - uses: docker-practice/actions-setup-docker@master
+        timeout-minutes: 12
       - run: NAT_TYPE_CLIENT_A="full_cone" docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
