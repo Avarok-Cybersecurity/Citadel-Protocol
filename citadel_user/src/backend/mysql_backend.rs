@@ -69,7 +69,7 @@ impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
         }
 
         if let Some(connect_timeout) = this.connect_timeout {
-            ret = ret.connect_timeout(connect_timeout as _);
+            ret = ret.acquire_timeout(connect_timeout);
         }
 
         ret = ret.idle_timeout(this.idle_timeout);
