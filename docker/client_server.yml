@@ -4,14 +4,14 @@ services:
     build:
       context: ../
       dockerfile: ./docker/client/Dockerfile
-      args:
-        NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
     environment:
       CITADEL_SERVER_ADDR: "172.28.0.100:25000"
       STUN_0_ADDR: "172.28.0.10:3478"
       STUN_1_ADDR: "172.28.0.11:3478"
       STUN_2_ADDR: "172.28.0.12:3478"
       RUST_LOG: "citadel=trace"
+      NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
+    entrypoint: ./set_nat.sh && client
     depends_on:
       - server
     networks:
@@ -23,14 +23,14 @@ services:
     build:
       context: ../
       dockerfile: ./docker/server/Dockerfile
-      args:
-        NAT_TYPE: "full_cone"
     environment:
       CITADEL_SERVER_ADDR: "172.28.0.100:25000"
       STUN_0_ADDR: "172.28.0.10:3478"
       STUN_1_ADDR: "172.28.0.11:3478"
       STUN_2_ADDR: "172.28.0.12:3478"
       RUST_LOG: "citadel=trace"
+      NAT_TYPE: "full_cone"
+    entrypoint: ./set_nat.sh && server
     depends_on:
       - stun0
       - stun1
