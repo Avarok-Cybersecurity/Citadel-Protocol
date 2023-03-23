@@ -141,7 +141,7 @@ impl HolePunchConfig {
                     log::trace!(target: "citadel", "Simulating peer has port preserved config");
                     // pretend the peer NAT has a PortPreserved config
                     let direct_addr = _addr.clone().ok_or_else(||anyhow::Error::msg("unable to simulate PortPreserved config"))?;
-                    let simulated_peer_nat = NatType::PortPreserved(direct_addr.internal_ipv4, Some(direct_addr), *_is_v6_allowed);
+                    let simulated_peer_nat = NatType::PortPreserved(direct_addr.internal_ip, Some(direct_addr), *_is_v6_allowed);
                     Self::new(local_nat_info, &simulated_peer_nat, first_local_socket, peer_declared_internal_port)
                 } else {
                     Ok(Self {
@@ -273,20 +273,13 @@ impl HolePunchConfig {
         if let Some(other_addrs) = other_addrs {
             let anticipated_ports = vec![peer_declared_internal_port];
 
-            if other_addrs.internal_ipv4 != last_external_addr {
+            if other_addrs.internal_ip != last_external_addr {
                 bands.push(AddrBand {
-                    necessary_ip: other_addrs.internal_ipv4,
+                    necessary_ip: other_addrs.internal_ip,
                     // note: Here, we don't use the external ports above. We use the internal one
                     // declared by the peer (note: this means the peer must deterministically generate this
                     // prior to sending its information here. This means it must first bind to a new UDP socket
                     // before sending over its information)
-                    anticipated_ports: anticipated_ports.clone(),
-                });
-            }
-
-            if other_addrs.external_ipv4 != last_external_addr {
-                bands.push(AddrBand {
-                    necessary_ip: other_addrs.external_ipv4,
                     anticipated_ports: anticipated_ports.clone(),
                 });
             }
@@ -357,8 +350,7 @@ mod tests {
         let dummy_ip3_err = IpAddr::from_str("100.100.200.103").unwrap();
 
         let ip_addr_info_dummy = Some(IpAddressInfo {
-            internal_ipv4: IpAddr::from([0, 0, 0, 0]),
-            external_ipv4: IpAddr::from([127, 0, 0, 0]),
+            internal_ip: IpAddr::from([0, 0, 0, 0]),
             external_ipv6: None,
         });
 
