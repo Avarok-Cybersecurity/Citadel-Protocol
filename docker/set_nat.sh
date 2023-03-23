@@ -70,7 +70,7 @@ case $NAT_TYPE in
       iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 
       # Add DNAT rule for incoming packets with matching source port
-      iptables -t nat -A PREROUTING -i eth0 -m state --state ESTABLISHED,RELATED -j DNAT--to-destination $CONTAINER_IP
+      iptables -t nat -A PREROUTING -i eth0 -m state --state ESTABLISHED,RELATED -j DNAT --to-destination $CONTAINER_IP
 
       echo "Port-restricted NAT translation for $CONTAINER_IP"
    ;;
@@ -89,7 +89,7 @@ case $NAT_TYPE in
        iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 
        # Add DNAT rule for incoming packets with matching source address
-       iptables -t nat -A PREROUTING -i eth0 -m state --state ESTABLISHED,RELATED-j DNAT--to-destination $CONTAINER_IP
+       iptables -t nat -A PREROUTING -i eth0 -m state --state ESTABLISHED,RELATED -j DNAT--to-destination $CONTAINER_IP
 
        echo "Address-restricted NAT translation for $CONTAINER_IP"
     ;;

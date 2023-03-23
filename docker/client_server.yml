@@ -18,6 +18,7 @@ services:
       frontend:
     dns:
       - 8.8.8.8
+      - 8.8.4.4
     cap_add:
       - ALL
     privileged: true
@@ -42,6 +43,7 @@ services:
         ipv4_address: 172.28.0.100
     dns:
       - 8.8.8.8
+      - 8.8.4.4
     cap_add:
       - ALL
     privileged: true
