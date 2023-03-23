@@ -175,12 +175,13 @@ jobs:
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
   docker_nat_client_server:
     runs-on: ubuntu-latest
-    matrix:
-        nat_type_client_a:
-            - "full_cone"
-            - "address_restricted"
-            - "port_restricted"
-            - "symmetric"
+    strategy:
+      matrix:
+          nat_type_client_a:
+              - "full_cone"
+              - "address_restricted"
+              - "port_restricted"
+              - "symmetric"
     timeout-minutes: 80
     env:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
