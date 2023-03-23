@@ -178,7 +178,7 @@ jobs:
     matrix:
         nat_type_client_a:
             - "full_cone"
-            - "restricted"
+            - "address_restricted"
             - "port_restricted"
             - "symmetric"
     timeout-minutes: 80
