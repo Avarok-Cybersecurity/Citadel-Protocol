@@ -11,7 +11,7 @@ services:
       STUN_2_ADDR: "172.28.0.12:3478"
       RUST_LOG: "citadel=trace"
       NAT_TYPE: ${NAT_TYPE_CLIENT_A:?err}
-    entrypoint: ./set_nat.sh && client
+    entrypoint: ./set_nat.sh; client
     depends_on:
       - server
     networks:
@@ -30,7 +30,7 @@ services:
       STUN_2_ADDR: "172.28.0.12:3478"
       RUST_LOG: "citadel=trace"
       NAT_TYPE: "full_cone"
-    entrypoint: ./set_nat.sh && server
+    entrypoint: ./set_nat.sh; server
     depends_on:
       - stun0
       - stun1

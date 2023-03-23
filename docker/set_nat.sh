@@ -4,7 +4,7 @@
 NAT_TYPE=${NAT_TYPE}
 
 # Get the container IP address from hostname command
-CONTAINER_IP=$(ifconfig eth0 | grep "inet addr:" | cut -d : -f 2 | cut -d " " -f 1)
+CONTAINER_IP=$(hostname -i)
 
 echo "NAT TYPE: $NAT_TYPE"
 echo "Container IP: $CONTAINER_IP"
