@@ -16,7 +16,7 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(5000);
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(6000);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
