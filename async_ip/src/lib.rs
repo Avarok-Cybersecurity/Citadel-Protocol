@@ -84,7 +84,7 @@ pub async fn get_all(client: Option<Client>) -> Result<IpAddressInfo, IpRetrieve
     get_all_from(client, URL_V6).await
 }
 
-/// Gets IP info concurrenlty using custom multiple internal sources
+/// Gets IP info concurrently using custom multiple internal sources
 pub async fn get_all_from(
     client: Option<Client>,
     v6_addr: &str,
