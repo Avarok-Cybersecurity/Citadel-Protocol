@@ -29,10 +29,10 @@ case $NAT_TYPE in
   ;;
 
   full_cone)
-    # Full-cone NAT (one-to-one mapping of IP and port)
+     # Full-cone NAT (one-to-one mapping of IP and port)
 
-    iptables -t nat -A POSTROUTING -o eth0 -j SNAT --to-source $CONTAINER_IP
-    iptables -t nat -A PREROUTING -i eth0 -j DNAT --to-destination 0.0.0.0
+     iptables -t nat -A POSTROUTING -o eth1 -j SNAT --to-source $CONTAINER_IP
+     iptables -t nat -A PREROUTING -i eth1 -j DNAT --to-destination $CONTAINER_IP
 
      echo "Full-cone NAT translation for $CONTAINER_IP"
    ;;
@@ -43,7 +43,7 @@ case $NAT_TYPE in
       echo 1 >/proc/sys/net/ipv4/ip_forward
       iptables --flush
       iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE --random
-      iptables -A FORWARD -i eth1 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+      iptables -A FORWARD -i eth0 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
       iptables -A FORWARD -i eth0 -o eth0 -j ACCEPT
 
       echo "Symmetric NAT translation for $CONTAINER_IP"
@@ -61,7 +61,7 @@ case $NAT_TYPE in
        # Address-restricted NAT (same mapping of IP and port for each destination, but only allow incoming packets from same source address)
 
        iptables -t nat -A POSTROUTING -o eth0 -p udp -j SNAT --to-source $CONTAINER_IP
-       iptables -t nat -A PREROUTING -i eth0 -p udp -j DNAT --to-destination 0.0.0.0
+       iptables -t nat -A PREROUTING -i eth0 -p udp -j DNAT --to-destination $CONTAINER_IP
        iptables -A INPUT -i eth0 -p udp -m state --state ESTABLISHED,RELATED -j ACCEPT
        iptables -A INPUT -i eth0 -p udp -m state --state NEW -j DROP
 
