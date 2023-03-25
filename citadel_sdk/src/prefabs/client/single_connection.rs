@@ -268,8 +268,6 @@ where
             if let Err(err) = val.send(message) {
                 log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
             }
-        } else {
-            log::info!(target: "citadel", "ASDFKL");
         }
 
         Ok(())
