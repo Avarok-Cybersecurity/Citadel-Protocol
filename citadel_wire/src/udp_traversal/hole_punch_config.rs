@@ -43,19 +43,6 @@ impl HolePunchConfig {
             }
         }
 
-        /*
-        #[cfg(feature = "localhost-testing-loopback-only")]
-        {
-            return Ok(Self {
-                bands: vec![AddrBand {
-                    necessary_ip: IpAddr::from([127, 0, 0, 1]),
-                    anticipated_ports: vec![peer_declared_internal_port],
-                }],
-
-                locally_bound_sockets: Some(vec![first_local_socket]),
-            });
-        }*/
-
         // below is only needed if the peer is behind a random port NAT
         let peer_average_delta_opt = peer_nat_info.get_average_delta_for_rand_port();
 
@@ -104,7 +91,7 @@ impl HolePunchConfig {
 
             NatType::EDM(last_external_addr, other_addrs, delta, _) => {
                 let mut bands = Vec::new();
-                Self::generate_predict_ports_config(*delta as _, *last_external_addr, &mut bands, other_addrs.clone(), peer_declared_internal_port);
+                Self::generate_predict_ports_config(*delta as _, *last_external_addr, &mut bands, other_addrs.clone(), peer_declared_internal_port, local_nat_info);
                 let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
 
                 Ok(Self {
@@ -116,7 +103,7 @@ impl HolePunchConfig {
             NatType::EDMRandomPort(last_external_addr, other_addrs, ..) => {
                 let mut bands = Vec::new();
                 let delta = peer_average_delta_opt.ok_or_else(||anyhow::Error::msg("Expected acceptable average delta"))?;
-                Self::generate_predict_ports_config(delta, *last_external_addr, &mut bands, other_addrs.clone(), peer_declared_internal_port);
+                Self::generate_predict_ports_config(delta, *last_external_addr, &mut bands, other_addrs.clone(), peer_declared_internal_port, local_nat_info);
                 let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
 
                 Ok(Self {
@@ -230,6 +217,7 @@ impl HolePunchConfig {
         bands: &mut Vec<AddrBand>,
         other_addrs: Option<IpAddressInfo>,
         peer_declared_internal_port: u16,
+        local_nat_type: &NatType,
     ) {
         // We need to generate a band of possible connect addrs. If delta = 5, then,
         // we create a band of delta * 6 possible connect addrs each with 1 port spacing
@@ -238,7 +226,14 @@ impl HolePunchConfig {
         // const SPREAD: u16 = 6;
         // if delta is zero (which would be odd), assume max of 1
         let delta = Self::check_delta(delta);
-        let ports_to_target_count = std::cmp::max(SPREAD * delta, 1);
+        let mut ports_to_target_count = std::cmp::max(SPREAD * delta, 1);
+
+        if matches!(local_nat_type, NatType::PortPreserved(..)) {
+            // since local's node is behind a predictable NAT, we don't have to worry about trying to
+            // target the peer's NAT. Just add 1 target. This will help prevent flooding
+            ports_to_target_count = 1;
+        }
+
         // Note: with this type, it does NOT matter "where" the peer is bound to. To *predict* the port,
         // we take the port of the last_external_addr, then, begin incrementing at one above it to
         // ports_to_target_count
