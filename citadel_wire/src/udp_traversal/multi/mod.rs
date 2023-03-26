@@ -266,6 +266,7 @@ async fn drive(
                         if net_lock.as_ref().is_none() {
                             log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
+                            std::mem::drop(net_lock);
                             socket.cleanse()?;
                             submit_final_candidate(socket)?;
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
