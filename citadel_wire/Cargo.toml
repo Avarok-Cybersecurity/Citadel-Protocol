@@ -57,7 +57,7 @@ quinn = { version = "0.9.3", default-features = false, features = ["rustls"] }
 openssl = { version = "0.10.46", default-features = false, features = ["vendored"] }
 stun = { default-features = false, version = "0.4.4" }
 rcgen = { default-features = false, version = "0.10.0" }
-rustls = { version = "0.20.7", features = ["quic", "dangerous_configuration"] }
+rustls = { version = "0.21.0", features = ["quic", "dangerous_configuration"] }
 rustls-pemfile = { default-features = false, version = "1.0.1" }
 tokio-rustls = { default-features = false, version = "0.23.4" }
 
