@@ -23,9 +23,10 @@ use netbeam::sync::RelativeNodeType;
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
 /// allows the inclusion of a "breadth" variable to allow opening multiple ports for traversing across multiple ports
-pub(crate) struct DualStackUdpHolePuncher<'a> {
+pub(crate) struct DualStackUdpHolePuncher {
     // the key is the local bind addr
-    future: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
+    future:
+        Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'static>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -35,7 +36,7 @@ enum DualStackCandidate {
     WinnerCanEnd,
 }
 
-impl<'a> DualStackUdpHolePuncher<'a> {
+impl DualStackUdpHolePuncher {
     /// `peer_internal_port`: Required for determining the internal socket addr
     #[cfg_attr(
         feature = "localhost-testing",
@@ -45,7 +46,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
         relative_node_type: RelativeNodeType,
         encrypted_config_container: HolePunchConfigContainer,
         mut hole_punch_config: HolePunchConfig,
-        napp: &'a NetworkEndpoint,
+        napp: NetworkEndpoint,
     ) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
         let sockets = hole_punch_config
@@ -67,14 +68,19 @@ impl<'a> DualStackUdpHolePuncher<'a> {
         }
 
         // TODO: Setup concurrent UPnP AND NAT-PMP async https://docs.rs/natpmp/latest/natpmp/struct.NatpmpAsync.html
+        let task = async move {
+            tokio::task::spawn(drive(hole_punchers, relative_node_type, napp))
+                .await
+                .map_err(|err| anyhow::Error::msg(format!("panic in hole puncher: {:?}", err)))?
+        };
 
         Ok(Self {
-            future: Box::pin(drive(hole_punchers, relative_node_type, napp)),
+            future: Box::pin(task),
         })
     }
 }
 
-impl Future for DualStackUdpHolePuncher<'_> {
+impl Future for DualStackUdpHolePuncher {
     type Output = Result<HolePunchedUdpSocket, anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -89,7 +95,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
 async fn drive(
     hole_punchers: Vec<SingleUDPHolePuncher>,
     node_type: RelativeNodeType,
-    app: &NetworkEndpoint,
+    ref app: NetworkEndpoint,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // We use a single mutex to resolve timing/priority conflicts automatically
     // Which ever node FIRST can set the value will "win"
@@ -259,9 +265,7 @@ async fn drive(
                     // the other end may say that the current result is valid, but, be unaccessible since
                     // we are blocked waiting for the mutex. As such, we need to set the enqueued field
                     *current_enqueued.lock().await = Some(socket);
-
                     let mut net_lock = net_mutex.lock().await?;
-
                     if let Some(socket) = current_enqueued.lock().await.take() {
                         if net_lock.as_ref().is_none() {
                             log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
@@ -272,6 +276,7 @@ async fn drive(
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
                                 .await?;
                             log::trace!(target: "citadel", "*** [winner] Awaiting the signal ...");
+                            std::mem::drop(net_lock);
                             // the winner will drop once the adjacent node sends a WinnerCanEnd signal
                             winner_can_end_rx.await?;
                             log::trace!(target: "citadel", "*** [winner] received the signal");

@@ -16,7 +16,7 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(5000);
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(6000);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
@@ -87,6 +87,8 @@ async fn driver(
         local_initial_socket,
         peer_internal_bind_port,
     )?;
+
+    let conn = conn.clone();
     log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
     let res = DualStackUdpHolePuncher::new(
         conn.node_type(),

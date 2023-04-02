@@ -55,9 +55,12 @@ impl EntropyBank {
     // the nonce_version should come from either the transient counter, or,
     // the appended u32 at the end of each packet
     fn get_nonce(&self, nonce_version: u64) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
-        let mut symmetric_entropy = Vec::with_capacity(self.entropy.len() + 8);
-        symmetric_entropy.extend_from_slice(&*self.entropy);
-        symmetric_entropy.put_u64(nonce_version);
+        // optimize this using an array instead of a vec
+        let mut symmetric_entropy = [0u8; BYTES_PER_STORE + 8];
+        symmetric_entropy[..BYTES_PER_STORE].copy_from_slice(&*self.entropy);
+        symmetric_entropy[BYTES_PER_STORE..]
+            .as_mut()
+            .put_u64(nonce_version);
 
         let mut hasher = sha3::Sha3_256::default();
         hasher.update(symmetric_entropy);
@@ -325,7 +328,7 @@ impl Debug for EntropyBank {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         writeln!(
             f,
-            "Drill Version: {}\nDrill CID:{}",
+            "EntropyBank Version: {}\nCID:{}",
             self.get_version(),
             self.get_cid()
         )

@@ -175,7 +175,16 @@ jobs:
           files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
   docker_nat_client_server:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+          nat_type_client_a:
+              - "full_cone"
+              - "address_restricted"
+              - "port_restricted"
+              - "symmetric"
     timeout-minutes: 80
+    env:
+      NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
     steps:
       - uses: actions/checkout@v3
-      - run: NAT_TYPE_CLIENT_A="full_cone" docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
+      - run: docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a

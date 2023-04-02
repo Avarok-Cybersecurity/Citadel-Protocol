@@ -135,8 +135,8 @@ impl SingleUDPHolePuncher {
 
                 let kill_listener = async move {
                     if let Ok((local_id, peer_id)) = kill_switch.recv().await {
-                        log::trace!(target: "citadel", "[Kill Listener] Received signal. {:?} must == {:?} || {:?}", local_id, this_local_id, peer_id);
-                        if local_id == this_local_id && this.has_remote_id_synd(peer_id) {
+                        log::warn!(target: "citadel", "[Kill Listener] Received signal. {:?} must == {:?} || {:?}", local_id, this_local_id, peer_id);
+                        if local_id == this_local_id {
                             return Some((local_id, peer_id));
                         }
                     }
@@ -232,13 +232,6 @@ impl SingleUDPHolePuncher {
             .get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
         let socket = self.socket.take()?;
         Some(HolePunchedUdpSocket { addr, socket })
-    }
-
-    fn has_remote_id_synd(&self, remote_id: HolePunchID) -> bool {
-        self.method3
-            .1
-            .get_peer_external_addr_from_peer_hole_punch_id(remote_id)
-            .is_some()
     }
 
     /// this should only be called when the adjacent node verified that the connection occurred

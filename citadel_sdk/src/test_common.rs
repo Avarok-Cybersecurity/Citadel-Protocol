@@ -136,7 +136,6 @@ lazy_static::lazy_static! {
     };
 }
 
-#[cfg(feature = "localhost-testing")]
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel"))]
 #[allow(dead_code)]
 pub async fn udp_mode_assertions(

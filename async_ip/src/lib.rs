@@ -19,21 +19,19 @@ use std::str::FromStr;
 
 // use http since it's 2-3x faster
 const URL_V6: &str = "http://api64.ipify.org";
-const URL_V4: &str = "http://api.ipify.org";
+//const URL_V4: &str = "http://api.ipify.org";
 
 const URL_V6_1: &str = "http://ident.me";
-const URL_V4_1: &str = "http://v4.ident.me";
+//const URL_V4_1: &str = "http://v4.ident.me";
 
 const URL_V6_2: &str = "http://v4v6.ipv6-test.com/api/myip.php";
-const URL_V4_2: &str = "http://v4.ipv6-test.com/api/myip.php";
+//const URL_V4_2: &str = "http://v4.ipv6-test.com/api/myip.php";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// All the ip addr info for this node
 pub struct IpAddressInfo {
     /// internal addr
-    pub internal_ipv4: IpAddr,
-    /// external v4 addr
-    pub external_ipv4: IpAddr,
+    pub internal_ip: IpAddr,
     /// external v6 addr
     pub external_ipv6: Option<IpAddr>,
 }
@@ -43,8 +41,7 @@ impl IpAddressInfo {
     pub fn localhost() -> Self {
         let localhost = IpAddr::from_str("127.0.0.1").unwrap();
         Self {
-            internal_ipv4: localhost,
-            external_ipv4: localhost,
+            internal_ip: localhost,
             external_ipv6: None,
         }
     }
@@ -54,80 +51,54 @@ impl IpAddressInfo {
 pub async fn get_all_multi_concurrent(
     client: Option<Client>,
 ) -> Result<IpAddressInfo, IpRetrieveError> {
-    get_all_multi_concurrent_from(
-        client,
-        &[URL_V4, URL_V4_1, URL_V4_2],
-        &[URL_V6, URL_V6_1, URL_V6_2],
-    )
-    .await
+    get_all_multi_concurrent_from(client, &[URL_V6, URL_V6_1, URL_V6_2]).await
 }
 
 /// Uses multiple url addrs to obtain the information
 pub async fn get_all_multi_concurrent_from(
     client: Option<Client>,
-    v4_addrs: &[&str],
     v6_addrs: &[&str],
 ) -> Result<IpAddressInfo, IpRetrieveError> {
     let client = &client.unwrap_or_else(get_default_client);
     let internal_ipv4_future = get_internal_ip(false);
-    let external_ipv4_future = futures::future::select_ok(
-        v4_addrs
-            .iter()
-            .map(|addr| Box::pin(get_ip_from(Some(client.clone()), false, addr, "")))
-            .collect::<Vec<_>>(),
-    );
     let external_ipv6_future = futures::future::select_ok(
         v6_addrs
             .iter()
-            .map(|addr| Box::pin(get_ip_from(Some(client.clone()), true, "", addr)))
+            .map(|addr| Box::pin(get_ip_from(Some(client.clone()), addr)))
             .collect::<Vec<_>>(),
     );
 
-    let (res0, res1, res2) = tokio::join!(
-        internal_ipv4_future,
-        external_ipv4_future,
-        external_ipv6_future
-    );
+    let (res0, res2) = tokio::join!(internal_ipv4_future, external_ipv6_future);
     let internal_ipv4 =
         res0.ok_or_else(|| IpRetrieveError::Error("Could not obtain internal IPv4".to_string()))?;
-    let (external_ipv4, _) = res1?;
     let external_ipv6 = res2.ok().map(|r| r.0);
 
     Ok(IpAddressInfo {
-        internal_ipv4,
-        external_ipv4,
+        internal_ip: internal_ipv4,
         external_ipv6,
     })
 }
 
 /// Returns all possible IPs for this node
 pub async fn get_all(client: Option<Client>) -> Result<IpAddressInfo, IpRetrieveError> {
-    get_all_from(client, URL_V4, URL_V6).await
+    get_all_from(client, URL_V6).await
 }
 
-/// Gets IP info concurrenlty using custom multiple internal sources
+/// Gets IP info concurrently using custom multiple internal sources
 pub async fn get_all_from(
     client: Option<Client>,
-    v4_addr: &str,
     v6_addr: &str,
 ) -> Result<IpAddressInfo, IpRetrieveError> {
     let client = client.unwrap_or_else(get_default_client);
     let internal_ipv4_future = get_internal_ip(false);
-    let external_ipv4_future = get_ip_from(Some(client.clone()), false, v4_addr, v6_addr);
-    let external_ipv6_future = get_ip_from(Some(client), true, v4_addr, v6_addr);
-    let (res0, res1, res2) = tokio::join!(
-        internal_ipv4_future,
-        external_ipv4_future,
-        external_ipv6_future
-    );
+    let external_ipv6_future = get_ip_from(Some(client), v6_addr);
+    let (res0, res2) = tokio::join!(internal_ipv4_future, external_ipv6_future);
     let internal_ipv4 =
         res0.ok_or_else(|| IpRetrieveError::Error("Could not obtain internal IPv4".to_string()))?;
-    let external_ipv4 = res1?;
     let external_ipv6 = res2.ok();
 
     Ok(IpAddressInfo {
-        internal_ipv4,
-        external_ipv4,
+        internal_ip: internal_ipv4,
         external_ipv6,
     })
 }
@@ -137,15 +108,9 @@ pub async fn get_all_from(
 /// instead.
 ///
 /// If a reqwest client is supplied, this function will use that client to get the information. None by default.
-pub async fn get_ip_from(
-    client: Option<Client>,
-    ipv6: bool,
-    v4_addr: &str,
-    v6_addr: &str,
-) -> Result<IpAddr, IpRetrieveError> {
+pub async fn get_ip_from(client: Option<Client>, addr: &str) -> Result<IpAddr, IpRetrieveError> {
     let client = client.unwrap_or_else(get_default_client);
 
-    let addr = if ipv6 { v6_addr } else { v4_addr };
     let resp = client
         .get(addr)
         .send()
@@ -158,7 +123,7 @@ pub async fn get_ip_from(
     IpAddr::from_str(text.as_str())
         .map_err(|err| IpRetrieveError::Error(err.to_string()))
         .and_then(|res| {
-            if ipv6 && res.is_ipv4() {
+            if res.is_ipv4() {
                 Err(IpRetrieveError::Error(
                     "This node does not have an ipv6 addr".to_string(),
                 ))
