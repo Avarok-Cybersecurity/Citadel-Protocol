@@ -87,6 +87,8 @@ async fn driver(
         local_initial_socket,
         peer_internal_bind_port,
     )?;
+
+    let conn = conn.clone();
     log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
     let res = DualStackUdpHolePuncher::new(
         conn.node_type(),
