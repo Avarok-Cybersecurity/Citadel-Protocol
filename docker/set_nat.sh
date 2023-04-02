@@ -31,8 +31,8 @@ case $NAT_TYPE in
   full_cone)
      # Full-cone NAT (one-to-one mapping of IP and port)
 
-     iptables -t nat -A POSTROUTING -o eth1 -j SNAT --to-source $CONTAINER_IP
-     iptables -t nat -A PREROUTING -i eth1 -j DNAT --to-destination $CONTAINER_IP
+     iptables -t nat -A POSTROUTING -o eth0 -j SNAT --to-source $CONTAINER_IP
+     iptables -t nat -A PREROUTING -i eth0 -j DNAT --to-destination $CONTAINER_IP
 
      echo "Full-cone NAT translation for $CONTAINER_IP"
    ;;
