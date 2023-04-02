@@ -265,11 +265,8 @@ async fn drive(
                     // the other end may say that the current result is valid, but, be unaccessible since
                     // we are blocked waiting for the mutex. As such, we need to set the enqueued field
                     *current_enqueued.lock().await = Some(socket);
-                    log::trace!(target: "citadel", "ABC - 0");
                     let mut net_lock = net_mutex.lock().await?;
-                    log::trace!(target: "citadel", "ABC - 1");
                     if let Some(socket) = current_enqueued.lock().await.take() {
-                        log::trace!(target: "citadel", "ABC - 2");
                         if net_lock.as_ref().is_none() {
                             log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());

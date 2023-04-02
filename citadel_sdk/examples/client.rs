@@ -11,8 +11,10 @@ async fn main() {
 
     let finished = &AtomicBool::new(false);
     let client = citadel_sdk::prefabs::client::single_connection
-    ::SingleClientServerConnectionKernel::new_register("Dummy user", "dummyusername", "notsecurepassword", addr, UdpMode::Enabled, Default::default(), |connection, remote| async move {
-        assert!(connection.udp_channel_rx.unwrap().await.is_ok());
+    ::SingleClientServerConnectionKernel::new_register("Dummy user", "dummyusername", "notsecurepassword", addr, UdpMode::Enabled, Default::default(), |mut connection, remote| async move {
+        let chan = connection.udp_channel_rx.take();
+        tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(UdpMode::Enabled, chan))
+            .await.map_err(|err| NetworkError::Generic(err.to_string()))?;
         finished.store(true, Ordering::SeqCst);
         remote.shutdown_kernel().await?;
         Ok(())
