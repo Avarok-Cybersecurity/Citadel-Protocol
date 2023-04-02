@@ -103,7 +103,7 @@ async fn drive(
     let conn = &(app.initiate_subscription().await?);
 
     // setup a mutex for handling contentions
-    let net_mutex = &(app.mutex::<Option<()>>(value).await?);
+    let net_rwlock = &(app.rwlock::<Option<()>>(value).await?);
 
     let (final_candidate_tx, final_candidate_rx) =
         tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
@@ -260,7 +260,7 @@ async fn drive(
                     // we are blocked waiting for the mutex. As such, we need to set the enqueued field
                     *current_enqueued.lock().await = Some(socket);
                     log::trace!(target: "citadel", "ABC - 0");
-                    let mut net_lock = net_mutex.lock().await?;
+                    let mut net_lock = net_rwlock.write().await?;
                     log::trace!(target: "citadel", "ABC - 1");
                     if let Some(socket) = current_enqueued.lock().await.take() {
                         log::trace!(target: "citadel", "ABC - 2");
