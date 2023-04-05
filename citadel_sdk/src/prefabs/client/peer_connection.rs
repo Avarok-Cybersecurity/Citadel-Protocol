@@ -400,7 +400,7 @@ mod tests {
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", username, conn);
                         let conn = conn?;
-                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_rx_opt).await;
+                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
                         success += 1;
                         let _ = p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote);
                         if success == peer_count - 1 {
@@ -498,7 +498,7 @@ mod tests {
 
                         crate::test_common::udp_mode_assertions(
                             Default::default(),
-                            conn.udp_rx_opt,
+                            conn.udp_channel_rx,
                         )
                         .await;
 

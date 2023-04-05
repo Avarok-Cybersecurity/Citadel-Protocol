@@ -637,7 +637,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     return Ok(PeerConnectSuccess {
                         remote,
                         channel,
-                        udp_rx_opt,
+                        udp_channel_rx: udp_rx_opt,
                         incoming_object_transfer_handles: None,
                     });
                 }
@@ -905,7 +905,7 @@ pub mod results {
     #[derive(Debug)]
     pub struct PeerConnectSuccess {
         pub channel: PeerChannel,
-        pub udp_rx_opt: Option<Receiver<UdpChannel>>,
+        pub udp_channel_rx: Option<Receiver<UdpChannel>>,
         pub remote: PeerRemote,
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
