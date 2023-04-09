@@ -113,25 +113,6 @@ pub(crate) mod user_ids {
     }
 }
 
-#[async_trait]
-pub trait TargetLockedRemoteExt: TargetLockedRemote + ProtocolRemoteTargetExt {
-    /// Checks if the locked target is registered
-    async fn is_peer_registered(&mut self) -> Result<bool, NetworkError> {
-        let target = self.try_as_peer_connection().await?;
-        if let PeerConnectionType::LocalGroupPeer(local_cid, peer_cid) = target {
-            let peers = self.remote().get_hyperlan_peers(local_cid, None).await?;
-            citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
-            Ok(peers.iter().any(|p| p.cid == peer_cid))
-        } else {
-            Err(NetworkError::Generic(
-                "External group peers are not supported yet".to_string(),
-            ))
-        }
-    }
-}
-
-impl<T: TargetLockedRemote> TargetLockedRemoteExt for T {}
-
 /// Contains the elements required to communicate with the adjacent node
 pub struct ConnectionSuccess {
     /// An interface to send ordered, reliable, and encrypted messages
@@ -879,6 +860,20 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         ))
     }
 
+    /// Checks if the locked target is registered
+    async fn is_peer_registered(&mut self) -> Result<bool, NetworkError> {
+        let target = self.try_as_peer_connection().await?;
+        if let PeerConnectionType::LocalGroupPeer(local_cid, peer_cid) = target {
+            let peers = self.remote().get_hyperlan_peers(local_cid, None).await?;
+            citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
+            Ok(peers.iter().any(|p| p.cid == peer_cid))
+        } else {
+            Err(NetworkError::Generic(
+                "External group peers are not supported yet".to_string(),
+            ))
+        }
+    }
+
     #[doc(hidden)]
     async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {
@@ -894,6 +889,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?
                 .clone();
             let implicated_cid = self.user().get_implicated_cid();
+            let expected_peer_cid = self
+                .remote()
+                .account_manager()
+                .get_persistence_handler()
+                .get_cid_by_username(&peer_username);
+            // get the peer cid from the account manager (implying the peers are already registered).
+            // fallback to the mapped cid if the peer is not registered
             let peer_cid = self
                 .remote()
                 .account_manager()
@@ -901,7 +903,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 .await
                 .map_err(|err| NetworkError::Generic(err.into_string()))?
                 .map(|r| r.1.cid)
-                .unwrap_or(0);
+                .unwrap_or(expected_peer_cid);
 
             self.user_mut().set_target_cid(peer_cid);
             verified_return(self.user())
