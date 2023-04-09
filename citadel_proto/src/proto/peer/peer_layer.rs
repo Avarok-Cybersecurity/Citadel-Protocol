@@ -378,7 +378,7 @@ impl HyperNodePeerLayerInner {
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister(conn, _, _, _, None) = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-            if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
+            if let PeerConnectionType::LocalGroupPeer(_, b) = conn {
                 *b == implicated_cid
             } else {
                 false
@@ -399,7 +399,7 @@ impl HyperNodePeerLayerInner {
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-            if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
+            if let PeerConnectionType::LocalGroupPeer(_, b) = conn {
                 *b == implicated_cid
             } else {
                 false
@@ -584,18 +584,16 @@ pub enum ChannelPacket {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone, Eq, Hash)]
 pub enum PeerConnectionType {
     // implicated_cid, target_cid
-    HyperLANPeerToHyperLANPeer(u64, u64),
+    LocalGroupPeer(u64, u64),
     // implicated_cid, icid, target_cid
-    HyperLANPeerToHyperWANPeer(u64, u64, u64),
+    ExternalGroupPeer(u64, u64, u64),
 }
 
 impl PeerConnectionType {
     pub fn get_original_implicated_cid(&self) -> u64 {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
-                *implicated_cid
-            }
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, _icid, _target_cid) => {
+            PeerConnectionType::LocalGroupPeer(implicated_cid, _target_cid) => *implicated_cid,
+            PeerConnectionType::ExternalGroupPeer(implicated_cid, _icid, _target_cid) => {
                 *implicated_cid
             }
         }
@@ -603,10 +601,8 @@ impl PeerConnectionType {
 
     pub fn get_original_target_cid(&self) -> u64 {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, target_cid) => {
-                *target_cid
-            }
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, target_cid) => {
+            PeerConnectionType::LocalGroupPeer(_implicated_cid, target_cid) => *target_cid,
+            PeerConnectionType::ExternalGroupPeer(_implicated_cid, _icid, target_cid) => {
                 *target_cid
             }
         }
@@ -614,21 +610,21 @@ impl PeerConnectionType {
 
     pub fn reverse(&self) -> PeerConnectionType {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                PeerConnectionType::HyperLANPeerToHyperLANPeer(*target_cid, *implicated_cid)
+            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+                PeerConnectionType::LocalGroupPeer(*target_cid, *implicated_cid)
             }
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
-                PeerConnectionType::HyperLANPeerToHyperWANPeer(*target_cid, *icid, *implicated_cid)
+            PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
+                PeerConnectionType::ExternalGroupPeer(*target_cid, *icid, *implicated_cid)
             }
         }
     }
 
     pub fn as_virtual_connection(self) -> VirtualConnectionType {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
                 VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid)
             }
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
+            PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
                 VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid)
             }
         }
@@ -638,10 +634,10 @@ impl PeerConnectionType {
 impl Display for PeerConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
                 write!(f, "hLAN {implicated_cid} <-> {target_cid}")
             }
-            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
+            PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
                 write!(f, "hWAN {implicated_cid} <-> {icid} <-> {target_cid}")
             }
         }

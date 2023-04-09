@@ -51,9 +51,9 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
         match message {
             NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
                 let v_conn = if handle.orientation == ObjectTransferOrientation::Receiver {
-                    PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.receiver, handle.source)
+                    PeerConnectionType::LocalGroupPeer(handle.receiver, handle.source)
                 } else {
-                    PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.source, handle.receiver)
+                    PeerConnectionType::LocalGroupPeer(handle.source, handle.receiver)
                 };
 
                 let active_peers = self.shared.active_peer_conns.lock();
@@ -291,7 +291,7 @@ where
                         // this is useful especially for testing purposes
                         if ensure_registered {
                             loop {
-                                if handle.is_registered().await?.unwrap_or(true) {
+                                if handle.is_peer_registered().await? {
                                     break;
                                 }
                                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;

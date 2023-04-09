@@ -202,7 +202,7 @@ impl Drop for PeerChannelRecvHalf {
                     NodeRequest::PeerCommand(PeerCommand {
                         implicated_cid: local_cid,
                         command: PeerSignal::Disconnect(
-                            PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid),
+                            PeerConnectionType::LocalGroupPeer(local_cid, peer_cid),
                             None,
                         ),
                     })

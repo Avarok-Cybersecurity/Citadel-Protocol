@@ -73,7 +73,6 @@ pub(crate) mod user_ids {
         fn target_username(&self) -> Option<&String> {
             self.target_username.as_ref()
         }
-
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
         }
@@ -115,16 +114,18 @@ pub(crate) mod user_ids {
 }
 
 #[async_trait]
-pub trait TargetLockedRemoteExt: TargetLockedRemote {
+pub trait TargetLockedRemoteExt: TargetLockedRemote + ProtocolRemoteTargetExt {
     /// Checks if the locked target is registered
-    async fn is_registered(&mut self) -> Result<Option<bool>, NetworkError> {
-        let target = *self.user();
-        match target {
-            VirtualTargetType::LocalGroupPeer(local_cid, peer_cid) => {
-                let peers = self.remote().get_hyperlan_peers(local_cid, None).await?;
-                Ok(Some(peers.iter().any(|p| p.cid == peer_cid)))
-            }
-            _ => Ok(None),
+    async fn is_peer_registered(&mut self) -> Result<bool, NetworkError> {
+        let target = self.try_as_peer_connection().await?;
+        if let PeerConnectionType::LocalGroupPeer(local_cid, peer_cid) = target {
+            let peers = self.remote().get_hyperlan_peers(local_cid, None).await?;
+            citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
+            Ok(peers.iter().any(|p| p.cid == peer_cid))
+        } else {
+            Err(NetworkError::Generic(
+                "External group peers are not supported yet".to_string(),
+            ))
         }
     }
 }
@@ -949,6 +950,7 @@ pub mod results {
         Failed { reason: Option<String> },
     }
 
+    #[derive(Clone, Debug)]
     pub struct HyperlanPeer {
         pub cid: u64,
         pub is_online: bool,
