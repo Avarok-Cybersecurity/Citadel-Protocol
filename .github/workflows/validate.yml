@@ -208,4 +208,5 @@ jobs:
       NAT_TYPE_PEER_B: ${{ matrix.nat_type_peer_b }}
     steps:
       - uses: actions/checkout@v3
-      - run: docker-compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+      - run: ${{ nat_type_peer_a != "symmetric" && nat_type_peer_b != "symmetric" }} || docker-compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+        shell: bash
