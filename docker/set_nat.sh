@@ -65,13 +65,16 @@ case $NAT_TYPE in
      # Address-restricted NAT (same mapping of IP and port for each destination, but only allow incoming packets from same source address)
 
      iptables -t nat -A PREROUTING -i eth0 -p udp -d $CONTAINER_IP -j DNAT --to-destination $CONTAINER_IP
+     iptables -t nat -A PREROUTING -i eth0 -p tcp -d $CONTAINER_IP -j DNAT --to-destination $CONTAINER_IP
      iptables -t nat -A POSTROUTING ! -d $SUBNET -m addrtype ! --dst-type LOCAL -j MASQUERADE
 
      # Accept expected incoming NEW traffic on all ports (all ports mapped)
      iptables -A INPUT -i eth0 -p udp -m state --state NEW -j ACCEPT
+     iptables -A INPUT -i eth0 -p tcp -m state --state NEW -j ACCEPT
 
      # Accept RELATED/ESTAB traffic and drop other unexpected
      iptables -A INPUT -i eth0 -p udp -m state --state ESTABLISHED,RELATED -j ACCEPT
+     iptables -A INPUT -i eth0 -p tcp -m state --state ESTABLISHED,RELATED -j ACCEPT
      iptables -A INPUT -j DROP
 
      echo "Address-restricted NAT translation for $CONTAINER_IP"
