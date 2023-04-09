@@ -143,7 +143,8 @@ pub async fn get_internal_ip(ipv6: bool) -> Option<IpAddr> {
 }
 
 #[cfg(not(target_family = "wasm"))]
-async fn get_internal_ipv4() -> Option<IpAddr> {
+/// Returns the internal ipv4 address of this node
+pub async fn get_internal_ipv4() -> Option<IpAddr> {
     let socket = tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?).await.ok()?;
     socket.connect(addr("8.8.8.8:80")?).await.ok()?;
     socket.local_addr().ok().map(|sck| sck.ip())

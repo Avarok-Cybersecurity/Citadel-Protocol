@@ -221,15 +221,17 @@ impl NatType {
         }
     }
 
-    fn store_ip_info(&mut self, info: IpAddressInfo) {
-        match self {
-            NatType::PortPreserved(_, ip, _)
-            | NatType::EIM(_, ip, _)
-            | NatType::EDM(_, ip, ..)
-            | NatType::EDMRandomIp(_, ip, _)
-            | NatType::EDMRandomIPPortPreserved(_, ip, _)
-            | NatType::EDMRandomPort(_, ip, _, _) => *ip = Some(info),
-            NatType::Unknown => {}
+    fn store_ip_info(&mut self, info: Option<IpAddressInfo>) {
+        if let Some(info) = info {
+            match self {
+                NatType::PortPreserved(_, ip, _)
+                | NatType::EIM(_, ip, _)
+                | NatType::EDM(_, ip, ..)
+                | NatType::EDMRandomIp(_, ip, _)
+                | NatType::EDMRandomIPPortPreserved(_, ip, _)
+                | NatType::EDMRandomPort(_, ip, _, _) => *ip = Some(info),
+                NatType::Unknown => {}
+            }
         }
     }
 }
@@ -423,17 +425,31 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
     };
 
     let ip_info_future = if cfg!(feature = "localhost-testing") {
-        Box::pin(async move { Ok(async_ip::IpAddressInfo::localhost()) })
+        Box::pin(async move { Ok(Some(async_ip::IpAddressInfo::localhost())) })
             as Pin<
-                Box<dyn Future<Output = Result<IpAddressInfo, async_ip::IpRetrieveError>> + Send>,
+                Box<
+                    dyn Future<Output = Result<Option<IpAddressInfo>, async_ip::IpRetrieveError>>
+                        + Send,
+                >,
             >
     } else {
-        Box::pin(async_ip::get_all_multi_concurrent(None))
+        Box::pin(async move {
+            match tokio::time::timeout(
+                Duration::from_millis(1500),
+                async_ip::get_all_multi_concurrent(None),
+            )
+            .await
+            {
+                Ok(Ok(ip_info)) => Ok(Some(ip_info)),
+                Ok(Err(err)) => Err(err),
+                Err(_) => Ok(None),
+            }
+        })
     };
 
     let (nat_type, ip_info) = tokio::join!(nat_type, ip_info_future);
     let mut nat_type = nat_type?;
-    log::trace!(target: "citadel", "NAT Type: {:?}", nat_type);
+    log::trace!(target: "citadel", "NAT Type: {nat_type:?} | IpInfo: {ip_info:?}");
     let ip_info = ip_info.map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
     nat_type.store_ip_info(ip_info);
