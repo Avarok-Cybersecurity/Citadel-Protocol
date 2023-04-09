@@ -154,6 +154,9 @@ pub async fn udp_mode_assertions(
             let (tx, mut rx) = chan.split();
             tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
             assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
+            citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB2.5 ...");
+            tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
+            assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
             //wait_for_peers().await;
             std::mem::forget((tx, rx)); // do not run destructor to not trigger premature
         }
