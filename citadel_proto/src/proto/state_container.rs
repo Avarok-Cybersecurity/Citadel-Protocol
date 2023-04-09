@@ -315,11 +315,11 @@ impl VirtualConnectionType {
     pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
         match self {
             VirtualConnectionType::LocalGroupPeer(implicated_cid, peer_cid) => Some(
-                PeerConnectionType::HyperLANPeerToHyperLANPeer(*implicated_cid, *peer_cid),
+                PeerConnectionType::LocalGroupPeer(*implicated_cid, *peer_cid),
             ),
 
             VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, peer_cid) => Some(
-                PeerConnectionType::HyperLANPeerToHyperWANPeer(*implicated_cid, *icid, *peer_cid),
+                PeerConnectionType::ExternalGroupPeer(*implicated_cid, *icid, *peer_cid),
             ),
 
             _ => None,

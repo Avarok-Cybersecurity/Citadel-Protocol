@@ -371,7 +371,6 @@ mod tests {
         if let Err(err) = res {
             return match err {
                 futures::future::Either::Left(left) => Err(left.0.into_string().into()),
-
                 futures::future::Either::Right(right) => Err(right.0.into_string().into()),
             };
         }

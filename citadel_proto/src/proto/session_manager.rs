@@ -406,7 +406,7 @@ impl HdpSessionManager {
                         if let VirtualConnectionType::LocalGroupPeer(_, _) = vconn {
                             if peer_cid != implicated_cid {
                                 log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
-                                let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
+                                let peer_conn_type = PeerConnectionType::LocalGroupPeer(implicated_cid, peer_cid);
                                 let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly"))));
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)

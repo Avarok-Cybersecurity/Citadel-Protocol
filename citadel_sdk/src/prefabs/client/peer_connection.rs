@@ -51,9 +51,9 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
         match message {
             NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
                 let v_conn = if handle.orientation == ObjectTransferOrientation::Receiver {
-                    PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.receiver, handle.source)
+                    PeerConnectionType::LocalGroupPeer(handle.receiver, handle.source)
                 } else {
-                    PeerConnectionType::HyperLANPeerToHyperLANPeer(handle.source, handle.receiver)
+                    PeerConnectionType::LocalGroupPeer(handle.source, handle.receiver)
                 };
 
                 let active_peers = self.shared.active_peer_conns.lock();
@@ -107,12 +107,14 @@ struct PeerConnectionSettings {
     id: UserIdentifier,
     session_security_settings: SessionSecuritySettings,
     udp_mode: UdpMode,
+    ensure_registered: bool,
 }
 
 pub struct AddedPeer {
     list: PeerConnectionSetupAggregator,
     id: UserIdentifier,
     session_security_settings: Option<SessionSecuritySettings>,
+    ensure_registered: bool,
     udp_mode: Option<UdpMode>,
 }
 
@@ -123,6 +125,7 @@ impl AddedPeer {
             id: self.id,
             session_security_settings: self.session_security_settings.unwrap_or_default(),
             udp_mode: self.udp_mode.unwrap_or_default(),
+            ensure_registered: self.ensure_registered,
         };
 
         self.list.inner.push(new);
@@ -141,6 +144,12 @@ impl AddedPeer {
         session_security_settings: SessionSecuritySettings,
     ) -> Self {
         self.session_security_settings = Some(session_security_settings);
+        self
+    }
+
+    /// Ensures that the target user is registered before attempting to connect
+    pub fn ensure_registered(mut self) -> Self {
+        self.ensure_registered = true;
         self
     }
 }
@@ -177,6 +186,7 @@ impl PeerConnectionSetupAggregator {
         AddedPeer {
             list: self,
             id: peer.into(),
+            ensure_registered: false,
             session_security_settings: None,
             udp_mode: None,
         }
@@ -263,6 +273,7 @@ where
                 id,
                 session_security_settings,
                 udp_mode,
+                ensure_registered,
             } = peer_to_connect;
 
             let task = async move {
@@ -275,6 +286,18 @@ where
                     } else {
                         // TODO: optimize peer registration + connection in one go
                         let mut handle = remote.propose_target(implicated_cid, id.clone()).await?;
+
+                        // if the peer is not yet registered to the central node, wait for it to become registered
+                        // this is useful especially for testing purposes
+                        if ensure_registered {
+                            loop {
+                                if handle.is_peer_registered().await? {
+                                    break;
+                                }
+                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            }
+                        }
+
                         let _reg_success = handle.register_to_peer().await?;
                         log::trace!(target: "citadel", "Peer {:?} registered || success -> now connecting", id);
                         handle
@@ -400,7 +423,7 @@ mod tests {
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", username, conn);
                         let conn = conn?;
-                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_rx_opt).await;
+                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
                         success += 1;
                         let _ = p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote);
                         if success == peer_count - 1 {
@@ -498,7 +521,7 @@ mod tests {
 
                         crate::test_common::udp_mode_assertions(
                             Default::default(),
-                            conn.udp_rx_opt,
+                            conn.udp_channel_rx,
                         )
                         .await;
 
