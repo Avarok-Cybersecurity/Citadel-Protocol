@@ -114,6 +114,23 @@ pub(crate) mod user_ids {
     }
 }
 
+#[async_trait]
+pub trait TargetLockedRemoteExt: TargetLockedRemote {
+    /// Checks if the locked target is registered
+    async fn is_registered(&mut self) -> Result<Option<bool>, NetworkError> {
+        let target = *self.user();
+        match target {
+            VirtualTargetType::LocalGroupPeer(local_cid, peer_cid) => {
+                let peers = self.remote().get_hyperlan_peers(local_cid, None).await?;
+                Ok(Some(peers.iter().any(|p| p.cid == peer_cid)))
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+impl<T: TargetLockedRemote> TargetLockedRemoteExt for T {}
+
 /// Contains the elements required to communicate with the adjacent node
 pub struct ConnectionSuccess {
     /// An interface to send ordered, reliable, and encrypted messages

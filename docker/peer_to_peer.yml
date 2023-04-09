@@ -60,6 +60,7 @@ services:
       STUN_0_ADDR: "172.28.0.10:3478"
       STUN_1_ADDR: "172.28.0.11:3478"
       STUN_2_ADDR: "172.28.0.12:3478"
+      EMPTY_KERNEL: "true" # use an empty server kernel
       RUST_LOG: "citadel=trace"
       NAT_TYPE: "full_cone"
     depends_on:

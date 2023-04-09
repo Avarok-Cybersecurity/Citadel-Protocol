@@ -15,6 +15,7 @@ async fn main() {
     let agg = PeerConnectionSetupAggregator::default()
         .with_peer_custom(other_peer_id)
         .with_udp_mode(UdpMode::Enabled)
+        .ensure_registered()
         .add();
 
     let finished = &AtomicBool::new(false);
