@@ -49,6 +49,41 @@ pub enum NatType {
     Unknown,
 }
 
+pub enum IpTranslation {
+    /// The IP is the same
+    Identity { addr: IpAddr },
+    /// The IP is translated, but, is invariant between outbound connections
+    Constant { internal: IpAddr, external: IpAddr },
+    /// The IP is translated, and, is variant between outbound connections by a constant delta
+    DeltaConstantOffset {
+        internal: IpAddr,
+        external: IpAddr,
+        delta: i32,
+    },
+    /// The IP is translated, and, is variant between outbound connections such that the NAT assigns
+    /// an IP that is completely independent of the internal port
+    DeltaIndependentOffset {
+        internal: IpAddr,
+        external: IpAddr,
+        last_allocated_external_port: u16,
+    },
+}
+
+pub enum PortTranslation {
+    /// The port remains the same between internal:external mappings
+    Identity { port: u16 },
+    /// The port is translated by a constant delta between internal:external mappings
+    DeltaConstantOffset { port: u16, delta: i32 },
+    /// The port is translated invariantly between internal:external mappings such that the NAT assigns
+    /// a port that is completely independent of the internal port
+    DeltaIndependentOffset { last_allocated_external_port: u16 },
+}
+
+pub struct NatTypeV2 {
+    pub ip_translation: IpTranslation,
+    pub port_translation: PortTranslation,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TraversalTypeRequired {
     /// Use the linear hole punch subroutines in this crate
