@@ -13,6 +13,14 @@ async fn main() {
         .map(|r| r == "true")
         .unwrap_or(false);
 
+    let nat_type = get_env("NAT_TYPE");
+
+    let expected_udp_mode = if nat_type == "symmetric" {
+        UdpMode::Disabled
+    } else {
+        UdpMode::Enabled
+    };
+
     let server = if empty_kernel {
         Box::new(citadel_sdk::prefabs::server::empty::EmptyKernel::default()) as Box<dyn NetKernel>
     } else {
@@ -21,7 +29,7 @@ async fn main() {
                 |mut conn, _c2s_remote| async move {
                     let chan = conn.udp_channel_rx.take();
                     tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
-                        UdpMode::Enabled,
+                        expected_udp_mode,
                         chan,
                     ))
                     .await
