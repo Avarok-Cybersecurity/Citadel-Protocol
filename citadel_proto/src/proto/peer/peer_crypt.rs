@@ -26,8 +26,6 @@ pub struct PeerNatInfo {
 }
 
 impl PeerNatInfo {
-    /// Since symmetric NATs will change IP addressed between differing endpoints, we can't connect thereto. We can however connect when the IP is the same. We will assume the ip is the same as the one visible from the central server,
-    /// additionally allowing for connections where the server + clients are on the LAN
     pub fn generate_proper_listener_connect_addr(
         &self,
         local_nat_type: &NatType,

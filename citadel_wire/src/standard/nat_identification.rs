@@ -407,7 +407,7 @@ impl NatType {
     /// like usual, and sending to the observed address. This observed address is where B will send packets to A.
     pub fn stun_compatible(&self, other_nat: &NatType) -> bool {
         let (this, other) = self.traversal_type_required_with(other_nat);
-        this != TraversalTypeRequired::TURN || other != TraversalTypeRequired::TURN
+        this != TraversalTypeRequired::TURN && other != TraversalTypeRequired::TURN
     }
 
     pub fn ip_addr_info(&self) -> Option<&IpAddressInfo> {
