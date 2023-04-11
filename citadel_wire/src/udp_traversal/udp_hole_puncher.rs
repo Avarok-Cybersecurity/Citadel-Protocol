@@ -71,7 +71,8 @@ async fn driver(
     stream.send_serialized(local_nat_type).await?;
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
-    if !peer_nat_type.stun_compatible(local_nat_type) {
+    // allow localhost tests both behind bad nats to work
+    if !cfg!(feature = "localhost-testing") && !peer_nat_type.stun_compatible(local_nat_type) {
         log::warn!(target: "citadel", "Peer NAT type is incompatible with local NAT type; aborting hole punch");
         return Err(anyhow::Error::msg("Connection requires TURN"));
     }
