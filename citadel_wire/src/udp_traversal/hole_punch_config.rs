@@ -55,18 +55,23 @@ impl HolePunchConfig {
                 bands,
                 locally_bound_sockets: Some(vec![local_socket]),
             })
-        } else {
-            if cfg!(feature = "localhost-testing") {
-                Ok(Self {
-                    bands: vec![AddrBand {
-                        necessary_ip: peer_internal_addr.ip(),
+        } else if cfg!(feature = "localhost-testing") {
+            log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {:?}))", peer_internal_addr);
+            Ok(Self {
+                bands: vec![
+                    AddrBand {
+                        necessary_ip: IpAddr::from([127, 0, 0, 1]),
                         anticipated_ports: vec![peer_internal_addr.port()],
-                    }],
-                    locally_bound_sockets: Some(vec![local_socket]),
-                })
-            } else {
-                Err(anyhow::Error::msg("Peer NAT type is untraversable"))
-            }
+                    },
+                    AddrBand {
+                        necessary_ip: IpAddr::from([0, 0, 0, 0]),
+                        anticipated_ports: vec![peer_internal_addr.port()],
+                    },
+                ],
+                locally_bound_sockets: Some(vec![local_socket]),
+            })
+        } else {
+            Err(anyhow::Error::msg("Peer NAT type is untraversable"))
         }
     }
 }

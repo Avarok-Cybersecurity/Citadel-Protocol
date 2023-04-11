@@ -8,12 +8,19 @@ async fn main() {
     let stun0 = get_env("STUN_0_ADDR");
     let stun1 = get_env("STUN_1_ADDR");
     let stun2 = get_env("STUN_2_ADDR");
+    let nat_type = get_env("NAT_TYPE");
+
+    let expected_udp_mode = if nat_type == "symmetric" {
+        UdpMode::Disabled
+    } else {
+        UdpMode::Enabled
+    };
 
     let finished = &AtomicBool::new(false);
     let client = citadel_sdk::prefabs::client::single_connection
     ::SingleClientServerConnectionKernel::new_register("Dummy user", "dummyusername", "notsecurepassword", addr, UdpMode::Enabled, Default::default(), |mut connection, remote| async move {
         let chan = connection.udp_channel_rx.take();
-        tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(UdpMode::Enabled, chan))
+        tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(expected_udp_mode, chan))
             .await.map_err(|err| NetworkError::Generic(err.to_string()))?;
         finished.store(true, Ordering::SeqCst);
         remote.shutdown_kernel().await?;
