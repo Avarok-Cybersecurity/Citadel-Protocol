@@ -199,9 +199,16 @@ impl Method3 {
 
                 let packet = encryptor.generate_packet(&packet_plaintext);
                 log::trace!(target: "citadel", "Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
-                if !socket.send(&packet, *endpoint, Some(ttl)).await? {
-                    log::trace!(target: "citadel", "Early-terminating SYN barrage");
-                    return Ok(());
+                match socket.send(&packet, *endpoint, Some(ttl)).await {
+                    Ok(can_continue) => {
+                        if !can_continue {
+                            log::trace!(target: "citadel", "Early-terminating SYN barrage");
+                            return Ok(());
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!(target: "citadel", "Error sending packet from {:?}: {:?}", socket.socket.local_addr()?, err);
+                    }
                 }
             }
         }
