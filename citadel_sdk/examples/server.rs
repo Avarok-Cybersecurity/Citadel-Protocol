@@ -13,17 +13,17 @@ async fn main() {
         .map(|r| r == "true")
         .unwrap_or(false);
 
-    let nat_type = get_env("NAT_TYPE");
-
-    let expected_udp_mode = if nat_type == "symmetric" {
-        UdpMode::Disabled
-    } else {
-        UdpMode::Enabled
-    };
-
     let server = if empty_kernel {
         Box::new(citadel_sdk::prefabs::server::empty::EmptyKernel::default()) as Box<dyn NetKernel>
     } else {
+        let adjacent_nat_type = get_env("ADJACENT_NAT_TYPE");
+
+        let expected_udp_mode = if adjacent_nat_type == "symmetric" {
+            UdpMode::Disabled
+        } else {
+            UdpMode::Enabled
+        };
+
         Box::new(
             citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel::new(
                 |mut conn, _c2s_remote| async move {
