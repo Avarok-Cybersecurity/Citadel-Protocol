@@ -19,16 +19,9 @@ async fn main() {
         Box::new(
             citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel::new(
                 |mut conn, _c2s_remote| async move {
-                    let adjacent_nat_type = get_env("ADJACENT_NAT_TYPE");
-                    let expected_udp_mode = if adjacent_nat_type == "symmetric" {
-                        UdpMode::Disabled
-                    } else {
-                        UdpMode::Enabled
-                    };
-
                     let chan = conn.udp_channel_rx.take();
                     tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
-                        expected_udp_mode,
+                        UdpMode::Enabled,
                         chan,
                     ))
                     .await

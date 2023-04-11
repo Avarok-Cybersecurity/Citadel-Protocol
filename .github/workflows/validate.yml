@@ -78,6 +78,8 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
       - run: cargo nextest run --package citadel_wire --features=localhost-testing
+        env:
+          RUST_LOG: citadel=trace
 
   citadel_sdk:
     strategy:
