@@ -73,19 +73,18 @@ async fn driver(
 
     log::trace!(target: "citadel", "[driver] Local NAT type: {:?} | Peer NAT type: {:?}", local_nat_type, peer_nat_type);
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
-    let internal_bind_port = local_initial_socket.local_addr()?.port();
+    let internal_bind_addr = local_initial_socket.local_addr()?;
 
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
-    let peer_internal_bind_port = conn.sync_exchange_payload(internal_bind_port).await?;
+    let peer_internal_bind_addr = conn.sync_exchange_payload(internal_bind_addr).await?;
 
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
     let hole_punch_config = HolePunchConfig::new(
-        local_nat_type,
         peer_nat_type,
+        &peer_internal_bind_addr,
         local_initial_socket,
-        peer_internal_bind_port,
     )?;
 
     let conn = conn.clone();
