@@ -71,6 +71,11 @@ async fn driver(
     stream.send_serialized(local_nat_type).await?;
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
+    if !peer_nat_type.stun_compatible(local_nat_type) {
+        log::warn!(target: "citadel", "Peer NAT type is incompatible with local NAT type; aborting hole punch");
+        return Err(anyhow::Error::msg("Connection requires TURN"));
+    }
+
     log::trace!(target: "citadel", "[driver] Local NAT type: {:?} | Peer NAT type: {:?}", local_nat_type, peer_nat_type);
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
     let internal_bind_addr = local_initial_socket.local_addr()?;
@@ -85,7 +90,7 @@ async fn driver(
         peer_nat_type,
         &peer_internal_bind_addr,
         local_initial_socket,
-    )?;
+    );
 
     let conn = conn.clone();
     log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
