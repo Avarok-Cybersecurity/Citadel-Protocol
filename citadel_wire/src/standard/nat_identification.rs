@@ -389,8 +389,8 @@ impl NatType {
     }
 
     pub fn traversal_type_required(&self) -> TraversalTypeRequired {
-        if !matches!(self.ip_translation, IpTranslation::Unpredictable)
-            && !matches!(self.port_translation, PortTranslation::Unpredictable)
+        if matches!(self.ip_translation, IpTranslation::Unpredictable)
+            || matches!(self.port_translation, PortTranslation::Unpredictable)
         {
             TraversalTypeRequired::TURN
         } else {
