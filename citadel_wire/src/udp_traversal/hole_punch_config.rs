@@ -50,12 +50,23 @@ impl HolePunchConfig {
         peer_internal_addr: &SocketAddr,
         local_socket: UdpSocket,
     ) -> Result<Self, anyhow::Error> {
-        let bands = peer_nat
-            .predict(peer_internal_addr)
-            .ok_or_else(|| anyhow::Error::msg("Peer NAT type is untraversable"))?;
-        Ok(Self {
-            bands,
-            locally_bound_sockets: Some(vec![local_socket]),
-        })
+        if let Some(bands) = peer_nat.predict(peer_internal_addr) {
+            Ok(Self {
+                bands,
+                locally_bound_sockets: Some(vec![local_socket]),
+            })
+        } else {
+            if cfg!(feature = "localhost-testing") {
+                Ok(Self {
+                    bands: vec![AddrBand {
+                        necessary_ip: peer_internal_addr.ip(),
+                        anticipated_ports: vec![peer_internal_addr.port()],
+                    }],
+                    locally_bound_sockets: Some(vec![local_socket]),
+                })
+            } else {
+                Err(anyhow::Error::msg("Peer NAT type is untraversable"))
+            }
+        }
     }
 }

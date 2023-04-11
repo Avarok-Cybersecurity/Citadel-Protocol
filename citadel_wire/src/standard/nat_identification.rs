@@ -221,6 +221,18 @@ impl NatType {
             }
         }
 
+        // final case: nodes are on localhost
+        // now, add the internal IP (potentially)
+        if bands.iter().all(|r| {
+            r.necessary_ip != internal_addr.ip() && !r.anticipated_ports.contains(&internal_port)
+        }) {
+            let band = AddrBand {
+                necessary_ip: internal_addr.ip(),
+                anticipated_ports: vec![internal_port],
+            };
+            bands.push(band);
+        }
+
         Some(bands)
     }
 
@@ -509,7 +521,11 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                     internal: addr3_int,
                     external: addr3_ext,
                 };
-                Ok(NatType::new(pair0, pair1, pair2))
+
+                let net_type = NatType::new(pair0, pair1, pair2);
+                log::info!(target: "citadel", "NAT type: {:?}", net_type);
+
+                Ok(net_type)
             }
 
             _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
