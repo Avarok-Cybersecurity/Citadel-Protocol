@@ -86,14 +86,8 @@ impl HolePunchConfig {
 }
 
 fn get_localhost_bands(peer_internal_addr: &SocketAddr) -> Vec<AddrBand> {
-    vec![
-        AddrBand {
-            necessary_ip: IpAddr::from([127, 0, 0, 1]),
-            anticipated_ports: vec![peer_internal_addr.port()],
-        },
-        AddrBand {
-            necessary_ip: IpAddr::from([0, 0, 0, 0]),
-            anticipated_ports: vec![peer_internal_addr.port()],
-        },
-    ]
+    vec![AddrBand {
+        necessary_ip: IpAddr::from([127, 0, 0, 1]),
+        anticipated_ports: vec![peer_internal_addr.port()],
+    }]
 }
