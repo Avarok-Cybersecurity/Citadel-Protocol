@@ -141,7 +141,7 @@ impl NatType {
         let anticipated_ports = match self.port_translation {
             PortTranslation::Identity => vec![internal_port],
             PortTranslation::DeltaConstantOffset { delta } => {
-                vec![internal_port + delta as u16]
+                vec![Self::wrapping_port_add(internal_port, delta)]
             }
             PortTranslation::DeltaIndependentOffset {
                 average_delta,
@@ -149,7 +149,7 @@ impl NatType {
             } => {
                 let mut ports = Vec::new();
                 for i in average_delta..=(3 * average_delta) {
-                    ports.push(last_allocated_external_port + i as u16);
+                    ports.push(Self::wrapping_port_add(last_allocated_external_port, i));
                 }
                 ports
             }
@@ -361,6 +361,15 @@ impl NatType {
             IpAddr::V4(ip) => ip.octets()[3],
             IpAddr::V6(ip) => ip.octets()[15],
         }
+    }
+
+    fn wrapping_port_add(port: u16, delta: i32) -> u16 {
+        let mut new_port = port.wrapping_add(delta as u16);
+        if new_port < 1024 {
+            new_port += 1024
+        }
+
+        new_port
     }
 }
 

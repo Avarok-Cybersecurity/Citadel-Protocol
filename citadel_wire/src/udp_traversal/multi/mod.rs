@@ -105,9 +105,11 @@ async fn drive(
         None
     };
 
+    log::trace!(target: "citadel", "Initiating subscription ...");
     // initiate a dedicated channel for sending packets for coordination
     let conn = &(app.initiate_subscription().await?);
 
+    log::trace!(target: "citadel", "Initiating NetMutex ...");
     // setup a mutex for handling contentions
     let net_mutex = &(app.mutex::<Option<()>>(value).await?);
 
