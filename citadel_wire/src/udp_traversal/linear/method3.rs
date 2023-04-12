@@ -106,8 +106,8 @@ impl Method3 {
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            if let Ok(res) = tokio::time::timeout(
-                Duration::from_millis(2000),
+            let timeout = tokio::time::timeout(
+                Duration::from_millis(3000),
                 Self::recv_until(
                     socket_wrapper,
                     encryptor,
@@ -117,15 +117,13 @@ impl Method3 {
                     this_node_type,
                     packet_send_params,
                 ),
-            )
-            .await
-            .map_err(|err| FirewallError::HolePunch(err.to_string()))?
-            {
-                Ok(res)
-            } else {
-                Err(FirewallError::HolePunch(
-                    "No UDP penetration detected".to_string(),
-                ))
+            );
+
+            match timeout.await {
+                Ok(res) => res,
+                Err(_) => Err(FirewallError::HolePunch(
+                    "Timeout while waiting for UDP penetration".to_string(),
+                )),
             }
         };
 
