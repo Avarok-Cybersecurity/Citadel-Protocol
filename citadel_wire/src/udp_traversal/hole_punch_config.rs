@@ -29,7 +29,12 @@ impl IntoIterator for HolePunchConfig {
 
         for mut band in self.bands.drain(..) {
             for next in band.by_ref() {
-                ret.insert(next);
+                if next.ip() == IpAddr::from([0, 0, 0, 0]) {
+                    // we never want to send to 0.0.0.0 addrs, only loopbacks
+                    ret.insert(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), next.port()));
+                } else {
+                    ret.insert(next);
+                }
             }
         }
 
