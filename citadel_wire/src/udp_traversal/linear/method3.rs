@@ -329,12 +329,11 @@ impl Method3 {
                 }
 
                 Err(err) => {
-                    let message = format!(
+                    log::error!(
+                        target: "citadel",
                         "Error receiving packet from {:?}: {err:?}",
                         socket.socket.local_addr()?
-                    );
-                    log::warn!(target: "citadel", "{message}");
-                    return Err(FirewallError::HolePunch(message));
+                    )
                 }
             }
         }
