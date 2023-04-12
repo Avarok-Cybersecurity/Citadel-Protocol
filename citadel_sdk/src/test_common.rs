@@ -8,6 +8,7 @@ use crate::prelude::*;
 use futures::Future;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
 use tokio::net::TcpListener;
 
 #[allow(dead_code)]
@@ -157,6 +158,8 @@ pub async fn udp_mode_assertions(
             citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB2.5 ...");
             tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
             assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
+            // wait to give time for the other side to receive the message
+            tokio::time::sleep(Duration::from_millis(500)).await;
             //wait_for_peers().await;
             std::mem::forget((tx, rx)); // do not run destructor to not trigger premature
         }

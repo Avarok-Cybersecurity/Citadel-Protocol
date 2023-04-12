@@ -228,101 +228,116 @@ impl Method3 {
         log::trace!(target: "citadel", "[Hole-punch] Listening on {:?}", socket.socket.local_addr().unwrap());
 
         let mut has_received_syn = false;
-        //let mut recv_from_required = None;
-        while let Ok((len, peer_external_addr)) = socket.recv_from(buf).await {
-            log::trace!(target: "citadel", "[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
-            let packet = match encryptor.decrypt_packet(&buf[..len]) {
-                Some(plaintext) => plaintext,
-                _ => {
-                    log::warn!(target: "citadel", "BAD Hole-punch packet: decryption failed!");
-                    continue;
-                }
-            };
+        loop {
+            match socket.recv_from(buf).await {
+                Ok((len, peer_external_addr)) => {
+                    log::trace!(target: "citadel", "[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
+                    let packet = match encryptor.decrypt_packet(&buf[..len]) {
+                        Some(plaintext) => plaintext,
+                        _ => {
+                            log::warn!(target: "citadel", "BAD Hole-punch packet: decryption failed!");
+                            continue;
+                        }
+                    };
 
-            match bincode2::deserialize(&packet)
-                .map_err(|err| FirewallError::HolePunch(err.to_string()))
-            {
-                Ok(NatPacket::Syn(peer_unique_id, ttl, adjacent_node_type, their_send_addr)) => {
-                    if adjacent_node_type == this_node_type {
-                        log::warn!(target: "citadel", "RECV loopback packet; will discard");
-                        continue;
+                    match bincode2::deserialize(&packet)
+                        .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                    {
+                        Ok(NatPacket::Syn(
+                            peer_unique_id,
+                            ttl,
+                            adjacent_node_type,
+                            their_send_addr,
+                        )) => {
+                            if adjacent_node_type == this_node_type {
+                                log::warn!(target: "citadel", "RECV loopback packet; will discard");
+                                continue;
+                            }
+
+                            if has_received_syn {
+                                continue;
+                            }
+
+                            log::trace!(target: "citadel", "RECV SYN from {:?}", peer_unique_id);
+                            let hole_punched_addr = TargettedSocketAddr::new(
+                                peer_external_addr,
+                                peer_external_addr,
+                                peer_unique_id,
+                            );
+
+                            observed_addrs_on_syn
+                                .lock()
+                                .insert(peer_unique_id, hole_punched_addr);
+                            log::trace!(target: "citadel", "Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
+
+                            has_received_syn = true;
+
+                            let send_addrs = send_packet_params
+                                .endpoints
+                                .iter()
+                                .copied()
+                                .chain(std::iter::once(peer_external_addr))
+                                .collect::<Vec<SocketAddr>>();
+
+                            let mut send_params = send_packet_params.clone();
+                            send_params.endpoints = &send_addrs;
+
+                            Self::send_packet_barrage(&send_params, Some(their_send_addr))
+                                .await
+                                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                        }
+
+                        // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
+                        Ok(NatPacket::SynAck(
+                            adjacent_unique_id,
+                            adjacent_node_type,
+                            address_we_sent_to,
+                        )) => {
+                            log::trace!(target: "citadel", "RECV SYN_ACK");
+                            if adjacent_node_type == this_node_type {
+                                log::warn!(target: "citadel", "RECV self-referential packet; will discard");
+                                continue;
+                            }
+
+                            // NOTE: it is entirely possible that we receive a SynAck before even getting a Syn.
+                            // Since we send SYNs to the other node, and, it's possible that we don't receive a SYN by the time
+                            // the other node ACKs our sent out SYN, we should not terminate.
+                            let expected_addr = address_we_sent_to;
+
+                            if peer_external_addr != expected_addr {
+                                log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                                //continue;
+                            }
+
+                            // this means there was a successful ping-pong.
+                            // initial should be address_we_went_to, natted would be peer_external_addr
+                            let hole_punched_addr = TargettedSocketAddr::new(
+                                address_we_sent_to,
+                                peer_external_addr,
+                                adjacent_unique_id,
+                            );
+                            log::trace!(target: "citadel", "***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
+                            socket.stop_outgoing_traffic().await;
+
+                            return Ok(hole_punched_addr);
+                        }
+
+                        Err(err) => {
+                            log::warn!(target: "citadel", "Unable to deserialize packet {:?} from {:?}: {:?}", &packet[..], peer_external_addr, err);
+                        }
                     }
-
-                    if has_received_syn {
-                        continue;
-                    }
-
-                    log::trace!(target: "citadel", "RECV SYN from {:?}", peer_unique_id);
-                    let hole_punched_addr = TargettedSocketAddr::new(
-                        peer_external_addr,
-                        peer_external_addr,
-                        peer_unique_id,
-                    );
-
-                    observed_addrs_on_syn
-                        .lock()
-                        .insert(peer_unique_id, hole_punched_addr);
-                    log::trace!(target: "citadel", "Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
-
-                    has_received_syn = true;
-
-                    let send_addrs = send_packet_params
-                        .endpoints
-                        .iter()
-                        .copied()
-                        .chain(std::iter::once(peer_external_addr))
-                        .collect::<Vec<SocketAddr>>();
-
-                    let mut send_params = send_packet_params.clone();
-                    send_params.endpoints = &send_addrs;
-
-                    Self::send_packet_barrage(&send_params, Some(their_send_addr))
-                        .await
-                        .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                }
-
-                // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
-                Ok(NatPacket::SynAck(
-                    adjacent_unique_id,
-                    adjacent_node_type,
-                    address_we_sent_to,
-                )) => {
-                    log::trace!(target: "citadel", "RECV SYN_ACK");
-                    if adjacent_node_type == this_node_type {
-                        log::warn!(target: "citadel", "RECV self-referential packet; will discard");
-                        continue;
-                    }
-
-                    // NOTE: it is entirely possible that we receive a SynAck before even getting a Syn.
-                    // Since we send SYNs to the other node, and, it's possible that we don't receive a SYN by the time
-                    // the other node ACKs our sent out SYN, we should not terminate.
-                    let expected_addr = address_we_sent_to;
-
-                    if peer_external_addr != expected_addr {
-                        log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
-                        //continue;
-                    }
-
-                    // this means there was a successful ping-pong.
-                    // initial should be address_we_went_to, natted would be peer_external_addr
-                    let hole_punched_addr = TargettedSocketAddr::new(
-                        address_we_sent_to,
-                        peer_external_addr,
-                        adjacent_unique_id,
-                    );
-                    log::trace!(target: "citadel", "***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
-                    socket.stop_outgoing_traffic().await;
-
-                    return Ok(hole_punched_addr);
                 }
 
                 Err(err) => {
-                    log::warn!(target: "citadel", "Unable to deserialize packet {:?} from {:?}: {:?}", &packet[..], peer_external_addr, err);
+                    let message = format!(
+                        "Error receiving packet from {:?}: {err:?}",
+                        socket.socket.local_addr()?
+                    );
+                    log::warn!(target: "citadel", "{message}");
+                    return Err(FirewallError::HolePunch(message));
                 }
             }
         }
-
-        Err(FirewallError::HolePunch("Socket recv error".to_string()))
     }
 }
 
