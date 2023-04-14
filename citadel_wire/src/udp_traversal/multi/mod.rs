@@ -314,23 +314,38 @@ async fn drive(
     };
 
     let reader = async move {
-        match receive::<DualStackCandidate, _>(conn).await? {
-            DualStackCandidate::MutexSet(local, remote) => {
-                log::trace!(target: "citadel", "*** received MutexSet. Will unconditionally end ...");
-                assert!(loser_value_set.lock().replace((local, remote)).is_none());
-                let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
-                hole_punched_socket.cleanse()?;
-                submit_final_candidate(hole_punched_socket)?;
-                // return here. The winner must exit last
-                send(DualStackCandidate::WinnerCanEnd, conn).await?;
-                signal_done()
-            }
+        loop {
+            match receive::<DualStackCandidate, _>(conn).await {
+                Ok(res) => {
+                    return match res {
+                        DualStackCandidate::MutexSet(local, remote) => {
+                            log::trace!(target: "citadel", "*** received MutexSet. Will unconditionally end ...");
+                            assert!(loser_value_set.lock().replace((local, remote)).is_none());
+                            let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
+                            hole_punched_socket.cleanse()?;
+                            submit_final_candidate(hole_punched_socket)?;
+                            // return here. The winner must exit last
+                            send(DualStackCandidate::WinnerCanEnd, conn).await?;
+                            signal_done()
+                        }
 
-            DualStackCandidate::WinnerCanEnd => {
-                winner_can_end_tx
-                    .send(())
-                    .map_err(|_| anyhow::Error::msg("Unable to send through winner_can_end_tx"))?;
-                Ok(())
+                        DualStackCandidate::WinnerCanEnd => {
+                            winner_can_end_tx.send(()).map_err(|_| {
+                                anyhow::Error::msg("Unable to send through winner_can_end_tx")
+                            })?;
+                            Ok(())
+                        }
+                    };
+                }
+
+                Err(err) => {
+                    let err_msg = err.to_string();
+                    log::warn!(target: "citadel", "Error while receiving: {err_msg:?}");
+                    if !err_msg.contains("os error 10054") {
+                        log::error!(target: "citadel", "Error will cause return");
+                        return Err(err);
+                    }
+                }
             }
         }
     };
