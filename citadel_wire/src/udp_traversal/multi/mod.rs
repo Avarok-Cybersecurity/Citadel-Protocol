@@ -363,6 +363,7 @@ async fn drive(
 
     let sock = final_candidate_rx.await?;
     sock.cleanse()?;
+    app.sync().await?;
 
     Ok(sock)
 }
