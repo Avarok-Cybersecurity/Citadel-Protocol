@@ -284,6 +284,7 @@ async fn drive(
                             log::trace!(target: "citadel", "*** [winner] received the signal");
                             return signal_done();
                         } else {
+                            log::error!(target: "citadel", "This should not happen");
                             unreachable!(
                                 "Should not happen since the winner holds the mutex until complete"
                             );
@@ -354,9 +355,18 @@ async fn drive(
     let sender_reader_combo = futures::future::try_join(futures_resolver, reader);
 
     tokio::select! {
-        res0 = sender_reader_combo => res0.map(|_| ())?,
-        res1 = done_rx => res1?,
-        res2 = futures_executor => res2?
+        res0 = sender_reader_combo => {
+            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished {res0:?}");
+            res0.map(|_| ())?
+        },
+        res1 = done_rx => {
+            log::trace!(target: "citadel", "[DualStack] Done signal received {res1:?}");
+            res1?
+        },
+        res2 = futures_executor => {
+            log::trace!(target: "citadel", "[DualStack] Futures executor finished {res2:?}");
+            res2?
+        }
     };
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
