@@ -272,7 +272,7 @@ async fn drive(
                         if net_lock.as_ref().is_none() {
                             log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
-                            socket.cleanse()?;
+                            let _ = socket.cleanse();
                             log::trace!(target: "citadel", "AB0");
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
@@ -371,7 +371,7 @@ async fn drive(
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
 
     let sock = final_candidate_rx.await?;
-    sock.cleanse()?;
+    let _ = sock.cleanse();
 
     Ok(sock)
 }
