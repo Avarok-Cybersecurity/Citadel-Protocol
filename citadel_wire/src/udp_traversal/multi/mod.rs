@@ -273,21 +273,20 @@ async fn drive(
                             log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
                             socket.cleanse()?;
-                            submit_final_candidate(socket)?;
+                            log::trace!(target: "citadel", "AB0");
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
                                 .await?;
+                            log::trace!(target: "citadel", "AB1");
+                            submit_final_candidate(socket)?;
                             log::trace!(target: "citadel", "*** [winner] Awaiting the signal ...");
-                            std::mem::drop(net_lock);
                             // the winner will drop once the adjacent node sends a WinnerCanEnd signal
                             winner_can_end_rx.await?;
                             log::trace!(target: "citadel", "*** [winner] received the signal");
+                            std::mem::drop(net_lock);
                             return signal_done();
                         } else {
                             log::error!(target: "citadel", "This should not happen");
-                            unreachable!(
-                                "Should not happen since the winner holds the mutex until complete"
-                            );
                         }
                     } else {
                         log::trace!(target: "citadel", "While looping, detected that the socket was taken")
@@ -373,7 +372,6 @@ async fn drive(
 
     let sock = final_candidate_rx.await?;
     sock.cleanse()?;
-    app.sync().await?;
 
     Ok(sock)
 }
