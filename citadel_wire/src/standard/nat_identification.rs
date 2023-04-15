@@ -14,6 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::udp_traversal::hole_punch_config::AddrBand;
 use citadel_io::UdpSocket;
 use stun::client::ClientBuilder;
 use stun::message::{Getter, Message, BINDING_REQUEST};
@@ -27,42 +28,55 @@ const STUN_SERVERS: [&str; 3] = [
 
 const V4_BIND_ADDR: &str = "0.0.0.0:0";
 const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(4500);
-pub(crate) const MAX_PORT_DELTA_FOR_PREDICTION: usize = 30;
-pub(crate) const MAX_LAST_OCTET_DELTA_FOR_PREDICTION: usize = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum NatType {
-    /// ip_int:port_in == ip_ext:port_ext
-    EIM(SocketAddr, Option<IpAddressInfo>, bool),
-    /// Does not matter "where" the node connects to: the ip translates, but, the port stays the same
-    PortPreserved(IpAddr, Option<IpAddressInfo>, bool),
-    /// Predictable Endpoint dependent Mapping NAT. Contains the detected delta.
-    EDM(SocketAddr, Option<IpAddressInfo>, i32, bool),
-    /// Unpredictable Endpoint dependent Mapping NAT. Contains the detected IPs.
-    EDMRandomIp(Vec<IpAddr>, Option<IpAddressInfo>, bool),
-    /// IP translates, yet, port is preserved between internal:external
-    EDMRandomIPPortPreserved(Vec<IpAddr>, Option<IpAddressInfo>, bool),
-    /// Possibly unpredictable Endpoint dependent Mapping NAT. Contains the detected ports.
-    EDMRandomPort(SocketAddr, Option<IpAddressInfo>, Vec<u16>, bool),
-    /// Unknown or could not be determined
+pub enum IpTranslation {
+    /// The IP is the same
+    Identity,
+    /// The IP is translated, but, is invariant between outbound connections
+    Constant { external: IpAddr },
+    /// The IP is translated, and, is variant between outbound connections such that the NAT assigns
+    /// an IP that is completely independent of the internal IP
+    DeltaIndependentOffset {
+        average_delta: i32,
+        last_allocated_external_ip: IpAddr,
+    },
+    /// The IP is unpredictable
     #[default]
-    Unknown,
+    Unpredictable,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
-pub enum TraversalTypeRequired {
-    /// Use the linear hole punch subroutines in this crate
-    Linear,
-    /// Use the linear hole punch subroutines in this crate with adjusted port params
-    Delta(i32),
-    /// direct p2p not possible
-    TURN,
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum PortTranslation {
+    /// The port remains the same between internal:external mappings
+    Identity,
+    /// The port is translated by a constant delta between internal:external mappings
+    DeltaConstantOffset { delta: i32 },
+    /// The port is translated invariantly between internal:external mappings such that the NAT assigns
+    /// a port that is completely independent of the internal port
+    DeltaIndependentOffset {
+        average_delta: i32,
+        last_allocated_external_port: u16,
+    },
+    /// The port is unpredictable
+    #[default]
+    Unpredictable,
 }
 
-// we only need to check the NAT type once per node
-lazy_static::lazy_static! {
-    pub static ref LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> = citadel_io::Mutex::new(None);
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NatType {
+    pub ip_translation: IpTranslation,
+    pub port_translation: PortTranslation,
+    pub ip_info: Option<IpAddressInfo>,
+    pub is_ipv6_enabled: bool,
 }
+
+pub struct SocketPair {
+    pub internal: SocketAddr,
+    pub external: SocketAddr,
+}
+
+pub const MAX_OCTET_DELTA: i32 = 5;
 
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
@@ -80,15 +94,6 @@ impl NatType {
         _timeout: Duration,
         stun_servers: Option<Vec<String>>,
     ) -> Result<Self, FirewallError> {
-        /*
-        #[cfg(feature = "localhost-testing-loopback-only")]
-        {
-            let lock = LOCALHOST_TESTING_NAT_TYPE.lock();
-            if let Some(nat_type) = lock.clone() {
-                log::warn!(target: "citadel", "Will not detect NAT type since local already has it: {:?}", nat_type);
-                return Ok(nat_type);
-            }
-        }*/
         match tokio::time::timeout(_timeout, get_nat_type(stun_servers)).await {
             Ok(res) => res
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))
@@ -101,11 +106,12 @@ impl NatType {
                 log::warn!(target: "citadel", "Timeout on NAT identification occurred");
                 if cfg!(feature = "localhost-testing") {
                     log::warn!(target: "citadel", "Will use default NatType for localhost-testing");
-                    Ok(NatType::PortPreserved(
-                        IpAddr::from([127, 0, 0, 1]),
-                        None,
-                        false,
-                    ))
+                    Ok(NatType {
+                        ip_translation: IpTranslation::Identity,
+                        port_translation: PortTranslation::Identity,
+                        ip_info: Some(IpAddressInfo::localhost()),
+                        is_ipv6_enabled: false,
+                    })
                 } else {
                     Err(FirewallError::HolePunch(
                         "NAT identification elapsed".to_string(),
@@ -115,6 +121,272 @@ impl NatType {
         }
     }
 
+    pub fn new(addr0: SocketPair, addr1: SocketPair, addr2: SocketPair) -> Self {
+        let ip_translation = Self::get_ip_translation(&addr0, &addr1, &addr2);
+        let port_translation = Self::get_port_translation(&addr0, &addr1, &addr2);
+        Self {
+            ip_translation,
+            port_translation,
+            ip_info: None,
+            is_ipv6_enabled: is_ipv6_enabled(),
+        }
+    }
+
+    // given a local socket address, predicts the external addresses. Returns None if unpredictable
+    pub(crate) fn predict(&self, internal_addr: &SocketAddr) -> Option<Vec<AddrBand>> {
+        let mut bands = Vec::new();
+        let internal_port = internal_addr.port();
+
+        // These anticipated ports will be used for all ip translations
+        let anticipated_ports = match self.port_translation {
+            PortTranslation::Identity => vec![internal_port],
+            PortTranslation::DeltaConstantOffset { delta } => {
+                vec![Self::wrapping_port_add(internal_port, delta)]
+            }
+            PortTranslation::DeltaIndependentOffset {
+                average_delta,
+                last_allocated_external_port,
+            } => {
+                let mut ports = Vec::new();
+                for i in average_delta..=(3 * average_delta) {
+                    ports.push(Self::wrapping_port_add(last_allocated_external_port, i));
+                }
+                ports
+            }
+            PortTranslation::Unpredictable => return None,
+        };
+
+        // add the base IPs
+        match self.ip_translation {
+            IpTranslation::Identity => {
+                let band = AddrBand {
+                    necessary_ip: internal_addr.ip(),
+                    anticipated_ports: anticipated_ports.clone(),
+                };
+                bands.push(band);
+            }
+            IpTranslation::Constant { external } => {
+                let band = AddrBand {
+                    necessary_ip: external,
+                    anticipated_ports: anticipated_ports.clone(),
+                };
+                bands.push(band);
+            }
+            IpTranslation::DeltaIndependentOffset {
+                average_delta,
+                last_allocated_external_ip,
+            } => {
+                for i in average_delta..=(3 * average_delta) {
+                    let next_ip = match last_allocated_external_ip {
+                        IpAddr::V4(ip) => {
+                            let mut octets = ip.octets();
+                            octets[3] = octets[3].wrapping_add(i as u8);
+                            IpAddr::from(octets)
+                        }
+                        IpAddr::V6(ip) => {
+                            let mut octets = ip.octets();
+                            octets[15] = octets[15].wrapping_add(i as u8);
+                            IpAddr::from(octets)
+                        }
+                    };
+
+                    let band = AddrBand {
+                        necessary_ip: next_ip,
+                        anticipated_ports: anticipated_ports.clone(),
+                    };
+
+                    bands.push(band);
+                }
+            }
+            IpTranslation::Unpredictable => return None,
+        }
+
+        // finally, add the ipv6 band (if we have it)
+        if let Some(ip_info) = &self.ip_info {
+            if let Some(ext_ip) = &ip_info.external_ipv6 {
+                let band = AddrBand {
+                    necessary_ip: *ext_ip,
+                    anticipated_ports: anticipated_ports.clone(),
+                };
+                bands.push(band);
+            }
+
+            // now, add the internal IP (potentially)
+            if bands.iter().all(|r| r.necessary_ip != ip_info.internal_ip) {
+                let band = AddrBand {
+                    necessary_ip: ip_info.internal_ip,
+                    anticipated_ports,
+                };
+                bands.push(band);
+            }
+        }
+
+        // final case: nodes are on localhost
+        // now, add the internal IP (potentially)
+        if bands.iter().all(|r| {
+            r.necessary_ip != internal_addr.ip() && !r.anticipated_ports.contains(&internal_port)
+        }) {
+            let band = AddrBand {
+                necessary_ip: internal_addr.ip(),
+                anticipated_ports: vec![internal_port],
+            };
+            bands.push(band);
+        }
+
+        Some(bands)
+    }
+
+    /// Given 3 socket addresses, determine the port translation
+    fn get_ip_translation(
+        addr0: &SocketPair,
+        addr1: &SocketPair,
+        addr2: &SocketPair,
+    ) -> IpTranslation {
+        let ip0_internal = addr0.internal.ip();
+        let ip0_external = addr0.external.ip();
+        let ip1_internal = addr1.internal.ip();
+        let ip1_external = addr1.external.ip();
+        let ip2_internal = addr2.internal.ip();
+        let ip2_external = addr2.external.ip();
+
+        if ip0_internal == ip0_external
+            && ip1_internal == ip1_external
+            && ip2_internal == ip2_external
+        {
+            return IpTranslation::Identity;
+        }
+
+        if ip0_external == ip1_external && ip1_external == ip2_external {
+            return IpTranslation::Constant {
+                external: ip0_external,
+            };
+        }
+
+        let last_octet_external0 = Self::last_octet(&ip0_external);
+        let last_octet_external1 = Self::last_octet(&ip1_external);
+        let last_octet_external2 = Self::last_octet(&ip2_external);
+
+        // Third case: NAT translates each ip's last octet independently
+        // e.g., NAT may begin allocating at *.100, and incrementing upwards
+        // e.g., [192.168.2.1] -> [192.168.2.100]
+        // e.g., [192.168.2.2] -> [192.168.2.101]
+        // e.g., [192.168.2.10] -> [192.168.2.102]
+        // compare the external ip's last octet to find a pattern
+        let last_external_octets = &[
+            last_octet_external0,
+            last_octet_external1,
+            last_octet_external2,
+        ];
+        let average_delta = average_delta(last_external_octets);
+        // if the delta is within an acceptable range, say, 5, then we can assume that the NAT is
+        // potentially predictable
+        if average_delta <= MAX_OCTET_DELTA as usize {
+            let highest = *last_external_octets.iter().max().unwrap();
+
+            let last_allocated_external_ip = if last_external_octets[0] == highest {
+                ip0_external
+            } else if last_external_octets[1] == highest {
+                ip1_external
+            } else {
+                ip2_external
+            };
+
+            return IpTranslation::DeltaIndependentOffset {
+                average_delta: average_delta as _,
+                last_allocated_external_ip,
+            };
+        }
+
+        IpTranslation::Unpredictable
+    }
+
+    fn get_port_translation(
+        addr0: &SocketPair,
+        addr1: &SocketPair,
+        addr2: &SocketPair,
+    ) -> PortTranslation {
+        let port0_internal = addr0.internal.port();
+        let port0_external = addr0.external.port();
+        let port1_internal = addr1.internal.port();
+        let port1_external = addr1.external.port();
+        let port2_internal = addr2.internal.port();
+        let port2_external = addr2.external.port();
+
+        if port0_internal == port0_external
+            && port1_internal == port1_external
+            && port2_internal == port2_external
+        {
+            return PortTranslation::Identity;
+        }
+
+        let port0_delta = port0_external as i32 - port0_internal as i32;
+        let port1_delta = port1_external as i32 - port1_internal as i32;
+        let port2_delta = port2_external as i32 - port2_internal as i32;
+
+        if port0_delta == port1_delta && port1_delta == port2_delta {
+            return PortTranslation::DeltaConstantOffset { delta: port0_delta };
+        }
+
+        // last case: NAT translates each port's last octet independently
+        // e.g., NAT may begin allocating at 25000, and incrementing upwards
+        // e.g., 1098 > 25000
+        // e.g., 10000 > 25001
+        // e.g., 15000 > 25002
+        let port_external_octets = &[port0_external, port1_external, port2_external];
+
+        let average_delta = average_delta(port_external_octets);
+        // if the delta is within an acceptable range, say, 5, then we can assume that the NAT predictably allocates ports
+        if average_delta <= MAX_OCTET_DELTA as usize {
+            let highest = *port_external_octets.iter().max().unwrap();
+
+            let last_allocated_external_port = if port_external_octets[0] == highest {
+                port0_external
+            } else if port_external_octets[1] == highest {
+                port1_external
+            } else {
+                port2_external
+            };
+
+            return PortTranslation::DeltaIndependentOffset {
+                average_delta: average_delta as _,
+                last_allocated_external_port,
+            };
+        }
+
+        PortTranslation::Unpredictable
+    }
+
+    fn last_octet(ip: &IpAddr) -> u8 {
+        match ip {
+            IpAddr::V4(ip) => ip.octets()[3],
+            IpAddr::V6(ip) => ip.octets()[15],
+        }
+    }
+
+    fn wrapping_port_add(port: u16, delta: i32) -> u16 {
+        let mut new_port = port.wrapping_add(delta as u16);
+        if new_port < 1024 {
+            new_port += 1024
+        }
+
+        new_port
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+pub enum TraversalTypeRequired {
+    /// Use the linear hole punch subroutines in this crate
+    Direct,
+    /// direct p2p not possible
+    TURN,
+}
+
+// we only need to check the NAT type once per node
+lazy_static::lazy_static! {
+    pub static ref LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> = citadel_io::Mutex::new(None);
+}
+
+impl NatType {
     /// Returns the NAT traversal type required to access self and other, respectively
     pub fn traversal_type_required_with(
         &self,
@@ -126,51 +398,12 @@ impl NatType {
     }
 
     pub fn traversal_type_required(&self) -> TraversalTypeRequired {
-        match self {
-            NatType::EIM(..) => TraversalTypeRequired::Linear,
-            NatType::PortPreserved(..) => TraversalTypeRequired::Linear,
-            NatType::EDM(_, _, n, _) => TraversalTypeRequired::Delta(*n),
-            NatType::EDMRandomPort(_, _, _ports, _) => {
-                let average_delta = self.get_average_delta_for_rand_port().unwrap();
-                if average_delta > MAX_PORT_DELTA_FOR_PREDICTION as _ {
-                    TraversalTypeRequired::TURN
-                } else {
-                    TraversalTypeRequired::Delta(average_delta as _)
-                }
-            }
-
-            NatType::EDMRandomIPPortPreserved(addrs, _, _) => {
-                let mut octets: Vec<[u8; 4]> = vec![];
-                for addr in addrs {
-                    match addr {
-                        IpAddr::V4(v4) => octets.push(v4.octets()),
-
-                        IpAddr::V6(_) => {
-                            // in this case, we assume the v6 addr is stable, and,
-                            // return as traversable (this should be unreachable in prod code)
-                            return TraversalTypeRequired::Linear;
-                        }
-                    }
-                }
-
-                let delta = average_delta(&octets.iter().map(|r| r[3]).collect::<Vec<u8>>());
-                if delta < MAX_LAST_OCTET_DELTA_FOR_PREDICTION {
-                    // make sure the first three octets of every ip are equivalent
-                    if octets
-                        .iter()
-                        .map(|r| Vec::from(&r[0..3] as &[u8]))
-                        .all_equal()
-                    {
-                        TraversalTypeRequired::Delta(delta as _)
-                    } else {
-                        TraversalTypeRequired::TURN
-                    }
-                } else {
-                    // IP is too
-                    TraversalTypeRequired::TURN
-                }
-            }
-            NatType::EDMRandomIp(..) | NatType::Unknown => TraversalTypeRequired::TURN,
+        if matches!(self.ip_translation, IpTranslation::Unpredictable)
+            || matches!(self.port_translation, PortTranslation::Unpredictable)
+        {
+            TraversalTypeRequired::TURN
+        } else {
+            TraversalTypeRequired::Direct
         }
     }
 
@@ -187,52 +420,11 @@ impl NatType {
     }
 
     pub fn ip_addr_info(&self) -> Option<&IpAddressInfo> {
-        match self {
-            NatType::EIM(_, ip, _)
-            | NatType::EDM(_, ip, ..)
-            | NatType::PortPreserved(_, ip, _)
-            | NatType::EDMRandomIp(_, ip, _)
-            | NatType::EDMRandomIPPortPreserved(_, ip, _)
-            | NatType::EDMRandomPort(_, ip, _, _) => ip.as_ref(),
-            NatType::Unknown => None,
-        }
-    }
-
-    pub fn get_average_delta_for_rand_port(&self) -> Option<u16> {
-        match self {
-            Self::EDMRandomPort(_, _, ports, _) => {
-                let average = average_delta(ports);
-                Some(average as _)
-            }
-
-            _ => None,
-        }
+        self.ip_info.as_ref()
     }
 
     pub fn is_ipv6_compatible(&self) -> bool {
-        match self {
-            NatType::EIM(_, _, v6)
-            | NatType::PortPreserved(_, _, v6)
-            | NatType::EDM(_, _, _, v6)
-            | NatType::EDMRandomIp(_, _, v6)
-            | NatType::EDMRandomIPPortPreserved(_, _, v6)
-            | NatType::EDMRandomPort(_, _, _, v6) => *v6,
-            NatType::Unknown => false,
-        }
-    }
-
-    fn store_ip_info(&mut self, info: Option<IpAddressInfo>) {
-        if let Some(info) = info {
-            match self {
-                NatType::PortPreserved(_, ip, _)
-                | NatType::EIM(_, ip, _)
-                | NatType::EDM(_, ip, ..)
-                | NatType::EDMRandomIp(_, ip, _)
-                | NatType::EDMRandomIPPortPreserved(_, ip, _)
-                | NatType::EDMRandomPort(_, ip, _, _) => *ip = Some(info),
-                NatType::Unknown => {}
-            }
-        }
+        self.is_ipv6_enabled
     }
 }
 
@@ -318,7 +510,6 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
         let third_natted_addr = results
             .pop()
             .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
-        let is_ipv6_allowed = is_ipv6_enabled();
 
         // now, we determine what the nat does when mapping internal socket addrs to external socket addrs
         match (first_natted_addr, second_natted_addr, third_natted_addr) {
@@ -327,97 +518,23 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 Some((addr2_ext, addr2_int)),
                 Some((addr3_ext, addr3_int)),
             ) => {
-                let port_preserved = addr_ext.port() == addr_int.port()
-                    && addr2_ext.port() == addr2_int.port()
-                    && addr3_ext.port() == addr3_int.port();
-                // if there is zero changes in the mapping, then we have EIM
-                if addr_ext == addr_int && addr2_ext == addr2_int && addr3_ext == addr3_int {
-                    // It doesn't matter where we connect; we always get the same socket addr
-                    return Ok(NatType::EIM(addr_ext, None, is_ipv6_allowed));
-                }
+                let pair0 = SocketPair {
+                    internal: addr_int,
+                    external: addr_ext,
+                };
+                let pair1 = SocketPair {
+                    internal: addr2_int,
+                    external: addr2_ext,
+                };
+                let pair2 = SocketPair {
+                    internal: addr3_int,
+                    external: addr3_ext,
+                };
 
-                // if ANY addrs are v6, then NAT traversal to this node should be easy
-                if let Some(v6_addr) = [addr_ext, addr2_ext, addr3_ext]
-                    .iter()
-                    .find(|r| r.is_ipv6())
-                {
-                    return Ok(NatType::EIM(*v6_addr, None, is_ipv6_allowed));
-                }
+                let net_type = NatType::new(pair0, pair1, pair2);
+                log::info!(target: "citadel", "NAT type: {:?}", net_type);
 
-                // if the external IPs translated during the process, this may not be good for addr prediction
-                if (addr_ext.ip() != addr2_ext.ip()) || (addr2_ext.ip() != addr3_ext.ip()) {
-                    // Check to see if the first three octets are all the same
-                    match (addr_ext, addr2_ext, addr3_ext) {
-                        (SocketAddr::V4(v4_0), SocketAddr::V4(v4_1), SocketAddr::V4(v4_2)) => {
-                            if v4_0.ip().octets()[..3] == v4_1.ip().octets()[..3]
-                                && v4_1.ip().octets()[..3] == v4_2.ip().octets()[..3]
-                            {
-                                // first three octets are equivalent. Check to see if port preservation is true
-                                if port_preserved {
-                                    // check to make sure the average delta is
-                                    if average_delta(&vec![
-                                        v4_0.ip().octets()[3],
-                                        v4_0.ip().octets()[3],
-                                        v4_0.ip().octets()[3],
-                                    ]) < MAX_LAST_OCTET_DELTA_FOR_PREDICTION
-                                    {
-                                        return Ok(NatType::EDMRandomIPPortPreserved(
-                                            vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()],
-                                            None,
-                                            is_ipv6_allowed,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-
-                        _ => {
-                            unreachable!("Ipv6 addrs block should have returned already")
-                        }
-                    }
-                    // this is the worst nat type since ip's are unpredictable. Just use TURN if other is random IP,
-                    // unless, the other has a predictable addr
-                    return Ok(NatType::EDMRandomIp(
-                        vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()],
-                        None,
-                        is_ipv6_allowed,
-                    ));
-                }
-
-                // check to see if ext_port == int_port
-                if port_preserved {
-                    // in this case, the IP changes, however, the port stays the same. The NAT maps as such:
-                    // ip0:port -> ip1:port
-                    return Ok(NatType::PortPreserved(addr_ext.ip(), None, is_ipv6_allowed));
-                }
-
-                let deltas = &mut [addr_ext.port(), addr2_ext.port(), addr3_ext.port()];
-                deltas.sort_unstable();
-
-                let delta0 = i32::abs(deltas[0] as i32 - deltas[1] as i32);
-                let delta1 = i32::abs(deltas[1] as i32 - deltas[2] as i32);
-                log::trace!(target: "citadel", "[external] Delta0: {} | Delta1: {}", delta0, delta1);
-
-                let highest_latest_port = deltas[2];
-                let highest_last_addr = SocketAddr::new(addr_ext.ip(), highest_latest_port);
-
-                if delta0 == delta1 {
-                    // This means the ports are predictable. Use TCP simultaneous connect on expected ports based on delta. It is expected this data be sent to the peer. The peer will then connect to the socket ip:(LOCAL_BIND_PORT+delta)
-                    Ok(NatType::EDM(
-                        highest_last_addr,
-                        None,
-                        delta0,
-                        is_ipv6_allowed,
-                    ))
-                } else {
-                    // the IP's are equal, but, the ports are not predictable; use TURN
-                    Ok(NatType::EDMRandomPort(
-                        highest_last_addr,
-                        None,
-                        vec![addr_ext.port(), addr2_ext.port(), addr3_ext.port()],
-                        is_ipv6_allowed,
-                    ))
-                }
+                Ok(net_type)
             }
 
             _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
@@ -452,13 +569,16 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
     log::trace!(target: "citadel", "NAT Type: {nat_type:?} | IpInfo: {ip_info:?}");
     let ip_info = ip_info.map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
-    nat_type.store_ip_info(ip_info);
+    nat_type.ip_info = ip_info;
     Ok(nat_type)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::nat_identification::NatType;
+    use crate::nat_identification::{
+        IpTranslation, NatType, PortTranslation, SocketPair, MAX_OCTET_DELTA,
+    };
+    use crate::udp_traversal::hole_punch_config::AddrBand;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 
@@ -471,125 +591,316 @@ mod tests {
     }
 
     #[test]
-    fn test_average_delta_computation() {
-        assert_average_delta_inner(vec![70, 10, 50, 30], 20);
-        assert_average_delta_inner(vec![10, 30, 50, 70], 20);
-        assert_average_delta_inner(vec![10, 30, 50, 70, 90, 110], 20);
-        assert_average_delta_inner(vec![1, 2, 3, 4, 5, 6], 1);
-        assert_average_delta_inner(vec![2, 4, 6, 8, 10, 12], 2);
-    }
+    fn test_addr_translation_identification_identity_to_identity() {
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+        };
 
-    fn assert_average_delta_inner(ports: Vec<u16>, expected: u16) {
-        let dummy_nat_type = NatType::EDMRandomPort(
-            SocketAddr::from_str("127.0.0.1:1234").unwrap(),
-            None,
-            ports,
-            false,
-        );
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        assert!(matches!(nat_type.ip_translation, IpTranslation::Identity));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::Identity
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
         assert_eq!(
-            expected,
-            dummy_nat_type.get_average_delta_for_rand_port().unwrap()
-        )
+            predicted_addrs,
+            vec![AddrBand {
+                necessary_ip: internal_addr.ip(),
+                anticipated_ports: vec![30000]
+            }]
+        );
     }
 
     #[test]
-    fn test_nat_traversal_compat() {
-        let dummy_addr = SocketAddr::from_str("127.0.0.1:1234").unwrap();
-        let dummy_ip0_ok = IpAddr::from_str("123.100.200.100").unwrap();
-        let dummy_ip1_ok = IpAddr::from_str("123.100.200.101").unwrap();
-        let dummy_ip2_ok = IpAddr::from_str("123.100.200.102").unwrap();
-        let dummy_ip3_err = IpAddr::from_str("100.100.200.103").unwrap();
+    fn test_addr_translation_identification_identity_to_delta_constant_offset() {
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:10010").unwrap(),
+        };
 
-        let eim = &NatType::EIM(dummy_addr, None, true);
-        let edm = &NatType::EDM(dummy_addr, None, 1, true);
-        let port_preserved = &NatType::PortPreserved(dummy_addr.ip(), None, true);
-        let random_port_compat =
-            &NatType::EDMRandomPort(dummy_addr, None, vec![10, 20, 30, 40], true);
-        let random_port_bad = &NatType::EDMRandomPort(dummy_addr, None, vec![40, 80, 120], true);
-        let random_ip = &NatType::EDMRandomIp(vec![dummy_addr.ip()], None, true);
-        let random_ip_port_preserved_ok = &NatType::EDMRandomIPPortPreserved(
-            vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip2_ok],
-            None,
-            true,
-        );
-        let random_ip_port_preserved_err = &NatType::EDMRandomIPPortPreserved(
-            vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip3_err],
-            None,
-            true,
-        );
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:20010").unwrap(),
+        };
 
-        // Start with EIM
-        inner_nat_traversal_compat(eim, eim, true);
-        inner_nat_traversal_compat(eim, edm, true);
-        inner_nat_traversal_compat(eim, port_preserved, true);
-        inner_nat_traversal_compat(eim, random_port_compat, true);
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:30010").unwrap(),
+        };
 
-        inner_nat_traversal_compat(eim, random_port_bad, true);
-        inner_nat_traversal_compat(eim, random_ip, true);
-
-        inner_nat_traversal_compat(eim, random_ip_port_preserved_ok, true);
-        inner_nat_traversal_compat(eim, random_ip_port_preserved_err, true);
-
-        // EDM
-        inner_nat_traversal_compat(edm, edm, true);
-        inner_nat_traversal_compat(edm, port_preserved, true);
-        inner_nat_traversal_compat(edm, random_port_compat, true);
-
-        inner_nat_traversal_compat(edm, random_port_bad, true);
-        inner_nat_traversal_compat(edm, random_ip, true);
-        inner_nat_traversal_compat(edm, random_ip_port_preserved_ok, true);
-        inner_nat_traversal_compat(edm, random_ip_port_preserved_err, true);
-
-        // PortPreserved
-        inner_nat_traversal_compat(port_preserved, port_preserved, true);
-        inner_nat_traversal_compat(port_preserved, random_port_compat, true);
-
-        inner_nat_traversal_compat(port_preserved, random_port_bad, true);
-        inner_nat_traversal_compat(port_preserved, random_ip, true);
-        inner_nat_traversal_compat(port_preserved, random_ip_port_preserved_ok, true);
-        inner_nat_traversal_compat(port_preserved, random_ip_port_preserved_err, true);
-
-        // Random port (compat)
-        inner_nat_traversal_compat(random_port_compat, random_port_compat, true);
-        inner_nat_traversal_compat(random_port_compat, random_port_bad, true);
-        inner_nat_traversal_compat(random_port_compat, random_ip, true);
-        inner_nat_traversal_compat(random_port_compat, random_ip_port_preserved_ok, true);
-        inner_nat_traversal_compat(random_port_compat, random_ip_port_preserved_err, true);
-
-        // Random port (bad)
-        inner_nat_traversal_compat(random_port_bad, random_port_bad, false);
-        inner_nat_traversal_compat(random_port_bad, random_ip, false);
-        inner_nat_traversal_compat(random_port_bad, random_ip_port_preserved_ok, true);
-        inner_nat_traversal_compat(random_port_bad, random_ip_port_preserved_err, false);
-
-        // Random ip
-        inner_nat_traversal_compat(random_ip, random_ip, false);
-        inner_nat_traversal_compat(random_ip, random_ip_port_preserved_ok, true);
-        inner_nat_traversal_compat(random_ip, random_ip_port_preserved_err, false);
-
-        // random ip, port preserved, delta ok
-        inner_nat_traversal_compat(
-            random_ip_port_preserved_ok,
-            random_ip_port_preserved_ok,
-            true,
-        );
-        inner_nat_traversal_compat(
-            random_ip_port_preserved_ok,
-            random_ip_port_preserved_err,
-            true,
-        );
-
-        // random ip, port preserved, delta bad
-        inner_nat_traversal_compat(
-            random_ip_port_preserved_err,
-            random_ip_port_preserved_err,
-            false,
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        assert!(matches!(nat_type.ip_translation, IpTranslation::Identity));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::DeltaConstantOffset { delta: 10 }
+        ));
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        assert_eq!(
+            predicted_addrs,
+            vec![AddrBand {
+                necessary_ip: internal_addr.ip(),
+                anticipated_ports: vec![30010]
+            }]
         );
     }
 
-    fn inner_nat_traversal_compat(ty1: &NatType, ty2: &NatType, stun_compat: bool) {
-        // also prove comparisons are commutative
-        assert_eq!(stun_compat, ty1.stun_compatible(ty2));
-        assert_eq!(stun_compat, ty2.stun_compatible(ty1));
+    #[test]
+    // below the limit
+    fn test_addr_translation_identification_identity_to_delta_independent_offset0() {
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:50000").unwrap(),
+        };
+
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:50001").unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:50002").unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        let _average_delta = 1;
+        assert!(matches!(nat_type.ip_translation, IpTranslation::Identity));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::DeltaIndependentOffset {
+                average_delta: _average_delta,
+                last_allocated_external_port: 50002
+            }
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        assert_eq!(
+            predicted_addrs,
+            vec![AddrBand {
+                necessary_ip: internal_addr.ip(),
+                anticipated_ports: vec![50003, 50004, 50005]
+            }]
+        );
+    }
+
+    #[test]
+    // at the limit
+    fn test_addr_translation_identification_identity_to_delta_independent_offset1() {
+        let mappings = [
+            50000,
+            50000 + MAX_OCTET_DELTA as u16,
+            50000 + 2 * MAX_OCTET_DELTA as u16,
+        ];
+
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str(&format!("192.168.2.1:{}", mappings[0])).unwrap(),
+        };
+
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str(&format!("192.168.2.1:{}", mappings[1])).unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str(&format!("192.168.2.1:{}", mappings[2])).unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        let _last_allocated_external_port = mappings[2];
+        assert!(matches!(nat_type.ip_translation, IpTranslation::Identity));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::DeltaIndependentOffset {
+                average_delta: MAX_OCTET_DELTA,
+                last_allocated_external_port: _last_allocated_external_port
+            }
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        assert_eq!(
+            predicted_addrs,
+            vec![AddrBand {
+                necessary_ip: internal_addr.ip(),
+                anticipated_ports: (50015u16..=50025u16).into_iter().collect()
+            }]
+        );
+    }
+
+    #[test]
+    // above the limit
+    fn test_addr_translation_identification_identity_to_delta_independent_offset2() {
+        let mappings = [
+            50000,
+            50000 + 1u16 + MAX_OCTET_DELTA as u16,
+            50000 + 2u16 + 2 * MAX_OCTET_DELTA as u16,
+        ];
+
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str(&format!("192.168.2.1:{}", mappings[0])).unwrap(),
+        };
+
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str(&format!("192.168.2.1:{}", mappings[1])).unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str(&format!("192.168.2.1:{}", mappings[2])).unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        let _last_allocated_external_port = mappings[2];
+        assert!(matches!(nat_type.ip_translation, IpTranslation::Identity));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::Unpredictable
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr);
+        assert!(predicted_addrs.is_none());
+    }
+
+    #[test]
+    fn test_addr_translation_identification_identity_to_unpredictable() {
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:10001").unwrap(),
+        };
+
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:10500").unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str("192.168.2.1:16000").unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        assert!(matches!(nat_type.ip_translation, IpTranslation::Identity));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::Unpredictable
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:10000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr);
+        assert!(predicted_addrs.is_none());
+    }
+
+    #[test]
+    fn test_addr_translation_identification_constant_to_identity() {
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str("10.1.10.1:10000").unwrap(),
+        };
+
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str("10.1.10.1:20000").unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str("10.1.10.1:30000").unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        let _external = IpAddr::from_str("10.1.10.1").unwrap();
+        assert!(matches!(
+            nat_type.ip_translation,
+            IpTranslation::Constant {
+                external: _external
+            }
+        ));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::Identity
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        assert_eq!(
+            predicted_addrs,
+            vec![AddrBand {
+                necessary_ip: IpAddr::from_str("10.1.10.1").unwrap(),
+                anticipated_ports: vec![30000]
+            }]
+        );
+    }
+
+    #[test]
+    fn test_addr_translation_identification_delta_offset_to_identity() {
+        let addr0 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:10000").unwrap(),
+            external: SocketAddr::from_str("10.1.10.100:10000").unwrap(),
+        };
+
+        let addr1 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:20000").unwrap(),
+            external: SocketAddr::from_str("10.1.10.101:20000").unwrap(),
+        };
+
+        let addr2 = SocketPair {
+            internal: SocketAddr::from_str("192.168.2.1:30000").unwrap(),
+            external: SocketAddr::from_str("10.1.10.102:30000").unwrap(),
+        };
+
+        let nat_type = NatType::new(addr0, addr1, addr2);
+        let _last_allocated_external_ip = IpAddr::from_str("10.1.10.102").unwrap();
+        assert!(matches!(
+            nat_type.ip_translation,
+            IpTranslation::DeltaIndependentOffset {
+                average_delta: 1,
+                last_allocated_external_ip: _last_allocated_external_ip
+            }
+        ));
+        assert!(matches!(
+            nat_type.port_translation,
+            PortTranslation::Identity
+        ));
+
+        let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        assert_eq!(
+            predicted_addrs,
+            vec![
+                AddrBand {
+                    necessary_ip: IpAddr::from_str("10.1.10.103").unwrap(),
+                    anticipated_ports: vec![30000]
+                },
+                AddrBand {
+                    necessary_ip: IpAddr::from_str("10.1.10.104").unwrap(),
+                    anticipated_ports: vec![30000],
+                },
+                AddrBand {
+                    necessary_ip: IpAddr::from_str("10.1.10.105").unwrap(),
+                    anticipated_ports: vec![30000],
+                },
+            ]
+        );
     }
 }

@@ -105,9 +105,11 @@ async fn drive(
         None
     };
 
+    log::trace!(target: "citadel", "Initiating subscription ...");
     // initiate a dedicated channel for sending packets for coordination
     let conn = &(app.initiate_subscription().await?);
 
+    log::trace!(target: "citadel", "Initiating NetMutex ...");
     // setup a mutex for handling contentions
     let net_mutex = &(app.mutex::<Option<()>>(value).await?);
 
@@ -270,21 +272,19 @@ async fn drive(
                         if net_lock.as_ref().is_none() {
                             log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
-                            socket.cleanse()?;
-                            submit_final_candidate(socket)?;
+                            let _ = socket.cleanse();
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
                                 .await?;
+                            submit_final_candidate(socket)?;
                             log::trace!(target: "citadel", "*** [winner] Awaiting the signal ...");
-                            std::mem::drop(net_lock);
                             // the winner will drop once the adjacent node sends a WinnerCanEnd signal
                             winner_can_end_rx.await?;
                             log::trace!(target: "citadel", "*** [winner] received the signal");
+                            std::mem::drop(net_lock);
                             return signal_done();
                         } else {
-                            unreachable!(
-                                "Should not happen since the winner holds the mutex until complete"
-                            );
+                            log::error!(target: "citadel", "This should not happen");
                         }
                     } else {
                         log::trace!(target: "citadel", "While looping, detected that the socket was taken")
@@ -317,7 +317,7 @@ async fn drive(
                 log::trace!(target: "citadel", "*** received MutexSet. Will unconditionally end ...");
                 assert!(loser_value_set.lock().replace((local, remote)).is_none());
                 let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
-                hole_punched_socket.cleanse()?;
+                let _ = hole_punched_socket.cleanse();
                 submit_final_candidate(hole_punched_socket)?;
                 // return here. The winner must exit last
                 send(DualStackCandidate::WinnerCanEnd, conn).await?;
@@ -337,15 +337,24 @@ async fn drive(
     let sender_reader_combo = futures::future::try_join(futures_resolver, reader);
 
     tokio::select! {
-        res0 = sender_reader_combo => res0.map(|_| ())?,
-        res1 = done_rx => res1?,
-        res2 = futures_executor => res2?
+        res0 = sender_reader_combo => {
+            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished {res0:?}");
+            res0.map(|_| ())?
+        },
+        res1 = done_rx => {
+            log::trace!(target: "citadel", "[DualStack] Done signal received {res1:?}");
+            res1?
+        },
+        res2 = futures_executor => {
+            log::trace!(target: "citadel", "[DualStack] Futures executor finished {res2:?}");
+            res2?
+        }
     };
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
 
     let sock = final_candidate_rx.await?;
-    sock.cleanse()?;
+    let _ = sock.cleanse();
 
     Ok(sock)
 }

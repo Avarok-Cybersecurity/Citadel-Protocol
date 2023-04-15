@@ -78,6 +78,8 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
       - run: cargo nextest run --package citadel_wire --features=localhost-testing
+        env:
+          RUST_LOG: citadel=trace
 
   citadel_sdk:
     strategy:
@@ -208,6 +210,6 @@ jobs:
       NAT_TYPE_PEER_B: ${{ matrix.nat_type_peer_b }}
     steps:
       - uses: actions/checkout@v3
-      - if: ${{ matrix.nat_type_peer_a != 'symmetric' && matrix.nat_type_peer_b != 'symmetric' }}
+      - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
         run: docker-compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
         shell: bash

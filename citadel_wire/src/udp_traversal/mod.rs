@@ -9,7 +9,7 @@ pub mod targetted_udp_socket_addr;
 
 pub mod udp_hole_puncher;
 
-mod hole_punch_config;
+pub mod hole_punch_config;
 pub mod multi;
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
