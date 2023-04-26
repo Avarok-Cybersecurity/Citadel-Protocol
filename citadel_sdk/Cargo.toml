@@ -53,6 +53,7 @@ dirs2 = "3.0.1"
 rstest = "0.17.0"
 serde = { version = "1.0.152", features = ["derive"] }
 rand = "0.8.5"
+hyper = { version = "0.14.25", features = ["client", "server"] }
 
 [lib]
 #doctest = false

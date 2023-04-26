@@ -56,7 +56,7 @@ where
 
 #[cfg(feature = "localhost-testing")]
 pub fn get_unused_tcp_port() -> u16 {
-    std::net::TcpListener::bind("0.0.0.0:0")
+    std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
         .unwrap()
@@ -99,7 +99,7 @@ impl TestBarrier {
     pub fn setup(count: usize) {
         let _ = TEST_BARRIER.lock().replace(Self::new(count));
     }
-    fn new(count: usize) -> Self {
+    pub(crate) fn new(count: usize) -> Self {
         Self {
             inner: std::sync::Arc::new(tokio::sync::Barrier::new(count)),
         }
