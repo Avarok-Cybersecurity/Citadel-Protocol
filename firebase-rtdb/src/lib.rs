@@ -183,7 +183,7 @@ impl FirebaseRTDB {
 
     fn build_client() -> Result<Client, RtdbError> {
         Ok(Client::builder()
-            .use_native_tls()
+            .use_rustls_tls()
             .connect_timeout(CONNECT_TIMEOUT)
             .tcp_nodelay(true)
             .build()?)
