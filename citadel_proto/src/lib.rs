@@ -341,6 +341,8 @@ pub mod re_imports {
     pub use citadel_wire::tls::{
         cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
     };
+    pub use tokio_stream::wrappers::UnboundedReceiverStream;
+    pub use tokio_util::io::{SinkWriter, StreamReader};
 }
 
 pub mod prelude {
@@ -400,10 +402,13 @@ pub mod prelude {
     pub use crate::proto::node_result::*;
     pub use crate::proto::remote::*;
 
+    #[doc(hidden)]
+    pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
     pub use citadel_crypt::misc::TransferType;
     pub use citadel_crypt::prelude::SecurityLevel;
     pub use citadel_crypt::streaming_crypt_scrambler::{BytesSource, ObjectSource};
     pub use citadel_user::misc::{prepare_virtual_path, validate_virtual_path};
+    pub use netbeam::sync::tracked_callback_channel::*;
 }
 
 pub mod auth;

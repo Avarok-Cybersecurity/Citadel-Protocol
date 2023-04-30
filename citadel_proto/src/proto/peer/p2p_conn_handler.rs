@@ -274,17 +274,18 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 pub(crate) async fn attempt_simultaneous_hole_punch(
     peer_connection_type: PeerConnectionType,
     ticket: Ticket,
-    ref session: HdpSession,
+    session: HdpSession,
     peer_nat_info: PeerNatInfo,
     implicated_cid: DualCell<Option<u64>>,
-    ref kernel_tx: UnboundedSender<NodeResult>,
+    kernel_tx: UnboundedSender<NodeResult>,
     channel_signal: NodeResult,
     sync_time: Instant,
-    ref app: NetworkEndpoint,
+    app: NetworkEndpoint,
     encrypted_config_container: HolePunchConfigContainer,
     client_config: Arc<rustls::ClientConfig>,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
+    let kernel_tx = &kernel_tx;
     let v_conn = peer_connection_type.as_virtual_connection();
 
     let process = async move {

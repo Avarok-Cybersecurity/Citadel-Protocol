@@ -95,7 +95,7 @@ impl Future for DualStackUdpHolePuncher {
 async fn drive(
     hole_punchers: Vec<SingleUDPHolePuncher>,
     node_type: RelativeNodeType,
-    ref app: NetworkEndpoint,
+    app: NetworkEndpoint,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // We use a single mutex to resolve timing/priority conflicts automatically
     // Which ever node FIRST can set the value will "win"
@@ -360,11 +360,11 @@ async fn drive(
 }
 
 async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(
-    ref input: R,
+    input: R,
     conn: &V,
 ) -> Result<(), anyhow::Error> {
     Ok(conn
-        .send_to_peer(&bincode2::serialize(input).unwrap())
+        .send_to_peer(&bincode2::serialize(&input).unwrap())
         .await?)
 }
 

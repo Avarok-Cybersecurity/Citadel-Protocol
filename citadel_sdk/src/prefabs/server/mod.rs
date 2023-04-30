@@ -6,3 +6,5 @@ pub mod accept_file_transfer_kernel;
 pub mod client_connect_listener;
 /// A non-reactive kernel that does no additional processing on top of the protocol
 pub mod empty;
+/// For internal services (e.g., a Hyper webserver)
+pub mod internal_service;

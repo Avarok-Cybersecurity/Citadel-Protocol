@@ -183,7 +183,7 @@ impl FirebaseRTDB {
 
     fn build_client() -> Result<Client, RtdbError> {
         Ok(Client::builder()
-            .use_native_tls()
+            .use_rustls_tls()
             .connect_timeout(CONNECT_TIMEOUT)
             .tcp_nodelay(true)
             .build()?)
@@ -227,31 +227,31 @@ impl Node<'_> {
         Self::handle_response(resp).await
     }
 
-    pub async fn put<T: Serialize>(&self, ref input: T) -> Result<String, RtdbError> {
+    pub async fn put<T: Serialize>(&self, input: T) -> Result<String, RtdbError> {
         let resp = self
             .client
             .put(format!("{}?auth={}", self.string_builder, self.token))
-            .json(input)
+            .json(&input)
             .send()
             .await?;
         Self::handle_response(resp).await
     }
 
-    pub async fn post<T: Serialize>(&self, ref input: T) -> Result<String, RtdbError> {
+    pub async fn post<T: Serialize>(&self, input: T) -> Result<String, RtdbError> {
         let resp = self
             .client
             .post(format!("{}?auth={}", self.string_builder, self.token))
-            .json(input)
+            .json(&input)
             .send()
             .await?;
         Self::handle_response(resp).await
     }
 
-    pub async fn patch<T: Serialize>(&self, ref input: T) -> Result<String, RtdbError> {
+    pub async fn patch<T: Serialize>(&self, input: T) -> Result<String, RtdbError> {
         let resp = self
             .client
             .patch(format!("{}?auth={}", self.string_builder, self.token))
-            .json(input)
+            .json(&input)
             .send()
             .await?;
         Self::handle_response(resp).await

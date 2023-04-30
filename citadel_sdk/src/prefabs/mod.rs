@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub mod client;
 /// Kernels for servers
 pub mod server;
+pub(crate) mod shared;
 use crate::prelude::user_ids::TargetLockedRemote;
 use crate::remote_ext::results::HyperlanPeer;
 use crate::remote_ext::ProtocolRemoteExt;

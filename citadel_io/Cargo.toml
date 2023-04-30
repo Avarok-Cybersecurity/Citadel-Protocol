@@ -20,12 +20,8 @@ wasm = []
 deadlock-detection = ["parking_lot/deadlock_detection"]
 
 [dependencies]
-tokio = { version = "1.24", default-features = false, features = ["net", "rt"] }
+tokio = { workspace = true, features = ["net", "rt"] }
 
 [target.'cfg(not(target_family="wasm"))'.dependencies]
-parking_lot = { version = "0.12.1", default-features = false }
-
-[target.'cfg(target_family="wasm")'.dependencies]
-#ws_stream_wasm = "0.7.3"
-#wasm_thread = "0.2.0"
+parking_lot = { workspace = true, default-features = false }
 

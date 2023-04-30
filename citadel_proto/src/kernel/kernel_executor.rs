@@ -125,11 +125,13 @@ impl<K: NetKernel> KernelExecutor<K> {
     async fn kernel_inner_loop(
         kernel: &mut K,
         mut server_to_kernel_rx: UnboundedReceiver<NodeResult>,
-        ref hdp_server_remote: NodeRemote,
+        hdp_server_remote: NodeRemote,
         shutdown: tokio::sync::oneshot::Receiver<()>,
-        ref callback_handler: KernelAsyncCallbackHandler,
+        callback_handler: KernelAsyncCallbackHandler,
         kernel_settings: KernelExecutorSettings,
     ) -> Result<(), NetworkError> {
+        let hdp_server_remote = &hdp_server_remote;
+        let callback_handler = &callback_handler;
         log::trace!(target: "citadel", "Kernel multithreaded environment executed ...");
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
