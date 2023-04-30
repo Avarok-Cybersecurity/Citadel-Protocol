@@ -96,7 +96,7 @@ jobs:
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only
         if: ${{ !startsWith(matrix.os, 'windows') }}
-      - name: Single-threaded testing
+      - name: Single-threaded testing (windows only)
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only,vendored
         if: startsWith(matrix.os, 'windows')
       - name: Multi-threaded testing
