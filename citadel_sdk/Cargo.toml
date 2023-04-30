@@ -35,7 +35,7 @@ doc-images = ["embed-doc-image"]
 citadel_proto = { version = "0.4.0", path = "../citadel_proto", default-features = false }
 citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
 embed-doc-image = { version = "0.1.4", optional = true }
-tokio = { version = "1.24", default-features = false }
+tokio = { version = "1.28", default-features = false }
 futures = { version = "0.3.25", default-features = false }
 log = { default-features = false, version = "0.4.17" }
 lazy_static = { default-features = false, version = "1.4.0" }
@@ -47,7 +47,7 @@ anyhow = { version = "1", default-features = false }
 bytes = "1.4.0"
 
 [dev-dependencies]
-tokio = { version = "1.24", default-features = false, features = ["rt"] }
+tokio = { version = "1.28", default-features = false, features = ["rt"] }
 citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
 dirs2 = "3.0.1"
 rstest = "0.17.0"

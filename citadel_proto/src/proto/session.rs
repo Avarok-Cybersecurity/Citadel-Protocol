@@ -887,10 +887,11 @@ impl HdpSession {
         tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn execute_inbound_stream(
-        ref mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
-        ref this_main: HdpSession,
+        mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
+        this_main: HdpSession,
         p2p_handle: Option<P2PInboundHandle>,
     ) -> Result<(), NetworkError> {
+        let this_main = &this_main;
         log::trace!(target: "citadel", "HdpSession async inbound-stream subroutine executed");
         let (
             ref remote_peer,
@@ -1882,14 +1883,14 @@ impl HdpSession {
         _hole_punched_addr_ip: IpAddr,
         local_port: u16,
         mut stream: S,
-        ref peer_session_accessor: EndpointCryptoAccessor,
+        peer_session_accessor: EndpointCryptoAccessor,
     ) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
                     log::trace!(target: "citadel", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
                     let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                    this.process_inbound_packet_udp(packet, peer_session_accessor)?;
+                    this.process_inbound_packet_udp(packet, &peer_session_accessor)?;
                 }
 
                 Err(err) => {

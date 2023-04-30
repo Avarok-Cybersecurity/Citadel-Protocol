@@ -26,7 +26,7 @@ wasm = [
 ]
 
 [dependencies]
-tokio = { version = "1.24", default-features=false, features = ["macros", "rt", "time", "io-util"] }
+tokio = { version = "1.28", default-features=false, features = ["macros", "rt", "time", "io-util"] }
 citadel_io = { path = "../citadel_io", version = "0.4.0", default-features = false }
 futures = { version = "0.3.25", default-features = false }
 bytes = { default-features = false, version = "1.3.0" }
@@ -41,7 +41,7 @@ sync_wrapper = { default-features = false, version = "0.1.1" }
 log = { default-features = false, version = "0.4.17" }
 
 [dev-dependencies]
-async-recursion = "1.0.0"
+async-recursion = "1.0.4"
 citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
 rstest = "0.17.0"
 

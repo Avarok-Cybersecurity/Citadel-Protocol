@@ -20,7 +20,7 @@ wasm = []
 deadlock-detection = ["parking_lot/deadlock_detection"]
 
 [dependencies]
-tokio = { version = "1.24", default-features = false, features = ["net", "rt"] }
+tokio = { version = "1.28", default-features = false, features = ["net", "rt"] }
 
 [target.'cfg(not(target_family="wasm"))'.dependencies]
 parking_lot = { version = "0.12.1", default-features = false }

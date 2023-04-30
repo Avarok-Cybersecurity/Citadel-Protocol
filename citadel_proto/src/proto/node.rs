@@ -659,7 +659,7 @@ impl HdpServer {
 
     async fn outbound_kernel_request_handler(
         this: HdpServer,
-        ref to_kernel_tx: UnboundedSender<NodeResult>,
+        to_kernel_tx: UnboundedSender<NodeResult>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
     ) -> Result<(), NetworkError> {

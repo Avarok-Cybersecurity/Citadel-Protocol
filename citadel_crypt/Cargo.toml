@@ -49,7 +49,7 @@ citadel_io = { path = "../citadel_io", version = "0.4.0", default-features = fal
 bitvec = { default-features = false, version = "1.0.1", features = ["alloc"] }
 serde-big-array = { default-features = false, version = "0.5.0"}
 rust-argon2 = { version = "1.0.0", default-features = false }
-tokio = { version = "1.24", default-features=false, features = ["rt", "macros", "time"] }
+tokio = { version = "1.28", default-features=false, features = ["rt", "macros", "time"] }
 sha3 = { default-features = false, version = "0.10.6" }
 tokio-stream = { default-features = false, version = "0.1.11" }
 auto_impl = { default-features = false, version = "1.0.1" }
@@ -62,7 +62,7 @@ libc = "0.2.139"
 kernel32-sys = "0.2.2"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-rayon = { default-features = false, version = "1.6.1" }
+rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.28.0" }
 num_cpus = { default-features = false, version = "1.15.0" }
 

@@ -51,7 +51,7 @@ futures = { version = "0.3.25", default-features = false }
 log = { default-features = false, version = "0.4.17" }
 async-trait = { default-features = false, version = "0.1.61" }
 tokio-util = { version = "0.7.8", features = ["net", "codec", "time", "io"] }
-tokio = { version = "1.24", default-features = false, features = [] }
+tokio = { version = "1.28", default-features = false, features = [] }
 auto_impl = { default-features = false, version = "1.0.1" }
 tokio-stream = { default-features = false, version = "0.1.11" }
 zerocopy = { default-features = false, version = "0.6.1" }

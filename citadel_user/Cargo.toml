@@ -37,7 +37,7 @@ jwt-testing = []
 itertools = { version = "0.10.5", default-features = false, features = ["use_alloc"], optional = true }
 serde = { version = "1.0.152", features=["rc", "derive"] }
 serde_millis = { default-features = false, version = "0.1.1" }
-tokio = { version = "1.24", default-features = false, features = ["io-util"] }
+tokio = { version = "1.28", default-features = false, features = ["io-util"] }
 async-trait = { default-features = false, version = "0.1.61" }
 futures = { version = "0.3.25", default-features = false }
 rand = { version = "0.8.5", default-features = false }
@@ -64,7 +64,7 @@ tokio-util = { version = "0.7.4", default-features = false, features = ["io"], o
 tokio-stream = { version = "0.1.11", default-features = false, optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.24", features = ["macros"] }
+tokio = { version = "1.28", features = ["macros"] }
 citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
 citadel_io = { path = "../citadel_io", version = "0.4.0", default-features=false }
 dirs2 = "3.0.1"

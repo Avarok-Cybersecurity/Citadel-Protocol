@@ -27,6 +27,6 @@ reqwest = { version = "0.11.16", package = "reqwest-wasm", default-features = fa
 reqwest = { version = "0.11.13", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-tls"] }
 
 [dependencies]
-tokio = { version = "1.24", default-features = false, features = ["macros"] }
+tokio = { version = "1.28", default-features = false, features = ["macros"] }
 serde = { version = "1.0.152", default-features = false, features = ["derive"] }
 futures = { version = "0.3.25", default-features = false, features = ["alloc"] }

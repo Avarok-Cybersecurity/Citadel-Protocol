@@ -30,7 +30,7 @@ wasm = [
 ]
 
 [dependencies]
-tokio = { version = "1.24", default-features = false, features = ["net"] }
+tokio = { version = "1.28", default-features = false, features = ["net"] }
 futures = { version = "0.3.25", default-features = false }
 async-trait = { default-features = false, version = "0.1.61" }
 async-trait-with-sync = { default-features = false, version = "0.1.36" }
