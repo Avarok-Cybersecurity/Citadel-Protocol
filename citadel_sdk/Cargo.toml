@@ -23,6 +23,7 @@ webrtc = ["citadel_proto/webrtc"]
 std = ["citadel_proto/std"]
 wasm = ["citadel_proto/wasm"]
 google-services = ["citadel_proto/google-services"]
+vendored = ["citadel_proto/vendored"]
 
 # for testing only
 localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_io/deadlock-detection"]
@@ -32,31 +33,28 @@ localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-onl
 doc-images = ["embed-doc-image"]
 
 [dependencies]
-citadel_proto = { version = "0.4.0", path = "../citadel_proto", default-features = false }
-citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
-embed-doc-image = { version = "0.1.4", optional = true }
-tokio = { version = "1.28", default-features = false }
-futures = { version = "0.3.25", default-features = false }
-log = { default-features = false, version = "0.4.17" }
-lazy_static = { default-features = false, version = "1.4.0" }
-uuid = { version = "1.2.2", default-features = false, features = ["v4"] }
-dirs2 = { version = "3.0.1", default-features = false, optional = true }
-tracing = { version = "0.1.37", default-features = false, optional = true }
-citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
-anyhow = { version = "1", default-features = false }
-bytes = "1.4.0"
+citadel_proto = { workspace = true }
+citadel_io = { workspace = true }
+embed-doc-image = { workspace = true, optional = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+lazy_static = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+dirs2 = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+citadel_logging = { workspace = true }
+anyhow = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1.28", default-features = false, features = ["rt"] }
-citadel_io = { version = "0.4.0", path = "../citadel_io", default-features = false }
-dirs2 = "3.0.1"
-rstest = "0.17.0"
-serde = { version = "1.0.152", features = ["derive"] }
-rand = "0.8.5"
-hyper = { version = "0.14.25", features = ["client", "server"] }
-
-[lib]
-#doctest = false
+tokio = { workspace = true, features = ["rt"] }
+citadel_io = { workspace = true }
+dirs2 = { workspace = true }
+rstest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+rand = { workspace = true }
+hyper = { workspace = true, features = ["client", "server"] }
 
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them

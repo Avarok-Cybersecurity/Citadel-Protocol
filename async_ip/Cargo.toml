@@ -21,12 +21,12 @@ wasm = [
 ]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-reqwest = { version = "0.11.16", package = "reqwest-wasm", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-tls"] }
+reqwest = { workspace = true, package = "reqwest-wasm", features = ["rustls", "rustls-native-certs", "rustls-tls"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-reqwest = { version = "0.11.13", default-features = false, features = ["rustls", "rustls-native-certs", "rustls-tls"] }
+reqwest = { workspace = true, features = ["rustls", "rustls-native-certs", "rustls-tls"] }
 
 [dependencies]
-tokio = { version = "1.28", default-features = false, features = ["macros"] }
-serde = { version = "1.0.152", default-features = false, features = ["derive"] }
-futures = { version = "0.3.25", default-features = false, features = ["alloc"] }
+tokio = { workspace = true, features = ["macros"] }
+serde = { workspace = true, features = ["derive"] }
+futures = { workspace = true, features = ["alloc"] }

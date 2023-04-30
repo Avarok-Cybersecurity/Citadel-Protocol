@@ -35,35 +35,35 @@ std = [
 wasm = []
 
 [dependencies]
-generic-array = { version = "0.14.6", features = ["serde"]}
-lazy_static = { default-features = false, version = "1.4.0" }
-enum_primitive = { default-features = false, version = "0.1.1" }
-serde = { version = "1.0.152", default-features = false, features = ["derive", "rc"] }
-bincode2 = { default-features = false, version = "2.0.1" }
-aes-gcm = { version = "0.10.1", default-features = false, features = ["heapless", "aes", "alloc"]}
-chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["heapless", "alloc"] }
-bytes = { version = "1.3.0", default-features = false }
-parking_lot = { version = "0.12.1", features = ["serde"] }
-log = { default-features = false, version = "0.4.17" }
-strum = { version = "0.24.1", default-features = false, features = ["derive"] }
-sha3 = { version = "0.10", default-features = false }
-kyber-pke = { version = "0.3.0", default-features = false, features=["90s"] }
-packed_struct = { version = "0.10.1", features = ["serde"] }
-rand = { version = "0.8.5", default-features = false }
-getrandom = { version = "0.2.8", default-features = false, features = ["js"], optional = true }
-serde-big-array = { default-features = false, version = "0.5.0" }
-ascon-aead = { default-features = false, version = "0.4.0" }
-zeroize = { default-features = false, version = "1.5.7", features = ["zeroize_derive", "alloc", "serde"] }
+generic-array = { workspace = true, features = ["serde"] }
+lazy_static = { workspace = true }
+enum_primitive = { workspace = true }
+serde = { workspace = true, features = ["derive", "rc"] }
+bincode2 = { workspace = true }
+aes-gcm = { workspace = true, features = ["heapless", "aes", "alloc"]}
+chacha20poly1305 = { workspace = true, features = ["heapless", "alloc"] }
+bytes = { workspace = true }
+parking_lot = { workspace = true, features = ["serde"] }
+log = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+sha3 = { workspace = true }
+kyber-pke = { workspace = true, features=["90s"] }
+packed_struct = { workspace = true, features = ["serde"] }
+rand = { workspace = true }
+getrandom = { workspace = true, features = ["js"], optional = true }
+serde-big-array = { workspace = true }
+ascon-aead = { workspace = true }
+zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-oqs = { version = "0.7.2", default-features = false, features = ["serde", "falcon"] }
+oqs = { workspace = true, features = ["serde", "falcon"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false, features = ["serialization", "avx2"] }
-pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
+pqcrypto-falcon-wasi = { workspace = true, features = ["serialization", "avx2"] }
+pqcrypto-traits-wasi = { workspace = true }
 
 [dev-dependencies]
-citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
+citadel_logging = { workspace = true }
 
 [lib]
 doctest = false

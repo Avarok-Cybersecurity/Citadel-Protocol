@@ -28,38 +28,39 @@ wasm = [
     "citadel_io/wasm",
     "netbeam/wasm"
 ]
+vendored = ["openssl/vendored"]
 
 [dependencies]
-tokio = { version = "1.28", default-features = false, features = ["net"] }
-futures = { version = "0.3.25", default-features = false }
-async-trait = { default-features = false, version = "0.1.61" }
-async-trait-with-sync = { default-features = false, version = "0.1.36" }
-bytes = { default-features = false, version = "^1.3.0" }
-byteorder = { default-features = false, version = "1.4.3" }
-citadel_io = { path = "../citadel_io", version = "0.4.0", default-features = false }
-anyhow = { default-features = false, version =  "1.0.68" }
-serde = { version = "1.0.152", default-features = false, features = ["derive"] }
-log = { default-features = false, version = "0.4.17" }
-bincode2 = { default-features = false, version = "2.0.1" }
-async_ip = { path = "../async_ip", version = "0.4.0" }
-itertools = { default-features = false, version = "0.10.5", features = ["use_alloc"] }
-either = { default-features = false, version = "1.8.0" }
-netbeam = { path = "../netbeam", default-features = false, version = "0.4.0" }
-uuid = { version = "1.2.2", features = ["v4", "serde"] }
-tracing = { version = "0.1.37", optional = true }
-lazy_static = { default-features = false, version = "1.4.0" }
+tokio = { workspace = true, features = ["net"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+async-trait-with-sync = { workspace = true }
+bytes = { workspace = true }
+byteorder = { workspace = true }
+citadel_io = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+bincode2 = { workspace = true }
+async_ip = { workspace = true }
+itertools = { workspace = true, features = ["use_alloc"] }
+either = { workspace = true }
+netbeam = { workspace = true  }
+uuid = { workspace = true, features = ["v4", "serde"] }
+tracing = { workspace = true, optional = true }
+lazy_static = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-socket2 = { version = "0.5.1", features = ["all"] }
-rustls-native-certs = "0.6.2"
-igd = { version = "^0.12.0", features = ["aio"] }
-quinn = { version = "0.9.3", default-features = false, features = ["rustls"] }
-openssl = { version = "0.10.46", default-features = false }
-stun = { default-features = false, version = "0.4.4" }
-rcgen = { default-features = false, version = "0.10.0" }
-rustls = { version = "0.20.7", features = ["quic", "dangerous_configuration"] }
-rustls-pemfile = { default-features = false, version = "1.0.1" }
-tokio-rustls = { default-features = false, version = "0.23.4" }
+socket2 = { workspace = true, features = ["all"] }
+rustls-native-certs = { workspace = true }
+igd = { workspace = true, features = ["aio"] }
+quinn = { workspace = true, features = ["rustls"] }
+openssl = { workspace = true }
+stun = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true, features = ["quic", "dangerous_configuration"] }
+rustls-pemfile = { workspace = true }
+tokio-rustls = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging", version = "0.4.0" }

@@ -14,10 +14,10 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.13", features = ["rustls", "rustls-native-certs", "rustls-tls", "json", "serde_json"] }
-log = "0.4.17"
-serde = { version = "1.0.152", features = ["derive"] }
+reqwest = { workspace = true, features = ["rustls", "rustls-native-certs", "rustls-tls", "json", "serde_json"] }
+log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-tokio = { version = "1.28", features = ["full"] }
-citadel_logging = { path = "../citadel_logging", version = "0.4.0" }
+tokio = { workspace = true, features = ["full"] }
+citadel_logging = { workspace = true }
