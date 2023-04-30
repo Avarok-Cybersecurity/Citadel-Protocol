@@ -78,7 +78,7 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
       - name: Run basic localhost NAT tests
-        if: !startsWith(matrix.os, 'windows')
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: cargo nextest run --package citadel_wire --features=localhost-testing
       - name: Run basic localhost NAT tests (windows only)
         if: startsWith(matrix.os, 'windows')
@@ -95,7 +95,7 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only
-        if: !startsWith(matrix.os, 'windows')
+        if: ${{ !startsWith(matrix.os, 'windows') }}
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only,vendored
         if: startsWith(matrix.os, 'windows')
