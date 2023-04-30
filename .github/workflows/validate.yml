@@ -64,8 +64,9 @@ jobs:
           SKIP_EXT_BACKENDS: "true"
         run: cargo nextest run --package citadel_user --features localhost-testing
       - run: cargo nextest run --features=localhost-testing,multi-threaded --package citadel_proto
-        env:
-          RUST_LOG: citadel=trace
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+      - run: cargo nextest run --features=localhost-testing,multi-threaded,vendored --package citadel_proto
+        if: ${{ startsWith(matrix.os, 'windows') }}
 
   nat:
     strategy:
