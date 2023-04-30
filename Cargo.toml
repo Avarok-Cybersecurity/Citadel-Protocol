@@ -59,8 +59,8 @@ anyhow = { default-features = false, version = "1.0.68" }
 rand = { default-features = false, version = "0.8.5" }
 async-stream = { default-features = false, version = "0.3.3" }
 sync_wrapper = { default-features = false, version = "0.1.1" }
-async-recursion = "1.0.4"
-rstest = "0.17.0"
+async-recursion = { version = "1.0.4" }
+rstest = { version = "0.17.0" }
 bincode2 = { default-features = false, version = "2.0.1" }
 serde = { version="1.0.152", default-features = false }
 futures = { version = "0.3.25", default-features = false }
@@ -71,22 +71,22 @@ bitvec = { default-features = false, version = "1.0.1" }
 rust-argon2 = { version = "1.0.0", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.11" }
 zeroize = { default-features = false, version = "1.5.7" }
-libc = "0.2.139"
-kernel32-sys = "0.2.2"
+libc = { version = "0.2.139", default-features = false }
+kernel32-sys = { version = "0.2.2", default-features = false }
 rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.28.0" }
 num_cpus = { default-features = false, version = "1.15.0" }
 async-trait-with-sync = { default-features = false, version = "0.1.36" }
 uuid = { version = "1.2.2", default-features = false }
-tracing = { version = "0.1.37" }
+tracing = { version = "0.1.37", default-features = false }
 lazy_static = { default-features = false, version = "1.4.0" }
-socket2 = { version = "0.5.1" }
-rustls-native-certs = "0.6.2"
-igd = { version = "^0.12.0" }
+socket2 = { version = "0.5.1", default-features = false }
+rustls-native-certs = { version = "0.6.2", default-features = false }
+igd = { version = "^0.12.0", default-features = false }
 quinn = { version = "0.9.3", default-features = false }
 stun = { default-features = false, version = "0.4.4" }
 rcgen = { default-features = false, version = "0.10.0" }
-rustls = { version = "0.20.7" }
+rustls = { version = "0.20.7", default-features = false }
 rustls-pemfile = { default-features = false, version = "1.0.1" }
 tokio-rustls = { default-features = false, version = "0.23.4" }
 itertools = { version = "0.10.5", default-features = false }
@@ -104,7 +104,7 @@ jwt = { version = "0.16.0", default-features = false }
 openssl = { version = "0.10.46", default-features = false }
 chrono = { default-features = false, version = "0.4.23" }
 tokio-util = { version = "0.7.4", default-features = false }
-dirs2 = "3.0.1"
+dirs2 = { default-features = false, version = "3.0.1" }
 embedded-semver = { version = "0.3.0", default-features = false }
 auto_impl = { default-features = false, version = "1.0.1" }
 zerocopy = { default-features = false, version = "0.6.1" }
