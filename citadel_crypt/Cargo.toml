@@ -1,6 +1,6 @@
 [package]
 name = "citadel_crypt"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Higher-level cryptographic library for the Citadel Protocol"
 edition = "2021"
