@@ -402,6 +402,7 @@ pub mod prelude {
     pub use crate::proto::node_result::*;
     pub use crate::proto::remote::*;
 
+    pub use crate::auth::AuthenticationRequest;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
     pub use citadel_crypt::misc::TransferType;
