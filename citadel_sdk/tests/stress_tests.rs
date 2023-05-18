@@ -315,10 +315,11 @@ mod tests {
 
         let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
+        let maybe_local_set = spawner.local_set();
 
-        let joined = futures::future::try_join(server, client);
+        let joined = futures::future::try_join3(server, client, maybe_local_set);
 
-        let (_res0, _res1) = joined.await.unwrap();
+        let (_res0, _res1, _res2) = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
