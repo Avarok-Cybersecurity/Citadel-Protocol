@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use citadel_proto::kernel::kernel_executor::LocalSet;
     use citadel_proto::prelude::SyncIO;
     use citadel_proto::prelude::{
         EncryptionAlgorithm, KemAlgorithm, NetworkError, SecBuffer, SecrecyMode,
@@ -18,24 +19,43 @@ mod tests {
     use rstest::rstest;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
+    use std::future::Future;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Barrier;
     use uuid::Uuid;
 
-    #[cfg(feature = "multi-threaded")]
-    macro_rules! spawn_handle {
-        ($future:expr) => {
-            citadel_io::spawn($future)
-        };
+    struct TestSpawner {
+        // this may not be a real localset
+        #[cfg_attr(feature = "multi-threaded", allow(dead_code))]
+        local_set: LocalSet,
     }
 
-    #[cfg(not(feature = "multi-threaded"))]
-    macro_rules! spawn_handle {
-        ($future:expr) => {
-            citadel_io::spawn($future)
-        };
+    impl TestSpawner {
+        pub fn new() -> Self {
+            Self {
+                local_set: Default::default(),
+            }
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        where
+            T: Future + 'static,
+            T::Output: 'static,
+        {
+            self.local_set.spawn_local(future)
+        }
+
+        #[cfg(feature = "multi-threaded")]
+        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+        {
+            tokio::task::spawn(future)
+        }
     }
 
     const MESSAGE_LEN: usize = 2000;
@@ -179,6 +199,8 @@ mod tests {
         CLIENT_SUCCESS.store(false, Ordering::Relaxed);
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
 
+        let spawner = TestSpawner::new();
+
         let (server, server_addr) = citadel_sdk::test_common::server_info_reactive(
             move |conn, remote| async move {
                 log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
@@ -212,8 +234,8 @@ mod tests {
         )
         .unwrap();
 
-        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = spawn_handle!(server);
+        let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawner.spawn(server);
 
         let joined = futures::future::try_join(server, client);
 
@@ -240,6 +262,8 @@ mod tests {
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
         CLIENT_SUCCESS.store(false, Ordering::Relaxed);
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
+
+        let spawner = TestSpawner::new();
 
         let (server, server_addr) = citadel_sdk::test_common::server_info_reactive(
             move |conn, remote| async move {
@@ -274,8 +298,8 @@ mod tests {
         )
         .unwrap();
 
-        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = spawn_handle!(server);
+        let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawner.spawn(server);
 
         let joined = futures::future::try_join(server, client);
 
