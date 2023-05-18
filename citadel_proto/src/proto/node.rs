@@ -5,10 +5,10 @@ use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::kernel::kernel_executor::LocalSet;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
-use tokio::task::LocalSet;
 
 use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_user::account_manager::AccountManager;

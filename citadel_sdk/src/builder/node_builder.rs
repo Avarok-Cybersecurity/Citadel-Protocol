@@ -1,6 +1,7 @@
 use citadel_proto::prelude::*;
 
 use citadel_proto::kernel::KernelExecutorArguments;
+use citadel_proto::macros::LocalContextRequirements;
 use citadel_proto::re_imports::RustlsClientConfig;
 use futures::Future;
 use std::fmt::{Debug, Formatter};
@@ -27,12 +28,18 @@ pub struct NodeBuilder {
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
 pub struct NodeFuture<'a, K> {
-    inner: Pin<Box<dyn Future<Output = Result<K, NetworkError>> + 'a>>,
+    inner: Pin<Box<dyn LocalFutureContextRequirements<'a, Result<K, NetworkError>>>>,
     _pd: PhantomData<fn() -> K>,
 }
 
-#[cfg(feature = "localhost-testing")]
-unsafe impl<T> Send for NodeFuture<'_, T> {}
+trait LocalFutureContextRequirements<'a, Output>:
+    Future<Output = Output> + LocalContextRequirements<'a>
+{
+}
+impl<'a, T: Future<Output = Output> + LocalContextRequirements<'a>, Output>
+    LocalFutureContextRequirements<'a, Output> for T
+{
+}
 
 impl<K> Debug for NodeFuture<'_, K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
