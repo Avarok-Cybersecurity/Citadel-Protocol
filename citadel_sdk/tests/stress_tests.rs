@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use citadel_proto::kernel::kernel_executor::LocalSet;
     use citadel_proto::prelude::SyncIO;
     use citadel_proto::prelude::{
         EncryptionAlgorithm, KemAlgorithm, NetworkError, SecBuffer, SecrecyMode,
@@ -18,24 +19,57 @@ mod tests {
     use rstest::rstest;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
+    use std::future::Future;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Barrier;
+    use tokio::task::JoinError;
     use uuid::Uuid;
 
-    #[cfg(feature = "multi-threaded")]
-    macro_rules! spawn_handle {
-        ($future:expr) => {
-            citadel_io::spawn($future)
-        };
+    struct TestSpawner {
+        // this may not be a real localset
+        #[cfg_attr(feature = "multi-threaded", allow(dead_code))]
+        local_set: LocalSet,
     }
 
-    #[cfg(not(feature = "multi-threaded"))]
-    macro_rules! spawn_handle {
-        ($future:expr) => {
-            citadel_io::spawn($future)
-        };
+    impl TestSpawner {
+        pub fn new() -> Self {
+            Self {
+                local_set: Default::default(),
+            }
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        where
+            T: Future + 'static,
+            T::Output: 'static,
+        {
+            self.local_set.spawn_local(future)
+        }
+
+        #[cfg(feature = "multi-threaded")]
+        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        where
+            T: Future + Send + 'static,
+            T::Output: Send + 'static,
+        {
+            tokio::task::spawn(future)
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        pub fn local_set(self) -> impl Future<Output = Result<(), JoinError>> {
+            async move {
+                self.local_set.await;
+                Ok(())
+            }
+        }
+
+        #[cfg(feature = "multi-threaded")]
+        pub fn local_set(self) -> impl Future<Output = Result<(), JoinError>> {
+            async move { Ok(()) }
+        }
     }
 
     const MESSAGE_LEN: usize = 2000;
@@ -160,7 +194,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -178,6 +212,8 @@ mod tests {
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
         CLIENT_SUCCESS.store(false, Ordering::Relaxed);
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
+
+        let spawner = TestSpawner::new();
 
         let (server, server_addr) = citadel_sdk::test_common::server_info_reactive(
             move |conn, remote| async move {
@@ -212,12 +248,13 @@ mod tests {
         )
         .unwrap();
 
-        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = spawn_handle!(server);
+        let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawner.spawn(server);
+        let maybe_localset = spawner.local_set();
 
-        let joined = futures::future::try_join(server, client);
+        let joined = futures::future::try_join3(server, client, maybe_localset);
 
-        let (_res0, _res1) = joined.await.unwrap();
+        let (_res0, _res1, _res3) = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
@@ -227,7 +264,7 @@ mod tests {
     #[case(100, SecrecyMode::Perfect)]
     #[case(100, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -240,6 +277,8 @@ mod tests {
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
         CLIENT_SUCCESS.store(false, Ordering::Relaxed);
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
+
+        let spawner = TestSpawner::new();
 
         let (server, server_addr) = citadel_sdk::test_common::server_info_reactive(
             move |conn, remote| async move {
@@ -274,12 +313,13 @@ mod tests {
         )
         .unwrap();
 
-        let client = spawn_handle!(NodeBuilder::default().build(client_kernel).unwrap());
-        let server = spawn_handle!(server);
+        let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = spawner.spawn(server);
+        let maybe_local_set = spawner.local_set();
 
-        let joined = futures::future::try_join(server, client);
+        let joined = futures::future::try_join3(server, client, maybe_local_set);
 
-        let (_res0, _res1) = joined.await.unwrap();
+        let (_res0, _res1, _res2) = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));

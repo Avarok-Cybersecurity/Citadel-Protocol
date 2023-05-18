@@ -2,7 +2,6 @@ use std::pin::Pin;
 
 use futures::TryStreamExt;
 use tokio::runtime::Handle;
-use tokio::task::LocalSet;
 
 use citadel_user::account_manager::AccountManager;
 
@@ -27,6 +26,11 @@ pub struct KernelExecutor<K: NetKernel> {
     kernel_executor_settings: KernelExecutorSettings,
     kernel: K,
 }
+
+#[cfg(not(feature = "multi-threaded"))]
+pub type LocalSet = tokio::task::LocalSet;
+#[cfg(feature = "multi-threaded")]
+pub type LocalSet = ();
 
 type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 
