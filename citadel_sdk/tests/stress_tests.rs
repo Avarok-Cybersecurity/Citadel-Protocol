@@ -24,6 +24,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Barrier;
+    use tokio::task::JoinError;
     use uuid::Uuid;
 
     struct TestSpawner {
@@ -55,6 +56,19 @@ mod tests {
             T::Output: Send + 'static,
         {
             tokio::task::spawn(future)
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        pub fn local_set(self) -> impl Future<Output = Result<(), JoinError>> {
+            async move {
+                self.local_set.await;
+                Ok(())
+            }
+        }
+
+        #[cfg(feature = "multi-threaded")]
+        pub fn local_set(self) -> impl Future<Output = Result<(), JoinError>> {
+            async move { Ok(()) }
         }
     }
 
@@ -180,7 +194,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -236,10 +250,11 @@ mod tests {
 
         let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
+        let maybe_localset = spawner.local_set();
 
-        let joined = futures::future::try_join(server, client);
+        let joined = futures::future::try_join3(server, client, maybe_localset);
 
-        let (_res0, _res1) = joined.await.unwrap();
+        let (_res0, _res1, _res3) = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
         assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
@@ -249,7 +264,7 @@ mod tests {
     #[case(100, SecrecyMode::Perfect)]
     #[case(100, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
