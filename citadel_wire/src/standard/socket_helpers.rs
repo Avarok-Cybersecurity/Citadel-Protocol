@@ -56,13 +56,9 @@ async fn setup_connect(
     {
         use std::net::{Ipv4Addr, Ipv6Addr};
         if connect_addr.is_ipv4() {
-            socket.bind(
-                &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), connect_addr.port()).into(),
-            )?;
+            socket.bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0).into())?;
         } else {
-            socket.bind(
-                &SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), connect_addr.port()).into(),
-            )?;
+            socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0).into())?;
         }
     }
 
