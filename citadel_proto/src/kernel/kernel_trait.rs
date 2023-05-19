@@ -14,7 +14,7 @@ pub trait NetKernel: Send + Sync {
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError>;
     /// After the server remote is passed to the kernel, this function will be called once to allow the application to make any initial calls
     async fn on_start(&self) -> Result<(), NetworkError>;
-    /// When the server processes a valid entry, the value is sent here. Each call to 'on_server_message_received' is done
+    /// When the server processes a valid entry, the value is sent here. Each call to 'on_node_event_received' is done
     /// *concurrently* (but NOT in *parallel*). This allows code inside this function to await without blocking new incoming
     /// messages
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError>;
