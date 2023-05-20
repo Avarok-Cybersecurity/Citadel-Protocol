@@ -10,7 +10,7 @@ pub mod client;
 pub mod server;
 pub(crate) mod shared;
 use crate::prelude::user_ids::TargetLockedRemote;
-use crate::remote_ext::results::HyperlanPeer;
+use crate::remote_ext::results::LocalGroupPeer;
 use crate::remote_ext::ProtocolRemoteExt;
 
 /// A limited version of the [`NodeRemote`] designed to only allow shutdown calls to the protocol
@@ -58,9 +58,11 @@ impl ClientServerRemote {
     pub async fn get_peers(
         &mut self,
         limit: Option<usize>,
-    ) -> Result<Vec<HyperlanPeer>, NetworkError> {
+    ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
         let implicated_cid = self.conn_type.get_implicated_cid();
-        self.inner.get_hyperlan_peers(implicated_cid, limit).await
+        self.inner
+            .get_local_group_peers(implicated_cid, limit)
+            .await
     }
 }
 

@@ -27,7 +27,7 @@ use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStre
 use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
-    HyperNodePeerLayerInner, HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
+    HyperNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
     UdpMode,
 };
 use crate::proto::remote::Ticket;
@@ -1195,7 +1195,7 @@ async fn process_signal_command_as_server(
 
         PeerSignal::GetRegisteredPeers(hypernode_conn_type, _resp_opt, limit) => {
             match hypernode_conn_type {
-                HypernodeConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
+                NodeConnectionType::LocalGroupPeerToLocalGroupServer(_implicated_cid) => {
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
@@ -1229,7 +1229,7 @@ async fn process_signal_command_as_server(
                     )
                 }
 
-                HypernodeConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
+                NodeConnectionType::LocalGroupPeerToExternalGroupServer(_implicated_cid, _icid) => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
                     Ok(PrimaryProcessorResult::Void)
                 }
@@ -1237,7 +1237,7 @@ async fn process_signal_command_as_server(
         }
 
         PeerSignal::GetMutuals(hypernode_conn_type, _resp_opt) => match hypernode_conn_type {
-            HypernodeConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+            NodeConnectionType::LocalGroupPeerToLocalGroupServer(implicated_cid) => {
                 let account_manager = session.account_manager.clone();
                 let session_manager = session.session_manager.clone();
 
@@ -1265,7 +1265,7 @@ async fn process_signal_command_as_server(
                 )
             }
 
-            HypernodeConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
+            NodeConnectionType::LocalGroupPeerToExternalGroupServer(_implicated_cid, _icid) => {
                 log::error!(target: "citadel", "HyperWAN functionality not implemented");
                 Ok(PrimaryProcessorResult::Void)
             }

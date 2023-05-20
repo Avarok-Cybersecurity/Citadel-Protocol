@@ -2,7 +2,7 @@ use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
-use crate::remote_ext::results::HyperlanPeer;
+use crate::remote_ext::results::LocalGroupPeer;
 use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
 
 use citadel_proto::auth::AuthenticationRequest;
@@ -290,7 +290,7 @@ pub trait ProtocolRemoteExt: Remote {
     }
 
     /// Creates a proposed target from the valid local user to an unregistered peer in the network. Used when creating registration requests for peers.
-    /// Currently only supports HyperLAN <-> HyperLAN peer connections
+    /// Currently only supports LocalGroup <-> LocalGroup peer connections
     async fn propose_target<T: Into<UserIdentifier> + Send, P: Into<UserIdentifier> + Send>(
         &mut self,
         local_user: T,
@@ -311,18 +311,18 @@ pub trait ProtocolRemoteExt: Remote {
         }
     }
 
-    /// Returns a list of hyperlan peers on the network for local_user. May or may not be registered to the user. To get a list of registered users to local_user, run [`Self::get_hyperlan_mutual_peers`]
+    /// Returns a list of local group peers on the network for local_user. May or may not be registered to the user. To get a list of registered users to local_user, run [`Self::get_local_group_mutual_peers`]
     /// - limit: if None, all peers are obtained. If Some, at most the specified number of peers will be obtained
-    async fn get_hyperlan_peers<T: Into<UserIdentifier> + Send>(
+    async fn get_local_group_peers<T: Into<UserIdentifier> + Send>(
         &mut self,
         local_user: T,
         limit: Option<usize>,
-    ) -> Result<Vec<HyperlanPeer>, NetworkError> {
+    ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: local_cid,
             command: PeerSignal::GetRegisteredPeers(
-                HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid),
+                NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
                 None,
                 limit.map(|r| r as i32),
             ),
@@ -344,7 +344,7 @@ pub trait ProtocolRemoteExt: Remote {
                 return Ok(cids
                     .into_iter()
                     .zip(is_onlines.into_iter())
-                    .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
+                    .map(|(cid, is_online)| LocalGroupPeer { cid, is_online })
                     .collect());
             }
         }
@@ -353,15 +353,15 @@ pub trait ProtocolRemoteExt: Remote {
     }
 
     /// Returns a list of mutually-registered peers with the local_user
-    async fn get_hyperlan_mutual_peers<T: Into<UserIdentifier> + Send>(
+    async fn get_local_group_mutual_peers<T: Into<UserIdentifier> + Send>(
         &mut self,
         local_user: T,
-    ) -> Result<Vec<HyperlanPeer>, NetworkError> {
+    ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: local_cid,
             command: PeerSignal::GetMutuals(
-                HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid),
+                NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
                 None,
             ),
         });
@@ -378,7 +378,7 @@ pub trait ProtocolRemoteExt: Remote {
                 return Ok(cids
                     .into_iter()
                     .zip(is_onlines.into_iter())
-                    .map(|(cid, is_online)| HyperlanPeer { cid, is_online })
+                    .map(|(cid, is_online)| LocalGroupPeer { cid, is_online })
                     .collect());
             }
         }
@@ -864,7 +864,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     async fn is_peer_registered(&mut self) -> Result<bool, NetworkError> {
         let target = self.try_as_peer_connection().await?;
         if let PeerConnectionType::LocalGroupPeer(local_cid, peer_cid) = target {
-            let peers = self.remote().get_hyperlan_peers(local_cid, None).await?;
+            let peers = self.remote().get_local_group_peers(local_cid, None).await?;
             citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
             Ok(peers.iter().any(|p| p.cid == peer_cid))
         } else {
@@ -953,7 +953,7 @@ pub mod results {
     }
 
     #[derive(Clone, Debug)]
-    pub struct HyperlanPeer {
+    pub struct LocalGroupPeer {
         pub cid: u64,
         pub is_online: bool,
     }

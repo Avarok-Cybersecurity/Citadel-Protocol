@@ -1,9 +1,10 @@
 use crate::prelude::{SecBuffer, UserIdentifier};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
 
 /// Arguments for connecting to a node
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AuthenticationRequest {
     /// Credentials used for the connection
     Credentialed {

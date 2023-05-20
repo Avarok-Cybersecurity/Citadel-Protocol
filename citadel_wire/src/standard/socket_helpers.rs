@@ -97,6 +97,14 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
+
+    if !reuse {
+        // don't use any fancy binding options, stick with default
+        let std_listener = std::net::TcpListener::bind(addr)?;
+        std_listener.set_nonblocking(true)?;
+        return Ok(citadel_io::TcpListener::from_std(std_listener)?);
+    }
+
     let domain = if addr.is_ipv4() {
         Domain::IPV4
     } else {

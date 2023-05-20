@@ -549,9 +549,9 @@ pub enum PeerSignal {
     // implicated_cid, icid, target cid
     AcceptFileUploadRequest(PeerConnectionType, Ticket),
     // Retrieves a list of registered peers
-    GetRegisteredPeers(HypernodeConnectionType, Option<PeerResponse>, Option<i32>),
+    GetRegisteredPeers(NodeConnectionType, Option<PeerResponse>, Option<i32>),
     // returns a list of mutuals for implicated cid, icid. Can be used to sync between the HyperLAN client and HyperLAN server
-    GetMutuals(HypernodeConnectionType, Option<PeerResponse>),
+    GetMutuals(NodeConnectionType, Option<PeerResponse>),
     // Returned when an error occurs
     SignalError(Ticket, String),
     // deregistration succeeded (contains peer cid)
@@ -645,20 +645,18 @@ impl Display for PeerConnectionType {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
-pub enum HypernodeConnectionType {
+pub enum NodeConnectionType {
     // implicated_cid
-    HyperLANPeerToHyperLANServer(u64),
+    LocalGroupPeerToLocalGroupServer(u64),
     // implicated_cid, icid
-    HyperLANPeerToHyperWANServer(u64, u64),
+    LocalGroupPeerToExternalGroupServer(u64, u64),
 }
 
-impl HypernodeConnectionType {
+impl NodeConnectionType {
     pub fn get_implicated_cid(&self) -> u64 {
         match self {
-            HypernodeConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
-                *implicated_cid
-            }
-            HypernodeConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, _) => {
+            NodeConnectionType::LocalGroupPeerToLocalGroupServer(implicated_cid) => *implicated_cid,
+            NodeConnectionType::LocalGroupPeerToExternalGroupServer(implicated_cid, _) => {
                 *implicated_cid
             }
         }
