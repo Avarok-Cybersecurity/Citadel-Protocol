@@ -444,7 +444,7 @@ mod tests {
                     let implicated_cid = remote.conn_type.get_implicated_cid();
                     let mutual_peers = remote
                         .inner
-                        .get_hyperlan_mutual_peers(implicated_cid)
+                        .get_local_group_mutual_peers(implicated_cid)
                         .await
                         .unwrap();
                     for (peer_cid, _) in p2p_remotes {
