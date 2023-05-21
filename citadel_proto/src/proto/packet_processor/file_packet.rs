@@ -50,20 +50,21 @@ pub fn process_file_packet(
                             let local_encryption_level = payload.local_encryption_level;
                             log::trace!(target: "citadel", "Declared local encryption level on file header: {local_encryption_level:?}");
                             let (target_cid, v_target_flipped) = match v_target {
-                                VirtualConnectionType::LocalGroupPeer(
+                                VirtualConnectionType::LocalGroupPeer {
                                     implicated_cid,
-                                    target_cid,
-                                ) => (
+                                    peer_cid: target_cid,
+                                } => (
                                     implicated_cid,
-                                    VirtualConnectionType::LocalGroupPeer(
-                                        target_cid,
-                                        implicated_cid,
-                                    ),
+                                    VirtualConnectionType::LocalGroupPeer {
+                                        implicated_cid: target_cid,
+                                        peer_cid: implicated_cid,
+                                    },
                                 ),
 
-                                VirtualConnectionType::LocalGroupServer(implicated_cid) => {
-                                    (0, VirtualConnectionType::LocalGroupServer(implicated_cid))
-                                }
+                                VirtualConnectionType::LocalGroupServer { implicated_cid } => (
+                                    0,
+                                    VirtualConnectionType::LocalGroupServer { implicated_cid },
+                                ),
 
                                 _ => {
                                     log::error!(target: "citadel", "HyperWAN functionality not yet enabled");

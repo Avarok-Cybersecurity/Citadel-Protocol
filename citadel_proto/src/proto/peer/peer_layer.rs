@@ -622,10 +622,17 @@ impl PeerConnectionType {
     pub fn as_virtual_connection(self) -> VirtualConnectionType {
         match self {
             PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
-                VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid)
+                VirtualConnectionType::LocalGroupPeer {
+                    implicated_cid,
+                    peer_cid: target_cid,
+                }
             }
             PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
-                VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid)
+                VirtualConnectionType::ExternalGroupPeer {
+                    implicated_cid,
+                    interserver_cid: icid,
+                    peer_cid: target_cid,
+                }
             }
         }
     }

@@ -403,7 +403,7 @@ impl HdpSessionManager {
                     vconn.is_active.store(false, Ordering::SeqCst);
                     if peer_cid != implicated_cid && peer_cid != 0 {
                         let vconn = vconn.connection_type;
-                        if let VirtualConnectionType::LocalGroupPeer(_, _) = vconn {
+                        if let VirtualConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: _ } = vconn {
                             if peer_cid != implicated_cid {
                                 log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
                                 let peer_conn_type = PeerConnectionType::LocalGroupPeer(implicated_cid, peer_cid);

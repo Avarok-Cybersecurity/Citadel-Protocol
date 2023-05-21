@@ -274,13 +274,20 @@ pub trait ProtocolRemoteExt: Remote {
             .map(move |(cid, peer)| {
                 if peer.parent_icid != 0 {
                     SymmetricIdentifierHandleRef {
-                        user: VirtualTargetType::ExternalGroupPeer(cid, peer.parent_icid, peer.cid),
+                        user: VirtualTargetType::ExternalGroupPeer {
+                            implicated_cid: cid,
+                            interserver_cid: peer.parent_icid,
+                            peer_cid: peer.cid,
+                        },
                         remote: self.remote_ref_mut(),
                         target_username: None,
                     }
                 } else {
                     SymmetricIdentifierHandleRef {
-                        user: VirtualTargetType::LocalGroupPeer(cid, peer.cid),
+                        user: VirtualTargetType::LocalGroupPeer {
+                            implicated_cid: cid,
+                            peer_cid: peer.cid,
+                        },
                         remote: self.remote_ref_mut(),
                         target_username: None,
                     }
@@ -299,12 +306,18 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         match peer.into() {
             UserIdentifier::ID(peer_cid) => Ok(SymmetricIdentifierHandleRef {
-                user: VirtualTargetType::LocalGroupPeer(local_cid, peer_cid),
+                user: VirtualTargetType::LocalGroupPeer {
+                    implicated_cid: local_cid,
+                    peer_cid,
+                },
                 remote: self.remote_ref_mut(),
                 target_username: None,
             }),
             UserIdentifier::Username(uname) => Ok(SymmetricIdentifierHandleRef {
-                user: VirtualTargetType::LocalGroupPeer(local_cid, 0),
+                user: VirtualTargetType::LocalGroupPeer {
+                    implicated_cid: local_cid,
+                    peer_cid: 0,
+                },
                 remote: self.remote_ref_mut(),
                 target_username: Some(uname),
             }),
@@ -402,7 +415,7 @@ pub trait ProtocolRemoteExt: Remote {
     }
 }
 
-pub(crate) fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
+pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
     match result {
         NodeResult::InternalServerError(InternalServerError {
             ticket_opt: _,

@@ -742,7 +742,7 @@ impl HdpSession {
                     .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let accessor = match v_target {
-                    VirtualConnectionType::LocalGroupServer(_) => {
+                    VirtualConnectionType::LocalGroupServer { implicated_cid: _ } => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
                         log::trace!(target: "citadel", "C2S UDP subroutine inserting UDP channel ... (is_server={})", is_server);
@@ -776,7 +776,10 @@ impl HdpSession {
                         }
                     }
 
-                    VirtualConnectionType::LocalGroupPeer(_implicated_cid, target_cid) => {
+                    VirtualConnectionType::LocalGroupPeer {
+                        implicated_cid: _implicated_cid,
+                        peer_cid: target_cid,
+                    } => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         if let Some(channel) = state_container.insert_udp_channel(
                             target_cid, v_target, ticket, udp_sender, stopper_tx,
@@ -1091,7 +1094,7 @@ impl HdpSession {
                             }
                         }).collect::<Vec<VirtualTargetType>>();
 
-                        let virtual_target = VirtualTargetType::LocalGroupServer(C2S_ENCRYPTION_ONLY);
+                        let virtual_target = VirtualTargetType::LocalGroupServer { implicated_cid: C2S_ENCRYPTION_ONLY };
                         if state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket)).is_ok() {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
@@ -1177,7 +1180,9 @@ impl HdpSession {
         let ts = self.time_tracker.get_global_time_ns();
 
         match v_conn {
-            VirtualConnectionType::LocalGroupServer(_implicated_cid) => {
+            VirtualConnectionType::LocalGroupServer {
+                implicated_cid: _implicated_cid,
+            } => {
                 let crypt_container = &mut state_container
                     .c2s_channel_container
                     .as_mut()
@@ -1196,7 +1201,10 @@ impl HdpSession {
                 );
                 self.send_to_primary_stream(Some(ticket), packet)
             }
-            VirtualConnectionType::LocalGroupPeer(_, target_cid) => {
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid: _,
+                peer_cid: target_cid,
+            } => {
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
                 let latest_hr = endpoint_container
@@ -1239,7 +1247,9 @@ impl HdpSession {
         let ts = self.time_tracker.get_global_time_ns();
 
         match v_conn {
-            VirtualConnectionType::LocalGroupServer(_implicated_cid) => {
+            VirtualConnectionType::LocalGroupServer {
+                implicated_cid: _implicated_cid,
+            } => {
                 let crypt_container = &mut state_container
                     .c2s_channel_container
                     .as_mut()
@@ -1257,7 +1267,10 @@ impl HdpSession {
                 );
                 self.send_to_primary_stream(Some(ticket), packet)
             }
-            VirtualConnectionType::LocalGroupPeer(_, target_cid) => {
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid: _,
+                peer_cid: target_cid,
+            } => {
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
                 let latest_hr = endpoint_container
@@ -1333,7 +1346,7 @@ impl HdpSession {
         // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
         let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) =
             match virtual_target {
-                VirtualTargetType::LocalGroupServer(implicated_cid) => {
+                VirtualTargetType::LocalGroupServer { implicated_cid } => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
                     let crypt_container = &mut state_container
@@ -1403,7 +1416,10 @@ impl HdpSession {
                     )
                 }
 
-                VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+                VirtualConnectionType::LocalGroupPeer {
+                    implicated_cid,
+                    peer_cid: target_cid,
+                } => {
                     log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
                     // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
                     let endpoint_container =
@@ -1570,24 +1586,27 @@ impl HdpSession {
                             let mut state_container = inner_mut_state!(sess.state_container);
 
                             let proper_latest_hyper_ratchet = match virtual_target {
-                                VirtualConnectionType::LocalGroupServer(_) => state_container
-                                    .c2s_channel_container
-                                    .as_ref()
-                                    .unwrap()
-                                    .peer_session_crypto
-                                    .get_hyper_ratchet(None),
-                                VirtualConnectionType::LocalGroupPeer(_, peer_cid) => {
-                                    match state_container.get_peer_session_crypto(peer_cid) {
-                                        Some(peer_sess_crypt) => {
-                                            peer_sess_crypt.get_hyper_ratchet(None)
-                                        }
-
-                                        None => {
-                                            log::warn!(target: "citadel", "Since transmitting the file, the peer session ended");
-                                            return;
-                                        }
-                                    }
+                                VirtualConnectionType::LocalGroupServer { implicated_cid: _ } => {
+                                    state_container
+                                        .c2s_channel_container
+                                        .as_ref()
+                                        .unwrap()
+                                        .peer_session_crypto
+                                        .get_hyper_ratchet(None)
                                 }
+                                VirtualConnectionType::LocalGroupPeer {
+                                    implicated_cid: _,
+                                    peer_cid,
+                                } => match state_container.get_peer_session_crypto(peer_cid) {
+                                    Some(peer_sess_crypt) => {
+                                        peer_sess_crypt.get_hyper_ratchet(None)
+                                    }
+
+                                    None => {
+                                        log::warn!(target: "citadel", "Since transmitting the file, the peer session ended");
+                                        return;
+                                    }
+                                },
 
                                 _ => {
                                     log::error!(target: "citadel", "HyperWAN Functionality not implemented");

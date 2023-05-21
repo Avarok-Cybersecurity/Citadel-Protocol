@@ -241,7 +241,9 @@ where
                 self.session_security_settings,
             )
             .await?;
-        let conn_type = VirtualTargetType::LocalGroupServer(connect_success.cid);
+        let conn_type = VirtualTargetType::LocalGroupServer {
+            implicated_cid: connect_success.cid,
+        };
 
         let unprocessed_signal_filter = if cfg!(feature = "localhost-testing") {
             let (reroute_tx, reroute_rx) = tokio::sync::mpsc::unbounded_channel();

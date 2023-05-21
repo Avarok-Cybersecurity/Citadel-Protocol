@@ -432,9 +432,10 @@ pub async fn process_peer_cmd(
                                         let toolset = Toolset::new(this_cid, hyper_ratchet);
                                         // now, register the loaded PQC + toolset into the virtual conn
                                         let peer_crypto = PeerSessionCrypto::new(toolset, true);
-                                        let vconn_type = VirtualConnectionType::LocalGroupPeer(
-                                            this_cid, peer_cid,
-                                        );
+                                        let vconn_type = VirtualConnectionType::LocalGroupPeer {
+                                            implicated_cid: this_cid,
+                                            peer_cid,
+                                        };
                                         let (needs_turn, bob_predicted_socket_addr) = bob_nat_info
                                             .generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
@@ -593,9 +594,10 @@ pub async fn process_peer_cmd(
                                         let peer_crypto = PeerSessionCrypto::new(toolset, false);
 
                                         // create an endpoint vconn
-                                        let vconn_type = VirtualConnectionType::LocalGroupPeer(
-                                            this_cid, peer_cid,
-                                        );
+                                        let vconn_type = VirtualConnectionType::LocalGroupPeer {
+                                            implicated_cid: this_cid,
+                                            peer_cid,
+                                        };
                                         let (needs_turn, alice_predicted_socket_addr) =
                                             alice_nat_info.generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,

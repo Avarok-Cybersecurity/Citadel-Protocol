@@ -98,8 +98,13 @@ pub(crate) fn header_to_response_vconn_type(header: &HdpHeader) -> VirtualConnec
     let target_cid = header.target_cid.get();
     if target_cid != C2S_ENCRYPTION_ONLY {
         // the peer_cid and implicated cid must be flipped
-        VirtualConnectionType::LocalGroupPeer(target_cid, session_cid)
+        VirtualConnectionType::LocalGroupPeer {
+            implicated_cid: target_cid,
+            peer_cid: session_cid,
+        }
     } else {
-        VirtualConnectionType::LocalGroupServer(session_cid)
+        VirtualConnectionType::LocalGroupServer {
+            implicated_cid: session_cid,
+        }
     }
 }
