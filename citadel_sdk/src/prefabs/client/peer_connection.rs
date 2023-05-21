@@ -541,6 +541,10 @@ mod tests {
                                 .hyperlan_peer_exists(implicated_cid, peer_cid)
                                 .await
                                 .unwrap());
+                        } else {
+                            citadel_logging::error!(target: "citadel", "AB0");
+                            conn.remote.disconnect().await?;
+                            citadel_logging::error!(target: "citadel", "AB1");
                         }
 
                         success += 1;

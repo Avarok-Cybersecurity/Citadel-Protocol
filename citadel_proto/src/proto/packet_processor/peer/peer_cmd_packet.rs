@@ -1191,6 +1191,7 @@ async fn process_signal_command_as_server(
                                 },
                                 resp,
                             );
+
                             // now, remove target CID's v_conn to `implicated_cid`
                             std::mem::drop(state_container);
                             let _ = session_manager.disconnect_virtual_conn(
@@ -1211,7 +1212,23 @@ async fn process_signal_command_as_server(
 
                         spawn!(task);
 
-                        Ok(PrimaryProcessorResult::Void)
+                        let rebound_signal = PeerSignal::Disconnect(
+                            PeerConnectionType::LocalGroupPeer {
+                                implicated_cid,
+                                peer_cid: target_cid,
+                            },
+                            Some(PeerResponse::Disconnected(
+                                "Server has begun disconnection".to_string(),
+                            )),
+                        );
+
+                        reply_to_sender(
+                            rebound_signal,
+                            &sess_hyper_ratchet,
+                            ticket,
+                            timestamp,
+                            security_level,
+                        )
                     } else {
                         //reply_to_sender_err(format!("{} is not connected to {}", implicated_cid, target_cid), &sess_hyper_ratchet, ticket, timestamp, security_level)
                         // connection may already be dc'ed from another dc attempt. Just say nothing

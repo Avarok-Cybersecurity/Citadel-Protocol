@@ -42,7 +42,7 @@ use crate::proto::session_manager::HdpSessionManager;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::kernel::RuntimeFuture;
-use crate::prelude::{GroupBroadcast, SecureProtocolPacket};
+use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, SecureProtocolPacket};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
@@ -1843,8 +1843,30 @@ impl HdpSession {
 
         let mut state_container = inner_mut_state!(this.state_container);
 
+        // TODO: send errors if any commands have Some() responses
         if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
             let signal_processed = match peer_command {
+                PeerSignal::Disconnect(v_conn, resp) => {
+                    let target = v_conn.get_original_target_cid();
+                    if !state_container
+                        .active_virtual_connections
+                        .contains_key(&target)
+                    {
+                        return self
+                            .send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                                event: PeerSignal::Disconnect(
+                                    v_conn,
+                                    Some(PeerResponse::Disconnected(
+                                        "Peer session already disconnected".to_string(),
+                                    )),
+                                ),
+                                ticket,
+                            }))
+                            .map_err(|err| NetworkError::Generic(err.to_string()));
+                    }
+
+                    PeerSignal::Disconnect(v_conn, resp)
+                }
                 PeerSignal::DisconnectUDP(v_conn) => {
                     // disconnect UDP locally
                     log::trace!(target: "citadel", "Closing UDP subsystem locally ...");

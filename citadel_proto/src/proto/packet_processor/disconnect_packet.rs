@@ -36,7 +36,7 @@ pub async fn process_disconnect(
 
     match header.cmd_aux {
         packet_flags::cmd::aux::do_disconnect::STAGE0 => {
-            log::error!(target: "citadel", "STAGE 0 DISCONNECT PACKET RECEIVED");
+            log::trace!(target: "citadel", "STAGE 0 DISCONNECT PACKET RECEIVED");
             let packet = packet_crafter::do_disconnect::craft_final(
                 &hyper_ratchet,
                 ticket,

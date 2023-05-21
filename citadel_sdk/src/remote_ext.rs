@@ -813,7 +813,6 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(event) = subscription.next().await {
-                citadel_logging::error!(target: "citadel", "Eventrx: {event:?}");
                 if let NodeResult::Disconnect(Disconnect {
                     success, message, ..
                 }) = map_errors(event)?
