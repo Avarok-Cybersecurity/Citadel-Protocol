@@ -384,7 +384,7 @@ pub mod prelude {
     };
     pub use crate::proto::peer::message_group::MessageGroupKey;
     pub use crate::proto::peer::message_group::{GroupType, MessageGroupOptions};
-    pub use crate::proto::peer::peer_layer::HypernodeConnectionType;
+    pub use crate::proto::peer::peer_layer::NodeConnectionType;
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
     pub use crate::proto::remote::Ticket;

@@ -2,13 +2,14 @@ use crate::account_manager::AccountManager;
 use crate::backend::username_to_cid;
 use crate::misc::AccountError;
 use crate::prelude::{ClientNetworkAccount, MutualPeer};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The file extension for CNACs only
 pub const CNAC_SERIALIZED_EXTENSION: &str = "hca";
 
 /// A convenience wrapper for passing arguments to functions that require searches for a user
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum UserIdentifier {
     /// Raw user ID
     ID(u64),

@@ -51,6 +51,17 @@ async fn setup_connect(
     reuse: bool,
 ) -> Result<TcpStream, anyhow::Error> {
     setup_base_socket(connect_addr, &socket, reuse)?;
+
+    #[cfg(feature = "localhost-testing")]
+    {
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        if connect_addr.is_ipv4() {
+            socket.bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0).into())?;
+        } else {
+            socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0).into())?;
+        }
+    }
+
     let socket = citadel_io::TcpSocket::from_std_stream(socket.into());
     Ok(tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
 }
@@ -86,6 +97,14 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
+
+    if !reuse {
+        // don't use any fancy binding options, stick with default
+        let std_listener = std::net::TcpListener::bind(addr)?;
+        std_listener.set_nonblocking(true)?;
+        return Ok(citadel_io::TcpListener::from_std(std_listener)?);
+    }
+
     let domain = if addr.is_ipv4() {
         Domain::IPV4
     } else {
@@ -108,7 +127,7 @@ async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
-    log::trace!(target: "citadel", "[Socket helper] Getting TCP connect (reuse={}) socket @ {:?} ...", reuse, &addr);
+    log::trace!(target: "citadel", "[Socket helper] Getting TCP connect (reuse={}) socket to {:?} ...", reuse, &addr);
     //return Ok(citadel_io::TcpStream::connect(addr).await?)
     let domain = if addr.is_ipv4() {
         Domain::IPV4
