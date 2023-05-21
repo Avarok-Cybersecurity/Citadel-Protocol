@@ -206,7 +206,10 @@ impl Drop for PeerChannelRecvHalf {
                     NodeRequest::PeerCommand(PeerCommand {
                         implicated_cid: local_cid,
                         command: PeerSignal::Disconnect(
-                            PeerConnectionType::LocalGroupPeer(local_cid, peer_cid),
+                            PeerConnectionType::LocalGroupPeer {
+                                implicated_cid: local_cid,
+                                peer_cid,
+                            },
                             None,
                         ),
                     })

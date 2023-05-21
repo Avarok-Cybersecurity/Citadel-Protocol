@@ -57,7 +57,6 @@ pub(crate) mod user_ids {
         fn target_username(&self) -> Option<&String> {
             self.target_username.as_ref()
         }
-
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
         }
@@ -772,6 +771,67 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         Err(NetworkError::InternalError("Deregister ended unexpectedly"))
     }
 
+    async fn disconnect(&mut self) -> Result<(), NetworkError> {
+        if let Ok(peer_conn) = self.try_as_peer_connection().await {
+            if let PeerConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: _,
+            } = peer_conn
+            {
+                let request = NodeRequest::PeerCommand(PeerCommand {
+                    implicated_cid,
+                    command: PeerSignal::Disconnect(peer_conn, None),
+                });
+
+                let mut subscription = self.remote().send_callback_subscription(request).await?;
+
+                while let Some(event) = subscription.next().await {
+                    if let NodeResult::PeerEvent(PeerEvent {
+                        event: PeerSignal::Disconnect(_, Some(_)),
+                        ticket: _,
+                    }) = map_errors(event)?
+                    {
+                        return Ok(());
+                    }
+                }
+
+                Err(NetworkError::InternalError(
+                    "Unable to receive valid disconnect event",
+                ))
+            } else {
+                Err(NetworkError::msg(
+                    "External group peer functionality not enabled",
+                ))
+            }
+        } else {
+            //c2s conn
+            let cid = self.user().get_implicated_cid();
+            let request = NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode {
+                implicated_cid: cid,
+                v_conn_type: *self.user(),
+            });
+
+            let mut subscription = self.remote().send_callback_subscription(request).await?;
+            while let Some(event) = subscription.next().await {
+                citadel_logging::error!(target: "citadel", "Eventrx: {event:?}");
+                if let NodeResult::Disconnect(Disconnect {
+                    success, message, ..
+                }) = map_errors(event)?
+                {
+                    return if success {
+                        Ok(())
+                    } else {
+                        Err(NetworkError::msg(message))
+                    };
+                }
+            }
+
+            Err(NetworkError::InternalError(
+                "Unable to receive valid disconnect event",
+            ))
+        }
+    }
+
     async fn create_group(
         &mut self,
         initial_users_to_invite: Option<Vec<UserIdentifier>>,
@@ -876,7 +936,11 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Checks if the locked target is registered
     async fn is_peer_registered(&mut self) -> Result<bool, NetworkError> {
         let target = self.try_as_peer_connection().await?;
-        if let PeerConnectionType::LocalGroupPeer(local_cid, peer_cid) = target {
+        if let PeerConnectionType::LocalGroupPeer {
+            implicated_cid: local_cid,
+            peer_cid,
+        } = target
+        {
             let peers = self.remote().get_local_group_peers(local_cid, None).await?;
             citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
             Ok(peers.iter().any(|p| p.cid == peer_cid))

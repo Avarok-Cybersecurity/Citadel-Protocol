@@ -74,6 +74,7 @@ pub async fn process_raw_packet(
 
             packet_flags::cmd::primary::DO_DISCONNECT => {
                 super::disconnect_packet::process_disconnect(session, packet, header_drill_vers)
+                    .await
             }
 
             packet_flags::cmd::primary::DO_DRILL_UPDATE => super::rekey_packet::process_rekey(

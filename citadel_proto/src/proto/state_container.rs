@@ -350,20 +350,20 @@ impl VirtualConnectionType {
             VirtualConnectionType::LocalGroupPeer {
                 implicated_cid,
                 peer_cid,
-            } => Some(PeerConnectionType::LocalGroupPeer(
-                *implicated_cid,
-                *peer_cid,
-            )),
+            } => Some(PeerConnectionType::LocalGroupPeer {
+                implicated_cid: *implicated_cid,
+                peer_cid: *peer_cid,
+            }),
 
             VirtualConnectionType::ExternalGroupPeer {
                 implicated_cid,
                 interserver_cid: icid,
                 peer_cid,
-            } => Some(PeerConnectionType::ExternalGroupPeer(
-                *implicated_cid,
-                *icid,
-                *peer_cid,
-            )),
+            } => Some(PeerConnectionType::ExternalGroupPeer {
+                implicated_cid: *implicated_cid,
+                interserver_cid: *icid,
+                peer_cid: *peer_cid,
+            }),
 
             _ => None,
         }

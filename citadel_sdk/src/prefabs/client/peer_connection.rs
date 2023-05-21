@@ -51,9 +51,15 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
         match message {
             NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
                 let v_conn = if handle.orientation == ObjectTransferOrientation::Receiver {
-                    PeerConnectionType::LocalGroupPeer(handle.receiver, handle.source)
+                    PeerConnectionType::LocalGroupPeer {
+                        implicated_cid: handle.receiver,
+                        peer_cid: handle.source,
+                    }
                 } else {
-                    PeerConnectionType::LocalGroupPeer(handle.source, handle.receiver)
+                    PeerConnectionType::LocalGroupPeer {
+                        implicated_cid: handle.source,
+                        peer_cid: handle.receiver,
+                    }
                 };
 
                 let active_peers = self.shared.active_peer_conns.lock();
