@@ -3,6 +3,7 @@ use citadel_io::Mutex;
 use citadel_proto::prelude::*;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 /// Kernels for clients
 pub mod client;
@@ -18,14 +19,21 @@ use crate::remote_ext::ProtocolRemoteExt;
 #[derive(Clone)]
 pub struct ClientServerRemote {
     pub(crate) inner: NodeRemote,
-    #[allow(dead_code)]
-    unprocessed_signals_rx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NodeResult>>>>,
+    pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult>>>>,
     conn_type: VirtualTargetType,
 }
 
 impl_remote!(ClientServerRemote);
 
 impl ClientServerRemote {
+    /// constructs a new [`ClientServerRemote`] from a [`NodeRemote`] and a [`VirtualTargetType`]
+    pub fn new(conn_type: VirtualTargetType, remote: NodeRemote) -> Self {
+        Self {
+            inner: remote,
+            unprocessed_signals_rx: Default::default(),
+            conn_type,
+        }
+    }
     /// Can only be called once per remote. Allows receiving events
     pub fn get_unprocessed_signals_receiver(
         &self,

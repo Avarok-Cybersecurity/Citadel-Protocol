@@ -54,11 +54,8 @@ where
                 channel,
                 udp_rx_opt: udp_channel_rx,
             }) => {
-                let client_server_remote = ClientServerRemote {
-                    inner: self.node_remote.clone().unwrap(),
-                    unprocessed_signals_rx: Default::default(),
-                    conn_type,
-                };
+                let client_server_remote =
+                    ClientServerRemote::new(conn_type, self.node_remote.clone().unwrap());
                 (self.on_channel_received)(
                     ConnectionSuccess {
                         channel,
