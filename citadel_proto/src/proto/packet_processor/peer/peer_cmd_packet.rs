@@ -245,10 +245,10 @@ pub async fn process_peer_cmd(
                             // the connection was mutually accepted. Now, we must begin the KEM subroutine
                             if accepted {
                                 return match conn {
-                                    PeerConnectionType::LocalGroupPeer(
-                                        original_implicated_cid,
-                                        original_target_cid,
-                                    ) => {
+                                    PeerConnectionType::LocalGroupPeer {
+                                        implicated_cid: original_implicated_cid,
+                                        peer_cid: original_target_cid,
+                                    } => {
                                         // this implies this node is receiving an accept_request. As such, we need to NOT
                                         // forward the signal quite yet, and instead, begin the key-exchange process in order to
                                         // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
@@ -293,10 +293,10 @@ pub async fn process_peer_cmd(
                                         // finally, prepare the signal and send outbound
                                         // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
                                         let signal = PeerSignal::Kem(
-                                            PeerConnectionType::LocalGroupPeer(
-                                                *original_target_cid,
-                                                *original_implicated_cid,
-                                            ),
+                                            PeerConnectionType::LocalGroupPeer {
+                                                implicated_cid: *original_target_cid,
+                                                peer_cid: *original_implicated_cid,
+                                            },
                                             KeyExchangeProcess::Stage0(
                                                 msg_bytes,
                                                 *endpoint_security_settings,
@@ -432,9 +432,10 @@ pub async fn process_peer_cmd(
                                         let toolset = Toolset::new(this_cid, hyper_ratchet);
                                         // now, register the loaded PQC + toolset into the virtual conn
                                         let peer_crypto = PeerSessionCrypto::new(toolset, true);
-                                        let vconn_type = VirtualConnectionType::LocalGroupPeer(
-                                            this_cid, peer_cid,
-                                        );
+                                        let vconn_type = VirtualConnectionType::LocalGroupPeer {
+                                            implicated_cid: this_cid,
+                                            peer_cid,
+                                        };
                                         let (needs_turn, bob_predicted_socket_addr) = bob_nat_info
                                             .generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
@@ -593,9 +594,10 @@ pub async fn process_peer_cmd(
                                         let peer_crypto = PeerSessionCrypto::new(toolset, false);
 
                                         // create an endpoint vconn
-                                        let vconn_type = VirtualConnectionType::LocalGroupPeer(
-                                            this_cid, peer_cid,
-                                        );
+                                        let vconn_type = VirtualConnectionType::LocalGroupPeer {
+                                            implicated_cid: this_cid,
+                                            peer_cid,
+                                        };
                                         let (needs_turn, alice_predicted_socket_addr) =
                                             alice_nat_info.generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
@@ -821,7 +823,10 @@ async fn process_signal_command_as_server(
         ) => {
             // check to see if the client is connected, and if not, send to HypernodePeerLayer
             match peer_conn_type {
-                PeerConnectionType::LocalGroupPeer(_implicated_cid, target_cid) => {
+                PeerConnectionType::LocalGroupPeer {
+                    implicated_cid: _implicated_cid,
+                    peer_cid: target_cid,
+                } => {
                     let implicated_cid = header.session_cid.get();
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
                                                                             // if the peer response is some, then HyperLAN Client B responded
@@ -857,8 +862,10 @@ async fn process_signal_command_as_server(
 
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase). No FCM
                         // NOTE: we MUST redefine peer_conn_type since it may be overwritten if only a username is given
-                        let peer_conn_type =
-                            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid);
+                        let peer_conn_type = PeerConnectionType::LocalGroupPeer {
+                            implicated_cid,
+                            peer_cid: target_cid,
+                        };
 
                         let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
 
@@ -890,8 +897,10 @@ async fn process_signal_command_as_server(
                             let accept = PeerResponse::Accept(username.clone());
                             // TODO: get rid of multiple username fields
                             // we have to flip the ordering for here alone since the endpoint handler for this signal expects do
-                            let peer_conn_type =
-                                PeerConnectionType::LocalGroupPeer(target_cid, implicated_cid);
+                            let peer_conn_type = PeerConnectionType::LocalGroupPeer {
+                                implicated_cid: target_cid,
+                                peer_cid: implicated_cid,
+                            };
                             let cmd = PeerSignal::PostRegister(
                                 peer_conn_type,
                                 username.clone().unwrap_or_default(),
@@ -936,7 +945,11 @@ async fn process_signal_command_as_server(
                     }
                 }
 
-                PeerConnectionType::ExternalGroupPeer(_implicated_cid, _icid, _target_cid) => {
+                PeerConnectionType::ExternalGroupPeer {
+                    implicated_cid: _implicated_cid,
+                    interserver_cid: _icid,
+                    peer_cid: _target_cid,
+                } => {
                     log::warn!(target: "citadel", "HyperWAN functionality not implemented");
                     Ok(PrimaryProcessorResult::Void)
                 }
@@ -947,7 +960,10 @@ async fn process_signal_command_as_server(
             // in deregistration, we send a Deregister signal to the peer (if connected)
             // then, delete the cid entry from the CNAC and save to the local FS
             match peer_conn_type {
-                PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+                PeerConnectionType::LocalGroupPeer {
+                    implicated_cid,
+                    peer_cid: target_cid,
+                } => {
                     let mut peer_layer_lock = session.hypernode_peer_layer.inner.write().await;
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
@@ -1023,7 +1039,11 @@ async fn process_signal_command_as_server(
                     }
                 }
 
-                PeerConnectionType::ExternalGroupPeer(_implicated_cid, _icid, _target_cid) => {
+                PeerConnectionType::ExternalGroupPeer {
+                    implicated_cid: _implicated_cid,
+                    interserver_cid: _icid,
+                    peer_cid: _target_cid,
+                } => {
                     log::warn!(target: "citadel", "HyperWAN functionality not yet enabled");
                     Ok(PrimaryProcessorResult::Void)
                 }
@@ -1038,7 +1058,10 @@ async fn process_signal_command_as_server(
             udp_enabled,
         ) => {
             match peer_conn_type {
-                PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+                PeerConnectionType::LocalGroupPeer {
+                    implicated_cid,
+                    peer_cid: target_cid,
+                } => {
                     // TODO: Change timeouts. Create a better timeout system, in general
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60);
                     let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
@@ -1111,7 +1134,11 @@ async fn process_signal_command_as_server(
                     }
                 }
 
-                PeerConnectionType::ExternalGroupPeer(_implicated_cid, _icid, _target_cid) => {
+                PeerConnectionType::ExternalGroupPeer {
+                    implicated_cid: _implicated_cid,
+                    interserver_cid: _icid,
+                    peer_cid: _target_cid,
+                } => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
                     Ok(PrimaryProcessorResult::Void)
                 }
@@ -1120,7 +1147,10 @@ async fn process_signal_command_as_server(
 
         PeerSignal::Disconnect(peer_conn_type, resp) => {
             match peer_conn_type {
-                PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+                PeerConnectionType::LocalGroupPeer {
+                    implicated_cid,
+                    peer_cid: target_cid,
+                } => {
                     let state_container = inner_state!(session.state_container);
                     if let Some(v_conn) =
                         state_container.active_virtual_connections.get(&target_cid)
@@ -1155,9 +1185,13 @@ async fn process_signal_command_as_server(
                                 "Peer {implicated_cid} closed the virtual connection to {target_cid}"
                             ))));
                             let signal_to_peer = PeerSignal::Disconnect(
-                                PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid),
+                                PeerConnectionType::LocalGroupPeer {
+                                    implicated_cid,
+                                    peer_cid: target_cid,
+                                },
                                 resp,
                             );
+
                             // now, remove target CID's v_conn to `implicated_cid`
                             std::mem::drop(state_container);
                             let _ = session_manager.disconnect_virtual_conn(
@@ -1178,7 +1212,23 @@ async fn process_signal_command_as_server(
 
                         spawn!(task);
 
-                        Ok(PrimaryProcessorResult::Void)
+                        let rebound_signal = PeerSignal::Disconnect(
+                            PeerConnectionType::LocalGroupPeer {
+                                implicated_cid,
+                                peer_cid: target_cid,
+                            },
+                            Some(PeerResponse::Disconnected(
+                                "Server has begun disconnection".to_string(),
+                            )),
+                        );
+
+                        reply_to_sender(
+                            rebound_signal,
+                            &sess_hyper_ratchet,
+                            ticket,
+                            timestamp,
+                            security_level,
+                        )
                     } else {
                         //reply_to_sender_err(format!("{} is not connected to {}", implicated_cid, target_cid), &sess_hyper_ratchet, ticket, timestamp, security_level)
                         // connection may already be dc'ed from another dc attempt. Just say nothing

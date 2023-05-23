@@ -251,10 +251,22 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
 /// For determining the nature of a [VirtualConnection]
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash, Serialize, Deserialize)]
 pub enum VirtualConnectionType {
-    LocalGroupPeer(u64, u64),
-    ExternalGroupPeer(u64, u64, u64),
-    LocalGroupServer(u64),
-    ExternalGroupServer(u64, u64),
+    LocalGroupPeer {
+        implicated_cid: u64,
+        peer_cid: u64,
+    },
+    ExternalGroupPeer {
+        implicated_cid: u64,
+        interserver_cid: u64,
+        peer_cid: u64,
+    },
+    LocalGroupServer {
+        implicated_cid: u64,
+    },
+    ExternalGroupServer {
+        implicated_cid: u64,
+        interserver_cid: u64,
+    },
 }
 
 /// For readability
@@ -271,56 +283,87 @@ impl VirtualConnectionType {
     /// Gets the target cid, agnostic to type
     pub fn get_target_cid(&self) -> u64 {
         match self {
-            VirtualConnectionType::LocalGroupServer(_cid) => {
+            VirtualConnectionType::LocalGroupServer {
+                implicated_cid: _cid,
+            } => {
                 // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan serve conn
                 0
             }
 
-            VirtualConnectionType::LocalGroupPeer(_implicated_cid, target_cid) => *target_cid,
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid: _implicated_cid,
+                peer_cid: target_cid,
+            } => *target_cid,
 
-            VirtualConnectionType::ExternalGroupPeer(_implicated_cid, _icid, target_cid) => {
-                *target_cid
-            }
+            VirtualConnectionType::ExternalGroupPeer {
+                implicated_cid: _implicated_cid,
+                interserver_cid: _icid,
+                peer_cid: target_cid,
+            } => *target_cid,
 
-            VirtualConnectionType::ExternalGroupServer(_implicated_cid, icid) => *icid,
+            VirtualConnectionType::ExternalGroupServer {
+                implicated_cid: _implicated_cid,
+                interserver_cid: icid,
+            } => *icid,
         }
     }
 
     /// Gets the target cid, agnostic to type
     pub fn get_implicated_cid(&self) -> u64 {
         match self {
-            VirtualConnectionType::LocalGroupServer(cid) => *cid,
+            VirtualConnectionType::LocalGroupServer {
+                implicated_cid: cid,
+            } => *cid,
 
-            VirtualConnectionType::LocalGroupPeer(implicated_cid, _target_cid) => *implicated_cid,
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: _target_cid,
+            } => *implicated_cid,
 
-            VirtualConnectionType::ExternalGroupPeer(implicated_cid, _icid, _target_cid) => {
-                *implicated_cid
-            }
+            VirtualConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: _icid,
+                peer_cid: _target_cid,
+            } => *implicated_cid,
 
-            VirtualConnectionType::ExternalGroupServer(implicated_cid, _icid) => *implicated_cid,
+            VirtualConnectionType::ExternalGroupServer {
+                implicated_cid,
+                interserver_cid: _icid,
+            } => *implicated_cid,
         }
     }
 
-    pub fn is_hyperlan(&self) -> bool {
+    pub fn is_local_group(&self) -> bool {
         matches!(
             self,
-            VirtualConnectionType::LocalGroupPeer(..) | VirtualConnectionType::LocalGroupServer(..)
+            VirtualConnectionType::LocalGroupPeer { .. }
+                | VirtualConnectionType::LocalGroupServer { .. }
         )
     }
 
-    pub fn is_hyperwan(&self) -> bool {
-        !self.is_hyperlan()
+    pub fn is_external_group(&self) -> bool {
+        !self.is_local_group()
     }
 
     pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
         match self {
-            VirtualConnectionType::LocalGroupPeer(implicated_cid, peer_cid) => Some(
-                PeerConnectionType::LocalGroupPeer(*implicated_cid, *peer_cid),
-            ),
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid,
+            } => Some(PeerConnectionType::LocalGroupPeer {
+                implicated_cid: *implicated_cid,
+                peer_cid: *peer_cid,
+            }),
 
-            VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, peer_cid) => Some(
-                PeerConnectionType::ExternalGroupPeer(*implicated_cid, *icid, *peer_cid),
-            ),
+            VirtualConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: icid,
+                peer_cid,
+            } => Some(PeerConnectionType::ExternalGroupPeer {
+                implicated_cid: *implicated_cid,
+                interserver_cid: *icid,
+                peer_cid: *peer_cid,
+            }),
 
             _ => None,
         }
@@ -328,8 +371,15 @@ impl VirtualConnectionType {
 
     pub fn set_target_cid(&mut self, target_cid: u64) {
         match self {
-            VirtualConnectionType::LocalGroupPeer(_, peer_cid)
-            | VirtualConnectionType::ExternalGroupPeer(_, _, peer_cid) => *peer_cid = target_cid,
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid: _,
+                peer_cid,
+            }
+            | VirtualConnectionType::ExternalGroupPeer {
+                implicated_cid: _,
+                interserver_cid: _,
+                peer_cid,
+            } => *peer_cid = target_cid,
 
             _ => {}
         }
@@ -339,28 +389,40 @@ impl VirtualConnectionType {
 impl Display for VirtualConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            VirtualConnectionType::LocalGroupServer(cid) => {
-                write!(f, "HyperLAN Peer to HyperLAN Server ({cid})")
+            VirtualConnectionType::LocalGroupServer {
+                implicated_cid: cid,
+            } => {
+                write!(f, "Local Group Peer to Local Group Server ({cid})")
             }
 
-            VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            } => {
                 write!(
                     f,
-                    "HyperLAN Peer to HyperLAN Peer ({implicated_cid} -> {target_cid})"
+                    "Local Group Peer to Local Group Peer ({implicated_cid} -> {target_cid})"
                 )
             }
 
-            VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
+            VirtualConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: icid,
+                peer_cid: target_cid,
+            } => {
                 write!(
                     f,
-                    "HyperLAN Peer to HyperWAN Peer ({implicated_cid} -> {icid} -> {target_cid})"
+                    "Local Group Peer to External Group Peer ({implicated_cid} -> {icid} -> {target_cid})"
                 )
             }
 
-            VirtualConnectionType::ExternalGroupServer(implicated_cid, icid) => {
+            VirtualConnectionType::ExternalGroupServer {
+                implicated_cid,
+                interserver_cid: icid,
+            } => {
                 write!(
                     f,
-                    "HyperLAN Peer to HyperWAN Server ({implicated_cid} -> {icid})"
+                    "Local Group Peer to External Group Server ({implicated_cid} -> {icid})"
                 )
             }
         }
@@ -789,7 +851,7 @@ impl StateContainerInner {
         let peer_channel = PeerChannel::new(
             self.hdp_server_remote.clone(),
             implicated_cid,
-            VirtualConnectionType::LocalGroupServer(implicated_cid),
+            VirtualConnectionType::LocalGroupServer { implicated_cid },
             channel_ticket,
             security_level,
             is_active.clone(),
@@ -1188,12 +1250,15 @@ impl StateContainerInner {
         v_target: VirtualTargetType,
     ) -> Option<()> {
         let (key, receiver_cid) = match v_target {
-            VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            } => {
                 // since the order hasn't flipped yet, get the implicated cid
                 (FileKey::new(implicated_cid, object_id), target_cid)
             }
 
-            VirtualConnectionType::LocalGroupServer(implicated_cid) => {
+            VirtualConnectionType::LocalGroupServer { implicated_cid } => {
                 (FileKey::new(implicated_cid, object_id), 0)
             }
 
@@ -1705,7 +1770,7 @@ impl StateContainerInner {
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
             let (mut transmitter, group_id, target_cid) = match virtual_target {
-                VirtualTargetType::LocalGroupServer(implicated_cid) => {
+                VirtualTargetType::LocalGroupServer { implicated_cid } => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
                     let crypt_container = &mut this
@@ -1783,7 +1848,10 @@ impl StateContainerInner {
                     }
                 }
 
-                VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+                VirtualConnectionType::LocalGroupPeer {
+                    implicated_cid,
+                    peer_cid: target_cid,
+                } => {
                     log::trace!(target: "citadel", "Maybe sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
                     // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
                     let default_primary_stream = this.get_primary_stream().cloned().unwrap();
@@ -1991,7 +2059,7 @@ impl StateContainerInner {
             .ok_or(NetworkError::InternalError("Primary stream not loaded"))?);
 
         match virtual_target {
-            VirtualConnectionType::LocalGroupServer(_) => {
+            VirtualConnectionType::LocalGroupServer { implicated_cid: _ } => {
                 let crypt_container = &mut self
                     .c2s_channel_container
                     .as_mut()
@@ -2040,7 +2108,10 @@ impl StateContainerInner {
                 }
             }
 
-            VirtualConnectionType::LocalGroupPeer(_, peer_cid) => {
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid: _,
+                peer_cid,
+            } => {
                 const MISSING: NetworkError = NetworkError::InvalidRequest("Peer not connected");
                 let endpoint_container = &mut self
                     .active_virtual_connections

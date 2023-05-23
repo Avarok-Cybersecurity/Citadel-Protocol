@@ -20,6 +20,7 @@ use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS, UDP_MOD
 use crate::error::NetworkError;
 use crate::kernel::RuntimeFuture;
 use crate::macros::SyncContextRequirements;
+use crate::prelude::Disconnect;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
@@ -403,10 +404,13 @@ impl HdpSessionManager {
                     vconn.is_active.store(false, Ordering::SeqCst);
                     if peer_cid != implicated_cid && peer_cid != 0 {
                         let vconn = vconn.connection_type;
-                        if let VirtualConnectionType::LocalGroupPeer(_, _) = vconn {
+                        if let VirtualConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: _ } = vconn {
                             if peer_cid != implicated_cid {
                                 log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
-                                let peer_conn_type = PeerConnectionType::LocalGroupPeer(implicated_cid, peer_cid);
+                                let peer_conn_type = PeerConnectionType::LocalGroupPeer {
+                                    implicated_cid,
+                                    peer_cid
+                                };
                                 let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly"))));
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
@@ -717,11 +721,28 @@ impl HdpSessionManager {
         ticket: Ticket,
     ) -> Result<bool, NetworkError> {
         let this = inner!(self);
-        match this.sessions.get(&implicated_cid) {
+        let res = match this.sessions.get(&implicated_cid) {
             Some(session) => session.1.initiate_disconnect(ticket, virtual_peer),
 
             None => Ok(false),
+        };
+
+        let will_perform_dc = res?;
+
+        if !will_perform_dc {
+            // already disconnected. Send a message to the kernel
+            inner!(self)
+                .kernel_tx
+                .unbounded_send(NodeResult::Disconnect(Disconnect {
+                    ticket,
+                    cid_opt: Some(implicated_cid),
+                    success: true,
+                    v_conn_type: Some(virtual_peer),
+                    message: "Already disconnected".to_string(),
+                }))?;
         }
+
+        Ok(will_perform_dc)
     }
 
     /// Clears a session from the internal map

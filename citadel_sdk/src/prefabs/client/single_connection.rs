@@ -241,7 +241,9 @@ where
                 self.session_security_settings,
             )
             .await?;
-        let conn_type = VirtualTargetType::LocalGroupServer(connect_success.cid);
+        let conn_type = VirtualTargetType::LocalGroupServer {
+            implicated_cid: connect_success.cid,
+        };
 
         let unprocessed_signal_filter = if cfg!(feature = "localhost-testing") {
             let (reroute_tx, reroute_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -401,10 +403,11 @@ mod tests {
             server_addr,
             udp_mode,
             Default::default(),
-            |channel, remote| async move {
+            |channel, mut remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
+                remote.disconnect().await?;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
@@ -584,6 +587,7 @@ mod tests {
 
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
+
                 remote.shutdown_kernel().await
             },
         )

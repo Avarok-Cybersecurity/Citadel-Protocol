@@ -600,7 +600,7 @@ fn handle_success_as_receiver(
         // the UDP subsystem will automatically engage at this point
         HdpSession::udp_socket_loader(
             session.clone(),
-            VirtualTargetType::LocalGroupServer(implicated_cid),
+            VirtualTargetType::LocalGroupServer { implicated_cid },
             udp_splittable,
             peer_addr,
             session.kernel_ticket.get(),

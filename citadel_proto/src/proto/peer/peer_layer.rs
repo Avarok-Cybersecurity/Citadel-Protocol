@@ -378,7 +378,7 @@ impl HyperNodePeerLayerInner {
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister(conn, _, _, _, None) = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-            if let PeerConnectionType::LocalGroupPeer(_, b) = conn {
+            if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
                 *b == implicated_cid
             } else {
                 false
@@ -399,7 +399,7 @@ impl HyperNodePeerLayerInner {
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-            if let PeerConnectionType::LocalGroupPeer(_, b) = conn {
+            if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
                 *b == implicated_cid
             } else {
                 false
@@ -584,49 +584,86 @@ pub enum ChannelPacket {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone, Eq, Hash)]
 pub enum PeerConnectionType {
     // implicated_cid, target_cid
-    LocalGroupPeer(u64, u64),
+    LocalGroupPeer {
+        implicated_cid: u64,
+        peer_cid: u64,
+    },
     // implicated_cid, icid, target_cid
-    ExternalGroupPeer(u64, u64, u64),
+    ExternalGroupPeer {
+        implicated_cid: u64,
+        interserver_cid: u64,
+        peer_cid: u64,
+    },
 }
 
 impl PeerConnectionType {
     pub fn get_original_implicated_cid(&self) -> u64 {
         match self {
-            PeerConnectionType::LocalGroupPeer(implicated_cid, _target_cid) => *implicated_cid,
-            PeerConnectionType::ExternalGroupPeer(implicated_cid, _icid, _target_cid) => {
-                *implicated_cid
-            }
+            PeerConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: _target_cid,
+            } => *implicated_cid,
+            PeerConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: _icid,
+                peer_cid: _target_cid,
+            } => *implicated_cid,
         }
     }
 
     pub fn get_original_target_cid(&self) -> u64 {
         match self {
-            PeerConnectionType::LocalGroupPeer(_implicated_cid, target_cid) => *target_cid,
-            PeerConnectionType::ExternalGroupPeer(_implicated_cid, _icid, target_cid) => {
-                *target_cid
-            }
+            PeerConnectionType::LocalGroupPeer {
+                implicated_cid: _implicated_cid,
+                peer_cid: target_cid,
+            } => *target_cid,
+            PeerConnectionType::ExternalGroupPeer {
+                implicated_cid: _implicated_cid,
+                interserver_cid: _icid,
+                peer_cid: target_cid,
+            } => *target_cid,
         }
     }
 
     pub fn reverse(&self) -> PeerConnectionType {
         match self {
-            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
-                PeerConnectionType::LocalGroupPeer(*target_cid, *implicated_cid)
-            }
-            PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
-                PeerConnectionType::ExternalGroupPeer(*target_cid, *icid, *implicated_cid)
-            }
+            PeerConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            } => PeerConnectionType::LocalGroupPeer {
+                implicated_cid: *target_cid,
+                peer_cid: *implicated_cid,
+            },
+            PeerConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: icid,
+                peer_cid: target_cid,
+            } => PeerConnectionType::ExternalGroupPeer {
+                implicated_cid: *target_cid,
+                interserver_cid: *icid,
+                peer_cid: *implicated_cid,
+            },
         }
     }
 
     pub fn as_virtual_connection(self) -> VirtualConnectionType {
         match self {
-            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
-                VirtualConnectionType::LocalGroupPeer(implicated_cid, target_cid)
-            }
-            PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
-                VirtualConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid)
-            }
+            PeerConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            } => VirtualConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            },
+            PeerConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: icid,
+                peer_cid: target_cid,
+            } => VirtualConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: icid,
+                peer_cid: target_cid,
+            },
         }
     }
 }
@@ -634,10 +671,17 @@ impl PeerConnectionType {
 impl Display for PeerConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PeerConnectionType::LocalGroupPeer(implicated_cid, target_cid) => {
+            PeerConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            } => {
                 write!(f, "hLAN {implicated_cid} <-> {target_cid}")
             }
-            PeerConnectionType::ExternalGroupPeer(implicated_cid, icid, target_cid) => {
+            PeerConnectionType::ExternalGroupPeer {
+                implicated_cid,
+                interserver_cid: icid,
+                peer_cid: target_cid,
+            } => {
                 write!(f, "hWAN {implicated_cid} <-> {icid} <-> {target_cid}")
             }
         }

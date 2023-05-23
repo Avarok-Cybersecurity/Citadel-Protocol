@@ -134,7 +134,9 @@ pub async fn process_connect(
                                     .state
                                     .store(SessionState::Connected, Ordering::Relaxed);
 
-                                let cxn_type = VirtualConnectionType::LocalGroupServer(cid);
+                                let cxn_type = VirtualConnectionType::LocalGroupServer {
+                                    implicated_cid: cid,
+                                };
                                 let channel_signal = NodeResult::ConnectSuccess(ConnectSuccess {
                                     ticket: kernel_ticket,
                                     implicated_cid: cid,
@@ -274,7 +276,9 @@ pub async fn process_connect(
 
                             let _post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
-                            let cxn_type = VirtualConnectionType::LocalGroupServer(cid);
+                            let cxn_type = VirtualConnectionType::LocalGroupServer {
+                                implicated_cid: cid,
+                            };
                             let peers = payload.peers;
 
                             let timestamp = session.time_tracker.get_global_time_ns();

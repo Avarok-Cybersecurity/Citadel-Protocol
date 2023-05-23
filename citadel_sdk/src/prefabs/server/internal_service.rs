@@ -110,9 +110,9 @@ mod test {
     #[tokio::test]
     async fn test_internal_service_basic_bytes() {
         setup_log();
-        let ref barrier = TestBarrier::new(2);
-        let ref success_count = AtomicUsize::new(0);
-        let ref message = (0..4096)
+        let barrier = &TestBarrier::new(2);
+        let success_count = &AtomicUsize::new(0);
+        let message = &(0..4096)
             .into_iter()
             .map(|r| (r % 256) as u8)
             .collect::<Vec<u8>>();
@@ -180,8 +180,8 @@ mod test {
     #[tokio::test]
     async fn test_internal_service_http() {
         setup_log();
-        let ref barrier = TestBarrier::new(2);
-        let ref success_count = AtomicUsize::new(0);
+        let barrier = &TestBarrier::new(2);
+        let success_count = &AtomicUsize::new(0);
         let server_bind_addr =
             SocketAddr::from_str(&format!("127.0.0.1:{}", get_unused_tcp_port())).unwrap();
 
