@@ -4,6 +4,8 @@ use crate::prelude::Disconnect;
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use std::sync::atomic::Ordering;
 
+pub const SUCCESS_DISCONNECT: &str = "Successfully Disconnected";
+
 /// Stage 0: Alice sends Bob a DO_DISCONNECT request packet
 /// Stage 1: Bob sends Alice an FINAL, whereafter Alice may disconnect
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
@@ -50,9 +52,7 @@ pub async fn process_disconnect(
             .unbounded_send(packet)?;
             // give some time for the outbound task to send the DC message to the adjacent node
             tokio::time::sleep(Duration::from_millis(100)).await;
-            Ok(PrimaryProcessorResult::EndSession(
-                "Successfully disconnected",
-            ))
+            Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }
 
         packet_flags::cmd::aux::do_disconnect::FINAL => {
@@ -68,11 +68,9 @@ pub async fn process_disconnect(
                 v_conn_type: Some(VirtualConnectionType::LocalGroupServer {
                     implicated_cid: header.session_cid.get(),
                 }),
-                message: "Successfully disconnected".to_string(),
+                message: SUCCESS_DISCONNECT.to_string(),
             }))?;
-            Ok(PrimaryProcessorResult::EndSession(
-                "Successfully disconnected",
-            ))
+            Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }
 
         _ => {
