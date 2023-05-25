@@ -81,6 +81,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 //use futures_codec::Framed;
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
+use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
 use crate::proto::remote::{NodeRemote, Ticket};
 
 //use crate::define_struct;
@@ -94,6 +95,11 @@ pub struct HdpSession {
     pub inner: std::rc::Rc<HdpSessionInner>,
     #[cfg(feature = "multi-threaded")]
     pub inner: std::sync::Arc<HdpSessionInner>,
+}
+
+enum SessionShutdownReason {
+    ProperShutdown,
+    Error(NetworkError),
 }
 
 impl HdpSession {
@@ -979,7 +985,7 @@ impl HdpSession {
             err: std::io::Error,
             is_server: bool,
             p2p: bool,
-        ) -> NetworkError {
+        ) -> SessionShutdownReason {
             const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
             const _RST: i32 = 104;
             const _ECONN_RST: i32 = 54; // for macs
@@ -990,7 +996,13 @@ impl HdpSession {
                 log::error!(target: "citadel", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
             }
 
-            NetworkError::Generic(err.to_string())
+            let err_string = err.to_string();
+
+            if err_string.contains(SUCCESS_DISCONNECT) {
+                SessionShutdownReason::ProperShutdown
+            } else {
+                SessionShutdownReason::Error(NetworkError::Generic(err_string))
+            }
         }
 
         let reader = async_stream::stream! {
@@ -999,7 +1011,7 @@ impl HdpSession {
             }
         };
 
-        reader
+        let res = reader
             .try_for_each_concurrent(None, |packet| async move {
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
                     implicated_cid.get(),
@@ -1012,7 +1024,15 @@ impl HdpSession {
                 evaluate_result(result, primary_stream, kernel_tx, this_main)
             })
             .map_err(|err| handle_session_terminating_error(err, is_server, p2p))
-            .await
+            .await;
+
+        match res {
+            Ok(ok) => Ok(ok),
+            Err(err) => match err {
+                SessionShutdownReason::Error(err) => Err(err),
+                SessionShutdownReason::ProperShutdown => Ok(()),
+            },
+        }
     }
 
     pub(crate) fn send_to_primary_stream_closure(
