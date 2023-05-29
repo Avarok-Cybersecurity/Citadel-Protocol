@@ -15,7 +15,6 @@ use netbeam::sync::RelativeNodeType;
 
 pub mod encrypted_config_container;
 
-pub mod method1;
 pub mod method3;
 
 /// Whereas UDP hole punching usually entails the connection between two peers (p2p),

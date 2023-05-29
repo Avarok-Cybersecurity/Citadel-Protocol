@@ -205,7 +205,7 @@ impl Method3 {
                         }
                     }
                     Err(err) => {
-                        log::warn!(target: "citadel", "Error sending packet from {:?}: {:?}", socket.socket.local_addr()?, err);
+                        log::warn!(target: "citadel", "Error sending packet from {:?} to {endpoint}: {:?}", socket.socket.local_addr()?, err);
                     }
                 }
             }
