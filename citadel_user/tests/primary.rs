@@ -15,6 +15,7 @@ mod tests {
     use std::str::FromStr;
 
     use citadel_pqcrypto::prelude::algorithm_dictionary::EncryptionAlgorithm;
+    use citadel_user::credentials::CredentialRequirements;
     use citadel_user::misc::{AccountError, CNACMetadata};
     use citadel_user::prelude::{ConnectionInfo, MutualPeer};
     use std::collections::HashMap;
@@ -1472,53 +1473,71 @@ mod tests {
     #[test]
     fn test_credential_formatting() {
         // test below the username length
-        const MIN_USERNAME_LEN: usize = citadel_user::misc::MIN_USERNAME_LENGTH;
-        const MAX_USERNAME_LEN: usize = citadel_user::misc::MAX_USERNAME_LENGTH;
-        const MIN_PASSWORD_LEN: usize = citadel_user::misc::MIN_PASSWORD_LENGTH;
-        const MAX_PASSWORD_LEN: usize = citadel_user::misc::MAX_PASSWORD_LENGTH;
-        const MIN_NAME_LEN: usize = citadel_user::misc::MIN_NAME_LENGTH;
-        const MAX_NAME_LEN: usize = citadel_user::misc::MAX_NAME_LENGTH;
+        let requirements = CredentialRequirements::default();
+        let min_username_length = requirements.min_username_length;
+        let max_username_length = requirements.max_username_length;
+        let min_password_length = requirements.min_password_length;
+        let max_password_length = requirements.max_password_length;
+        let min_name_length = requirements.min_name_length;
+        let max_name_length = requirements.max_name_length;
 
-        let good_username = &(0..(MIN_USERNAME_LEN + 1))
+        let good_username = &(0..(min_username_length + 1))
             .map(|r| r.to_string())
             .collect::<String>();
-        let good_password = &(0..(MIN_PASSWORD_LEN + 1))
+        let good_password = &(0..(min_password_length + 1))
             .map(|r| r.to_string())
             .collect::<String>();
-        let good_name = &(0..(MIN_NAME_LEN + 1))
+        let good_name = &(0..(min_name_length + 1))
             .map(|r| r.to_string())
             .collect::<String>();
 
         fn generate_test(
-            min: usize,
-            max: usize,
+            requirements: &CredentialRequirements,
+            min: u8,
+            max: u8,
             ty: &str,
             good_username: &str,
             good_password: &str,
             good_name: &str,
         ) {
-            use citadel_user::misc::check_credential_formatting as check;
-
             let bad_below = &(0..(min - 1)).map(|r| r.to_string()).collect::<String>();
             let bad_above = &(0..(max + 1)).map(|r| r.to_string()).collect::<String>();
 
             match ty {
                 "username" => {
-                    assert!(check(bad_below, Some(good_password), good_name).is_err());
-                    assert!(check(good_username, Some(good_password), good_name).is_ok());
-                    assert!(check(bad_above, Some(good_password), good_name).is_err());
+                    assert!(requirements
+                        .check(bad_below, Some(good_password), good_name)
+                        .is_err());
+                    assert!(requirements
+                        .check(good_username, Some(good_password), good_name)
+                        .is_ok());
+                    assert!(requirements
+                        .check(bad_above, Some(good_password), good_name)
+                        .is_err());
                 }
 
                 "password" => {
-                    assert!(check(good_username, Some(bad_below), good_name).is_err());
-                    assert!(check(good_username, Some(good_password), good_name).is_ok());
-                    assert!(check(good_username, Some(bad_above), good_name).is_err());
+                    assert!(requirements
+                        .check(good_username, Some(bad_below), good_name)
+                        .is_err());
+                    assert!(requirements
+                        .check(good_username, Some(good_password), good_name)
+                        .is_ok());
+                    assert!(requirements
+                        .check(good_username, Some(bad_above), good_name)
+                        .is_err());
                 }
 
                 "name" => {
-                    assert!(check(good_username, Some(good_password), bad_below).is_err());
-                    assert!(check(good_username, Some(good_password), good_name).is_ok());
-                    assert!(check(good_username, Some(good_password), bad_above).is_err());
+                    assert!(requirements
+                        .check(good_username, Some(good_password), bad_below)
+                        .is_err());
+                    assert!(requirements
+                        .check(good_username, Some(good_password), good_name)
+                        .is_ok());
+                    assert!(requirements
+                        .check(good_username, Some(good_password), bad_above)
+                        .is_err());
                 }
 
                 _ => unreachable!("Bad unit test"),
@@ -1526,24 +1545,27 @@ mod tests {
         }
 
         generate_test(
-            MIN_USERNAME_LEN,
-            MAX_USERNAME_LEN,
+            &requirements,
+            min_username_length,
+            max_username_length,
             "username",
             good_username,
             good_password,
             good_name,
         );
         generate_test(
-            MIN_PASSWORD_LEN,
-            MAX_PASSWORD_LEN,
+            &requirements,
+            min_password_length,
+            max_password_length,
             "password",
             good_username,
             good_password,
             good_name,
         );
         generate_test(
-            MIN_NAME_LEN,
-            MAX_NAME_LEN,
+            &requirements,
+            min_name_length,
+            max_name_length,
             "name",
             good_username,
             good_password,

@@ -111,6 +111,11 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let auth_store = creds
             .derive_server_container(&self.node_argon_settings, self.get_misc_settings())
             .await?;
+
+        self.server_misc_settings
+            .credential_requirements
+            .check::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
+
         let pers = &self.persistence_handler;
 
         // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
