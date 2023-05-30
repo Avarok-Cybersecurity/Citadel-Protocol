@@ -9,7 +9,7 @@ const DATA_MAP_KEY: &str = "_INTERNAL_DATA_MAP";
 /// for this particular connection
 pub trait BackendHandler: TargetLockedRemote {
     /// Gets a value from the backend
-    async fn get(&mut self, key: &str) -> Result<Option<Vec<u8>>, NetworkError> {
+    async fn get(&self, key: &str) -> Result<Option<Vec<u8>>, NetworkError> {
         let (session_cid, peer_cid) = self.get_cids();
         self.remote()
             .account_manager()
@@ -19,7 +19,7 @@ pub trait BackendHandler: TargetLockedRemote {
             .map_err(|err| NetworkError::msg(err.into_string()))
     }
     /// Removes a value from the backend, returning the previous value
-    async fn remove(&mut self, key: &str) -> Result<Option<Vec<u8>>, NetworkError> {
+    async fn remove(&self, key: &str) -> Result<Option<Vec<u8>>, NetworkError> {
         let (session_cid, peer_cid) = self.get_cids();
         self.remote()
             .account_manager()
@@ -29,7 +29,7 @@ pub trait BackendHandler: TargetLockedRemote {
             .map_err(|err| NetworkError::msg(err.into_string()))
     }
     /// Stores a value in the backend, either creating or overwriting any pre-existing value
-    async fn set(&mut self, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, NetworkError> {
+    async fn set(&self, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, NetworkError> {
         let (session_cid, peer_cid) = self.get_cids();
         self.remote()
             .account_manager()
@@ -39,7 +39,7 @@ pub trait BackendHandler: TargetLockedRemote {
             .map_err(|err| NetworkError::msg(err.into_string()))
     }
     /// Obtains the K,V map for this application
-    async fn get_all(&mut self) -> Result<HashMap<String, Vec<u8>>, NetworkError> {
+    async fn get_all(&self) -> Result<HashMap<String, Vec<u8>>, NetworkError> {
         let (session_cid, peer_cid) = self.get_cids();
         self.remote()
             .account_manager()
@@ -49,7 +49,7 @@ pub trait BackendHandler: TargetLockedRemote {
             .map_err(|err| NetworkError::msg(err.into_string()))
     }
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
-    async fn remove_all(&mut self) -> Result<HashMap<String, Vec<u8>>, NetworkError> {
+    async fn remove_all(&self) -> Result<HashMap<String, Vec<u8>>, NetworkError> {
         let (session_cid, peer_cid) = self.get_cids();
         self.remote()
             .account_manager()

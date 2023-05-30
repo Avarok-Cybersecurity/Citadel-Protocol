@@ -274,7 +274,7 @@ where
         {
             // each task will be responsible for possibly registering to and connecting
             // with the desired peer
-            let mut remote = remote.clone();
+            let remote = remote.clone();
             let PeerConnectionSettings {
                 id,
                 session_security_settings,
@@ -287,11 +287,11 @@ where
                     let (file_transfer_tx, file_transfer_rx) =
                         tokio::sync::mpsc::unbounded_channel();
 
-                    let mut handle = if let Some(_already_registered) = mutually_registered {
+                    let handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(implicated_cid, id).await?
                     } else {
                         // TODO: optimize peer registration + connection in one go
-                        let mut handle = remote.propose_target(implicated_cid, id.clone()).await?;
+                        let handle = remote.propose_target(implicated_cid, id.clone()).await?;
 
                         // if the peer is not yet registered to the central node, wait for it to become registered
                         // this is useful especially for testing purposes
@@ -520,7 +520,7 @@ mod tests {
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let mut conn = conn?;
+                        let conn = conn?;
                         let peer_cid = conn.channel.get_peer_cid();
 
                         crate::test_common::p2p_assertions(implicated_cid, &conn).await;
@@ -614,7 +614,7 @@ mod tests {
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
                         wait_for_peers().await;
-                        let mut conn = conn?;
+                        let conn = conn?;
                         //let peer_cid = conn.channel.get_peer_cid();
 
                         crate::test_common::p2p_assertions(implicated_cid, &conn).await;
@@ -739,7 +739,7 @@ mod tests {
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let mut conn = conn?;
+                        let conn = conn?;
                         crate::test_common::p2p_assertions(implicated_cid, &conn).await;
 
                         if idx == 0 {
@@ -816,7 +816,7 @@ mod tests {
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let mut conn = conn?;
+                        let conn = conn?;
                         crate::test_common::p2p_assertions(implicated_cid, &conn).await;
                         conn.remote.disconnect().await?;
                         success += 1;

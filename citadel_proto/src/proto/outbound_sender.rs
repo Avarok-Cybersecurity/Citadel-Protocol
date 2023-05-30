@@ -147,50 +147,31 @@ impl std::fmt::Debug for OutboundUdpSender {
 }
 
 /// As asynchronous channel meant to rate-limit input
-pub struct BoundedSender<T>(futures::channel::mpsc::Sender<T>);
+pub struct BoundedSender<T>(tokio::sync::mpsc::Sender<T>);
 
-pub type BoundedReceiver<T> = futures::channel::mpsc::Receiver<T>;
+pub type BoundedReceiver<T> = tokio::sync::mpsc::Receiver<T>;
 
 impl<T> BoundedSender<T> {
     /// Creates a new bounded channel
-    pub fn new(limit: usize) -> (BoundedSender<T>, futures::channel::mpsc::Receiver<T>) {
-        let (tx, rx) = futures::channel::mpsc::channel(limit);
+    pub fn new(limit: usize) -> (BoundedSender<T>, BoundedReceiver<T>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(limit);
         (Self(tx), rx)
     }
 
     /// Attempts to send a value through the stream non-blocking and synchronously
-    pub fn try_send(&mut self, t: T) -> Result<(), futures::channel::mpsc::TrySendError<T>> {
+    pub fn try_send(&self, t: T) -> Result<(), tokio::sync::mpsc::error::TrySendError<T>> {
         self.0.try_send(t)
+    }
+
+    /// Sends a value through the channel
+    pub async fn send(&self, t: T) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
+        self.0.send(t).await
     }
 }
 
 impl<T> Clone for BoundedSender<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
-    }
-}
-
-impl<T> Sink<T> for BoundedSender<T> {
-    type Error = NetworkError;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <futures::channel::mpsc::Sender<T> as Sink<T>>::poll_ready(Pin::new(&mut self.0), cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
-        <futures::channel::mpsc::Sender<T> as Sink<T>>::start_send(Pin::new(&mut self.0), item)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <futures::channel::mpsc::Sender<T> as Sink<T>>::poll_flush(Pin::new(&mut self.0), cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <futures::channel::mpsc::Sender<T> as Sink<T>>::poll_close(Pin::new(&mut self.0), cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 }
 

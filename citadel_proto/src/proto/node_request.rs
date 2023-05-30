@@ -7,6 +7,7 @@ use citadel_crypt::misc::TransferType;
 use citadel_crypt::prelude::SecurityLevel;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
+use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -98,4 +99,10 @@ pub enum NodeRequest {
     GetActiveSessions,
     /// shutdown signal
     Shutdown,
+}
+
+impl Debug for NodeRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NodeRequest")
+    }
 }

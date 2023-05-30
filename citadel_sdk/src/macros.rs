@@ -4,7 +4,7 @@ macro_rules! impl_remote {
         #[$crate::async_trait]
         impl Remote for $item {
             async fn send_with_custom_ticket(
-                &mut self,
+                &self,
                 ticket: Ticket,
                 request: NodeRequest,
             ) -> Result<(), NetworkError> {
@@ -12,7 +12,7 @@ macro_rules! impl_remote {
             }
 
             async fn send_callback_subscription(
-                &mut self,
+                &self,
                 request: NodeRequest,
             ) -> Result<
                 citadel_proto::kernel::kernel_communicator::KernelStreamSubscription,
@@ -22,7 +22,7 @@ macro_rules! impl_remote {
             }
 
             async fn send_callback(
-                &mut self,
+                &self,
                 request: NodeRequest,
             ) -> Result<NodeResult, NetworkError> {
                 self.inner.send_callback(request).await

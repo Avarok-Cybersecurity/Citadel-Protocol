@@ -707,7 +707,7 @@ impl HdpServer {
             }
         };
 
-        while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
+        while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
             match outbound_request {
                 NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
                     implicated_cid,

@@ -36,9 +36,10 @@ impl HolePunchConfigContainer {
         _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
         stun_servers: Option<Vec<String>>,
     ) -> Self {
-        let mut this: Self = Default::default();
-        this.stun_servers = stun_servers;
-        this
+        Self {
+            stun_servers,
+            ..Default::default()
+        }
     }
 
     /// Generates a packet

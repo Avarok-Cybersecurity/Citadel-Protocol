@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 /// Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem
 pub async fn write<T: ObjectSource, R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     source: T,
     virtual_path: R,
 ) -> Result<(), NetworkError> {
@@ -14,7 +14,7 @@ pub async fn write<T: ObjectSource, R: Into<PathBuf> + Send>(
 
 /// Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem with a custom security level.
 pub async fn write_with_security_level<T: ObjectSource, R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     source: T,
     security_level: SecurityLevel,
     virtual_path: R,
@@ -26,7 +26,7 @@ pub async fn write_with_security_level<T: ObjectSource, R: Into<PathBuf> + Send>
 
 /// Reads a file from the Remote Encrypted Virtual Filesystem
 pub async fn read<R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     virtual_path: R,
 ) -> Result<PathBuf, NetworkError> {
     read_with_security_level(remote, Default::default(), virtual_path).await
@@ -34,7 +34,7 @@ pub async fn read<R: Into<PathBuf> + Send>(
 
 /// Reads a file from the Remote Encrypted Virtual Filesystem with a custom transport security level
 pub async fn read_with_security_level<R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     transfer_security_level: SecurityLevel,
     virtual_path: R,
 ) -> Result<PathBuf, NetworkError> {
@@ -45,7 +45,7 @@ pub async fn read_with_security_level<R: Into<PathBuf> + Send>(
 
 /// Takes a file from the Remote Encrypted Virtual Filesystem
 pub async fn take<R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     virtual_path: R,
 ) -> Result<PathBuf, NetworkError> {
     remote
@@ -55,7 +55,7 @@ pub async fn take<R: Into<PathBuf> + Send>(
 
 /// Takes a file from the Remote Encrypted Virtual Filesystem with a custom security level.
 pub async fn take_with_security_level<R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     transfer_security_level: SecurityLevel,
     virtual_path: R,
 ) -> Result<PathBuf, NetworkError> {
@@ -66,7 +66,7 @@ pub async fn take_with_security_level<R: Into<PathBuf> + Send>(
 
 /// Deletes a file from the Remote Encrypted Virtual Filesystem
 pub async fn delete<R: Into<PathBuf> + Send>(
-    remote: &mut impl TargetLockedRemote,
+    remote: &impl TargetLockedRemote,
     virtual_path: R,
 ) -> Result<(), NetworkError> {
     remote
@@ -136,12 +136,12 @@ mod tests {
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
-            |_channel, mut remote| async move {
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &mut remote,
+                    &remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -149,7 +149,7 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::read(&mut remote, virtual_path).await?;
+                let save_dir = crate::fs::read(&remote, virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
@@ -206,12 +206,12 @@ mod tests {
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
-            |_channel, mut remote| async move {
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &mut remote,
+                    &remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -219,7 +219,7 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::take(&mut remote, &virtual_path).await?;
+                let save_dir = crate::fs::take(&remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
@@ -227,7 +227,7 @@ mod tests {
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 // prove we can no longer read from this virtual file
-                assert!(crate::fs::read(&mut remote, &virtual_path).await.is_err());
+                assert!(crate::fs::read(&remote, &virtual_path).await.is_err());
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
@@ -278,12 +278,12 @@ mod tests {
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
-            |_channel, mut remote| async move {
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &mut remote,
+                    &remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -291,16 +291,16 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::read(&mut remote, &virtual_path).await?;
+                let save_dir = crate::fs::read(&remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
                 let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
-                crate::fs::delete(&mut remote, &virtual_path).await?;
+                crate::fs::delete(&remote, &virtual_path).await?;
                 // prove we can no longer read from this virtual file since it was just deleted
-                assert!(crate::fs::read(&mut remote, &virtual_path).await.is_err());
+                assert!(crate::fs::read(&remote, &virtual_path).await.is_err());
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },

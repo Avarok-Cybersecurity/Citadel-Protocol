@@ -12,7 +12,7 @@ use crate::prelude::*;
 pub async fn peer_register(
     input_signal: PeerSignal,
     accept: bool,
-    remote: &mut impl Remote,
+    remote: &impl Remote,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostRegister(v_conn, username, username_opt, ticket, None) = input_signal {
         let this_cid = v_conn.get_original_target_cid();
@@ -60,7 +60,7 @@ pub async fn peer_register(
 pub async fn peer_connect(
     input_signal: PeerSignal,
     accept: bool,
-    remote: &mut impl Remote,
+    remote: &impl Remote,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostConnect(v_conn, ticket, None, sess_sec, udp_mode) = input_signal {
         let this_cid = v_conn.get_original_target_cid();
@@ -97,7 +97,7 @@ pub async fn peer_connect(
 pub async fn group_invite(
     invite_signal: NodeResult,
     accept: bool,
-    remote: &mut impl Remote,
+    remote: &impl Remote,
 ) -> Result<Ticket, NetworkError> {
     if let NodeResult::GroupEvent(GroupEvent {
         implicated_cid: cid,

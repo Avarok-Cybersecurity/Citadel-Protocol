@@ -77,7 +77,7 @@ where
     )]
     async fn on_c2s_channel_received(
         connect_success: ConnectionSuccess,
-        mut remote: ClientServerRemote,
+        remote: ClientServerRemote,
         arg: GroupInitRequestType,
         fx: Self::UserLevelInputFunction,
         shared: Arc<BroadcastShared>,
@@ -136,7 +136,7 @@ where
                 let owner = if let Some(owner) = owner_find {
                     Some(owner)
                 } else if do_peer_register {
-                    let mut handle = remote
+                    let handle = remote
                         .inner
                         .propose_target(local_user.clone(), owner_orig.clone())
                         .await?;
@@ -172,7 +172,7 @@ where
         let acceptor_task = if creator_only_accept_inbound_registers {
             shared.route_registers.store(true, Ordering::Relaxed);
             let mut reg_rx = { shared.register_rx.lock().take().unwrap() };
-            let mut remote = remote.inner.clone();
+            let remote = remote.inner.clone();
             Box::pin(async move {
                 // Accept every inbound request, so long as the cid is equal to the
                 // cid for this group owner
@@ -187,7 +187,7 @@ where
 
                         log::trace!(target: "citadel", "Sending ACCEPT_REQUEST to {}", cid);
 
-                        let _ = responses::peer_register(reg_request, true, &mut remote).await?;
+                        let _ = responses::peer_register(reg_request, true, &remote).await?;
                     }
                 }
 
@@ -342,7 +342,7 @@ mod tests {
                 uuid,
                 server_addr,
                 request,
-                move |channel, mut remote| async move {
+                move |channel, remote| async move {
                     log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
@@ -417,7 +417,7 @@ mod tests {
                 uuid,
                 server_addr,
                 peers,
-                move |mut results, mut remote| async move {
+                move |mut results, remote| async move {
                     let _implicated_cid = remote.conn_type.get_implicated_cid();
                     let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
 
@@ -448,7 +448,7 @@ mod tests {
                                     let _ = crate::responses::group_invite(
                                         evt,
                                         true,
-                                        &mut remote.inner,
+                                        &remote.inner,
                                     )
                                     .await?;
                                 }

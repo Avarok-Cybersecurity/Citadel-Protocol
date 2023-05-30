@@ -46,8 +46,8 @@ impl TargetLockedRemote for ClientServerRemote {
     fn user(&self) -> &VirtualTargetType {
         &self.conn_type
     }
-    fn remote(&mut self) -> &mut NodeRemote {
-        &mut self.inner
+    fn remote(&self) -> &NodeRemote {
+        &self.inner
     }
     fn target_username(&self) -> Option<&String> {
         None
@@ -59,7 +59,7 @@ impl TargetLockedRemote for ClientServerRemote {
 
 impl ClientServerRemote {
     /// Gracefully closes the protocol and kernel executor
-    pub async fn shutdown_kernel(mut self) -> Result<(), NetworkError> {
+    pub async fn shutdown_kernel(self) -> Result<(), NetworkError> {
         self.inner.shutdown().await
     }
 
