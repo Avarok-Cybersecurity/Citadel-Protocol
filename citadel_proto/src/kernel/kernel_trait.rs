@@ -8,7 +8,7 @@ use auto_impl::auto_impl;
 /// The [NetKernel] is the thread-safe interface between the single-threaded OR multi-threaded async
 /// protocol and your network application
 #[async_trait]
-#[auto_impl(Box)]
+#[auto_impl(Box, &mut)]
 pub trait NetKernel: Send + Sync {
     /// when the kernel executes, it will be given a handle to the server
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError>;

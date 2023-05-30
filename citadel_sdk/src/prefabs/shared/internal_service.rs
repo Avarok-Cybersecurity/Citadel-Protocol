@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub async fn internal_service<F, Fut, R>(
-    mut remote: R,
+    remote: R,
     connect_success: ConnectionSuccess,
     service: F,
 ) -> Result<(), NetworkError>

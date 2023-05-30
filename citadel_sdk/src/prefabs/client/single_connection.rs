@@ -188,7 +188,7 @@ where
         tracing::instrument(target = "citadel", skip_all, err(Debug))
     )]
     async fn on_start(&self) -> Result<(), NetworkError> {
-        let mut remote = self.remote.clone().unwrap();
+        let remote = self.remote.clone().unwrap();
         let (auth_info, handler) = {
             (
                 self.auth_info.lock().take().unwrap(),
@@ -403,7 +403,7 @@ mod tests {
             server_addr,
             udp_mode,
             Default::default(),
-            |channel, mut remote| async move {
+            |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
@@ -454,7 +454,7 @@ mod tests {
             server_addr,
             udp_mode,
             Default::default(),
-            |channel, mut remote| async move {
+            |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
@@ -501,7 +501,7 @@ mod tests {
             server_addr,
             udp_mode,
             Default::default(),
-            |channel, mut remote| async move {
+            |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
@@ -577,7 +577,7 @@ mod tests {
             server_addr,
             udp_mode,
             Default::default(),
-            |_channel, mut remote| async move {
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
 

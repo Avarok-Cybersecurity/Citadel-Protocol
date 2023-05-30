@@ -173,7 +173,7 @@ impl NodeBuilder {
         self
     }
 
-    /// Attaches miscellaneous server settings (e.g., passwordless mode)
+    /// Attaches miscellaneous server settings (e.g., passwordless mode, credential requirements)
     pub fn with_server_misc_settings(&mut self, misc_settings: ServerMiscSettings) -> &mut Self {
         self.server_misc_settings = Some(misc_settings);
         self

@@ -59,16 +59,14 @@ mod tests {
         }
 
         #[cfg(not(feature = "multi-threaded"))]
-        pub fn local_set(self) -> impl Future<Output = Result<(), JoinError>> {
-            async move {
-                self.local_set.await;
-                Ok(())
-            }
+        pub async fn local_set(self) -> Result<(), JoinError> {
+            self.local_set.await;
+            Ok(())
         }
 
         #[cfg(feature = "multi-threaded")]
-        pub fn local_set(self) -> impl Future<Output = Result<(), JoinError>> {
-            async move { Ok(()) }
+        pub async fn local_set(self) -> Result<(), JoinError> {
+            Ok(())
         }
     }
 

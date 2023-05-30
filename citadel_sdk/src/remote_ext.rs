@@ -12,13 +12,13 @@ use std::time::Duration;
 
 pub(crate) mod user_ids {
     use crate::prelude::*;
-    use std::ops::{Deref, DerefMut};
+    use std::ops::Deref;
 
     #[derive(Debug)]
     /// A reference to a user identifier
     pub struct SymmetricIdentifierHandleRef<'a> {
         pub(crate) user: VirtualTargetType,
-        pub(crate) remote: &'a mut NodeRemote,
+        pub(crate) remote: &'a NodeRemote,
         pub(crate) target_username: Option<String>,
     }
 
@@ -40,9 +40,9 @@ pub(crate) mod user_ids {
         target_username: Option<String>,
     }
 
-    pub trait TargetLockedRemote: Send {
+    pub trait TargetLockedRemote: Send + Sync {
         fn user(&self) -> &VirtualTargetType;
-        fn remote(&mut self) -> &mut NodeRemote;
+        fn remote(&self) -> &NodeRemote;
         fn target_username(&self) -> Option<&String>;
         fn user_mut(&mut self) -> &mut VirtualTargetType;
     }
@@ -51,7 +51,7 @@ pub(crate) mod user_ids {
         fn user(&self) -> &VirtualTargetType {
             &self.user
         }
-        fn remote(&mut self) -> &mut NodeRemote {
+        fn remote(&self) -> &NodeRemote {
             self.remote
         }
         fn target_username(&self) -> Option<&String> {
@@ -66,8 +66,8 @@ pub(crate) mod user_ids {
         fn user(&self) -> &VirtualTargetType {
             &self.user
         }
-        fn remote(&mut self) -> &mut NodeRemote {
-            &mut self.remote
+        fn remote(&self) -> &NodeRemote {
+            &self.remote
         }
         fn target_username(&self) -> Option<&String> {
             self.target_username.as_ref()
@@ -98,18 +98,6 @@ pub(crate) mod user_ids {
             self.remote
         }
     }
-
-    impl DerefMut for SymmetricIdentifierHandle {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.remote
-        }
-    }
-
-    impl DerefMut for SymmetricIdentifierHandleRef<'_> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            self.remote
-        }
-    }
 }
 
 /// Contains the elements required to communicate with the adjacent node
@@ -127,7 +115,7 @@ pub struct ConnectionSuccess {
 pub struct RegisterSuccess {}
 
 #[async_trait]
-/// Endows the [NodeRemote](crate::prelude::NodeRemote) with additional functions
+/// Endows the [NodeRemote](NodeRemote) with additional functions
 pub trait ProtocolRemoteExt: Remote {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
@@ -137,7 +125,7 @@ pub trait ProtocolRemoteExt: Remote {
         V: Into<String> + Send,
         K: Into<SecBuffer> + Send,
     >(
-        &mut self,
+        &self,
         addr: T,
         full_name: R,
         username: V,
@@ -172,7 +160,7 @@ pub trait ProtocolRemoteExt: Remote {
         V: Into<String> + Send,
         K: Into<SecBuffer> + Send,
     >(
-        &mut self,
+        &self,
         addr: T,
         full_name: R,
         username: V,
@@ -191,7 +179,7 @@ pub trait ProtocolRemoteExt: Remote {
     /// Connects with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn connect(
-        &mut self,
+        &self,
         auth: AuthenticationRequest,
         connect_mode: ConnectMode,
         udp_mode: UdpMode,
@@ -239,7 +227,7 @@ pub trait ProtocolRemoteExt: Remote {
     /// Connects with the default settings
     /// If FCM keys were created during the registration phase, then those keys will be used for the session. If new FCM keys need to be used, consider using [`Self::connect`]
     async fn connect_with_defaults(
-        &mut self,
+        &self,
         auth: AuthenticationRequest,
     ) -> Result<ConnectionSuccess, NetworkError> {
         self.connect(
@@ -262,7 +250,7 @@ pub trait ProtocolRemoteExt: Remote {
     /// # });
     /// ```
     async fn find_target<T: Into<UserIdentifier> + Send, R: Into<UserIdentifier> + Send>(
-        &mut self,
+        &self,
         local_user: T,
         peer: R,
     ) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
@@ -278,7 +266,7 @@ pub trait ProtocolRemoteExt: Remote {
                             interserver_cid: peer.parent_icid,
                             peer_cid: peer.cid,
                         },
-                        remote: self.remote_ref_mut(),
+                        remote: self.remote_ref(),
                         target_username: None,
                     }
                 } else {
@@ -287,7 +275,7 @@ pub trait ProtocolRemoteExt: Remote {
                             implicated_cid: cid,
                             peer_cid: peer.cid,
                         },
-                        remote: self.remote_ref_mut(),
+                        remote: self.remote_ref(),
                         target_username: None,
                     }
                 }
@@ -298,7 +286,7 @@ pub trait ProtocolRemoteExt: Remote {
     /// Creates a proposed target from the valid local user to an unregistered peer in the network. Used when creating registration requests for peers.
     /// Currently only supports LocalGroup <-> LocalGroup peer connections
     async fn propose_target<T: Into<UserIdentifier> + Send, P: Into<UserIdentifier> + Send>(
-        &mut self,
+        &self,
         local_user: T,
         peer: P,
     ) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
@@ -309,7 +297,7 @@ pub trait ProtocolRemoteExt: Remote {
                     implicated_cid: local_cid,
                     peer_cid,
                 },
-                remote: self.remote_ref_mut(),
+                remote: self.remote_ref(),
                 target_username: None,
             }),
             UserIdentifier::Username(uname) => Ok(SymmetricIdentifierHandleRef {
@@ -317,7 +305,7 @@ pub trait ProtocolRemoteExt: Remote {
                     implicated_cid: local_cid,
                     peer_cid: 0,
                 },
-                remote: self.remote_ref_mut(),
+                remote: self.remote_ref(),
                 target_username: Some(uname),
             }),
         }
@@ -326,7 +314,7 @@ pub trait ProtocolRemoteExt: Remote {
     /// Returns a list of local group peers on the network for local_user. May or may not be registered to the user. To get a list of registered users to local_user, run [`Self::get_local_group_mutual_peers`]
     /// - limit: if None, all peers are obtained. If Some, at most the specified number of peers will be obtained
     async fn get_local_group_peers<T: Into<UserIdentifier> + Send>(
-        &mut self,
+        &self,
         local_user: T,
         limit: Option<usize>,
     ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
@@ -366,7 +354,7 @@ pub trait ProtocolRemoteExt: Remote {
 
     /// Returns a list of mutually-registered peers with the local_user
     async fn get_local_group_mutual_peers<T: Into<UserIdentifier> + Send>(
-        &mut self,
+        &self,
         local_user: T,
     ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
@@ -399,11 +387,11 @@ pub trait ProtocolRemoteExt: Remote {
     }
 
     #[doc(hidden)]
-    fn remote_ref_mut(&mut self) -> &mut NodeRemote;
+    fn remote_ref(&self) -> &NodeRemote;
 
     #[doc(hidden)]
     async fn get_implicated_cid<T: Into<UserIdentifier> + Send>(
-        &mut self,
+        &self,
         local_user: T,
     ) -> Result<u64, NetworkError> {
         let account_manager = self.account_manager();
@@ -429,14 +417,14 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
 }
 
 impl ProtocolRemoteExt for NodeRemote {
-    fn remote_ref_mut(&mut self) -> &mut NodeRemote {
+    fn remote_ref(&self) -> &NodeRemote {
         self
     }
 }
 
 impl ProtocolRemoteExt for ClientServerRemote {
-    fn remote_ref_mut(&mut self) -> &mut NodeRemote {
-        &mut self.inner
+    fn remote_ref(&self) -> &NodeRemote {
+        &self.inner
     }
 }
 
@@ -445,7 +433,7 @@ impl ProtocolRemoteExt for ClientServerRemote {
 pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
     async fn send_file_with_custom_opts<T: ObjectSource>(
-        &mut self,
+        &self,
         source: T,
         chunk_size: usize,
         transfer_type: TransferType,
@@ -490,7 +478,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Sends a file to the provided target using the default chunking size
-    async fn send_file<T: ObjectSource>(&mut self, source: T) -> Result<(), NetworkError> {
+    async fn send_file<T: ObjectSource>(&self, source: T) -> Result<(), NetworkError> {
         self.send_file_with_custom_opts(source, 0, TransferType::FileTransfer)
             .await
     }
@@ -501,7 +489,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         T: ObjectSource,
         R: Into<PathBuf> + Send,
     >(
-        &mut self,
+        &self,
         source: T,
         virtual_directory: R,
         chunk_size: usize,
@@ -522,7 +510,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Sends a file to the provided target using the default chunking size with local encryption.
     /// Only this local node may decrypt the information send to the adjacent node.
     async fn remote_encrypted_virtual_filesystem_push<T: ObjectSource, R: Into<PathBuf> + Send>(
-        &mut self,
+        &self,
         source: T,
         virtual_directory: R,
         security_level: SecurityLevel,
@@ -539,7 +527,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
     /// will be taken from the RE-VFS
     async fn remote_encrypted_virtual_filesystem_pull<R: Into<PathBuf> + Send>(
-        &mut self,
+        &self,
         virtual_directory: R,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
@@ -587,7 +575,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// consider calling `Self::remote_encrypted_virtual_filesystem_pull` with the delete
     /// parameter set to true
     async fn remote_encrypted_virtual_filesystem_delete<R: Into<PathBuf> + Send>(
-        &mut self,
+        &self,
         virtual_directory: R,
     ) -> Result<(), NetworkError> {
         let request = NodeRequest::DeleteObject(DeleteObject {
@@ -610,7 +598,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
     /// Connects to the peer with custom settings
     async fn connect_to_peer_custom(
-        &mut self,
+        &self,
         session_security_settings: SessionSecuritySettings,
         udp_mode: UdpMode,
     ) -> Result<PeerConnectSuccess, NetworkError> {
@@ -666,13 +654,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Connects to the target peer with default settings
-    async fn connect_to_peer(&mut self) -> Result<PeerConnectSuccess, NetworkError> {
+    async fn connect_to_peer(&self) -> Result<PeerConnectSuccess, NetworkError> {
         self.connect_to_peer_custom(Default::default(), Default::default())
             .await
     }
 
     /// Posts a registration request to a peer
-    async fn register_to_peer(&mut self) -> Result<PeerRegisterStatus, NetworkError> {
+    async fn register_to_peer(&self) -> Result<PeerRegisterStatus, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection().await?;
         // TODO: Get rid of this step. Should be handled by the protocol
@@ -719,7 +707,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Deregisters the currently locked target. If the target is a client to server
     /// connection, deregisters from the server. If the target is a p2p connection,
     /// deregisters the p2p
-    async fn deregister(&mut self) -> Result<(), NetworkError> {
+    async fn deregister(&self) -> Result<(), NetworkError> {
         if let Ok(peer_conn) = self.try_as_peer_connection().await {
             let peer_request = PeerSignal::Deregister(peer_conn);
             let implicated_cid = self.user().get_implicated_cid();
@@ -771,7 +759,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         Err(NetworkError::InternalError("Deregister ended unexpectedly"))
     }
 
-    async fn disconnect(&mut self) -> Result<(), NetworkError> {
+    async fn disconnect(&self) -> Result<(), NetworkError> {
         if let Ok(peer_conn) = self.try_as_peer_connection().await {
             if let PeerConnectionType::LocalGroupPeer {
                 implicated_cid,
@@ -832,7 +820,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     async fn create_group(
-        &mut self,
+        &self,
         initial_users_to_invite: Option<Vec<UserIdentifier>>,
     ) -> Result<GroupChannel, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
@@ -881,7 +869,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Lists all groups that which the current peer owns
-    async fn list_owned_groups(&mut self) -> Result<Vec<MessageGroupKey>, NetworkError> {
+    async fn list_owned_groups(&self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
         let group_request = GroupBroadcast::ListGroupsFor(implicated_cid);
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
@@ -909,7 +897,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Begins a re-key, updating the container in the process.
     /// Returns the new key matrix version. Does not return the new key version
     /// if the rekey fails, or, if a current rekey is already executing
-    async fn rekey(&mut self) -> Result<Option<u32>, NetworkError> {
+    async fn rekey(&self) -> Result<Option<u32>, NetworkError> {
         let request = NodeRequest::ReKey(ReKey {
             v_conn_type: *self.user(),
         });
@@ -933,7 +921,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Checks if the locked target is registered
-    async fn is_peer_registered(&mut self) -> Result<bool, NetworkError> {
+    async fn is_peer_registered(&self) -> Result<bool, NetworkError> {
         let target = self.try_as_peer_connection().await?;
         if let PeerConnectionType::LocalGroupPeer {
             implicated_cid: local_cid,
@@ -951,7 +939,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     #[doc(hidden)]
-    async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
+    async fn try_as_peer_connection(&self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {
             user.try_as_peer_connection()
                 .ok_or(NetworkError::InvalidRequest("Target is not a peer"))
@@ -981,8 +969,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 .map(|r| r.1.cid)
                 .unwrap_or(expected_peer_cid);
 
-            self.user_mut().set_target_cid(peer_cid);
-            verified_return(self.user())
+            let mut user = *self.user();
+            user.set_target_cid(peer_cid);
+            verified_return(&user)
         } else {
             verified_return(self.user())
         }
@@ -1049,8 +1038,8 @@ pub mod remote_specialization {
         fn user(&self) -> &VirtualTargetType {
             &self.peer
         }
-        fn remote(&mut self) -> &mut NodeRemote {
-            &mut self.inner
+        fn remote(&self) -> &NodeRemote {
+            &self.inner
         }
         fn target_username(&self) -> Option<&String> {
             self.username.as_ref()
@@ -1186,7 +1175,7 @@ mod tests {
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
-            |_channel, mut remote| async move {
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote
                     .send_file_with_custom_opts(

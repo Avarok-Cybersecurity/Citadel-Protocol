@@ -57,6 +57,7 @@ pub mod account_manager;
 pub mod auth;
 /// For handling different I/O operations
 pub mod backend;
+pub mod credentials;
 #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
 /// Environmental constants and subroutines for pre-checking the system
 pub mod directory_store;

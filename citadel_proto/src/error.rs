@@ -1,3 +1,4 @@
+use crate::prelude::NodeRequest;
 use citadel_crypt::misc::CryptError;
 use citadel_user::misc::AccountError;
 use std::error::Error;
@@ -21,6 +22,11 @@ pub enum NetworkError {
     InternalError(&'static str),
     /// For a converted error
     Generic(String),
+    /// for remote send errors
+    NodeRemoteSendError {
+        request: Box<NodeRequest>,
+        reason: String,
+    },
     ///
     ProperShutdown,
 }
@@ -49,6 +55,7 @@ impl NetworkError {
             NetworkError::InvalidRequest(err) => (*err).to_string(),
             NetworkError::InvalidPacket(err) => (*err).to_string(),
             NetworkError::ProperShutdown => "Proper shutdown called".to_string(),
+            NetworkError::NodeRemoteSendError { reason, .. } => reason.clone(),
         }
     }
 
@@ -66,6 +73,7 @@ impl NetworkError {
             }
             NetworkError::InvalidRequest(err) => err.to_string(),
             NetworkError::InvalidPacket(err) => err.to_string(),
+            NetworkError::NodeRemoteSendError { reason, .. } => reason,
             NetworkError::ProperShutdown => {
                 format!("{:?}", NetworkError::ProperShutdown)
             }

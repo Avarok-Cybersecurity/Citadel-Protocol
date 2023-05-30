@@ -8,7 +8,11 @@ args = ["clean"]
 
 [tasks.clippy]
 command = "cargo"
-args = ["clippy"]
+args = ["clippy", "--all"]
+
+[tasks.clippy-tests]
+command = "cargo"
+args = ["clippy", "--all", "--tests", "--features=localhost-testing,multi-threaded"]
 
 [tasks.fmt]
 command = "cargo"
@@ -29,7 +33,7 @@ args = ["doc", "--package", "citadel_sdk", "--features=webrtc,doc-images", "--no
 dependencies = ["git_lfs"]
 
 [tasks.pr]
-dependencies = ["fmt", "clippy"]
+dependencies = ["fmt", "clippy", "clippy-tests"]
 
 [tasks.install-binstall]
 install_crate = { crate_name = "cargo-binstall", binary = "cargo", test_arg = ["binstall", "--help"] }

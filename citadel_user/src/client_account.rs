@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::misc::{
-    check_credential_formatting, get_present_formatted_timestamp, AccountError, CNACMetadata,
-};
+use crate::misc::{get_present_formatted_timestamp, AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use multimap::MultiMap;
 
@@ -116,12 +114,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         base_hyper_ratchet: R,
     ) -> Result<Self, AccountError> {
         log::trace!(target: "citadel", "Creating CNAC w/valid cid: {:?}", valid_cid);
-        // TODO: move this to validation in citadel_proto (or this may be redundant)
-        check_credential_formatting::<_, &str, _>(
-            auth_store.username(),
-            None,
-            auth_store.full_name(),
-        )?;
         let creation_date = get_present_formatted_timestamp();
         let crypt_container = PeerSessionCrypto::<R>::new(
             Toolset::<R>::new(valid_cid, base_hyper_ratchet),
