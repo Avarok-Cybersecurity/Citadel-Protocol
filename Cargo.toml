@@ -86,7 +86,7 @@ igd = { version = "^0.12.0", default-features = false }
 quinn = { version = "0.9.3", default-features = false }
 stun = { default-features = false, version = "0.4.4" }
 rcgen = { default-features = false, version = "0.10.0" }
-rustls = { version = "0.20.7", default-features = false }
+rustls = { version = "0.21.2", default-features = false }
 rustls-pemfile = { default-features = false, version = "1.0.1" }
 tokio-rustls = { default-features = false, version = "0.23.4" }
 itertools = { version = "0.10.5", default-features = false }
