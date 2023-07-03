@@ -1,21 +1,43 @@
 use crate::error::NetworkError;
 use crate::proto::node::TlsDomain;
+use citadel_io::Mutex;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
 use std::fmt::Debug;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Clone)]
 #[allow(variant_size_differences)]
 pub enum ServerUnderlyingProtocol {
-    Tcp,
+    Tcp(Option<Arc<Mutex<Option<tokio::net::TcpListener>>>>),
     Tls(TLSQUICInterop, TlsDomain, bool),
     Quic(Option<(Vec<Certificate>, PrivateKey)>, TlsDomain, bool),
 }
 
 impl ServerUnderlyingProtocol {
+    /// Creates a new [`ServerUnderlyingProtocol`] with a random bind port
+    pub fn tcp() -> Self {
+        Self::Tcp(None)
+    }
+
+    /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`std::net::TcpListener`]
+    pub fn from_tcp_listener(listener: TcpListener) -> Result<Self, NetworkError> {
+        listener.set_nonblocking(true)?;
+        Ok(Self::Tcp(Some(Arc::new(Mutex::new(Some(
+            tokio::net::TcpListener::from_std(listener)?,
+        ))))))
+    }
+
+    /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`tokio::net::TcpListener`]
+    pub fn from_tokio_tcp_listener(
+        listener: tokio::net::TcpListener,
+    ) -> Result<Self, NetworkError> {
+        Ok(Self::Tcp(Some(Arc::new(Mutex::new(Some(listener))))))
+    }
+
     pub fn load_tls<P: AsRef<Path>, T: AsRef<str>, R: Into<String>>(
         path: P,
         password: T,
@@ -81,7 +103,7 @@ impl ServerUnderlyingProtocol {
     pub(crate) fn maybe_get_identity(&self) -> TlsDomain {
         match self {
             Self::Quic(_, domain, ..) => domain.clone(),
-            Self::Tcp => None,
+            Self::Tcp(..) => None,
             Self::Tls(_, d, ..) => d.clone(),
         }
     }
@@ -90,7 +112,7 @@ impl ServerUnderlyingProtocol {
 impl Debug for ServerUnderlyingProtocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let label = match self {
-            ServerUnderlyingProtocol::Tcp => "TCP",
+            ServerUnderlyingProtocol::Tcp(..) => "TCP",
             ServerUnderlyingProtocol::Tls(..) => "TLS",
             ServerUnderlyingProtocol::Quic(..) => "QUIC",
         };
