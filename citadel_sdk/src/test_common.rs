@@ -13,25 +13,27 @@ use tokio::net::TcpListener;
 
 #[allow(dead_code)]
 pub fn server_test_node<'a, K: NetKernel + 'a>(
-    bind_addr: SocketAddr,
     kernel: K,
     opts: impl FnOnce(&mut NodeBuilder),
-) -> NodeFuture<'a, K> {
+) -> (NodeFuture<'a, K>, SocketAddr) {
     let mut builder = NodeBuilder::default();
-    let builder = builder.with_node_type(NodeType::Server(bind_addr));
+    let tcp_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let bind_addr = tcp_listener.local_addr().unwrap();
+    let builder = builder
+        .with_node_type(NodeType::Server(bind_addr))
+        .with_underlying_protocol(
+            ServerUnderlyingProtocol::from_tcp_listener(tcp_listener).unwrap(),
+        );
 
     (opts)(builder);
 
-    builder.build(kernel).unwrap()
+    (builder.build(kernel).unwrap(), bind_addr)
 }
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
 pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
-    let port = get_unused_tcp_port();
-    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap();
-    let server = crate::test_common::server_test_node(bind_addr, EmptyKernel::default(), |_| {});
-    (server, bind_addr)
+    crate::test_common::server_test_node(EmptyKernel::default(), |_| {})
 }
 
 #[allow(dead_code)]
@@ -44,23 +46,10 @@ where
     F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
-    let port = get_unused_tcp_port();
-    let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap();
-    let server = crate::test_common::server_test_node(
-        bind_addr,
+    crate::test_common::server_test_node(
         Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>,
         opts,
-    );
-    (server, bind_addr)
-}
-
-#[cfg(feature = "localhost-testing")]
-pub fn get_unused_tcp_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    )
 }
 
 #[cfg(feature = "localhost-testing")]

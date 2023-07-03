@@ -57,7 +57,7 @@ mod test {
     use crate::prefabs::server::internal_service::InternalServiceKernel;
     use crate::prefabs::shared::internal_service::InternalServerCommunicator;
     use crate::prelude::*;
-    use crate::test_common::{get_unused_tcp_port, TestBarrier};
+    use crate::test_common::TestBarrier;
     use citadel_logging::setup_log;
     use hyper::client::conn::Builder;
     use hyper::server::conn::Http;
@@ -116,8 +116,8 @@ mod test {
             .into_iter()
             .map(|r| (r % 256) as u8)
             .collect::<Vec<u8>>();
-        let server_bind_addr =
-            SocketAddr::from_str(&format!("127.0.0.1:{}", get_unused_tcp_port())).unwrap();
+        let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_bind_addr = server_listener.local_addr().unwrap();
         let server_kernel =
             InternalServiceKernel::new(|mut internal_server_communicator| async move {
                 test_write_and_read_one_packet(
@@ -157,6 +157,9 @@ mod test {
 
         let server = NodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
+            .with_underlying_protocol(
+                ServerUnderlyingProtocol::from_tcp_listener(server_listener).unwrap(),
+            )
             .build(server_kernel)
             .unwrap();
 
@@ -182,8 +185,8 @@ mod test {
         setup_log();
         let barrier = &TestBarrier::new(2);
         let success_count = &AtomicUsize::new(0);
-        let server_bind_addr =
-            SocketAddr::from_str(&format!("127.0.0.1:{}", get_unused_tcp_port())).unwrap();
+        let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_bind_addr = server_listener.local_addr().unwrap();
 
         let server_kernel = InternalServiceKernel::new(|internal_server_communicator| async move {
             barrier.wait().await;
@@ -256,6 +259,9 @@ mod test {
 
         let server = NodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
+            .with_underlying_protocol(
+                ServerUnderlyingProtocol::from_tcp_listener(server_listener).unwrap(),
+            )
             .build(server_kernel)
             .unwrap();
 

@@ -295,7 +295,7 @@ impl HdpServer {
         full_bind_addr: T,
     ) -> io::Result<(DualListener, SocketAddr)> {
         match &underlying_proto {
-            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp => {
+            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(..) => {
                 Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
                     .map(|r| (DualListener::new(r.0, None), r.1))
             }
@@ -303,7 +303,7 @@ impl HdpServer {
             ServerUnderlyingProtocol::Quic(_, domain, is_self_signed) => {
                 // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
                 let (tcp_listener, bind_addr) = Self::create_listen_socket(
-                    ServerUnderlyingProtocol::Tcp,
+                    ServerUnderlyingProtocol::tcp(),
                     Some((domain.clone(), *is_self_signed)),
                     None,
                     full_bind_addr,
@@ -340,13 +340,25 @@ impl HdpServer {
         bind: SocketAddr,
     ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         match underlying_proto {
-            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp => {
+            ServerUnderlyingProtocol::Tcp(Some(listener)) => {
+                let listener = listener.lock().take().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "TCP listener already taken",
+                    )
+                })?;
+
+                let bind = listener.local_addr()?;
+
+                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
+            }
+            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(None) => {
                 citadel_wire::socket_helpers::get_tcp_listener(bind)
                     .and_then(|listener| {
                         log::trace!(target: "citadel", "Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
                         let bind = listener.local_addr()?;
                         match underlying_proto {
-                            ServerUnderlyingProtocol::Tcp => {
+                            ServerUnderlyingProtocol::Tcp(None) => {
                                 Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
                             }
 
@@ -355,8 +367,8 @@ impl HdpServer {
                                 Ok((GenericNetworkListener::new_tls(tls_listener)?, bind))
                             }
 
-                            ServerUnderlyingProtocol::Quic(..) => {
-                                unreachable!("TCP listener called, but not a QUIC listener")
+                            _ => {
+                                unreachable!("TCP listener called, but not the right listener")
                             }
                         }
                     }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))

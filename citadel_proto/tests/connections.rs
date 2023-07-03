@@ -29,7 +29,7 @@ pub mod tests {
             .unwrap();*/
 
         vec![
-            ServerUnderlyingProtocol::Tcp,
+            ServerUnderlyingProtocol::tcp(),
             ServerUnderlyingProtocol::new_tls_self_signed().unwrap(),
             ServerUnderlyingProtocol::new_quic_self_signed(),
             /*ServerUnderlyingProtocol::load_tls_from_bytes(
