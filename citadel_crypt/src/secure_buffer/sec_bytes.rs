@@ -153,7 +153,17 @@ impl Debug for SecBuffer {
 
 impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
     fn eq(&self, other: &T) -> bool {
-        self.as_ref() == other.as_ref()
+        // Constant time comparison to prevent timing attacks
+        let this = self.as_ref();
+        let other = other.as_ref();
+        let mut count = 0;
+        for (a, b) in this.iter().zip(other.iter()) {
+            if *a == *b {
+                count += 1;
+            }
+        }
+
+        count == this.len() && count == other.len()
     }
 }
 
