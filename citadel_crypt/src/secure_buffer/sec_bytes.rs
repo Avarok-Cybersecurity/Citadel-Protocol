@@ -158,9 +158,7 @@ impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
         let other = other.as_ref();
         let mut count = 0;
         for (a, b) in this.iter().zip(other.iter()) {
-            if *a == *b {
-                count += 1;
-            }
+            count += (a == b) as usize;
         }
 
         count == this.len() && count == other.len()
