@@ -1,4 +1,3 @@
-use crate::secure_buffer::sec_string::SecString;
 use bytes::BytesMut;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Debug;
@@ -106,12 +105,6 @@ impl From<Vec<u8>> for SecBuffer {
     }
 }
 
-impl From<SecString> for SecBuffer {
-    fn from(inner: SecString) -> Self {
-        Self::from(inner.into_buffer().into_bytes())
-    }
-}
-
 impl From<BytesMut> for SecBuffer {
     fn from(inner: BytesMut) -> Self {
         let this = Self { inner };
@@ -153,7 +146,10 @@ impl Debug for SecBuffer {
 
 impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
     fn eq(&self, other: &T) -> bool {
-        self.as_ref() == other.as_ref()
+        // Constant time comparison to prevent timing attacks
+        let this = self.as_ref();
+        let other = other.as_ref();
+        super::const_time_compare(this, other)
     }
 }
 
@@ -184,5 +180,38 @@ impl<'de> Deserialize<'de> for SecBuffer {
         D: Deserializer<'de>,
     {
         Ok(Self::from(BytesMut::deserialize(deserializer)?))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::prelude::SecBuffer;
+
+    #[test]
+    fn test_secbuffer_cmp_same() {
+        let a = SecBuffer::from("Hello");
+        let b = SecBuffer::from("Hello");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_secbuffer_cmp_diff() {
+        let a = SecBuffer::from("Hello");
+        let b = SecBuffer::from("World");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_secbuffer_cmp_diff2() {
+        let a = SecBuffer::from("Hello");
+        let b = SecBuffer::from("World................");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_secbuffer_cmp_diff3() {
+        let a = SecBuffer::from("Hello................");
+        let b = SecBuffer::from("World");
+        assert_ne!(a, b);
     }
 }

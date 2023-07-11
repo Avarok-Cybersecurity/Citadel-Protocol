@@ -350,7 +350,7 @@ pub mod prelude {
     #[cfg(not(coverage))]
     pub use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     pub use citadel_crypt::fcm::keys::FcmKeys;
-    pub use citadel_crypt::secure_buffer::{sec_bytes::SecBuffer, sec_string::SecString};
+    pub use citadel_crypt::secure_buffer::sec_bytes::SecBuffer;
     pub use citadel_pqcrypto::algorithm_dictionary::{
         AlgorithmsExt, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
     };
