@@ -10,7 +10,6 @@ mod tests {
     use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::secure_buffer::sec_bytes::SecBuffer;
-    use citadel_crypt::secure_buffer::sec_string::SecString;
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use citadel_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
     use citadel_pqcrypto::algorithm_dictionary::{
@@ -140,29 +139,6 @@ mod tests {
         assert_eq!(&*retrieved, b"Hello, world!");
     }
 
-    #[test]
-    fn test_sec_string() {
-        let mut val = SecString::new();
-        assert_eq!(val.len(), 0);
-        val.push('h');
-        val.push('e');
-        //val.clear();
-        let mut basic = val.clone();
-        assert_eq!(val.len(), 2);
-        assert_eq!(basic.len(), 2);
-        assert_eq!(basic.as_str(), "he");
-
-        basic.push('y');
-        assert_ne!(val.as_str(), basic.as_str());
-
-        let retrieved = basic.into_buffer();
-        let serde = bincode2::serialize(&retrieved).unwrap();
-        let retrieved = bincode2::deserialize::<SecString>(&serde)
-            .unwrap()
-            .into_buffer();
-        // at this point, basic should have dropped, but the memory should not have been zeroed out
-        assert_eq!(retrieved, "hey");
-    }
     /*
     #[test]
     fn onion_packets() {
@@ -211,31 +187,6 @@ mod tests {
 
         assert_eq!(message, String::from_utf8(output.to_vec()).unwrap());
     }*/
-
-    #[test]
-    fn secstring() {
-        citadel_logging::setup_log();
-        let mut val = SecString::new();
-        assert_eq!(val.len(), 0);
-        val.push('h');
-        val.push('e');
-        //val.clear();
-        let mut basic = val.clone();
-        assert_eq!(val.len(), 2);
-        assert_eq!(basic.len(), 2);
-        assert_eq!(basic.as_str(), "he");
-
-        basic.push('y');
-        assert_ne!(val.as_str(), basic.as_str());
-
-        let retrieved = basic.into_buffer();
-        let serde = bincode2::serialize(&retrieved).unwrap();
-        let retrieved = bincode2::deserialize::<SecString>(&serde)
-            .unwrap()
-            .into_buffer();
-        // at this point, basic should have dropped, but the memory should not have been zeroed out
-        assert_eq!(retrieved, "hey");
-    }
 
     #[test]
     fn secbytes() {

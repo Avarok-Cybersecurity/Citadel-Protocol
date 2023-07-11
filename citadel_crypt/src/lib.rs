@@ -21,7 +21,6 @@ pub mod prelude {
     pub use crate::misc::CryptError;
     pub use crate::packet_vector::PacketVector;
     pub use crate::secure_buffer::sec_bytes::SecBuffer;
-    pub use crate::secure_buffer::sec_string::SecString;
     pub use crate::toolset::Toolset;
 }
 
