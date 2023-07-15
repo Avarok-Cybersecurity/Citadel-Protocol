@@ -62,6 +62,7 @@ bincode2 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 tokio-util = { workspace = true, features = ["io"], optional = true }
 tokio-stream = { workspace = true, optional = true }
+serde_traitobject = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }

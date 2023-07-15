@@ -140,11 +140,14 @@ pub enum ObjectTransferOrientation {
     Sender,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(variant_size_differences)]
 pub enum ObjectTransferStatus {
     TransferBeginning,
-    ReceptionBeginning(PathBuf, Arc<dyn StreamableTargetInformation>),
+    ReceptionBeginning(
+        PathBuf,
+        #[serde(with = "serde_traitobject")] Arc<dyn StreamableTargetInformation>,
+    ),
     // relative group_id, total groups, Mb/s
     TransferTick(usize, usize, f32),
     ReceptionTick(usize, usize, f32),

@@ -114,3 +114,4 @@ once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.5.4" }
 embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
+serde_traitobject = { version = "0.2.8" }
