@@ -1,5 +1,4 @@
-use super::utils::StreamableTargetInformation;
-use crate::backend::utils::ObjectTransferStatus;
+use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::backend::BackendConnection;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::misc::{AccountError, CNACMetadata};
@@ -7,7 +6,6 @@ use async_trait::async_trait;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(crate) struct MemoryBackend<R: Ratchet, Fcm: Ratchet> {
@@ -375,7 +373,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     async fn stream_object_to_backend(
         &self,
         source: UnboundedReceiver<Vec<u8>>,
-        sink_metadata: Arc<dyn StreamableTargetInformation>,
+        sink_metadata: &VirtualObjectMetadata,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError> {
         no_backend_streaming(source, sink_metadata, status_tx).await
@@ -384,7 +382,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
 pub(crate) async fn no_backend_streaming(
     mut source: UnboundedReceiver<Vec<u8>>,
-    _sink_metadata: Arc<dyn StreamableTargetInformation>,
+    _sink_metadata: &VirtualObjectMetadata,
     _status_tx: UnboundedSender<ObjectTransferStatus>,
 ) -> Result<(), AccountError> {
     // TODO: on client-side, immediately block client file upload requests

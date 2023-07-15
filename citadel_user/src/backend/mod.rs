@@ -12,8 +12,7 @@ use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use crate::backend::mysql_backend::SqlConnectionOptions;
 #[cfg(all(feature = "redis", not(coverage)))]
 use crate::backend::redis_backend::RedisConnectionOptions;
-use crate::backend::utils::misc::StreamableTargetInformation;
-use crate::backend::utils::ObjectTransferStatus;
+use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::misc::{AccountError, CNACMetadata};
 use citadel_crypt::prelude::SecurityLevel;
@@ -288,7 +287,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn stream_object_to_backend(
         &self,
         source: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-        sink_metadata: Arc<dyn StreamableTargetInformation>,
+        sink_metadata: &VirtualObjectMetadata,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError>;
     /// Returns the encrypted file from the virtual filesystem into the provided buffer.

@@ -1,6 +1,5 @@
-use super::utils::StreamableTargetInformation;
 use crate::backend::memory::no_backend_streaming;
-use crate::backend::utils::ObjectTransferStatus;
+use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::backend::BackendConnection;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::misc::{AccountError, CNACMetadata};
@@ -13,7 +12,6 @@ use mobc::Pool;
 use redis_base::{AsyncCommands, Client, ErrorKind, FromRedisValue, ToRedisArgs};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -664,7 +662,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn stream_object_to_backend(
         &self,
         source: UnboundedReceiver<Vec<u8>>,
-        sink_metadata: Arc<dyn StreamableTargetInformation>,
+        sink_metadata: &VirtualObjectMetadata,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError> {
         no_backend_streaming(source, sink_metadata, status_tx).await

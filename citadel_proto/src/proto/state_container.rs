@@ -1167,7 +1167,7 @@ impl StateContainerInner {
                             match pers
                                 .stream_object_to_backend(
                                     stream_to_hd_rx,
-                                    Arc::new(metadata.clone()),
+                                    &metadata,
                                     tx_status.clone(),
                                 )
                                 .await
