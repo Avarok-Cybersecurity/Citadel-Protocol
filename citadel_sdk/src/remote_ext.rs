@@ -1106,13 +1106,13 @@ mod tests {
                                 "Original data and streamed data does not match"
                             );
 
-                            self.1.store(true, std::sync::atomic::Ordering::Relaxed);
+                            self.1.store(true, Ordering::Relaxed);
                             self.0.clone().unwrap().shutdown().await?;
                         }
 
                         ObjectTransferStatus::ReceptionBeginning(file_path, vfm) => {
                             path = Some(file_path);
-                            assert_eq!(vfm.get_target_name(), "TheBridge.pdf")
+                            assert_eq!(vfm.name, "TheBridge.pdf")
                         }
 
                         _ => {}

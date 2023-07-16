@@ -15,7 +15,7 @@ pub enum ExternalService {
 }
 
 /// A container for handling external services
-#[cfg(all(any(feature = "google-services"), not(target_family = "wasm")))]
+#[cfg(all(feature = "google-services", not(target_family = "wasm")))]
 #[derive(Clone)]
 pub struct ServicesHandler {
     /// Serverside only
@@ -30,7 +30,7 @@ pub struct ServicesHandler {
 #[cfg(not(feature = "google-services"))]
 pub struct ServicesHandler;
 
-#[cfg(all(any(feature = "google-services"), not(target_family = "wasm")))]
+#[cfg(all(feature = "google-services", not(target_family = "wasm")))]
 #[derive(serde::Deserialize, Debug, Default, Clone)]
 /// An object used to determine the settings for the external services
 pub struct ServicesConfig {
@@ -62,7 +62,7 @@ pub struct RtdbConfig {
     pub api_key: String,
 }
 
-#[cfg(all(any(feature = "google-services"), not(target_family = "wasm")))]
+#[cfg(all(feature = "google-services", not(target_family = "wasm")))]
 pub mod service {
     use crate::external_services::ServicesObject;
     use crate::misc::AccountError;

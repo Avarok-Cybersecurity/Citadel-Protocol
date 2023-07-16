@@ -661,7 +661,7 @@ mod tests {
 
                                     ObjectTransferStatus::ReceptionBeginning(file_path, vfm) => {
                                         path = Some(file_path);
-                                        assert_eq!(vfm.get_target_name(), "TheBridge.pdf")
+                                        assert_eq!(vfm.name, "TheBridge.pdf")
                                     }
 
                                     _ => {}

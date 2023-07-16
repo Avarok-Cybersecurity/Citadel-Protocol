@@ -1,6 +1,5 @@
 use crate::serialization::SyncIO;
 use futures::Stream;
-pub use misc::StreamableTargetInformation;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 use std::path::PathBuf;
@@ -10,11 +9,7 @@ use std::task::{Context, Poll};
 use crate::misc::AccountError;
 use citadel_crypt::misc::TransferType;
 use citadel_crypt::prelude::SecurityLevel;
-use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-
-/// Misc utils/traits
-pub mod misc;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VirtualObjectMetadata {
@@ -44,21 +39,6 @@ impl VirtualObjectMetadata {
                 Some(*security_level)
             }
         }
-    }
-}
-
-impl StreamableTargetInformation for VirtualObjectMetadata {
-    fn get_target_name(&self) -> &String {
-        &self.name
-    }
-    fn get_cid(&self) -> u64 {
-        self.cid
-    }
-    fn get_transfer_type(&self) -> &TransferType {
-        &self.transfer_type
-    }
-    fn get_metadata_file(&self) -> &VirtualObjectMetadata {
-        self
     }
 }
 
@@ -140,11 +120,11 @@ pub enum ObjectTransferOrientation {
     Sender,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(variant_size_differences)]
 pub enum ObjectTransferStatus {
     TransferBeginning,
-    ReceptionBeginning(PathBuf, Arc<dyn StreamableTargetInformation>),
+    ReceptionBeginning(PathBuf, VirtualObjectMetadata),
     // relative group_id, total groups, Mb/s
     TransferTick(usize, usize, f32),
     ReceptionTick(usize, usize, f32),

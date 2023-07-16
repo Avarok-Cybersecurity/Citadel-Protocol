@@ -1,4 +1,3 @@
-use super::utils::StreamableTargetInformation;
 use crate::account_loader::load_cnac_files;
 use crate::backend::memory::MemoryBackend;
 use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
@@ -15,7 +14,6 @@ use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::StreamExt;
 
@@ -337,18 +335,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     async fn stream_object_to_backend(
         &self,
         source: UnboundedReceiver<Vec<u8>>,
-        sink_metadata: Arc<dyn StreamableTargetInformation>,
+        sink_metadata: &VirtualObjectMetadata,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError> {
         let directory_store = self.directory_store.as_ref().unwrap();
         let is_virtual_file = matches!(
-            sink_metadata.get_transfer_type(),
+            sink_metadata.transfer_type,
             TransferType::RemoteEncryptedVirtualFilesystem { .. }
         );
-        let metadata = sink_metadata.get_metadata_file().clone();
+        let metadata = sink_metadata.clone();
         let file_path = get_file_path(
-            sink_metadata.get_cid(),
-            sink_metadata.get_transfer_type(),
+            sink_metadata.cid,
+            &sink_metadata.transfer_type,
             directory_store,
             Some(metadata.name.as_str()),
         )
@@ -361,7 +359,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         let _ = status_tx.send(ObjectTransferStatus::ReceptionBeginning(
             file_path.clone(),
-            sink_metadata,
+            sink_metadata.clone(),
         ));
 
         let mut size = 0;
