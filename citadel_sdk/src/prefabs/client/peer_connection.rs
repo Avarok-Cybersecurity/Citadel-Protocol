@@ -50,7 +50,10 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
             NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
-                let v_conn = if handle.orientation == ObjectTransferOrientation::Receiver {
+                let v_conn = if matches!(
+                    handle.orientation,
+                    ObjectTransferOrientation::Receiver { .. }
+                ) {
                     PeerConnectionType::LocalGroupPeer {
                         implicated_cid: handle.receiver,
                         peer_cid: handle.source,
