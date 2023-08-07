@@ -131,7 +131,7 @@ impl ObjectTransferHandler {
                 .send(accept)
                 .map_err(|err| AccountError::msg(err.to_string()))
         } else {
-            Err(AccountError::msg("Local is not a receiver"))
+            Ok(())
         }
     }
 }
