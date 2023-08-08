@@ -2,6 +2,7 @@ use crate::serialization::SyncIO;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -45,20 +46,38 @@ impl VirtualObjectMetadata {
 /// Used to keep track of file transfer progress for either
 /// sender or receiver orientation
 #[derive(Debug)]
-pub struct ObjectTransferHandler {
+pub struct ObjectTransferHandlerInner {
     inner: UnboundedReceiver<ObjectTransferStatus>,
-    pub source: u64,
-    pub receiver: u64,
-    pub is_revfs_pull: bool,
-    pub orientation: ObjectTransferOrientation,
-    start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
-impl Stream for ObjectTransferHandler {
+#[derive(Debug)]
+pub struct ObjectTransferHandler {
+    pub source: u64,
+    pub receiver: u64,
+    pub orientation: ObjectTransferOrientation,
+    start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
+    pub inner: ObjectTransferHandlerInner,
+}
+
+impl Stream for ObjectTransferHandlerInner {
     type Item = ObjectTransferStatus;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_recv(cx)
+    }
+}
+
+impl Deref for ObjectTransferHandler {
+    type Target = ObjectTransferHandlerInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for ObjectTransferHandler {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 
@@ -68,17 +87,15 @@ impl ObjectTransferHandler {
         receiver: u64,
         orientation: ObjectTransferOrientation,
         start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
-        is_revfs_pull: bool,
     ) -> (Self, UnboundedSender<ObjectTransferStatus>) {
         let (tx, inner) = unbounded_channel();
 
         let this = Self {
-            inner,
+            inner: ObjectTransferHandlerInner { inner },
             source,
             receiver,
             orientation,
             start_recv_tx,
-            is_revfs_pull,
         };
 
         (this, tx)
@@ -98,25 +115,30 @@ impl ObjectTransferHandler {
     }
 
     fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
-        if self.is_revfs_pull {
+        if matches!(
+            self.orientation,
+            ObjectTransferOrientation::Receiver {
+                is_revfs_pull: true
+            }
+        ) {
             return Ok(());
         }
 
-        if matches!(self.orientation, ObjectTransferOrientation::Receiver) {
+        if matches!(self.orientation, ObjectTransferOrientation::Receiver { .. }) {
             self.start_recv_tx
                 .take()
                 .ok_or_else(|| AccountError::msg("Start_recv_tx already called"))?
                 .send(accept)
                 .map_err(|err| AccountError::msg(err.to_string()))
         } else {
-            Err(AccountError::msg("Local is not a receiver"))
+            Ok(())
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ObjectTransferOrientation {
-    Receiver,
+    Receiver { is_revfs_pull: bool },
     Sender,
 }
 

@@ -1114,9 +1114,8 @@ impl StateContainerInner {
             let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
-                ObjectTransferOrientation::Receiver,
+                ObjectTransferOrientation::Receiver { is_revfs_pull },
                 Some(start_recv_tx),
-                is_revfs_pull,
             );
             self.file_transfer_handles.insert(
                 key,
@@ -1278,7 +1277,6 @@ impl StateContainerInner {
                     receiver_cid,
                     ObjectTransferOrientation::Sender,
                     None,
-                    true, //this value does not matter here since start_recv_tx is false. TODO: refactor
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
                 let _ = self
