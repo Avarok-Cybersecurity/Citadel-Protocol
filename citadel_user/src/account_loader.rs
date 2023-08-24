@@ -26,7 +26,7 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
 
     Ok(cnacs_impersonal
         .into_iter()
-        .chain(cnacs_personal.into_iter())
+        .chain(cnacs_personal)
         .map(|r| {
             let cid = r.0.cid;
             (cid, r.0.into())
