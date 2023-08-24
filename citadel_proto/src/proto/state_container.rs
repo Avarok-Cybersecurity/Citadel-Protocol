@@ -1114,6 +1114,7 @@ impl StateContainerInner {
             let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
+                object_id,
                 ObjectTransferOrientation::Receiver { is_revfs_pull },
                 Some(start_recv_tx),
             );
@@ -1275,6 +1276,7 @@ impl StateContainerInner {
                 let (handle, tx) = ObjectTransferHandler::new(
                     implicated_cid,
                     receiver_cid,
+                    object_id,
                     ObjectTransferOrientation::Sender,
                     None,
                 );
