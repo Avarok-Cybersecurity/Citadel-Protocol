@@ -1259,7 +1259,7 @@ impl StateContainerInner {
             }
 
             VirtualConnectionType::LocalGroupServer { implicated_cid } => {
-                (FileKey::new(implicated_cid, object_id), 0)
+                (FileKey::new(implicated_cid, object_id), implicated_cid)
             }
 
             _ => {

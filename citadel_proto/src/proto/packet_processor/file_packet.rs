@@ -110,13 +110,12 @@ pub fn process_file_packet(
                             let success = payload.success;
                             let object_id = payload.object_id;
                             let v_target = payload.virtual_target;
-                            // the target is the implicated cid of THIS receiving node
-                            let original_implicated_cid = header.target_cid.get();
+                            let implicated_cid = header.session_cid.get();
                             // conclude by passing this data into the state container
                             if state_container
                                 .on_file_header_ack_received(
                                     success,
-                                    original_implicated_cid,
+                                    implicated_cid,
                                     header.context_info.get().into(),
                                     object_id,
                                     v_target,
