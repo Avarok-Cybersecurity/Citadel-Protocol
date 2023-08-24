@@ -356,7 +356,7 @@ impl PostQuantumContainer {
             hasher.update(
                 &alice_key
                     .into_iter()
-                    .zip(bob_key.into_iter())
+                    .zip(bob_key)
                     .map(|(r1, r2)| r1 ^ r2)
                     .collect::<Vec<u8>>()[..],
             );
