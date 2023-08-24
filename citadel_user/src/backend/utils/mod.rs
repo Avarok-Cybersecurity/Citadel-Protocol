@@ -19,7 +19,7 @@ pub struct VirtualObjectMetadata {
     pub author: String,
     pub plaintext_length: usize,
     pub group_count: usize,
-    pub object_id: u32,
+    pub object_id: u64,
     pub cid: u64,
     pub transfer_type: TransferType,
 }

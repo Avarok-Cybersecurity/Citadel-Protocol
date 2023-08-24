@@ -21,7 +21,7 @@ pub struct PeerSessionCrypto<R: Ratchet = StackedRatchet> {
     pub update_in_progress: Arc<AtomicBool>,
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
     pub local_is_initiator: bool,
-    pub rolling_object_id: u32,
+    pub rolling_object_id: u64,
     pub rolling_group_id: u64,
     pub lock_set_by_alice: Option<bool>,
     /// Alice sends to Bob, then bob updates internally the toolset. However. Bob can't send packets to Alice quite yet using that newest version. He must first wait from Alice to commit on her end and wait for an ACK.
@@ -202,7 +202,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 
     ///
-    pub fn get_and_increment_object_id(&mut self) -> u32 {
+    pub fn get_and_increment_object_id(&mut self) -> u64 {
         self.rolling_object_id = self.rolling_object_id.wrapping_add(1);
         self.rolling_object_id.wrapping_sub(1)
     }

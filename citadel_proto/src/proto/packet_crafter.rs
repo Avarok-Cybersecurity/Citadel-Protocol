@@ -62,7 +62,8 @@ pub struct GroupTransmitter {
     pub(crate) group_transmitter: GroupSenderDevice<HDP_HEADER_BYTE_LEN>,
     /// Contained within Self::group_transmitter, but is here for convenience
     group_config: GroupReceiverConfig,
-    object_id: u32,
+    /// The ID of the object that is being transmitted
+    pub object_id: u64,
     pub group_id: u64,
     /// For interfacing with the higher-level kernel
     ticket: Ticket,
@@ -98,14 +99,14 @@ impl GroupTransmitter {
         to_primary_stream: OutboundPrimaryStreamSender,
         group_sender: GroupSenderDevice<HDP_HEADER_BYTE_LEN>,
         hyper_ratchet: RatchetPacketCrafterContainer,
-        object_id: u32,
+        object_id: u64,
         ticket: Ticket,
         security_level: SecurityLevel,
         time_tracker: TimeTracker,
     ) -> Self {
         let cfg = group_sender.get_receiver_config();
-        let group_id = cfg.group_id as u64;
-        let bytes_encrypted = cfg.plaintext_length;
+        let group_id = cfg.group_id;
+        let bytes_encrypted = cfg.plaintext_length as usize;
         Self {
             hyper_ratchet_container: hyper_ratchet,
             // This must be false
@@ -126,7 +127,7 @@ impl GroupTransmitter {
     #[allow(clippy::too_many_arguments)]
     pub fn new_message(
         to_primary_stream: OutboundPrimaryStreamSender,
-        object_id: u32,
+        object_id: u64,
         hyper_ratchet: RatchetPacketCrafterContainer,
         input_packet: SecureProtocolPacket,
         security_level: SecurityLevel,
@@ -146,6 +147,7 @@ impl GroupTransmitter {
             input_packet.into(),
             HDP_HEADER_EXTENDED_BYTE_LEN,
             group_id,
+            object_id,
         );
 
         match res {
@@ -256,7 +258,7 @@ pub(crate) mod group {
             security_level: processor.security_level.value(),
             context_info: U128::new(processor.ticket.0),
             group: U64::new(processor.group_id),
-            wave_id: U32::new(processor.object_id),
+            wave_id: U32::new(0),
             session_cid: U64::new(processor.hyper_ratchet_container.base.get_cid()),
             drill_version: U32::new(processor.hyper_ratchet_container.base.version()),
             timestamp: I64::new(processor.time_tracker.get_global_time_ns()),
@@ -313,7 +315,6 @@ pub(crate) mod group {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_group_header_ack(
         hyper_ratchet: &StackedRatchet,
-        object_id: u32,
         group_id: u64,
         target_cid: u64,
         ticket: Ticket,
@@ -331,7 +332,7 @@ pub(crate) mod group {
             security_level: security_level.value(),
             context_info: U128::new(ticket.0),
             group: U64::new(group_id),
-            wave_id: U32::new(object_id),
+            wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),
             timestamp: I64::new(timestamp),
@@ -362,7 +363,7 @@ pub(crate) mod group {
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
         scramble_drill: &EntropyBank,
-        object_id: u32,
+        object_id: u64,
         target_cid: u64,
         mut buffer: &mut BytesMut,
     ) {
@@ -1645,14 +1646,14 @@ pub(crate) mod file {
     pub struct FileHeaderAckPacket {
         pub success: bool,
         pub virtual_target: VirtualTargetType,
-        pub object_id: u32,
+        pub object_id: u64,
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_file_header_ack_packet(
         hyper_ratchet: &StackedRatchet,
         success: bool,
-        object_id: u32,
+        object_id: u64,
         target_cid: u64,
         ticket: Ticket,
         security_level: SecurityLevel,
