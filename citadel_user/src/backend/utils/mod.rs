@@ -54,7 +54,7 @@ pub struct ObjectTransferHandlerInner {
 pub struct ObjectTransferHandler {
     pub source: u64,
     pub receiver: u64,
-    pub object_id: u64,
+    pub metadata: VirtualObjectMetadata,
     pub orientation: ObjectTransferOrientation,
     start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     pub inner: ObjectTransferHandlerInner,
@@ -86,7 +86,7 @@ impl ObjectTransferHandler {
     pub fn new(
         source: u64,
         receiver: u64,
-        object_id: u64,
+        metadata: VirtualObjectMetadata,
         orientation: ObjectTransferOrientation,
         start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     ) -> (Self, UnboundedSender<ObjectTransferStatus>) {
@@ -97,7 +97,7 @@ impl ObjectTransferHandler {
             source,
             receiver,
             orientation,
-            object_id,
+            metadata,
             start_recv_tx,
         };
 

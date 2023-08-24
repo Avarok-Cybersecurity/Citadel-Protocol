@@ -159,7 +159,7 @@ pub(crate) struct InboundFileTransfer {
 
 #[allow(dead_code)]
 pub(crate) struct OutboundFileTransfer {
-    pub object_id: u64,
+    pub metadata: VirtualObjectMetadata,
     pub ticket: Ticket,
     // for alerting the group sender to begin sending the next group
     pub next_gs_alerter: UnboundedSender<()>,
@@ -1114,7 +1114,7 @@ impl StateContainerInner {
             let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
-                object_id,
+                metadata.clone(),
                 ObjectTransferOrientation::Receiver { is_revfs_pull },
                 Some(start_recv_tx),
             );
@@ -1269,14 +1269,15 @@ impl StateContainerInner {
         };
 
         if success {
-            // remove the inbound file transfer, send the signals to end async loops, and tell the kernel
+            // remove the outbound file transfer, send the signals to end async loops, and tell the kernel
             if let Some(file_transfer) = self.outbound_files.get_mut(&key) {
+                let metadata = file_transfer.metadata.clone();
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
                 let (handle, tx) = ObjectTransferHandler::new(
                     implicated_cid,
                     receiver_cid,
-                    object_id,
+                    metadata,
                     ObjectTransferOrientation::Sender,
                     None,
                 );
