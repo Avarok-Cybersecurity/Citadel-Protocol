@@ -74,7 +74,7 @@ impl ClientServerRemote {
     }
 }
 
-pub(self) fn get_socket_addr<T: ToSocketAddrs>(addr: T) -> Result<SocketAddr, NetworkError> {
+pub fn get_socket_addr<T: ToSocketAddrs>(addr: T) -> Result<SocketAddr, NetworkError> {
     addr.to_socket_addrs()
         .map_err(|err| NetworkError::SocketError(err.to_string()))?
         .next()
