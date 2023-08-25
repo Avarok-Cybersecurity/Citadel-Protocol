@@ -1364,171 +1364,180 @@ impl HdpSession {
         log::trace!(target: "citadel", "Transmit file name: {}", &file_name);
         // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
         // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
-        let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) =
-            match virtual_target {
-                VirtualTargetType::LocalGroupServer { implicated_cid } => {
-                    // if we are sending this just to the HyperLAN server (in the case of file uploads),
-                    // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                    let crypt_container = &mut state_container
-                        .c2s_channel_container
-                        .as_mut()
-                        .unwrap()
-                        .peer_session_crypto;
-                    let object_id = crypt_container.get_and_increment_object_id();
-                    let group_id_start = crypt_container.get_and_increment_group_id();
-                    let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
-                    let static_aux_ratchet = crypt_container
-                        .toolset
-                        .get_static_auxiliary_ratchet()
-                        .clone();
+        let (
+            to_primary_stream,
+            file_header,
+            object_id,
+            target_cid,
+            key_cid,
+            groups_needed,
+            metadata,
+        ) = match virtual_target {
+            VirtualTargetType::LocalGroupServer { implicated_cid } => {
+                // if we are sending this just to the HyperLAN server (in the case of file uploads),
+                // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                let crypt_container = &mut state_container
+                    .c2s_channel_container
+                    .as_mut()
+                    .unwrap()
+                    .peer_session_crypto;
+                let object_id = crypt_container.get_and_increment_object_id();
+                let group_id_start = crypt_container.get_and_increment_group_id();
+                let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                let static_aux_ratchet = crypt_container
+                    .toolset
+                    .get_static_auxiliary_ratchet()
+                    .clone();
 
-                    let to_primary_stream = this.to_primary_stream.clone().unwrap();
-                    let target_cid = 0;
-                    let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
-                        source,
-                        max_group_size,
-                        object_id,
-                        group_sender,
-                        stop_rx,
-                        security_level,
-                        latest_hr.clone(),
-                        static_aux_ratchet,
-                        HDP_HEADER_BYTE_LEN,
-                        target_cid,
-                        group_id_start,
-                        transfer_type.clone(),
-                        packet_crafter::group::craft_wave_payload_packet_into,
-                    )
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                let target_cid = 0;
+                let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
+                    source,
+                    max_group_size,
+                    object_id,
+                    group_sender,
+                    stop_rx,
+                    security_level,
+                    latest_hr.clone(),
+                    static_aux_ratchet,
+                    HDP_HEADER_BYTE_LEN,
+                    target_cid,
+                    group_id_start,
+                    transfer_type.clone(),
+                    packet_crafter::group::craft_wave_payload_packet_into,
+                )
+                .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                    let file_metadata = VirtualObjectMetadata {
-                        object_id,
-                        name: file_name,
-                        // TODO: update metadata using the local file handle metadata
-                        date_created: "".to_string(),
-                        author: "N/A".to_string(),
-                        plaintext_length: file_size,
-                        group_count: groups_needed,
-                        cid: implicated_cid,
-                        transfer_type,
-                    };
+                let file_metadata = VirtualObjectMetadata {
+                    object_id,
+                    name: file_name,
+                    // TODO: update metadata using the local file handle metadata
+                    date_created: "".to_string(),
+                    author: "N/A".to_string(),
+                    plaintext_length: file_size,
+                    group_count: groups_needed,
+                    cid: implicated_cid,
+                    transfer_type,
+                };
 
-                    // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                    let amt_to_reserve = groups_needed - 1;
-                    crypt_container.rolling_group_id += amt_to_reserve as u64;
-                    let file_header = packet_crafter::file::craft_file_header_packet(
-                        &latest_hr,
-                        group_id_start,
-                        ticket,
-                        security_level,
-                        virtual_target,
-                        file_metadata,
-                        timestamp,
-                        local_encryption_level,
-                    );
-                    (
-                        to_primary_stream,
-                        file_header,
-                        object_id,
-                        target_cid,
-                        implicated_cid,
-                        groups_needed,
-                    )
-                }
-
-                VirtualConnectionType::LocalGroupPeer {
+                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                let amt_to_reserve = groups_needed - 1;
+                crypt_container.rolling_group_id += amt_to_reserve as u64;
+                let file_header = packet_crafter::file::craft_file_header_packet(
+                    &latest_hr,
+                    group_id_start,
+                    ticket,
+                    security_level,
+                    virtual_target,
+                    file_metadata.clone(),
+                    timestamp,
+                    local_encryption_level,
+                );
+                (
+                    to_primary_stream,
+                    file_header,
+                    object_id,
+                    target_cid,
                     implicated_cid,
-                    peer_cid: target_cid,
-                } => {
-                    log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                    // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
-                    let endpoint_container =
-                        state_container.get_peer_endpoint_container_mut(target_cid)?;
+                    groups_needed,
+                    file_metadata,
+                )
+            }
 
-                    let object_id = endpoint_container
-                        .endpoint_crypto
-                        .get_and_increment_object_id();
-                    // reserve group ids
-                    let start_group_id = endpoint_container
-                        .endpoint_crypto
-                        .get_and_increment_group_id();
+            VirtualConnectionType::LocalGroupPeer {
+                implicated_cid,
+                peer_cid: target_cid,
+            } => {
+                log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
+                let endpoint_container =
+                    state_container.get_peer_endpoint_container_mut(target_cid)?;
 
-                    let latest_usable_ratchet = endpoint_container
-                        .endpoint_crypto
-                        .get_hyper_ratchet(None)
-                        .unwrap();
+                let object_id = endpoint_container
+                    .endpoint_crypto
+                    .get_and_increment_object_id();
+                // reserve group ids
+                let start_group_id = endpoint_container
+                    .endpoint_crypto
+                    .get_and_increment_group_id();
 
-                    let static_aux_ratchet = endpoint_container
-                        .endpoint_crypto
-                        .toolset
-                        .get_static_auxiliary_ratchet()
-                        .clone();
+                let latest_usable_ratchet = endpoint_container
+                    .endpoint_crypto
+                    .get_hyper_ratchet(None)
+                    .unwrap();
 
-                    let preferred_primary_stream = endpoint_container
-                        .get_direct_p2p_primary_stream()
-                        .cloned()
-                        .unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+                let static_aux_ratchet = endpoint_container
+                    .endpoint_crypto
+                    .toolset
+                    .get_static_auxiliary_ratchet()
+                    .clone();
 
-                    let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
-                        source,
-                        max_group_size,
-                        object_id,
-                        group_sender,
-                        stop_rx,
-                        security_level,
-                        latest_usable_ratchet.clone(),
-                        static_aux_ratchet,
-                        HDP_HEADER_BYTE_LEN,
-                        target_cid,
-                        start_group_id,
-                        transfer_type.clone(),
-                        packet_crafter::group::craft_wave_payload_packet_into,
-                    )
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                let preferred_primary_stream = endpoint_container
+                    .get_direct_p2p_primary_stream()
+                    .cloned()
+                    .unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
 
-                    let file_metadata = VirtualObjectMetadata {
-                        object_id,
-                        name: file_name,
-                        date_created: "".to_string(),
-                        author: "".to_string(),
-                        plaintext_length: file_size,
-                        group_count: groups_needed,
-                        cid: implicated_cid,
-                        transfer_type,
-                    };
+                let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
+                    source,
+                    max_group_size,
+                    object_id,
+                    group_sender,
+                    stop_rx,
+                    security_level,
+                    latest_usable_ratchet.clone(),
+                    static_aux_ratchet,
+                    HDP_HEADER_BYTE_LEN,
+                    target_cid,
+                    start_group_id,
+                    transfer_type.clone(),
+                    packet_crafter::group::craft_wave_payload_packet_into,
+                )
+                .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                    let file_header = packet_crafter::file::craft_file_header_packet(
-                        latest_usable_ratchet,
-                        start_group_id,
-                        ticket,
-                        security_level,
-                        virtual_target,
-                        file_metadata,
-                        timestamp,
-                        local_encryption_level,
-                    );
+                let file_metadata = VirtualObjectMetadata {
+                    object_id,
+                    name: file_name,
+                    date_created: "".to_string(),
+                    author: "".to_string(),
+                    plaintext_length: file_size,
+                    group_count: groups_needed,
+                    cid: implicated_cid,
+                    transfer_type,
+                };
 
-                    // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                    let amt_to_reserve = groups_needed - 1;
-                    endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
+                let file_header = packet_crafter::file::craft_file_header_packet(
+                    latest_usable_ratchet,
+                    start_group_id,
+                    ticket,
+                    security_level,
+                    virtual_target,
+                    file_metadata.clone(),
+                    timestamp,
+                    local_encryption_level,
+                );
 
-                    (
-                        preferred_primary_stream,
-                        file_header,
-                        object_id,
-                        target_cid,
-                        target_cid,
-                        groups_needed,
-                    )
-                }
+                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                let amt_to_reserve = groups_needed - 1;
+                endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
 
-                _ => {
-                    log::error!(target: "citadel", "HyperWAN functionality not yet implemented");
-                    return Err(NetworkError::InternalError(
-                        "HyperWAN functionality not yet implemented",
-                    ));
-                }
-            };
+                (
+                    preferred_primary_stream,
+                    file_header,
+                    object_id,
+                    target_cid,
+                    target_cid,
+                    groups_needed,
+                    file_metadata,
+                )
+            }
+
+            _ => {
+                log::error!(target: "citadel", "HyperWAN functionality not yet implemented");
+                return Err(NetworkError::InternalError(
+                    "HyperWAN functionality not yet implemented",
+                ));
+            }
+        };
 
         // now that the async cryptscrambler tasks have been spawned on the threadpool, we need to also
         // spawn tasks that read the [GroupSenders] from there. We also need to store an [OutboundFileMetadataTransmitter]
@@ -1549,7 +1558,7 @@ impl HdpSession {
         let (start, start_rx) = tokio::sync::oneshot::channel();
         let outbound_file_transfer_container = OutboundFileTransfer {
             stop_tx: Some(stop_tx),
-            object_id,
+            metadata,
             ticket,
             next_gs_alerter: next_gs_alerter.clone(),
             start: Some(start),

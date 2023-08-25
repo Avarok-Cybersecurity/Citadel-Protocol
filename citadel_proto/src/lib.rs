@@ -391,8 +391,8 @@ pub mod prelude {
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::re_imports::{async_trait, NodeType};
     pub use citadel_user::backend::utils::{
-        ObjectTransferHandler, ObjectTransferOrientation, ObjectTransferStatus,
-        VirtualObjectMetadata,
+        ObjectTransferHandler, ObjectTransferHandlerInner, ObjectTransferOrientation,
+        ObjectTransferStatus, VirtualObjectMetadata,
     };
     pub use citadel_user::serialization::SyncIO;
 

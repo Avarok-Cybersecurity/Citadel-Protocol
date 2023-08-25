@@ -7,6 +7,7 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
+use base64::Engine;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use itertools::Itertools;
@@ -160,7 +161,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
-        let serded = base64::encode(cnac.generate_proper_bytes()?);
+        let serded =
+            base64::engine::general_purpose::STANDARD.encode(cnac.generate_proper_bytes()?);
         log::trace!(target: "citadel", "[CNAC-Sync] Base64 len: {} | sample: {:?} -> {:?}", serded.len(), &serded.as_str()[..10], &serded.as_str()[(serded.len() - 10)..]);
 
         let metadata = cnac.get_metadata();
@@ -661,7 +663,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         if let Some(row) = row {
             match row.try_get::<String, _>("bin") {
-                Ok(val) => Ok(Some(base64::decode(val)?)),
+                Ok(val) => Ok(Some(base64::engine::general_purpose::STANDARD.decode(val)?)),
 
                 _ => Ok(None),
             }
@@ -712,7 +714,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let conn = self.get_conn().await?;
         let mut tx = conn.begin().await?;
-        let bytes_base64 = base64::encode(value);
+        let bytes_base64 = base64::engine::general_purpose::STANDARD.encode(value);
         let get_query = self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1");
         let set_query = self
             .format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)");
@@ -738,7 +740,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         if let Some(row) = row {
             match row.try_get::<String, _>("bin") {
-                Ok(val) => Ok(Some(base64::decode(val)?)),
+                Ok(val) => Ok(Some(base64::engine::general_purpose::STANDARD.decode(val)?)),
 
                 _ => Ok(None),
             }
@@ -770,7 +772,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         for row in rows {
             let bin = row.try_get::<String, _>("bin")?;
             let key = row.try_get::<String, _>("sub_id")?;
-            let bin = base64::decode(bin)?;
+            let bin = base64::engine::general_purpose::STANDARD.decode(bin)?;
             let _ = ret.insert(key, bin);
         }
 
@@ -835,7 +837,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         if let Some(row) = query {
             let bin: String = row.try_get("bin")?;
             log::trace!(target: "citadel", "[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
-            let bin = base64::decode(bin)?;
+            let bin = base64::engine::general_purpose::STANDARD.decode(bin)?;
             let cnac_inner =
                 ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             Ok(Some(cnac_inner.into()))

@@ -199,7 +199,12 @@ fn make_server_endpoint(
     load_hole_punch_friendly_quic_transport_config(Either::Left(&mut server_cfg));
     let endpoint_config = EndpointConfig::default();
     let socket = socket.into_std()?; // Quinn sets nonblocking to true
-    let endpoint = Endpoint::new(endpoint_config, Some(server_cfg), socket, TokioRuntime)?;
+    let endpoint = Endpoint::new(
+        endpoint_config,
+        Some(server_cfg),
+        socket,
+        Arc::new(TokioRuntime),
+    )?;
     Ok(endpoint)
 }
 
@@ -214,7 +219,12 @@ fn make_client_endpoint(
 
     let socket = socket.into_std()?; // Quinn handles setting nonblocking to true
     load_hole_punch_friendly_quic_transport_config(Either::Right(&mut client_cfg));
-    let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, TokioRuntime)?;
+    let mut endpoint = Endpoint::new(
+        EndpointConfig::default(),
+        None,
+        socket,
+        Arc::new(TokioRuntime),
+    )?;
     endpoint.set_default_client_config(client_cfg);
 
     Ok(endpoint)

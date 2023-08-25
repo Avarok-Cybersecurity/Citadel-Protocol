@@ -19,7 +19,7 @@ pub struct VirtualObjectMetadata {
     pub author: String,
     pub plaintext_length: usize,
     pub group_count: usize,
-    pub object_id: u32,
+    pub object_id: u64,
     pub cid: u64,
     pub transfer_type: TransferType,
 }
@@ -54,6 +54,7 @@ pub struct ObjectTransferHandlerInner {
 pub struct ObjectTransferHandler {
     pub source: u64,
     pub receiver: u64,
+    pub metadata: VirtualObjectMetadata,
     pub orientation: ObjectTransferOrientation,
     start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     pub inner: ObjectTransferHandlerInner,
@@ -85,6 +86,7 @@ impl ObjectTransferHandler {
     pub fn new(
         source: u64,
         receiver: u64,
+        metadata: VirtualObjectMetadata,
         orientation: ObjectTransferOrientation,
         start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     ) -> (Self, UnboundedSender<ObjectTransferStatus>) {
@@ -95,6 +97,7 @@ impl ObjectTransferHandler {
             source,
             receiver,
             orientation,
+            metadata,
             start_recv_tx,
         };
 

@@ -668,7 +668,7 @@ pub mod constructor {
             let keys: Vec<MessageRatchetConstructorInner> = transfer
                 .params_txs
                 .into_iter()
-                .zip(opts.into_iter())
+                .zip(opts)
                 .filter_map(|(params_tx, opts)| {
                     Some(MessageRatchetConstructorInner {
                         drill: Some(

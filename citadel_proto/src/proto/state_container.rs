@@ -137,14 +137,14 @@ pub(crate) struct GroupKey {
 pub struct FileKey {
     pub target_cid: u64,
     // wave payload get the object id inscribed
-    pub object_id: u32,
+    pub object_id: u64,
 }
 
 /// when the GROUP_HEADER comes inbound with virtual file metadata, this should be created alongside
 /// an async task fired-up on the threadpool
 #[allow(dead_code)]
 pub(crate) struct InboundFileTransfer {
-    pub object_id: u32,
+    pub object_id: u64,
     pub total_groups: usize,
     pub groups_rendered: usize,
     pub last_group_window_len: usize,
@@ -159,7 +159,7 @@ pub(crate) struct InboundFileTransfer {
 
 #[allow(dead_code)]
 pub(crate) struct OutboundFileTransfer {
-    pub object_id: u32,
+    pub metadata: VirtualObjectMetadata,
     pub ticket: Ticket,
     // for alerting the group sender to begin sending the next group
     pub next_gs_alerter: UnboundedSender<()>,
@@ -179,7 +179,7 @@ impl GroupKey {
 }
 
 impl FileKey {
-    pub fn new(target_cid: u64, object_id: u32) -> Self {
+    pub fn new(target_cid: u64, object_id: u64) -> Self {
         Self {
             target_cid,
             object_id,
@@ -510,12 +510,12 @@ pub(crate) struct GroupReceiverContainer {
     max_window_size: usize,
     window_drift: isize,
     waves_in_window_finished: usize,
-    pub object_id: u32,
+    pub object_id: u64,
 }
 
 impl GroupReceiverContainer {
     pub fn new(
-        object_id: u32,
+        object_id: u64,
         receiver: GroupReceiver,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
@@ -1008,9 +1008,9 @@ impl StateContainerInner {
         virtual_target: VirtualTargetType,
     ) -> Option<RangeInclusive<u32>> {
         log::trace!(target: "citadel", "GRC config: {:?}", group_receiver_config);
+        let object_id = group_receiver_config.object_id;
         let group_id = header.group.get();
         let ticket = header.context_info.get();
-        let object_id = header.wave_id.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
         let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id);
         if let std::collections::hash_map::Entry::Vacant(e) =
@@ -1114,6 +1114,7 @@ impl StateContainerInner {
             let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
+                metadata.clone(),
                 ObjectTransferOrientation::Receiver { is_revfs_pull },
                 Some(start_recv_tx),
             );
@@ -1245,7 +1246,7 @@ impl StateContainerInner {
         success: bool,
         implicated_cid: u64,
         ticket: Ticket,
-        object_id: u32,
+        object_id: u64,
         v_target: VirtualTargetType,
     ) -> Option<()> {
         let (key, receiver_cid) = match v_target {
@@ -1258,7 +1259,7 @@ impl StateContainerInner {
             }
 
             VirtualConnectionType::LocalGroupServer { implicated_cid } => {
-                (FileKey::new(implicated_cid, object_id), 0)
+                (FileKey::new(implicated_cid, object_id), implicated_cid)
             }
 
             _ => {
@@ -1268,13 +1269,15 @@ impl StateContainerInner {
         };
 
         if success {
-            // remove the inbound file transfer, send the signals to end async loops, and tell the kernel
+            // remove the outbound file transfer, send the signals to end async loops, and tell the kernel
             if let Some(file_transfer) = self.outbound_files.get_mut(&key) {
+                let metadata = file_transfer.metadata.clone();
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
                 let (handle, tx) = ObjectTransferHandler::new(
                     implicated_cid,
                     receiver_cid,
+                    metadata,
                     ObjectTransferOrientation::Sender,
                     None,
                 );
@@ -1532,7 +1535,7 @@ impl StateContainerInner {
         _implicated_cid: u64,
         header: &LayoutVerified<&[u8], HdpHeader>,
     ) -> bool {
-        let object_id = header.context_info.get();
+        let object_id = header.context_info.get() as u64;
         let group = header.group.get();
         let wave_id = header.wave_id.get();
         let target_cid = header.session_cid.get();
@@ -1562,7 +1565,7 @@ impl StateContainerInner {
                     log::trace!(target: "citadel", "Notified object sender to begin sending the next group");
                 }
 
-                let file_key = FileKey::new(target_cid, object_id as u32);
+                let file_key = FileKey::new(target_cid, object_id);
 
                 if let Some(tx) = self.file_transfer_handles.get(&file_key) {
                     let status = if relative_group_id as usize
@@ -1764,7 +1767,7 @@ impl StateContainerInner {
             }
 
             // object singleton == 0 implies that the data does not belong to a file
-            const OBJECT_SINGLETON: u32 = 0;
+            const OBJECT_SINGLETON: u64 = 0;
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
             let (mut transmitter, group_id, target_cid) = match virtual_target {

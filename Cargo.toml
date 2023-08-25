@@ -39,14 +39,14 @@ enum_primitive = { default-features = false, version = "0.1.1" }
 aes-gcm = { version = "0.10.1", default-features = false }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
 log = { default-features = false, version = "0.4.17" }
-strum = { version = "0.24.1", default-features = false }
+strum = { version = "0.25.0", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 kyber-pke = { version = "0.3.0", default-features = false }
 packed_struct = { version = "0.10.1" }
 getrandom = { version = "0.2.8", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
-oqs = { version = "0.7.2", default-features = false }
+oqs = { version = "0.8.0", default-features = false }
 pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false}
 pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
 tracing-subscriber = { version = "0.3.16" }
@@ -60,7 +60,7 @@ rand = { default-features = false, version = "0.8.5" }
 async-stream = { default-features = false, version = "0.3.3" }
 sync_wrapper = { default-features = false, version = "0.1.1" }
 async-recursion = { version = "1.0.4" }
-rstest = { version = "0.17.0" }
+rstest = { version = "0.18.2" }
 bincode2 = { default-features = false, version = "2.0.1" }
 serde = { version="1.0.152", default-features = false }
 futures = { version = "0.3.25", default-features = false }
@@ -68,13 +68,13 @@ byteorder = { version = "1.4.3", default-features=false }
 num-integer = { default-features = false, version = "0.1.45" }
 arrayvec = { version = "0.7.2", default-features = false }
 bitvec = { default-features = false, version = "1.0.1" }
-rust-argon2 = { version = "1.0.0", default-features = false }
+rust-argon2 = { version = "1.0.1", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.11" }
 zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
 kernel32-sys = { version = "0.2.2", default-features = false }
 rayon = { default-features = false, version = "1.7.0" }
-sysinfo = { default-features = false, version = "0.28.0" }
+sysinfo = { default-features = false, version = "0.29.8" }
 num_cpus = { default-features = false, version = "1.15.0" }
 async-trait-with-sync = { default-features = false, version = "0.1.36" }
 uuid = { version = "1.2.2", default-features = false }
@@ -83,19 +83,19 @@ lazy_static = { default-features = false, version = "1.4.0" }
 socket2 = { version = "0.5.1", default-features = false }
 rustls-native-certs = { version = "0.6.2", default-features = false }
 igd = { version = "^0.12.0", default-features = false }
-quinn = { version = "0.9.3", default-features = false }
+quinn = { version = "0.10.2", default-features = false }
 stun = { default-features = false, version = "0.4.4" }
-rcgen = { default-features = false, version = "0.10.0" }
-rustls = { version = "0.20.7", default-features = false }
+rcgen = { default-features = false, version = "0.11.1" }
+rustls = { version = "0.21.6", default-features = false }
 rustls-pemfile = { default-features = false, version = "1.0.1" }
-tokio-rustls = { default-features = false, version = "0.23.4" }
-itertools = { version = "0.10.5", default-features = false }
+tokio-rustls = { default-features = false, version = "0.24.1" }
+itertools = { version = "0.11.0", default-features = false }
 serde_millis = { default-features = false, version = "0.1.1" }
 multimap = { default-features = false, version = "0.9.0" }
 parking_lot = { version = "0.12.1" }
 twox-hash = { default-features = false, version = "1.6.3" }
 serde_json = { default-features = false, version = "1.0.91" }
-base64 = { version = "0.13.1", default-features = false }
+base64 = { version = "0.21.2", default-features = false }
 bstr = { default-features = false, version = "1.1.0" }
 sqlx = { version = "0.6.3" }
 redis-base = { package = "redis", version = "0.23.0" }
@@ -108,7 +108,7 @@ dirs2 = { default-features = false, version = "3.0.1" }
 embedded-semver = { version = "0.3.0", default-features = false }
 auto_impl = { default-features = false, version = "1.0.1" }
 zerocopy = { default-features = false, version = "0.6.1" }
-atomic = { default-features = false, version = "0.5.1" }
+atomic = { default-features = false, version = "0.5.3" }
 either = { default-features = false, version = "1.8.0" }
 once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.5.4" }

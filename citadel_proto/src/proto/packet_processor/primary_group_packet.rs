@@ -110,7 +110,6 @@ pub fn process_primary_packet(
                                 // so that the sending side can be notified of a successful send
                                 let resp_target_cid = get_resp_target_cid_from_header(&header);
                                 log::trace!(target: "citadel", "Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
-                                let object_id = header.wave_id.get();
                                 let ticket = header.context_info.get().into();
                                 // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
 
@@ -147,7 +146,6 @@ pub fn process_primary_packet(
                                 let group_header_ack =
                                     packet_crafter::group::craft_group_header_ack(
                                         &hyper_ratchet,
-                                        object_id,
                                         header.group.get(),
                                         resp_target_cid,
                                         ticket,
@@ -169,7 +167,7 @@ pub fn process_primary_packet(
                                         virtual_target,
                                     ) => {
                                         // First, check to make sure the virtual target can accept
-                                        let object_id = header.wave_id.get();
+
                                         let ticket = header.context_info.get().into();
 
                                         //let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
@@ -238,7 +236,6 @@ pub fn process_primary_packet(
                                         let group_header_ack =
                                             packet_crafter::group::craft_group_header_ack(
                                                 &hyper_ratchet,
-                                                object_id,
                                                 header.group.get(),
                                                 resp_target_cid,
                                                 ticket,

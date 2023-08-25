@@ -78,6 +78,7 @@ impl PartialEq for CNACMetadata {
 #[allow(missing_docs)]
 #[cfg(all(feature = "sql", not(coverage)))]
 pub mod base64_string {
+    use base64::Engine;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
@@ -85,17 +86,16 @@ pub mod base64_string {
         T: AsRef<[u8]>,
         S: Serializer,
     {
-        serializer.collect_str(&base64::encode(value))
+        serializer.collect_str(&base64::engine::general_purpose::STANDARD.encode(value))
     }
 
     pub fn deserialize<'de, D>(value: D) -> Result<Vec<u8>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        base64::decode(
-            String::deserialize(value).map_err(|_| serde::de::Error::custom("Deser err"))?,
-        )
-        .map_err(|_| serde::de::Error::custom("Deser err"))
+        base64::engine::general_purpose::STANDARD
+            .decode(String::deserialize(value).map_err(|_| serde::de::Error::custom("Deser err"))?)
+            .map_err(|_| serde::de::Error::custom("Deser err"))
     }
 }
 

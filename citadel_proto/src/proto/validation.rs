@@ -69,7 +69,7 @@ pub(crate) mod group {
         let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
         match &mut group_header {
             GroupHeader::Standard(group_receiver_config, _) => {
-                if group_receiver_config.plaintext_length
+                if group_receiver_config.plaintext_length as usize
                     > citadel_user::prelude::MAX_BYTES_PER_GROUP
                 {
                     log::error!(target: "citadel", "The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");

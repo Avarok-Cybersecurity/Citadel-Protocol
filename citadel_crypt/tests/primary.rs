@@ -680,7 +680,7 @@ mod tests {
     }
 
     const HEADER_LEN: usize = 52;
-    fn header_inscribe(_: &PacketVector, _: &EntropyBank, _: u32, _: u64, packet: &mut BytesMut) {
+    fn header_inscribe(_: &PacketVector, _: &EntropyBank, _: u64, _: u64, packet: &mut BytesMut) {
         for x in 0..HEADER_LEN {
             packet.put_u8((x % 255) as u8)
         }
@@ -829,7 +829,7 @@ mod tests {
             'here: while let Some(mut packet) = gs.get_next_packet() {
                 let packet_payload = packet.packet.split_off(HEADER_LEN);
                 let result = receiver.on_packet_received(
-                    group_id as u64,
+                    group_id,
                     packet.vector.true_sequence,
                     packet.vector.wave_id,
                     &bob,
