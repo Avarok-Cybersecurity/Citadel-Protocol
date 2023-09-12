@@ -54,6 +54,11 @@ impl GroupChannel {
         }
     }
 
+    /// Returns the group key of the channel
+    pub fn key(self) -> MessageGroupKey {
+        self.recv_half.key
+    }
+
     /// Receives the next element from the channel
     pub async fn recv(&mut self) -> Option<GroupBroadcastPayload> {
         self.recv_half.next().await
