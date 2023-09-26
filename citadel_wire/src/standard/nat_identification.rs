@@ -71,6 +71,17 @@ pub struct NatType {
     pub is_ipv6_enabled: bool,
 }
 
+impl NatType {
+    pub fn offline() -> Self {
+        Self {
+            ip_translation: IpTranslation::Identity,
+            port_translation: PortTranslation::Identity,
+            ip_info: Some(IpAddressInfo::localhost()),
+            is_ipv6_enabled: false,
+        }
+    }
+}
+
 pub struct SocketPair {
     pub internal: SocketAddr,
     pub external: SocketAddr,
@@ -86,7 +97,13 @@ impl NatType {
         tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
-        Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await
+        match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
+            Ok(nat_type) => Ok(nat_type),
+            Err(err) => {
+                log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {:?}", err);
+                Ok(NatType::offline())
+            }
+        }
     }
 
     /// Identifies the NAT which the local node is behind
@@ -106,12 +123,7 @@ impl NatType {
                 log::warn!(target: "citadel", "Timeout on NAT identification occurred");
                 if cfg!(feature = "localhost-testing") {
                     log::warn!(target: "citadel", "Will use default NatType for localhost-testing");
-                    Ok(NatType {
-                        ip_translation: IpTranslation::Identity,
-                        port_translation: PortTranslation::Identity,
-                        ip_info: Some(IpAddressInfo::localhost()),
-                        is_ipv6_enabled: false,
-                    })
+                    Ok(NatType::offline())
                 } else {
                     Err(FirewallError::HolePunch(
                         "NAT identification elapsed".to_string(),
