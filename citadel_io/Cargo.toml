@@ -23,5 +23,5 @@ deadlock-detection = ["parking_lot/deadlock_detection"]
 tokio = { workspace = true, features = ["net", "rt"] }
 
 [target.'cfg(not(target_family="wasm"))'.dependencies]
-parking_lot = { workspace = true, default-features = false }
+parking_lot = { workspace = true }
 
