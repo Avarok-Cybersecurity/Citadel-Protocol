@@ -1058,15 +1058,11 @@ mod tests {
     use crate::prelude::*;
     use rstest::rstest;
     use std::net::SocketAddr;
-    use std::str::FromStr;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use uuid::Uuid;
 
-    pub struct ReceiverFileTransferKernel(
-        pub Option<NodeRemote>,
-        pub std::sync::Arc<std::sync::atomic::AtomicBool>,
-    );
+    pub struct ReceiverFileTransferKernel(pub Option<NodeRemote>, pub Arc<AtomicBool>);
 
     #[async_trait]
     impl NetKernel for ReceiverFileTransferKernel {
