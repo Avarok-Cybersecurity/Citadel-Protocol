@@ -57,7 +57,7 @@ igd = { workspace = true, features = ["aio"] }
 quinn = { workspace = true, features = ["rustls"] }
 openssl = { workspace = true }
 stun = { workspace = true }
-rcgen = { workspace = true }
+rcgen = { workspace = true, features = ["pem"] }
 rustls = { workspace = true, features = ["quic", "dangerous_configuration"] }
 rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
