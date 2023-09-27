@@ -319,6 +319,7 @@ mod tests {
     #[rstest]
     #[tokio::test]
     #[timeout(std::time::Duration::from_secs(60))]
+    #[allow(clippy::let_underscore_must_use)]
     async fn test_options(
         #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap())]
         underlying_protocol: ServerUnderlyingProtocol,
@@ -349,7 +350,6 @@ mod tests {
             builder.kernel_executor_settings.clone().unwrap()
         );
 
-        #[allow(clippy::let_underscore_must_use)]
         let _ = builder.build(EmptyKernel::default()).unwrap();
     }
 }

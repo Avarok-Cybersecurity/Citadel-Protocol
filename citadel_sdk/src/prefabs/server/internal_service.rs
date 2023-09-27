@@ -64,8 +64,6 @@ mod test {
     use hyper::service::service_fn;
     use hyper::{Body, Error, Request, Response, StatusCode};
     use std::convert::Infallible;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use uuid::Uuid;
@@ -112,10 +110,7 @@ mod test {
         setup_log();
         let barrier = &TestBarrier::new(2);
         let success_count = &AtomicUsize::new(0);
-        let message = &(0..4096)
-            .into_iter()
-            .map(|r| (r % 256) as u8)
-            .collect::<Vec<u8>>();
+        let message = &(0..4096).map(|r| (r % 256) as u8).collect::<Vec<u8>>();
         let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let server_bind_addr = server_listener.local_addr().unwrap();
         let server_kernel =

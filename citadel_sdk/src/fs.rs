@@ -84,7 +84,6 @@ mod tests {
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::path::PathBuf;
-    use std::str::FromStr;
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
 
