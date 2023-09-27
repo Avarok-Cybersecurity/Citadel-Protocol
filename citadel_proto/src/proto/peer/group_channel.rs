@@ -147,23 +147,6 @@ impl GroupChannelSendHalf {
             .await
     }
 
-    /// Respond to a group invitation
-    pub async fn respond_invite(&self, accept: bool) -> Result<(), NetworkError> {
-        let broadcast = if accept {
-            GroupBroadcast::AcceptMembership(self.key)
-        } else {
-            GroupBroadcast::DeclineMembership(self.key)
-        };
-        self.send_group_command(broadcast)
-            .await
-    }
-
-    /// Request to join a group
-    pub async fn request_join(&self) -> Result<(), NetworkError> {
-        self.send_group_command(GroupBroadcast::RequestJoin(self.key))
-            .await
-    }
-
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
         self.tx
             .send(SessionRequest::Group {
