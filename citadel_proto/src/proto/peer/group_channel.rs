@@ -55,7 +55,7 @@ impl GroupChannel {
     }
 
     /// Returns the group key of the channel
-    pub fn key(self) -> MessageGroupKey {
+    pub fn key(&self) -> MessageGroupKey {
         self.recv_half.key
     }
 
