@@ -103,19 +103,7 @@ impl HdpSessionManager {
             stun_servers,
         };
 
-        let this = Self::from(inner);
-        let this_ret = this.clone();
-        let debug_task = async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                let this = inner!(this);
-                log::trace!(target: "citadel", "SessionManager has {} sessions: {:?}", this.sessions.len(), this.sessions.keys().copied().collect::<Vec<u64>>());
-            }
-        };
-
-        spawn!(debug_task);
-
-        this_ret
+        Self::from(inner)
     }
 
     /// Loads the server remote, and gets the time tracker for the calling [HdpServer]
