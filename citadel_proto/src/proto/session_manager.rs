@@ -120,6 +120,11 @@ impl HdpSessionManager {
         this.sessions.contains_key(&cid)
     }
 
+    pub fn provisional_session_active(&self, peer_addr: &SocketAddr) -> bool {
+        let this = inner!(self);
+        this.provisional_connections.contains_key(peer_addr)
+    }
+
     /// Called by the higher-level [HdpServer] async writer loop
     /// `nid_local` is only needed in case a provisional id is needed.
     ///

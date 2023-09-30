@@ -2237,6 +2237,14 @@ impl HdpSessionInner {
         disconnect_success: bool,
         msg: T,
     ) {
+        if self
+            .session_manager
+            .provisional_session_active(&self.remote_peer)
+        {
+            // If we are provisional, we don't need to send a disconnect signal
+            return;
+        }
+
         if let Some(tx) = self.dc_signal_sender.take() {
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
