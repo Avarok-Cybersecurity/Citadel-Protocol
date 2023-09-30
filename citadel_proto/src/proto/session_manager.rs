@@ -103,7 +103,19 @@ impl HdpSessionManager {
             stun_servers,
         };
 
-        Self::from(inner)
+        let this = Self::from(inner);
+        let this_ret = this.clone();
+        let debug_task = async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let this = inner!(this);
+                log::trace!(target: "citadel", "SessionManager has {} sessions: {:?}", this.sessions.len(), this.sessions.keys().copied().collect::<Vec<u64>>());
+            }
+        };
+
+        spawn!(debug_task);
+
+        this_ret
     }
 
     /// Loads the server remote, and gets the time tracker for the calling [HdpServer]
@@ -284,6 +296,8 @@ impl HdpSessionManager {
                 peer_only_connect_proto: peer_only_connect_mode,
             };
 
+            let init_time = Instant::now();
+
             let session_init_params = SessionInitParams {
                 local_nat_type,
                 remote_peer: peer_addr,
@@ -300,13 +314,19 @@ impl HdpSessionManager {
                 hypernode_peer_layer: peer_layer,
                 client_only_settings: Some(client_only_settings),
                 stun_servers,
+                init_time,
             };
 
             let (stopper, new_session) = HdpSession::new(session_init_params)?;
 
-            let _ = inner_mut!(self)
+            if let Some((_prev_conn_init_time, _stopper, lingering_session)) = inner_mut!(self)
                 .provisional_connections
-                .insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
+                .insert(peer_addr, (init_time, stopper, new_session.clone()))
+            {
+                // If the previous connection was not dropped, then we need to drop it
+                log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
+                lingering_session.shutdown();
+            }
 
             (
                 session_manager_clone,
@@ -335,17 +355,18 @@ impl HdpSessionManager {
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-execution of session");
         let mut err = None;
+        let init_time = new_session.init_time;
         let res = new_session.execute(tcp_stream, peer_addr).await;
 
         match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
                 if let Some(cid) = *cid_opt {
                     //log::trace!(target: "citadel", "[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
-                    session_manager.clear_session(cid);
-                    session_manager.clear_provisional_session(&peer_addr);
+                    session_manager.clear_session(cid, init_time);
+                    session_manager.clear_provisional_session(&peer_addr, init_time);
                 } else {
                     //log::trace!(target: "citadel", "[safe] deleting provisional connection to {}", &peer_addr);
-                    session_manager.clear_provisional_session(&peer_addr);
+                    session_manager.clear_provisional_session(&peer_addr, init_time);
                 }
             }
         }
@@ -487,6 +508,8 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as _);
         this.incoming_cxn_count += 1;
 
+        let init_time = Instant::now();
+
         let session_init_params = SessionInitParams {
             on_drop,
             local_nat_type,
@@ -503,11 +526,12 @@ impl HdpSessionManager {
             hypernode_peer_layer: peer_layer,
             client_only_settings: None,
             stun_servers,
+            init_time,
         };
 
         let (stopper, new_session) = HdpSession::new(session_init_params)?;
         this.provisional_connections
-            .insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
+            .insert(peer_addr, (init_time, stopper, new_session.clone()));
         std::mem::drop(this);
 
         // Note: Must send TICKET on finish
@@ -746,20 +770,21 @@ impl HdpSessionManager {
     }
 
     /// Clears a session from the internal map
-    pub fn clear_session(&self, cid: u64) {
+    pub fn clear_session(&self, cid: u64, init_time: Instant) {
         let mut this = inner_mut!(self);
-        this.clear_session(cid);
+        this.clear_session(cid, init_time);
     }
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
-    pub fn clear_provisional_session(&self, addr: &SocketAddr) {
+    pub fn clear_provisional_session(&self, addr: &SocketAddr, init_time: Instant) {
         //log::trace!(target: "citadel", "Attempting to clear provisional session ...");
-        if inner_mut!(self)
-            .provisional_connections
-            .remove(addr)
-            .is_none()
-        {
-            log::warn!(target: "citadel", "Attempted to remove a connection {:?} that wasn't provisional", addr);
+        let mut this = inner_mut!(self);
+        if let Some((prev_init_time, _, _)) = this.provisional_connections.get(addr) {
+            if *prev_init_time == init_time {
+                this.provisional_connections.remove(addr);
+            } else {
+                log::warn!(target: "citadel", "Attempted to remove a connection {:?} that was provisional yet for a different process", addr);
+            }
         }
     }
 
@@ -1269,9 +1294,14 @@ impl HdpSessionManager {
 
 impl HdpSessionManagerInner {
     /// Clears a session from the SessionManager
-    pub fn clear_session(&mut self, cid: u64) {
-        if self.sessions.remove(&cid).is_none() {
-            log::warn!(target: "citadel", "Tried removing a session (non-provisional), but did not find it ...");
+    pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
+        if let Some((_, session)) = self.sessions.get(&cid) {
+            if session.init_time == init_time {
+                self.sessions.remove(&cid);
+                log::info!(target: "citadel", "Session for {cid} cleared");
+            } else {
+                log::warn!(target: "citadel", "Attempted to remove a connection {cid:?} that was for a different process");
+            }
         }
     }
 

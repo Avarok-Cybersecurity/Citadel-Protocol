@@ -230,6 +230,10 @@ pub async fn process_register(
                                             success_message,
                                             security_level,
                                         );
+                                        session.session_manager.clear_provisional_session(
+                                            &remote_addr,
+                                            session.init_time,
+                                        );
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                     }
 
@@ -241,6 +245,11 @@ pub async fn process_register(
                                             timestamp,
                                             err,
                                             header.session_cid.get(),
+                                        );
+
+                                        session.session_manager.clear_provisional_session(
+                                            &remote_addr,
+                                            session.init_time,
                                         );
 
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
@@ -319,9 +328,10 @@ pub async fn process_register(
                                             Ok(PrimaryProcessorResult::Void)
                                         } else {
                                             // Finally, alert the higher-level kernel about the success
-                                            session
-                                                .session_manager
-                                                .clear_provisional_session(&remote_addr);
+                                            session.session_manager.clear_provisional_session(
+                                                &remote_addr,
+                                                session.init_time,
+                                            );
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(
                                                 RegisterOkay {
                                                     ticket: reg_ticket.get(),

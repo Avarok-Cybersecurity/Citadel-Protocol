@@ -203,6 +203,7 @@ pub struct HdpSessionInner {
     pub(super) client_config: Arc<rustls::ClientConfig>,
     pub(super) hypernode_peer_layer: HyperNodePeerLayer,
     pub(super) stun_servers: Option<Vec<String>>,
+    pub(super) init_time: Instant,
     on_drop: UnboundedSender<()>,
 }
 
@@ -250,6 +251,7 @@ pub(crate) struct SessionInitParams {
     // this is set only when a local client is attempting to start an outbound session
     pub client_only_settings: Option<ClientOnlySessionInitSettings>,
     pub stun_servers: Option<Vec<String>>,
+    pub init_time: Instant,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings {
@@ -343,6 +345,7 @@ impl HdpSession {
             .map(|r| r.keep_alive_timeout_ns)
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
+        let init_time = session_init_params.init_time;
 
         let mut inner = HdpSessionInner {
             hypernode_peer_layer,
@@ -383,6 +386,7 @@ impl HdpSession {
             queue_handle: DualLateInit::default(),
             client_config,
             stun_servers,
+            init_time,
         };
 
         if let Some(proposed_credentials) = session_init_params
