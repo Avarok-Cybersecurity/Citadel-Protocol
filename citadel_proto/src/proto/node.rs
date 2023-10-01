@@ -802,10 +802,8 @@ impl HdpServer {
 
                 NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode {
                     implicated_cid,
-                    v_conn_type: target,
                 }) => {
-                    if let Err(err) =
-                        session_manager.initiate_disconnect(implicated_cid, target, ticket_id)
+                    if let Err(err) = session_manager.initiate_disconnect(implicated_cid, ticket_id)
                     {
                         send_error(ticket_id, err)?;
                     }

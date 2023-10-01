@@ -2070,11 +2070,7 @@ impl HdpSession {
     }
 
     /// Returns true if the disconnect initiate was a success, false if not. An error returns if something else occurs
-    pub fn initiate_disconnect(
-        &self,
-        ticket: Ticket,
-        _target: VirtualConnectionType,
-    ) -> Result<bool, NetworkError> {
+    pub fn initiate_disconnect(&self, ticket: Ticket) -> Result<bool, NetworkError> {
         let session = self;
         if session.state.load(Ordering::Relaxed) != SessionState::Connected {
             log::error!(target: "citadel", "Must be connected to HyperLAN in order to start disconnect")

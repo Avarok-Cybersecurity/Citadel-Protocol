@@ -734,27 +734,24 @@ impl HdpSessionManager {
     pub fn initiate_disconnect(
         &self,
         implicated_cid: u64,
-        virtual_peer: VirtualConnectionType,
         ticket: Ticket,
     ) -> Result<bool, NetworkError> {
         let this = inner!(self);
         let res = match this.sessions.get(&implicated_cid) {
-            Some(session) => session.1.initiate_disconnect(ticket, virtual_peer),
-
+            Some(session) => session.1.initiate_disconnect(ticket),
             None => Ok(false),
         };
 
         let will_perform_dc = res?;
 
         if !will_perform_dc {
-            // already disconnected. Send a message to the kernel
-            inner!(self)
-                .kernel_tx
+            // Already disconnected. Send a message to the kernel
+            this.kernel_tx
                 .unbounded_send(NodeResult::Disconnect(Disconnect {
                     ticket,
                     cid_opt: Some(implicated_cid),
                     success: true,
-                    v_conn_type: Some(virtual_peer),
+                    v_conn_type: Some(VirtualConnectionType::LocalGroupServer { implicated_cid }),
                     message: "Already disconnected".to_string(),
                 }))?;
         }
