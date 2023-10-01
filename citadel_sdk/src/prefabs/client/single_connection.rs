@@ -331,6 +331,12 @@ mod tests {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
 
+        // If the underlying protocol is TLS, we will skip since windows runners do not always accept self-signed certs
+        if matches!(underlying_protocol, ServerUnderlyingProtocol::Tls(..)) && cfg!(windows) {
+            citadel_logging::warn!(target: "citadel", "Will skip test since self-signed certs may not necessarily work on windows runner");
+            return;
+        }
+
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
 

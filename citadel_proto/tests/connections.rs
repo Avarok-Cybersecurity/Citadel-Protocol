@@ -125,6 +125,11 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
+            if matches!(proto, ServerUnderlyingProtocol::Tls(..)) && cfg!(windows) {
+                citadel_logging::warn!(target: "citadel", "Will skip test since self-signed certs may not necessarily work on windows runner");
+                continue;
+            }
+
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
