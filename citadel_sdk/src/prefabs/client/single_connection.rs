@@ -385,6 +385,8 @@ mod tests {
 
         if debug_force_nat_timeout {
             std::env::set_var("debug_cause_timeout", "ON");
+        } else {
+            std::env::remove_var("debug_cause_timeout");
         }
 
         let client_success = &AtomicBool::new(false);
@@ -420,10 +422,6 @@ mod tests {
         let joined = futures::future::try_join(server, client);
 
         let _ = joined.await.unwrap();
-
-        if debug_force_nat_timeout {
-            std::env::remove_var("debug_cause_timeout");
-        }
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));

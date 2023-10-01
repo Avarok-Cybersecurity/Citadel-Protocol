@@ -74,7 +74,7 @@ pub mod tests {
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let res = HdpServer::server_create_primary_listen_socket(proto.clone(), addr);
+            let res = Node::server_create_primary_listen_socket(proto.clone(), addr);
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket: {:?}", err);
@@ -91,7 +91,7 @@ pub mod tests {
             };
 
             let client = async move {
-                let (stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config)
+                let (stream, _) = Node::c2s_connect_defaults(None, addr, client_config)
                     .await
                     .unwrap();
                 on_client_received_stream(stream).await
@@ -128,10 +128,10 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = HdpServer::server_create_primary_listen_socket(proto.clone(), addr);
+            let res = Node::server_create_primary_listen_socket(proto.clone(), addr);
 
             if let Err(err) = res.as_ref() {
-                log::error!(target: "citadel", "Error creating primary socket: {:?}", err);
+                log::error!(target: "citadel", "Error creating primary socket w/mode {proto:?}: {err:?}");
             }
 
             let (mut listener, addr) = res.unwrap();
@@ -156,8 +156,7 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let (stream, _) =
-                        HdpServer::c2s_connect_defaults(None, addr, client_config).await?;
+                    let (stream, _) = Node::c2s_connect_defaults(None, addr, client_config).await?;
                     on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())

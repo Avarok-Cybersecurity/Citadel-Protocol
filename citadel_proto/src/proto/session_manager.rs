@@ -25,7 +25,7 @@ use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
-use crate::proto::node::{ConnectMode, HdpServer};
+use crate::proto::node::{ConnectMode, Node};
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
@@ -106,7 +106,7 @@ impl HdpSessionManager {
         Self::from(inner)
     }
 
-    /// Loads the server remote, and gets the time tracker for the calling [HdpServer]
+    /// Loads the server remote, and gets the time tracker for the calling [Node]
     /// Used during the init stage
     pub(crate) fn load_server_remote_get_tt(&self, server_remote: NodeRemote) -> TimeTracker {
         let mut this = inner_mut!(self);
@@ -125,7 +125,7 @@ impl HdpSessionManager {
         this.provisional_connections.contains_key(peer_addr)
     }
 
-    /// Called by the higher-level [HdpServer] async writer loop
+    /// Called by the higher-level [Node] async writer loop
     /// `nid_local` is only needed in case a provisional id is needed.
     ///
     /// This is initiated by the local HyperNode's request to connect to an external server
@@ -254,7 +254,7 @@ impl HdpSessionManager {
 
                 // create conn to peer
                 let primary_stream =
-                    HdpServer::create_session_transport_init(peer_addr, default_client_config)
+                    Node::create_session_transport_init(peer_addr, default_client_config)
                         .await
                         .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 let local_bind_addr = primary_stream
@@ -542,7 +542,7 @@ impl HdpSessionManager {
         }
     }
 
-    /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
+    /// When the [Node] receives an outbound request, the request flows here. It returns where the packet must be sent to
     #[allow(clippy::too_many_arguments)]
     pub fn process_outbound_file(
         &self,

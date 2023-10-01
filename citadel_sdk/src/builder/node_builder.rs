@@ -350,6 +350,6 @@ mod tests {
             builder.kernel_executor_settings.clone().unwrap()
         );
 
-        let _ = builder.build(EmptyKernel::default()).unwrap();
+        drop(builder.build(EmptyKernel::default()).unwrap());
     }
 }

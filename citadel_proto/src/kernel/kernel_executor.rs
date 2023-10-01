@@ -9,7 +9,7 @@ use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::kernel_trait::NetKernel;
 use crate::kernel::{KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture};
-use crate::proto::node::HdpServer;
+use crate::proto::node::Node;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::proto::packet_processor::includes::Duration;
@@ -52,7 +52,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = HdpServer::init(
+        let (remote, future, localset_opt, callback_handler) = Node::init(
             hypernode_type,
             server_to_kernel_tx,
             account_manager.clone(),

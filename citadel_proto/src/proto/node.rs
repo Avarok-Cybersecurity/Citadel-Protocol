@@ -47,10 +47,10 @@ pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(HdpServer, HdpServerInner);
+define_outer_struct_wrapper!(Node, NodeInner);
 
-/// Inner device for the HdpServer
-pub struct HdpServerInner {
+/// Inner device for the [`Node`]
+pub struct NodeInner {
     primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: HdpSessionManager,
@@ -63,8 +63,8 @@ pub struct HdpServerInner {
     client_config: Arc<ClientConfig>,
 }
 
-impl HdpServer {
-    /// Creates a new [HdpServer]
+impl Node {
+    /// Creates a new [`Node`]
     pub(crate) async fn init(
         local_node_type: NodeType,
         to_kernel: UnboundedSender<NodeResult>,
@@ -119,7 +119,7 @@ impl HdpServer {
             .await
             .map_err(|err| err.std())?;
 
-        let inner = HdpServerInner {
+        let inner = NodeInner {
             underlying_proto,
             local_node_type,
             primary_socket,
@@ -130,7 +130,7 @@ impl HdpServer {
         };
 
         let this = Self::from(inner);
-        Ok(HdpServer::load(this, account_manager, shutdown))
+        Ok(Node::load(this, account_manager, shutdown))
     }
 
     /// Note: spawning via handle is more efficient than joining futures. Source: https://cafbit.com/post/tokio_internals/
@@ -138,10 +138,10 @@ impl HdpServer {
     ///
     /// This will panic if called twice in succession without a proper server reload.
     ///
-    /// Returns a handle to communicate with the [HdpServer].
+    /// Returns a handle to communicate with the [Node].
     #[allow(unused_results, unused_must_use)]
     fn load(
-        this: HdpServer,
+        this: Node,
         account_manager: AccountManager,
         shutdown: tokio::sync::oneshot::Sender<()>,
     ) -> (
@@ -175,7 +175,7 @@ impl HdpServer {
             .load_server_remote_get_tt(remote.clone());
         let session_manager = read.session_manager.clone();
 
-        std::mem::drop(read);
+        drop(read);
 
         let (
             outbound_kernel_request_handler,
@@ -591,7 +591,7 @@ impl HdpServer {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
-        server: HdpServer,
+        server: Node,
         _tt: TimeTracker,
         to_kernel: UnboundedSender<NodeResult>,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
@@ -670,7 +670,7 @@ impl HdpServer {
     }
 
     async fn outbound_kernel_request_handler(
-        this: HdpServer,
+        this: Node,
         to_kernel_tx: UnboundedSender<NodeResult>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
