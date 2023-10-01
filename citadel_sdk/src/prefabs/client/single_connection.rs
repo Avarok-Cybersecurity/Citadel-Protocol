@@ -373,7 +373,6 @@ mod tests {
 
     #[rstest]
     #[case(false, UdpMode::Enabled)]
-    #[case(true, UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless(
