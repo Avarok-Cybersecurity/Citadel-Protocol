@@ -191,12 +191,10 @@ pub async fn process_connect(
                 {
                     let message = String::from_utf8(payload.message.to_vec())
                         .unwrap_or_else(|_| "Invalid UTF-8 message".to_string());
-                    log::trace!(target: "citadel", "The server refused to login the user. Reason: {}", &message);
+                    log::error!(target: "citadel", "The server refused to login the user. Reason: {}", &message);
                     let cid = hyper_ratchet.get_cid();
                     state_container.connect_state.on_fail();
-                    std::mem::drop(state_container);
-
-                    //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
+                    drop(state_container);
 
                     session.implicated_cid.set(None);
                     session

@@ -223,6 +223,7 @@ pub async fn process_register(
                                         log::trace!(target: "citadel", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_cid());
                                         let success_message =
                                             session.create_register_success_message();
+
                                         let packet = packet_crafter::do_register::craft_success(
                                             &hyper_ratchet,
                                             algorithm,
@@ -230,6 +231,8 @@ pub async fn process_register(
                                             success_message,
                                             security_level,
                                         );
+                                        // Do not shutdown the session here. It is up to the client to decide
+                                        // how to shutdown, or continue (in the case of passwordless mode), the session
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                     }
 
@@ -289,7 +292,6 @@ pub async fn process_register(
                             )
                         {
                             // Now, register the CNAC locally
-
                             let credentials = return_if_none!(
                                 state_container.connect_state.proposed_credentials.clone(),
                                 "Unable to take proposed credentials"
@@ -300,7 +302,7 @@ pub async fn process_register(
                                 "Passwordless unset (reg)"
                             );
 
-                            std::mem::drop(state_container);
+                            drop(state_container);
 
                             let reg_ticket = session.kernel_ticket.clone();
                             let account_manager = session.account_manager.clone();
