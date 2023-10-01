@@ -230,10 +230,6 @@ pub async fn process_register(
                                             success_message,
                                             security_level,
                                         );
-                                        session.session_manager.clear_provisional_session(
-                                            &remote_addr,
-                                            session.init_time,
-                                        );
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                     }
 

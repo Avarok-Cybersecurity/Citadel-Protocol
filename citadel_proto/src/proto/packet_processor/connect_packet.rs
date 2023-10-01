@@ -85,11 +85,11 @@ pub async fn process_connect(
                                 session,
                             );
 
-                            std::mem::drop(state_container);
+                            drop(state_container);
 
                             // Upgrade the connect BEFORE updating the CNAC
                             if !session.session_manager.upgrade_connection(addr, cid) {
-                                return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection"));
+                                return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection (Server)"));
                             }
 
                             //cnac.update_post_quantum_container(post_quantum).await?;
@@ -269,7 +269,7 @@ pub async fn process_connect(
                                 .session_manager
                                 .upgrade_connection(session.remote_peer, cid)
                             {
-                                return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection"));
+                                return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection (Client)"));
                             }
 
                             log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", &message);

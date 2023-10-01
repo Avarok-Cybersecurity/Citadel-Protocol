@@ -2260,13 +2260,13 @@ impl HdpSessionInner {
 impl Drop for HdpSessionInner {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
+        self.send_session_dc_signal(None, false, "Session dropped");
+
         if self.on_drop.unbounded_send(()).is_err() {
             //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
         }
 
         let _ = inner!(self.stopper_tx).send(());
-
-        self.send_session_dc_signal(None, false, "Session dropped");
     }
 }
 

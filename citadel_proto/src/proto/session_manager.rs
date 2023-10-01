@@ -56,7 +56,7 @@ define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 /// Used for handling stateful connections between two peer
 pub struct HdpSessionManagerInner {
     local_node_type: NodeType,
-    sessions: HashMap<u64, (Sender<()>, HdpSession)>,
+    pub(crate) sessions: HashMap<u64, (Sender<()>, HdpSession)>,
     account_manager: AccountManager,
     pub(crate) hypernode_peer_layer: HyperNodePeerLayer,
     server_remote: Option<NodeRemote>,
@@ -64,7 +64,7 @@ pub struct HdpSessionManagerInner {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
-    provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
+    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
     kernel_tx: UnboundedSender<NodeResult>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
@@ -484,17 +484,6 @@ impl HdpSessionManager {
         let peer_layer = this.hypernode_peer_layer.clone();
         let stun_servers = this.stun_servers.clone();
 
-        if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
-            if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
-                this.provisional_connections.remove(&peer_addr);
-            } else {
-                return Err(NetworkError::Generic(format!(
-                    "Peer from {} is already a provisional connection. Denying attempt",
-                    &peer_addr
-                )));
-            }
-        }
-
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
         // However, two concurrent provisional connections from the same IP cannot be connecting at once
         let local_node_type = this.local_node_type;
@@ -525,10 +514,8 @@ impl HdpSessionManager {
         let (stopper, new_session) = HdpSession::new(session_init_params)?;
         this.provisional_connections
             .insert(peer_addr, (init_time, stopper, new_session.clone()));
-        std::mem::drop(this);
+        drop(this);
 
-        // Note: Must send TICKET on finish
-        //self.insert_provisional_expiration(peer_addr, provisional_ticket);
         let session = Self::execute_session_with_safe_shutdown(
             this_dc,
             new_session,
@@ -767,7 +754,7 @@ impl HdpSessionManager {
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
     pub fn clear_provisional_session(&self, addr: &SocketAddr, init_time: Instant) {
-        //log::trace!(target: "citadel", "Attempting to clear provisional session ...");
+        log::warn!(target: "citadel", "Attempting to clear provisional session ...");
         let mut this = inner_mut!(self);
         if let Some((prev_init_time, _, _)) = this.provisional_connections.get(addr) {
             if *prev_init_time == init_time {
