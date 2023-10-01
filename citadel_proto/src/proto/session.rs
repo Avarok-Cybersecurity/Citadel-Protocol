@@ -203,6 +203,7 @@ pub struct HdpSessionInner {
     pub(super) client_config: Arc<rustls::ClientConfig>,
     pub(super) hypernode_peer_layer: HyperNodePeerLayer,
     pub(super) stun_servers: Option<Vec<String>>,
+    pub(super) init_time: Instant,
     on_drop: UnboundedSender<()>,
 }
 
@@ -250,6 +251,7 @@ pub(crate) struct SessionInitParams {
     // this is set only when a local client is attempting to start an outbound session
     pub client_only_settings: Option<ClientOnlySessionInitSettings>,
     pub stun_servers: Option<Vec<String>>,
+    pub init_time: Instant,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings {
@@ -343,6 +345,7 @@ impl HdpSession {
             .map(|r| r.keep_alive_timeout_ns)
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
+        let init_time = session_init_params.init_time;
 
         let mut inner = HdpSessionInner {
             hypernode_peer_layer,
@@ -383,6 +386,7 @@ impl HdpSession {
             queue_handle: DualLateInit::default(),
             client_config,
             stun_servers,
+            init_time,
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -2066,11 +2070,7 @@ impl HdpSession {
     }
 
     /// Returns true if the disconnect initiate was a success, false if not. An error returns if something else occurs
-    pub fn initiate_disconnect(
-        &self,
-        ticket: Ticket,
-        _target: VirtualConnectionType,
-    ) -> Result<bool, NetworkError> {
+    pub fn initiate_disconnect(&self, ticket: Ticket) -> Result<bool, NetworkError> {
         let session = self;
         if session.state.load(Ordering::Relaxed) != SessionState::Connected {
             log::error!(target: "citadel", "Must be connected to HyperLAN in order to start disconnect")
@@ -2233,6 +2233,14 @@ impl HdpSessionInner {
         disconnect_success: bool,
         msg: T,
     ) {
+        if self
+            .session_manager
+            .provisional_session_active(&self.remote_peer)
+        {
+            // If we are provisional, we don't need to send a disconnect signal
+            return;
+        }
+
         if let Some(tx) = self.dc_signal_sender.take() {
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
@@ -2252,13 +2260,13 @@ impl HdpSessionInner {
 impl Drop for HdpSessionInner {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
+        self.send_session_dc_signal(None, false, "Session dropped");
+
         if self.on_drop.unbounded_send(()).is_err() {
             //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
         }
 
         let _ = inner!(self.stopper_tx).send(());
-
-        self.send_session_dc_signal(None, false, "Session dropped");
     }
 }
 

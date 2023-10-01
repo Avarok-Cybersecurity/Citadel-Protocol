@@ -8,7 +8,7 @@ use crate::proto::misc;
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
-use crate::proto::node::HdpServer;
+use crate::proto::node::Node;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_sender::{unbounded, OutboundPrimaryStreamReceiver, UnboundedSender};
@@ -77,7 +77,7 @@ async fn setup_listener_non_initiator(
     ticket: Ticket,
 ) -> Result<(), NetworkError> {
     // TODO: use custom self-signed
-    let (listener, _) = HdpServer::create_listen_socket(
+    let (listener, _) = Node::create_listen_socket(
         ServerUnderlyingProtocol::new_quic_self_signed(),
         None,
         None,
@@ -310,7 +310,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             let quic_endpoint =
                 citadel_wire::quic::QuicClient::new_with_config(socket, client_config.clone())
                     .map_err(generic_error)?;
-            let p2p_stream = HdpServer::quic_p2p_connect_defaults(
+            let p2p_stream = Node::quic_p2p_connect_defaults(
                 quic_endpoint.endpoint,
                 None,
                 peer_nat_info.tls_domain,

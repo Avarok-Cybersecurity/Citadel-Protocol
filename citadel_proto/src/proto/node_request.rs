@@ -68,7 +68,6 @@ pub struct GroupBroadcastCommand {
 
 pub struct DisconnectFromHypernode {
     pub implicated_cid: u64,
-    pub v_conn_type: VirtualConnectionType,
 }
 
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID

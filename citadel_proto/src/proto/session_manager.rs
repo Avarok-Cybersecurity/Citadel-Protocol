@@ -25,7 +25,7 @@ use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
-use crate::proto::node::{ConnectMode, HdpServer};
+use crate::proto::node::{ConnectMode, Node};
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
@@ -56,7 +56,7 @@ define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 /// Used for handling stateful connections between two peer
 pub struct HdpSessionManagerInner {
     local_node_type: NodeType,
-    sessions: HashMap<u64, (Sender<()>, HdpSession)>,
+    pub(crate) sessions: HashMap<u64, (Sender<()>, HdpSession)>,
     account_manager: AccountManager,
     pub(crate) hypernode_peer_layer: HyperNodePeerLayer,
     server_remote: Option<NodeRemote>,
@@ -64,7 +64,7 @@ pub struct HdpSessionManagerInner {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
-    provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
+    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
     kernel_tx: UnboundedSender<NodeResult>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
@@ -106,7 +106,7 @@ impl HdpSessionManager {
         Self::from(inner)
     }
 
-    /// Loads the server remote, and gets the time tracker for the calling [HdpServer]
+    /// Loads the server remote, and gets the time tracker for the calling [Node]
     /// Used during the init stage
     pub(crate) fn load_server_remote_get_tt(&self, server_remote: NodeRemote) -> TimeTracker {
         let mut this = inner_mut!(self);
@@ -120,7 +120,12 @@ impl HdpSessionManager {
         this.sessions.contains_key(&cid)
     }
 
-    /// Called by the higher-level [HdpServer] async writer loop
+    pub fn provisional_session_active(&self, peer_addr: &SocketAddr) -> bool {
+        let this = inner!(self);
+        this.provisional_connections.contains_key(peer_addr)
+    }
+
+    /// Called by the higher-level [Node] async writer loop
     /// `nid_local` is only needed in case a provisional id is needed.
     ///
     /// This is initiated by the local HyperNode's request to connect to an external server
@@ -249,7 +254,7 @@ impl HdpSessionManager {
 
                 // create conn to peer
                 let primary_stream =
-                    HdpServer::create_session_transport_init(peer_addr, default_client_config)
+                    Node::create_session_transport_init(peer_addr, default_client_config)
                         .await
                         .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 let local_bind_addr = primary_stream
@@ -284,6 +289,8 @@ impl HdpSessionManager {
                 peer_only_connect_proto: peer_only_connect_mode,
             };
 
+            let init_time = Instant::now();
+
             let session_init_params = SessionInitParams {
                 local_nat_type,
                 remote_peer: peer_addr,
@@ -300,13 +307,19 @@ impl HdpSessionManager {
                 hypernode_peer_layer: peer_layer,
                 client_only_settings: Some(client_only_settings),
                 stun_servers,
+                init_time,
             };
 
             let (stopper, new_session) = HdpSession::new(session_init_params)?;
 
-            let _ = inner_mut!(self)
+            if let Some((_prev_conn_init_time, _stopper, lingering_session)) = inner_mut!(self)
                 .provisional_connections
-                .insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
+                .insert(peer_addr, (init_time, stopper, new_session.clone()))
+            {
+                // If the previous connection was not dropped, then we need to drop it
+                log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
+                lingering_session.shutdown();
+            }
 
             (
                 session_manager_clone,
@@ -335,17 +348,18 @@ impl HdpSessionManager {
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-execution of session");
         let mut err = None;
+        let init_time = new_session.init_time;
         let res = new_session.execute(tcp_stream, peer_addr).await;
 
         match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
                 if let Some(cid) = *cid_opt {
                     //log::trace!(target: "citadel", "[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
-                    session_manager.clear_session(cid);
-                    session_manager.clear_provisional_session(&peer_addr);
+                    session_manager.clear_session(cid, init_time);
+                    session_manager.clear_provisional_session(&peer_addr, init_time);
                 } else {
                     //log::trace!(target: "citadel", "[safe] deleting provisional connection to {}", &peer_addr);
-                    session_manager.clear_provisional_session(&peer_addr);
+                    session_manager.clear_provisional_session(&peer_addr, init_time);
                 }
             }
         }
@@ -470,22 +484,13 @@ impl HdpSessionManager {
         let peer_layer = this.hypernode_peer_layer.clone();
         let stun_servers = this.stun_servers.clone();
 
-        if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
-            if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
-                this.provisional_connections.remove(&peer_addr);
-            } else {
-                return Err(NetworkError::Generic(format!(
-                    "Peer from {} is already a provisional connection. Denying attempt",
-                    &peer_addr
-                )));
-            }
-        }
-
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
         // However, two concurrent provisional connections from the same IP cannot be connecting at once
         let local_node_type = this.local_node_type;
         let provisional_ticket = Ticket(this.incoming_cxn_count as _);
         this.incoming_cxn_count += 1;
+
+        let init_time = Instant::now();
 
         let session_init_params = SessionInitParams {
             on_drop,
@@ -503,15 +508,14 @@ impl HdpSessionManager {
             hypernode_peer_layer: peer_layer,
             client_only_settings: None,
             stun_servers,
+            init_time,
         };
 
         let (stopper, new_session) = HdpSession::new(session_init_params)?;
         this.provisional_connections
-            .insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
-        std::mem::drop(this);
+            .insert(peer_addr, (init_time, stopper, new_session.clone()));
+        drop(this);
 
-        // Note: Must send TICKET on finish
-        //self.insert_provisional_expiration(peer_addr, provisional_ticket);
         let session = Self::execute_session_with_safe_shutdown(
             this_dc,
             new_session,
@@ -538,7 +542,7 @@ impl HdpSessionManager {
         }
     }
 
-    /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
+    /// When the [Node] receives an outbound request, the request flows here. It returns where the packet must be sent to
     #[allow(clippy::too_many_arguments)]
     pub fn process_outbound_file(
         &self,
@@ -717,27 +721,24 @@ impl HdpSessionManager {
     pub fn initiate_disconnect(
         &self,
         implicated_cid: u64,
-        virtual_peer: VirtualConnectionType,
         ticket: Ticket,
     ) -> Result<bool, NetworkError> {
         let this = inner!(self);
         let res = match this.sessions.get(&implicated_cid) {
-            Some(session) => session.1.initiate_disconnect(ticket, virtual_peer),
-
+            Some(session) => session.1.initiate_disconnect(ticket),
             None => Ok(false),
         };
 
         let will_perform_dc = res?;
 
         if !will_perform_dc {
-            // already disconnected. Send a message to the kernel
-            inner!(self)
-                .kernel_tx
+            // Already disconnected. Send a message to the kernel
+            this.kernel_tx
                 .unbounded_send(NodeResult::Disconnect(Disconnect {
                     ticket,
                     cid_opt: Some(implicated_cid),
                     success: true,
-                    v_conn_type: Some(virtual_peer),
+                    v_conn_type: Some(VirtualConnectionType::LocalGroupServer { implicated_cid }),
                     message: "Already disconnected".to_string(),
                 }))?;
         }
@@ -746,20 +747,21 @@ impl HdpSessionManager {
     }
 
     /// Clears a session from the internal map
-    pub fn clear_session(&self, cid: u64) {
+    pub fn clear_session(&self, cid: u64, init_time: Instant) {
         let mut this = inner_mut!(self);
-        this.clear_session(cid);
+        this.clear_session(cid, init_time);
     }
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
-    pub fn clear_provisional_session(&self, addr: &SocketAddr) {
-        //log::trace!(target: "citadel", "Attempting to clear provisional session ...");
-        if inner_mut!(self)
-            .provisional_connections
-            .remove(addr)
-            .is_none()
-        {
-            log::warn!(target: "citadel", "Attempted to remove a connection {:?} that wasn't provisional", addr);
+    pub fn clear_provisional_session(&self, addr: &SocketAddr, init_time: Instant) {
+        log::warn!(target: "citadel", "Attempting to clear provisional session ...");
+        let mut this = inner_mut!(self);
+        if let Some((prev_init_time, _, _)) = this.provisional_connections.get(addr) {
+            if *prev_init_time == init_time {
+                this.provisional_connections.remove(addr);
+            } else {
+                log::warn!(target: "citadel", "Attempted to remove a connection {:?} that was provisional yet for a different process", addr);
+            }
         }
     }
 
@@ -1269,9 +1271,14 @@ impl HdpSessionManager {
 
 impl HdpSessionManagerInner {
     /// Clears a session from the SessionManager
-    pub fn clear_session(&mut self, cid: u64) {
-        if self.sessions.remove(&cid).is_none() {
-            log::warn!(target: "citadel", "Tried removing a session (non-provisional), but did not find it ...");
+    pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
+        if let Some((_, session)) = self.sessions.get(&cid) {
+            if session.init_time == init_time {
+                self.sessions.remove(&cid);
+                log::info!(target: "citadel", "Session for {cid} cleared");
+            } else {
+                log::warn!(target: "citadel", "Attempted to remove a connection {cid:?} that was for a different process");
+            }
         }
     }
 

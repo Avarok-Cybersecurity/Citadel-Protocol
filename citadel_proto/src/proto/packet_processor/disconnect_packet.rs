@@ -1,6 +1,5 @@
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::prelude::Disconnect;
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use std::sync::atomic::Ordering;
 
@@ -56,20 +55,12 @@ pub async fn process_disconnect(
         }
 
         packet_flags::cmd::aux::do_disconnect::FINAL => {
-            log::trace!(target: "citadel", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
+            trace!(target: "citadel", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
             session.kernel_ticket.set(ticket);
             session
                 .state
                 .store(SessionState::Disconnected, Ordering::Relaxed);
-            session.send_to_kernel(NodeResult::Disconnect(Disconnect {
-                ticket,
-                cid_opt: Some(header.session_cid.get()),
-                success: true,
-                v_conn_type: Some(VirtualConnectionType::LocalGroupServer {
-                    implicated_cid: header.session_cid.get(),
-                }),
-                message: SUCCESS_DISCONNECT.to_string(),
-            }))?;
+            session.send_session_dc_signal(Some(ticket), true, SUCCESS_DISCONNECT);
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }
 
