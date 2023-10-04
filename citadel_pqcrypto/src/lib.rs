@@ -995,7 +995,8 @@ pub enum PostQuantumMeta {
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {:?}", kem_alg);
-        let (public_key, secret_key) = kyber_pke::kem_keypair();
+        let pk_alice = kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
+        let (public_key, secret_key) = (pk_alice.public, pk_alice.secret);
         let ciphertext = None;
         let shared_secret = None;
         let remote_sig_public_key = None;
@@ -1041,7 +1042,8 @@ impl PostQuantumMeta {
             } => (*kem_scheme, alice_pk),
         };
 
-        let (kem_pk_bob, kem_sk_bob) = kyber_pke::kem_keypair();
+        let pk_bob = kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
+        let (kem_pk_bob, kem_sk_bob) = (pk_bob.public, pk_bob.secret);
         let (kem_pk_bob, kem_sk_bob) = (kem_pk_bob.to_vec(), kem_sk_bob.to_vec());
 
         let (ciphertext, shared_secret) = match kem_scheme {
