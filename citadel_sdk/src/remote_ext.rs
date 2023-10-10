@@ -796,7 +796,6 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let cid = self.user().get_implicated_cid();
             let request = NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode {
                 implicated_cid: cid,
-                v_conn_type: *self.user(),
             });
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;

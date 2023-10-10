@@ -215,12 +215,12 @@ mod test {
                             .map_err(from_hyper_error)?;
 
                         // spawn a task to poll the connection and drive the HTTP state
-                        let _ = tokio::spawn(async move {
+                        drop(tokio::spawn(async move {
                             if let Err(e) = connection.await {
                                 citadel_logging::error!(target: "citadel", "Error in connection: {e}");
                                 std::process::exit(-1);
                             }
-                        });
+                        }));
 
                         // give time for task to spawn
                         tokio::time::sleep(Duration::from_millis(100)).await;

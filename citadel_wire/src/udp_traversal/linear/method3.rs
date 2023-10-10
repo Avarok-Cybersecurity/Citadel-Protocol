@@ -177,11 +177,17 @@ impl Method3 {
             .map(|idx| ttl_init + (idx * delta_ttl))
             .collect::<Vec<u32>>();
 
+        let mut endpoints_not_reachable = Vec::new();
+
         // fan-out all packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
             let _ = sleep.tick().await;
 
             for endpoint in endpoints.iter() {
+                if endpoints_not_reachable.contains(endpoint) {
+                    continue;
+                }
+
                 let packet_ty = if let Some(syn_addr) = syn_received_addr {
                     // put the addr the peer used to send to this node, that way the peer knows where
                     // to send the packet, even if the receive address is translated
@@ -206,6 +212,9 @@ impl Method3 {
                     }
                     Err(err) => {
                         log::warn!(target: "citadel", "Error sending packet from {:?} to {endpoint}: {:?}", socket.socket.local_addr()?, err);
+                        if err.kind().to_string().contains("NetworkUnreachable") {
+                            endpoints_not_reachable.push(*endpoint);
+                        }
                     }
                 }
             }

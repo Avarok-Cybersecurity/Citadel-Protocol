@@ -373,7 +373,7 @@ pub mod prelude {
     };
     pub use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
     pub use crate::proto::node::ConnectMode;
-    pub use crate::proto::node::HdpServer;
+    pub use crate::proto::node::Node;
     pub use crate::proto::node::SecrecyMode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_crafter::SecureProtocolPacket;
