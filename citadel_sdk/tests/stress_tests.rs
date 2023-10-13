@@ -161,7 +161,7 @@ mod tests {
                 }
 
                 GroupBroadcastPayload::Event { payload } => {
-                    if let GroupBroadcast::MessageResponse(..) = &payload {
+                    if let GroupBroadcast::MessageResponse { .. } = &payload {
                     } else {
                         panic!("Received invalid message type: {payload:?}");
                     }

@@ -25,7 +25,13 @@ pub async fn handle_response_phase_post_register(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let decline = matches!(&peer_response, PeerResponse::Decline);
 
-    route_signal_response(PeerSignal::PostRegister(peer_conn_type, username, None,Some(ticket), Some(peer_response)), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), sess_hyper_ratchet,
+    route_signal_response(PeerSignal::PostRegister {
+        peer_conn_type,
+        inviter_username: username,
+        invitee_username: None,
+        ticket_opt: Some(ticket),
+        invitee_response: Some(peer_response)
+    }, implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), sess_hyper_ratchet,
                           |this_sess, _peer_sess, _original_tracked_posting| {
                               if !decline {
                                   let account_manager = this_sess.account_manager.clone();

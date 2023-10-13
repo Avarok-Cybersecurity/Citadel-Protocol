@@ -113,13 +113,13 @@ where
 
                 creator_only_accept_inbound_registers = accept_registrations;
 
-                GroupBroadcast::Create(
-                    peers_registered,
-                    MessageGroupOptions {
+                GroupBroadcast::Create {
+                    initial_invitees: peers_registered,
+                    options: MessageGroupOptions {
                         group_type: GroupType::Public,
                         id: group_id.as_u128(),
                     },
-                )
+                }
             }
 
             GroupInitRequestType::Join {
@@ -155,10 +155,12 @@ where
                     ))
                 })?;
 
-                GroupBroadcast::RequestJoin(MessageGroupKey {
-                    cid: owner.cid,
-                    mgid: group_id.as_u128(),
-                })
+                GroupBroadcast::RequestJoin {
+                    key: MessageGroupKey {
+                        cid: owner.cid,
+                        mgid: group_id.as_u128(),
+                    },
+                }
             }
         };
 
@@ -178,7 +180,14 @@ where
                 // cid for this group owner
                 while let Some(reg_request) = reg_rx.recv().await {
                     log::trace!(target: "citadel", "owner recv reg_request: {:?}", reg_request);
-                    if let PeerSignal::PostRegister(peer_conn, _, _, _, None) = &reg_request {
+                    if let PeerSignal::PostRegister {
+                        peer_conn_type: peer_conn,
+                        inviter_username: _,
+                        invitee_username: _,
+                        ticket_opt: _,
+                        invitee_response: None,
+                    } = &reg_request
+                    {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
                             log::warn!(target: "citadel", "Received the wrong CID. Will not accept request");
@@ -222,7 +231,7 @@ where
                 NodeResult::GroupEvent(GroupEvent {
                     implicated_cid: _,
                     ticket: _,
-                    event: GroupBroadcast::CreateResponse(None),
+                    event: GroupBroadcast::CreateResponse { key: None },
                 }) => {
                     return Err(NetworkError::InternalError(
                         "Unable to create a message group",
@@ -262,7 +271,7 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         if let NodeResult::PeerEvent(PeerEvent {
-            event: ps @ PeerSignal::PostRegister(..),
+            event: ps @ PeerSignal::PostRegister { .. },
             ticket: _,
         }) = &message
         {
@@ -443,7 +452,7 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation(_key),
+                                    event: GroupBroadcast::Invitation { key: _key },
                                 }) => {
                                     let _ = crate::responses::group_invite(
                                         evt,

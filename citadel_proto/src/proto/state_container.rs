@@ -2207,22 +2207,24 @@ impl StateContainerInner {
 
         let timestamp = self.time_tracker.get_global_time_ns();
         let packet = match command {
-            GroupBroadcast::Create(..)
-            | GroupBroadcast::End(_)
-            | GroupBroadcast::Kick(..)
-            | GroupBroadcast::Message(..)
-            | GroupBroadcast::Add(..)
-            | GroupBroadcast::AcceptMembership(_)
-            | GroupBroadcast::RequestJoin(..)
-            | GroupBroadcast::ListGroupsFor(..)
-            | GroupBroadcast::LeaveRoom(_) => packet_crafter::peer_cmd::craft_group_message_packet(
-                hyper_ratchet,
-                command,
-                ticket,
-                C2S_ENCRYPTION_ONLY,
-                timestamp,
-                security_level,
-            ),
+            GroupBroadcast::Create { .. }
+            | GroupBroadcast::End { key: _ }
+            | GroupBroadcast::Kick { .. }
+            | GroupBroadcast::Message { .. }
+            | GroupBroadcast::Add { .. }
+            | GroupBroadcast::AcceptMembership { key: _ }
+            | GroupBroadcast::RequestJoin { .. }
+            | GroupBroadcast::ListGroupsFor { .. }
+            | GroupBroadcast::LeaveRoom { key: _ } => {
+                packet_crafter::peer_cmd::craft_group_message_packet(
+                    hyper_ratchet,
+                    command,
+                    ticket,
+                    C2S_ENCRYPTION_ONLY,
+                    timestamp,
+                    security_level,
+                )
+            }
 
             n => {
                 return Err(NetworkError::Generic(format!(
