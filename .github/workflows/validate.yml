@@ -197,6 +197,8 @@ jobs:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
     steps:
       - uses: actions/checkout@v3
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@main
       - run: docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
   docker_nat_p2p:
     runs-on: ubuntu-latest
