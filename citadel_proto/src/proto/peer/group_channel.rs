@@ -97,11 +97,11 @@ impl Debug for GroupChannelSendHalf {
 impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        self.send_group_command(GroupBroadcast::Message(
-            self.implicated_cid,
-            self.key,
+        self.send_group_command(GroupBroadcast::Message {
+            sender: self.implicated_cid,
+            key: self.key,
             message,
-        ))
+        })
         .await
     }
 
@@ -113,8 +113,11 @@ impl GroupChannelSendHalf {
     /// Kicks a set of peers from the group. User must be owner
     pub async fn kick_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(GroupBroadcast::Kick(self.key, peers.into()))
-            .await
+        self.send_group_command(GroupBroadcast::Kick {
+            key: self.key,
+            kick_list: peers.into(),
+        })
+        .await
     }
 
     /// Invites a single user to the group
@@ -125,8 +128,11 @@ impl GroupChannelSendHalf {
     /// Invites all listed members to the group
     pub async fn invite_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(GroupBroadcast::Add(self.key, peers.into()))
-            .await
+        self.send_group_command(GroupBroadcast::Add {
+            key: self.key,
+            invitees: peers.into(),
+        })
+        .await
     }
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
@@ -181,7 +187,7 @@ impl Drop for GroupChannelRecvHalf {
         log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.implicated_cid, self.key);
         let request = SessionRequest::Group {
             ticket: self.ticket,
-            broadcast: GroupBroadcast::LeaveRoom(self.key),
+            broadcast: GroupBroadcast::LeaveRoom { key: self.key },
         };
 
         // TODO: remove group channel locally on the inner process in state container

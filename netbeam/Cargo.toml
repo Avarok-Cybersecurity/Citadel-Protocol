@@ -1,6 +1,6 @@
 [package]
 name = "netbeam"
-version = "0.5.0"
+version = "0.7.0"
 description = "a pure-rust asynchronous network synchronization crate (using tokio) that recreates familiar asynchronous paradigms but in a network context"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
@@ -8,7 +8,7 @@ workspace = ".."
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "post-quantum", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,7 +28,7 @@ wasm = [
 [dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "io-util"] }
 citadel_io = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
 async-trait = { workspace = true }
 bincode2 = { workspace = true }

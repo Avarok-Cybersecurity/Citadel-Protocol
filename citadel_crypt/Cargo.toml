@@ -1,6 +1,6 @@
 [package]
 name = "citadel_crypt"
-version = "0.5.0"
+version = "0.7.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Higher-level cryptographic library for the Citadel Protocol"
 edition = "2021"
@@ -8,7 +8,7 @@ workspace = ".."
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "post-quantum", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

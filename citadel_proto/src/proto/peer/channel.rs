@@ -205,20 +205,27 @@ impl Drop for PeerChannelRecvHalf {
                     self.is_alive.store(false, Ordering::SeqCst);
                     NodeRequest::PeerCommand(PeerCommand {
                         implicated_cid: local_cid,
-                        command: PeerSignal::Disconnect(
-                            PeerConnectionType::LocalGroupPeer {
+                        command: PeerSignal::Disconnect {
+                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
                                 implicated_cid: local_cid,
                                 peer_cid,
                             },
-                            None,
-                        ),
+                            disconnect_response: None,
+                        },
                     })
                 }
 
-                ReceivePortType::UnorderedUnreliable => NodeRequest::PeerCommand(PeerCommand {
-                    implicated_cid: local_cid,
-                    command: PeerSignal::DisconnectUDP(self.vconn_type),
-                }),
+                ReceivePortType::UnorderedUnreliable => {
+                    if let Some(peer_conn_type) = self.vconn_type.try_as_peer_connection() {
+                        NodeRequest::PeerCommand(PeerCommand {
+                            implicated_cid: local_cid,
+                            command: PeerSignal::DisconnectUDP { peer_conn_type },
+                        })
+                    } else {
+                        log::error!(target: "citadel", "Unable to convert v_conn_type to peer_conn_type. This is a bug");
+                        return;
+                    }
+                }
             };
 
             if let Err(err) = self.server_remote.try_send(command) {

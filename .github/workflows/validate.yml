@@ -197,6 +197,8 @@ jobs:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
     steps:
       - uses: actions/checkout@v3
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@main
       - run: docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
   docker_nat_p2p:
     runs-on: ubuntu-latest
@@ -218,6 +220,8 @@ jobs:
       NAT_TYPE_PEER_B: ${{ matrix.nat_type_peer_b }}
     steps:
       - uses: actions/checkout@v3
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@main
       - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
         run: docker-compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
         shell: bash

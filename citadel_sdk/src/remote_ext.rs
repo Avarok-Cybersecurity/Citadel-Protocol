@@ -321,11 +321,11 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: local_cid,
-            command: PeerSignal::GetRegisteredPeers(
-                NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
-                None,
-                limit.map(|r| r as i32),
-            ),
+            command: PeerSignal::GetRegisteredPeers {
+                peer_conn_type: NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
+                response: None,
+                limit: limit.map(|r| r as i32),
+            },
         });
 
         let mut stream = self.send_callback_subscription(command).await?;
@@ -333,11 +333,11 @@ pub trait ProtocolRemoteExt: Remote {
         while let Some(status) = stream.next().await {
             if let NodeResult::PeerEvent(PeerEvent {
                 event:
-                    PeerSignal::GetRegisteredPeers(
-                        _,
-                        Some(PeerResponse::RegisteredCids(cids, is_onlines)),
-                        _,
-                    ),
+                    PeerSignal::GetRegisteredPeers {
+                        peer_conn_type: _,
+                        response: Some(PeerResponse::RegisteredCids(cids, is_onlines)),
+                        limit: _,
+                    },
                 ticket: _,
             }) = map_errors(status)?
             {
@@ -360,10 +360,10 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: local_cid,
-            command: PeerSignal::GetMutuals(
-                NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
-                None,
-            ),
+            command: PeerSignal::GetMutuals {
+                v_conn_type: NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
+                response: None,
+            },
         });
 
         let mut stream = self.send_callback_subscription(command).await?;
@@ -371,7 +371,10 @@ pub trait ProtocolRemoteExt: Remote {
         while let Some(status) = stream.next().await {
             if let NodeResult::PeerEvent(PeerEvent {
                 event:
-                    PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))),
+                    PeerSignal::GetMutuals {
+                        v_conn_type: _,
+                        response: Some(PeerResponse::RegisteredCids(cids, is_onlines)),
+                    },
                 ticket: _,
             }) = map_errors(status)?
             {
@@ -409,7 +412,11 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
             message: err,
         }) => Err(NetworkError::Generic(err)),
         NodeResult::PeerEvent(PeerEvent {
-            event: PeerSignal::SignalError(_, err),
+            event:
+                PeerSignal::SignalError {
+                    ticket: _,
+                    error: err,
+                },
             ticket: _,
         }) => Err(NetworkError::Generic(err)),
         res => Ok(res),
@@ -609,13 +616,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .remote()
             .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
                 implicated_cid,
-                command: PeerSignal::PostConnect(
-                    peer_target,
-                    None,
-                    None,
+                command: PeerSignal::PostConnect {
+                    peer_conn_type: peer_target,
+                    ticket_opt: None,
+                    invitee_response: None,
                     session_security_settings,
                     udp_mode,
-                ),
+                },
             }))
             .await?;
 
@@ -642,7 +649,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::PostConnect(_, _, Some(PeerResponse::Decline), ..),
+                    event:
+                        PeerSignal::PostConnect {
+                            peer_conn_type: _,
+                            ticket_opt: _,
+                            invitee_response: Some(PeerResponse::Decline),
+                            ..
+                        },
                     ..
                 }) => return Err(NetworkError::msg("Peer declined to connect")),
 
@@ -676,19 +689,26 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .remote()
             .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
                 implicated_cid,
-                command: PeerSignal::PostRegister(
-                    peer_target,
-                    local_username,
-                    peer_username_opt,
-                    None,
-                    None,
-                ),
+                command: PeerSignal::PostRegister {
+                    peer_conn_type: peer_target,
+                    inviter_username: local_username,
+                    invitee_username: peer_username_opt,
+                    ticket_opt: None,
+                    invitee_response: None,
+                },
             }))
             .await?;
 
         while let Some(status) = stream.next().await {
             if let NodeResult::PeerEvent(PeerEvent {
-                event: PeerSignal::PostRegister(_, _, _, _, Some(resp)),
+                event:
+                    PeerSignal::PostRegister {
+                        peer_conn_type: _,
+                        inviter_username: _,
+                        invitee_username: _,
+                        ticket_opt: _,
+                        invitee_response: Some(resp),
+                    },
                 ticket: _,
             }) = map_errors(status)?
             {
@@ -709,7 +729,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// deregisters the p2p
     async fn deregister(&self) -> Result<(), NetworkError> {
         if let Ok(peer_conn) = self.try_as_peer_connection().await {
-            let peer_request = PeerSignal::Deregister(peer_conn);
+            let peer_request = PeerSignal::Deregister {
+                peer_conn_type: peer_conn,
+            };
             let implicated_cid = self.user().get_implicated_cid();
             let request = NodeRequest::PeerCommand(PeerCommand {
                 implicated_cid,
@@ -719,7 +741,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(result) = subscription.next().await {
                 if let NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::DeregistrationSuccess(..),
+                    event: PeerSignal::DeregistrationSuccess { .. },
                     ticket: _,
                 }) = map_errors(result)?
                 {
@@ -768,14 +790,21 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             {
                 let request = NodeRequest::PeerCommand(PeerCommand {
                     implicated_cid,
-                    command: PeerSignal::Disconnect(peer_conn, None),
+                    command: PeerSignal::Disconnect {
+                        peer_conn_type: peer_conn,
+                        disconnect_response: None,
+                    },
                 });
 
                 let mut subscription = self.remote().send_callback_subscription(request).await?;
 
                 while let Some(event) = subscription.next().await {
                     if let NodeResult::PeerEvent(PeerEvent {
-                        event: PeerSignal::Disconnect(_, Some(_)),
+                        event:
+                            PeerSignal::Disconnect {
+                                peer_conn_type: _,
+                                disconnect_response: Some(_),
+                            },
                         ticket: _,
                     }) = map_errors(event)?
                     {
@@ -848,7 +877,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        let group_request = GroupBroadcast::Create(initial_users, options);
+        let group_request = GroupBroadcast::Create {
+            initial_invitees: initial_users,
+            options,
+        };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
             implicated_cid,
             command: group_request,
@@ -870,7 +902,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Lists all groups that which the current peer owns
     async fn list_owned_groups(&self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
-        let group_request = GroupBroadcast::ListGroupsFor(implicated_cid);
+        let group_request = GroupBroadcast::ListGroupsFor {
+            cid: implicated_cid,
+        };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
             implicated_cid,
             command: group_request,
@@ -881,7 +915,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             if let NodeResult::GroupEvent(GroupEvent {
                 implicated_cid: _,
                 ticket: _,
-                event: GroupBroadcast::ListResponse(groups),
+                event: GroupBroadcast::ListResponse { groups },
             }) = evt
             {
                 return Ok(groups);
