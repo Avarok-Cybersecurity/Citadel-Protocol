@@ -97,7 +97,10 @@ pub async fn process_peer_cmd(
                 if !session.is_server {
                     // forward the signal to the kernel, with some exceptions.
                     match &signal {
-                        PeerSignal::Disconnect(vconn, resp) => {
+                        PeerSignal::Disconnect {
+                            peer_conn_type: vconn,
+                            disconnect_response: resp,
+                        } => {
                             // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
                             let target = resp
                                 .as_ref()
@@ -158,41 +161,46 @@ pub async fn process_peer_cmd(
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::DisconnectUDP(vconn) => {
-                            let target_cid = return_if_none!(get_resp_target_cid(vconn));
+                        PeerSignal::DisconnectUDP { peer_conn_type } => {
+                            let target_cid = return_if_none!(get_resp_target_cid(
+                                &peer_conn_type.as_virtual_connection()
+                            ));
                             inner_mut_state!(session.state_container)
                                 .remove_udp_channel(target_cid);
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::DeregistrationSuccess(peer_cid) => {
+                        PeerSignal::DeregistrationSuccess { peer_conn_type } => {
+                            let peer_cid = peer_conn_type.get_original_target_cid();
                             log::trace!(target: "citadel", "[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, implicated_cid);
                             let acc_mgr = &session.account_manager;
                             let kernel_tx = &session.kernel_tx;
 
                             if (acc_mgr
                                 .get_persistence_handler()
-                                .deregister_p2p_as_client(implicated_cid, *peer_cid)
+                                .deregister_p2p_as_client(implicated_cid, peer_cid)
                                 .await?)
                                 .is_none()
                             {
-                                log::warn!(target: "citadel", "Unable to remove hyperlan peer {}", peer_cid);
+                                log::warn!(target: "citadel", "Unable to remove local group peer {}", peer_cid);
                             }
 
                             kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerEvent {
-                                event: PeerSignal::DeregistrationSuccess(*peer_cid),
+                                event: PeerSignal::DeregistrationSuccess {
+                                    peer_conn_type: *peer_conn_type,
+                                },
                                 ticket,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::PostRegister(
-                            vconn,
-                            _peer_username,
-                            _,
-                            ticket0,
-                            Some(PeerResponse::Accept(Some(peer_username))),
-                        ) => {
+                        PeerSignal::PostRegister {
+                            peer_conn_type: vconn,
+                            inviter_username: _peer_username,
+                            invitee_username: _,
+                            ticket_opt: ticket0,
+                            invitee_response: Some(PeerResponse::Accept(Some(peer_username))),
+                        } => {
                             let to_kernel = session.kernel_tx.clone();
                             let account_manager = session.account_manager.clone();
 
@@ -210,13 +218,15 @@ pub async fn process_peer_cmd(
                                 Ok(_) => {
                                     log::trace!(target: "citadel", "Success registering at endpoints");
                                     to_kernel.unbounded_send(NodeResult::PeerEvent(PeerEvent {
-                                        event: PeerSignal::PostRegister(
-                                            *vconn,
-                                            peer_username.clone(),
-                                            None,
-                                            *ticket0,
-                                            Some(PeerResponse::Accept(Some(peer_username.clone()))),
-                                        ),
+                                        event: PeerSignal::PostRegister {
+                                            peer_conn_type: *vconn,
+                                            inviter_username: peer_username.clone(),
+                                            invitee_username: None,
+                                            ticket_opt: *ticket0,
+                                            invitee_response: Some(PeerResponse::Accept(Some(
+                                                peer_username.clone(),
+                                            ))),
+                                        },
                                         ticket,
                                     }))?;
                                 }
@@ -224,7 +234,10 @@ pub async fn process_peer_cmd(
                                 Err(err) => {
                                     log::error!(target: "citadel", "Unable to register at endpoints: {:?}", &err);
                                     to_kernel.unbounded_send(NodeResult::PeerEvent(PeerEvent {
-                                        event: PeerSignal::SignalError(ticket, err.into_string()),
+                                        event: PeerSignal::SignalError {
+                                            ticket,
+                                            error: err.into_string(),
+                                        },
                                         ticket,
                                     }))?;
                                 }
@@ -233,13 +246,13 @@ pub async fn process_peer_cmd(
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::PostConnect(
-                            conn,
-                            _,
-                            Some(resp),
-                            endpoint_security_settings,
-                            udp_enabled,
-                        ) => {
+                        PeerSignal::PostConnect {
+                            peer_conn_type: conn,
+                            ticket_opt: _,
+                            invitee_response: Some(resp),
+                            session_security_settings: endpoint_security_settings,
+                            udp_mode: udp_enabled,
+                        } => {
                             let accepted = matches!(resp, PeerResponse::Accept(_));
                             // TODO: handle non-accept case
                             // the connection was mutually accepted. Now, we must begin the KEM subroutine
@@ -292,17 +305,17 @@ pub async fn process_peer_cmd(
                                             );
                                         // finally, prepare the signal and send outbound
                                         // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
-                                        let signal = PeerSignal::Kem(
-                                            PeerConnectionType::LocalGroupPeer {
+                                        let signal = PeerSignal::Kex {
+                                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
                                                 implicated_cid: *original_target_cid,
                                                 peer_cid: *original_implicated_cid,
                                             },
-                                            KeyExchangeProcess::Stage0(
+                                            kex_payload: KeyExchangeProcess::Stage0(
                                                 msg_bytes,
                                                 *endpoint_security_settings,
                                                 *udp_enabled,
                                             ),
-                                        );
+                                        };
 
                                         let stage0_peer_kem =
                                             packet_crafter::peer_cmd::craft_peer_signal(
@@ -325,7 +338,10 @@ pub async fn process_peer_cmd(
                             }
                         }
 
-                        PeerSignal::Kem(conn, kep) => {
+                        PeerSignal::Kex {
+                            peer_conn_type: conn,
+                            kex_payload: kep,
+                        } => {
                             return match kep {
                                 KeyExchangeProcess::Stage0(
                                     transfer,
@@ -357,10 +373,10 @@ pub async fn process_peer_cmd(
                                     let bob_transfer =
                                         return_if_none!(transfer.serialize_to_vector().ok());
 
-                                    let signal = PeerSignal::Kem(
-                                        conn.reverse(),
-                                        KeyExchangeProcess::Stage1(bob_transfer, None),
-                                    );
+                                    let signal = PeerSignal::Kex {
+                                        peer_conn_type: conn.reverse(),
+                                        kex_payload: KeyExchangeProcess::Stage1(bob_transfer, None),
+                                    };
 
                                     let mut state_container_kem = PeerKemStateContainer::new(
                                         *session_security_settings,
@@ -463,10 +479,13 @@ pub async fn process_peer_cmd(
                                         let (sync_instant, sync_time_ns) =
                                             calculate_sync_time(timestamp, header_time);
                                         // now that the virtual connection is created on this end, we need to do the same to the other end
-                                        let signal = PeerSignal::Kem(
-                                            conn.reverse(),
-                                            KeyExchangeProcess::Stage2(sync_time_ns, None),
-                                        );
+                                        let signal = PeerSignal::Kex {
+                                            peer_conn_type: conn.reverse(),
+                                            kex_payload: KeyExchangeProcess::Stage2(
+                                                sync_time_ns,
+                                                None,
+                                            ),
+                                        };
 
                                         let endpoint_security_level =
                                             endpoint_hyper_ratchet.get_default_security_level();
@@ -756,7 +775,10 @@ async fn process_signal_command_as_server(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
     match signal {
-        PeerSignal::Kem(conn, mut kep) => {
+        PeerSignal::Kex {
+            peer_conn_type: conn,
+            kex_payload: mut kep,
+        } => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
             // to allow for STUN-like NAT traversal
             // this gives peer A the socket of peer B and vice versa
@@ -788,7 +810,10 @@ async fn process_signal_command_as_server(
 
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
-            let signal_to = PeerSignal::Kem(conn, kep);
+            let signal_to = PeerSignal::Kex {
+                peer_conn_type: conn,
+                kex_payload: kep,
+            };
             if sess_hyper_ratchet.get_cid() == conn.get_original_target_cid() {
                 log::error!(target: "citadel", "Error (equivalent CIDs)");
                 return Ok(PrimaryProcessorResult::Void);
@@ -814,13 +839,13 @@ async fn process_signal_command_as_server(
             }
         }
 
-        PeerSignal::PostRegister(
+        PeerSignal::PostRegister {
             peer_conn_type,
-            username,
-            peer_username_opt,
-            _ticket_opt,
-            peer_response,
-        ) => {
+            inviter_username: username,
+            invitee_username: peer_username_opt,
+            ticket_opt: _ticket_opt,
+            invitee_response: peer_response,
+        } => {
             // check to see if the client is connected, and if not, send to HypernodePeerLayer
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -901,13 +926,13 @@ async fn process_signal_command_as_server(
                                 implicated_cid: target_cid,
                                 peer_cid: implicated_cid,
                             };
-                            let cmd = PeerSignal::PostRegister(
+                            let cmd = PeerSignal::PostRegister {
                                 peer_conn_type,
-                                username.clone().unwrap_or_default(),
-                                username,
-                                Some(ticket),
-                                Some(accept),
-                            );
+                                inviter_username: username.clone().unwrap_or_default(),
+                                invitee_username: username,
+                                ticket_opt: Some(ticket),
+                                invitee_response: Some(accept),
+                            };
 
                             let rebound_accept = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
@@ -923,13 +948,13 @@ async fn process_signal_command_as_server(
                             let sess_mgr = session.session_manager.clone();
                             route_signal_and_register_ticket_forwards(
                                 &mut peer_layer,
-                                PeerSignal::PostRegister(
+                                PeerSignal::PostRegister {
                                     peer_conn_type,
-                                    username,
-                                    None,
-                                    Some(ticket),
-                                    None,
-                                ),
+                                    inviter_username: username,
+                                    invitee_username: None,
+                                    ticket_opt: Some(ticket),
+                                    invitee_response: None,
+                                },
                                 TIMEOUT,
                                 implicated_cid,
                                 target_cid,
@@ -956,7 +981,7 @@ async fn process_signal_command_as_server(
             }
         }
 
-        PeerSignal::Deregister(peer_conn_type) => {
+        PeerSignal::Deregister { peer_conn_type } => {
             // in deregistration, we send a Deregister signal to the peer (if connected)
             // then, delete the cid entry from the CNAC and save to the local FS
             match peer_conn_type {
@@ -971,7 +996,7 @@ async fn process_signal_command_as_server(
                     let mut register_event = false;
 
                     let dereg_result = if peer_layer_lock
-                        .check_simulataneous_deregister(implicated_cid, target_cid)
+                        .check_simultaneous_deregister(implicated_cid, target_cid)
                         .is_some()
                     {
                         // if the other peer is simultaneously deregistering, mark as Ok(())
@@ -994,13 +1019,14 @@ async fn process_signal_command_as_server(
                                         implicated_cid,
                                         Duration::from_secs(60),
                                         ticket,
-                                        PeerSignal::DeregistrationSuccess(target_cid),
+                                        PeerSignal::DeregistrationSuccess { peer_conn_type },
                                         |_| {},
                                     )
                                     .await;
                             }
-                            let peer_alert_signal =
-                                PeerSignal::DeregistrationSuccess(implicated_cid);
+                            let peer_alert_signal = PeerSignal::DeregistrationSuccess {
+                                peer_conn_type: peer_conn_type.reverse(),
+                            };
                             if !session_manager.send_signal_to_peer(
                                 target_cid,
                                 ticket,
@@ -1012,7 +1038,7 @@ async fn process_signal_command_as_server(
                             }
 
                             // now, send a success packet to the client
-                            let success_cmd = PeerSignal::DeregistrationSuccess(target_cid);
+                            let success_cmd = PeerSignal::DeregistrationSuccess { peer_conn_type };
                             let rebound_packet = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
                                 success_cmd,
@@ -1026,7 +1052,10 @@ async fn process_signal_command_as_server(
                         Err(err) => {
                             log::error!(target: "citadel", "Unable to find peer");
                             // unable to find the peer
-                            let error_signal = PeerSignal::SignalError(ticket, err.into_string());
+                            let error_signal = PeerSignal::SignalError {
+                                ticket,
+                                error: err.into_string(),
+                            };
                             let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
                                 error_signal,
@@ -1050,13 +1079,13 @@ async fn process_signal_command_as_server(
             }
         }
 
-        PeerSignal::PostConnect(
+        PeerSignal::PostConnect {
             peer_conn_type,
-            _ticket_opt,
-            peer_response,
-            endpoint_security_level,
-            udp_enabled,
-        ) => {
+            ticket_opt: _ticket_opt,
+            invitee_response: peer_response,
+            session_security_settings: endpoint_security_level,
+            udp_mode: udp_enabled,
+        } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
                     implicated_cid,
@@ -1112,13 +1141,13 @@ async fn process_signal_command_as_server(
                         } else {
                             route_signal_and_register_ticket_forwards(
                                 &mut peer_layer,
-                                PeerSignal::PostConnect(
+                                PeerSignal::PostConnect {
                                     peer_conn_type,
-                                    Some(ticket),
-                                    None,
-                                    endpoint_security_level,
-                                    udp_enabled,
-                                ),
+                                    ticket_opt: Some(ticket),
+                                    invitee_response: None,
+                                    session_security_settings: endpoint_security_level,
+                                    udp_mode: udp_enabled,
+                                },
                                 TIMEOUT,
                                 implicated_cid,
                                 target_cid,
@@ -1145,7 +1174,10 @@ async fn process_signal_command_as_server(
             }
         }
 
-        PeerSignal::Disconnect(peer_conn_type, resp) => {
+        PeerSignal::Disconnect {
+            peer_conn_type,
+            disconnect_response: resp,
+        } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
                     implicated_cid,
@@ -1184,13 +1216,13 @@ async fn process_signal_command_as_server(
                             let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
                                 "Peer {implicated_cid} closed the virtual connection to {target_cid}"
                             ))));
-                            let signal_to_peer = PeerSignal::Disconnect(
-                                PeerConnectionType::LocalGroupPeer {
+                            let signal_to_peer = PeerSignal::Disconnect {
+                                peer_conn_type: PeerConnectionType::LocalGroupPeer {
                                     implicated_cid,
                                     peer_cid: target_cid,
                                 },
-                                resp,
-                            );
+                                disconnect_response: resp,
+                            };
 
                             // now, remove target CID's v_conn to `implicated_cid`
                             std::mem::drop(state_container);
@@ -1212,15 +1244,15 @@ async fn process_signal_command_as_server(
 
                         spawn!(task);
 
-                        let rebound_signal = PeerSignal::Disconnect(
-                            PeerConnectionType::LocalGroupPeer {
+                        let rebound_signal = PeerSignal::Disconnect {
+                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
                                 implicated_cid,
                                 peer_cid: target_cid,
                             },
-                            Some(PeerResponse::Disconnected(
+                            disconnect_response: Some(PeerResponse::Disconnected(
                                 "Server has begun disconnection".to_string(),
                             )),
-                        );
+                        };
 
                         reply_to_sender(
                             rebound_signal,
@@ -1243,7 +1275,11 @@ async fn process_signal_command_as_server(
             }
         }
 
-        PeerSignal::GetRegisteredPeers(hypernode_conn_type, _resp_opt, limit) => {
+        PeerSignal::GetRegisteredPeers {
+            peer_conn_type: hypernode_conn_type,
+            response: _resp_opt,
+            limit,
+        } => {
             match hypernode_conn_type {
                 NodeConnectionType::LocalGroupPeerToLocalGroupServer(_implicated_cid) => {
                     let account_manager = session.account_manager.clone();
@@ -1257,16 +1293,20 @@ async fn process_signal_command_as_server(
                         // TODO: Make check_online_status check database for database mode
                         let online_status =
                             session_manager.check_online_status(&registered_local_clients);
-                        PeerSignal::GetRegisteredPeers(
-                            hypernode_conn_type,
-                            Some(PeerResponse::RegisteredCids(
+                        PeerSignal::GetRegisteredPeers {
+                            peer_conn_type: hypernode_conn_type,
+                            response: Some(PeerResponse::RegisteredCids(
                                 registered_local_clients,
                                 online_status,
                             )),
                             limit,
-                        )
+                        }
                     } else {
-                        PeerSignal::GetRegisteredPeers(hypernode_conn_type, None, limit)
+                        PeerSignal::GetRegisteredPeers {
+                            peer_conn_type: hypernode_conn_type,
+                            response: None,
+                            limit,
+                        }
                     };
 
                     log::trace!(target: "citadel", "[GetRegisteredPeers] Done getting list");
@@ -1286,7 +1326,10 @@ async fn process_signal_command_as_server(
             }
         }
 
-        PeerSignal::GetMutuals(hypernode_conn_type, _resp_opt) => match hypernode_conn_type {
+        PeerSignal::GetMutuals {
+            v_conn_type: hypernode_conn_type,
+            response: _resp_opt,
+        } => match hypernode_conn_type {
             NodeConnectionType::LocalGroupPeerToLocalGroupServer(implicated_cid) => {
                 let account_manager = session.account_manager.clone();
                 let session_manager = session.session_manager.clone();
@@ -1297,12 +1340,15 @@ async fn process_signal_command_as_server(
                     .await?
                 {
                     let online_status = session_manager.check_online_status(&mutuals);
-                    PeerSignal::GetMutuals(
-                        hypernode_conn_type,
-                        Some(PeerResponse::RegisteredCids(mutuals, online_status)),
-                    )
+                    PeerSignal::GetMutuals {
+                        v_conn_type: hypernode_conn_type,
+                        response: Some(PeerResponse::RegisteredCids(mutuals, online_status)),
+                    }
                 } else {
-                    PeerSignal::GetMutuals(hypernode_conn_type, None)
+                    PeerSignal::GetMutuals {
+                        v_conn_type: hypernode_conn_type,
+                        response: None,
+                    }
                 };
 
                 log::trace!(target: "citadel", "[GetMutuals] Done getting list");
@@ -1321,30 +1367,40 @@ async fn process_signal_command_as_server(
             }
         },
 
-        PeerSignal::BroadcastConnected(_cid, _hypernode_conn_type) => {
-            Ok(PrimaryProcessorResult::Void)
-        }
+        PeerSignal::BroadcastConnected {
+            implicated_cid: _cid,
+            group_broadcast: _hypernode_conn_type,
+        } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::PostFileUploadRequest(_peer_conn_type, _file_metadata, _ticket) => {
-            Ok(PrimaryProcessorResult::Void)
-        }
+        PeerSignal::PostFileUploadRequest {
+            peer_conn_type: _peer_conn_type,
+            object_metadata: _file_metadata,
+            ticket: _ticket,
+        } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::AcceptFileUploadRequest(_peer_conn_type, _ticket) => {
-            Ok(PrimaryProcessorResult::Void)
-        }
+        PeerSignal::AcceptFileUploadRequest {
+            peer_conn_type: _peer_conn_type,
+            ticket: _ticket,
+        } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::SignalError(ticket, err) => {
+        PeerSignal::SignalError {
+            ticket,
+            error: err,
+        } => {
             // in this case, we delegate the error to the higher-level kernel to determine what to do
             session
                 .kernel_tx
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::SignalError(ticket, err),
+                    event: PeerSignal::SignalError {
+                        ticket,
+                        error: err,
+                    },
                     ticket,
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }
 
-        PeerSignal::SignalReceived(ticket) => {
+        PeerSignal::SignalReceived { ticket } => {
             session
                 .kernel_tx
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
@@ -1354,11 +1410,12 @@ async fn process_signal_command_as_server(
             Ok(PrimaryProcessorResult::Void)
         }
 
-        PeerSignal::DeregistrationSuccess(..) => Ok(PrimaryProcessorResult::Void),
+        PeerSignal::DeregistrationSuccess { .. } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::DisconnectUDP(v_conn) => {
+        PeerSignal::DisconnectUDP { peer_conn_type } => {
             // close this UDP channel
-            inner_mut_state!(session.state_container).remove_udp_channel(v_conn.get_target_cid());
+            inner_mut_state!(session.state_container)
+                .remove_udp_channel(peer_conn_type.get_original_target_cid());
             Ok(PrimaryProcessorResult::Void)
         }
     }
@@ -1402,7 +1459,10 @@ fn construct_error_signal<E: ToString>(
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> BytesMut {
-    let err_signal = PeerSignal::SignalError(ticket, err.to_string());
+    let err_signal = PeerSignal::SignalError {
+        ticket,
+        error: err.to_string(),
+    };
     packet_crafter::peer_cmd::craft_peer_signal(
         hyper_ratchet,
         err_signal,
@@ -1444,7 +1504,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
     if let Err(err) = res {
         reply_to_sender_err(err, sess_hyper_ratchet, ticket, timestamp, security_level)
     } else {
-        let received_signal = PeerSignal::SignalReceived(ticket);
+        let received_signal = PeerSignal::SignalReceived { ticket };
         reply_to_sender(
             received_signal,
             sess_hyper_ratchet,
@@ -1490,7 +1550,7 @@ pub(crate) async fn route_signal_response(
             },
             move |peer_sess, original_posting| {
                 // send a notification that the server forwarded the signal
-                let received_signal = PeerSignal::SignalReceived(ticket);
+                let received_signal = PeerSignal::SignalReceived { ticket };
                 let ret = reply_to_sender(
                     received_signal,
                     sess_hyper_ratchet,

@@ -14,7 +14,14 @@ pub async fn peer_register(
     accept: bool,
     remote: &impl Remote,
 ) -> Result<Ticket, NetworkError> {
-    if let PeerSignal::PostRegister(v_conn, username, username_opt, ticket, None) = input_signal {
+    if let PeerSignal::PostRegister {
+        peer_conn_type: v_conn,
+        inviter_username: username,
+        invitee_username: username_opt,
+        ticket_opt: ticket,
+        invitee_response: None,
+    } = input_signal
+    {
         let this_cid = v_conn.get_original_target_cid();
         let ticket = get_ticket(ticket)?;
         let resp = if accept {
@@ -32,13 +39,13 @@ pub async fn peer_register(
         };
 
         // v_conn must be reversed when rebounding a signal
-        let signal = PeerSignal::PostRegister(
-            v_conn.reverse(),
-            username,
-            username_opt,
-            Some(ticket),
-            Some(resp),
-        );
+        let signal = PeerSignal::PostRegister {
+            peer_conn_type: v_conn.reverse(),
+            inviter_username: username,
+            invitee_username: username_opt,
+            ticket_opt: Some(ticket),
+            invitee_response: Some(resp),
+        };
         remote
             .send_with_custom_ticket(
                 ticket,
@@ -62,7 +69,14 @@ pub async fn peer_connect(
     accept: bool,
     remote: &impl Remote,
 ) -> Result<Ticket, NetworkError> {
-    if let PeerSignal::PostConnect(v_conn, ticket, None, sess_sec, udp_mode) = input_signal {
+    if let PeerSignal::PostConnect {
+        peer_conn_type: v_conn,
+        ticket_opt: ticket,
+        invitee_response: None,
+        session_security_settings: sess_sec,
+        udp_mode,
+    } = input_signal
+    {
         let this_cid = v_conn.get_original_target_cid();
         let ticket = get_ticket(ticket)?;
         let resp = if accept {
@@ -74,13 +88,13 @@ pub async fn peer_connect(
 
         let signal = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: this_cid,
-            command: PeerSignal::PostConnect(
-                v_conn.reverse(),
-                Some(ticket),
-                Some(resp),
-                sess_sec,
+            command: PeerSignal::PostConnect {
+                peer_conn_type: v_conn.reverse(),
+                ticket_opt: Some(ticket),
+                invitee_response: Some(resp),
+                session_security_settings: sess_sec,
                 udp_mode,
-            ),
+            },
         });
         remote
             .send_with_custom_ticket(ticket, signal)

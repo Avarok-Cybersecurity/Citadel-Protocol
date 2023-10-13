@@ -1102,7 +1102,6 @@ impl HdpSession {
 
             if !is_server {
                 queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE), move |state_container| {
-                    let time_tracker = time_tracker;
                     let ticket = kernel_ticket;
 
                     if state_container.state.load(Ordering::Relaxed) == SessionState::Connected {
@@ -1879,7 +1878,10 @@ impl HdpSession {
         // TODO: send errors if any commands have Some() responses
         if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
             let signal_processed = match peer_command {
-                PeerSignal::Disconnect(v_conn, resp) => {
+                PeerSignal::Disconnect {
+                    peer_conn_type: v_conn,
+                    disconnect_response: resp,
+                } => {
                     let target = v_conn.get_original_target_cid();
                     if !state_container
                         .active_virtual_connections
@@ -1887,27 +1889,36 @@ impl HdpSession {
                     {
                         return self
                             .send_to_kernel(NodeResult::PeerEvent(PeerEvent {
-                                event: PeerSignal::Disconnect(
-                                    v_conn,
-                                    Some(PeerResponse::Disconnected(
+                                event: PeerSignal::Disconnect {
+                                    peer_conn_type: v_conn,
+                                    disconnect_response: Some(PeerResponse::Disconnected(
                                         "Peer session already disconnected".to_string(),
                                     )),
-                                ),
+                                },
                                 ticket,
                             }))
                             .map_err(|err| NetworkError::Generic(err.to_string()));
                     }
 
-                    PeerSignal::Disconnect(v_conn, resp)
+                    PeerSignal::Disconnect {
+                        peer_conn_type: v_conn,
+                        disconnect_response: resp,
+                    }
                 }
-                PeerSignal::DisconnectUDP(v_conn) => {
+                PeerSignal::DisconnectUDP { peer_conn_type } => {
                     // disconnect UDP locally
                     log::trace!(target: "citadel", "Closing UDP subsystem locally ...");
-                    state_container.remove_udp_channel(v_conn.get_target_cid());
-                    PeerSignal::DisconnectUDP(v_conn)
+                    state_container.remove_udp_channel(peer_conn_type.get_original_target_cid());
+                    PeerSignal::DisconnectUDP { peer_conn_type }
                 }
 
-                PeerSignal::PostConnect(a, b, None, d, e) => {
+                PeerSignal::PostConnect {
+                    peer_conn_type: a,
+                    ticket_opt: b,
+                    invitee_response: None,
+                    session_security_settings: d,
+                    udp_mode: e,
+                } => {
                     if state_container
                         .outgoing_peer_connect_attempts
                         .contains_key(&a.get_original_target_cid())
@@ -1919,7 +1930,13 @@ impl HdpSession {
                     let _ = state_container
                         .outgoing_peer_connect_attempts
                         .insert(a.get_original_target_cid(), ticket);
-                    PeerSignal::PostConnect(a, b, None, d, e)
+                    PeerSignal::PostConnect {
+                        peer_conn_type: a,
+                        ticket_opt: b,
+                        invitee_response: None,
+                        session_security_settings: d,
+                        udp_mode: e,
+                    }
                 }
 
                 n => n,

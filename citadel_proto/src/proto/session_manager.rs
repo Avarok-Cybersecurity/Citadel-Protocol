@@ -425,7 +425,10 @@ impl HdpSessionManager {
                                     implicated_cid,
                                     peer_cid
                                 };
-                                let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly"))));
+                                let signal = PeerSignal::Disconnect {
+                                    peer_conn_type,
+                                    disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly")))
+                                };
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
                                 }) {
@@ -1213,7 +1216,10 @@ impl HdpSessionManager {
             HyperNodePeerLayer::try_add_mailbox(
                 &pers,
                 peer,
-                PeerSignal::BroadcastConnected(peer, signal.clone()),
+                PeerSignal::BroadcastConnected {
+                    implicated_cid: peer,
+                    group_broadcast: signal.clone(),
+                },
             )
             .await
             .map_err(|err| err.into_string())?;

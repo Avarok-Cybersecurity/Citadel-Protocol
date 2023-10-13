@@ -376,7 +376,7 @@ impl HyperNodePeerLayerInner {
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
 
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister(conn, _, _, _, None) = &posting.signal {
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister { peer_conn_type: conn, inviter_username: _, invitee_username: _, ticket_opt: _, invitee_response: None } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
             if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
                 *b == implicated_cid
@@ -397,7 +397,7 @@ impl HyperNodePeerLayerInner {
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
 
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, ticket_opt: _, invitee_response: _, session_security_settings: _, udp_mode: _ } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
             if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
                 *b == implicated_cid
@@ -409,15 +409,15 @@ impl HyperNodePeerLayerInner {
         })
     }
 
-    pub fn check_simulataneous_deregister(
+    pub fn check_simultaneous_deregister(
         &mut self,
         implicated_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous deregister between {} and {}", implicated_cid, peer_cid);
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::DeregistrationSuccess(peer) = &posting.signal {
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::DeregistrationSuccess { peer_conn_type: peer } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from {} == {}", peer, implicated_cid);
-            *peer == implicated_cid
+            peer.get_original_target_cid() == implicated_cid
         } else {
             false
         })
@@ -521,45 +521,68 @@ impl futures::Future for HyperNodePeerLayerExecutor {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
-    // implicated_cid, icid (0 if hyperlan), target_cid (0 if all), use fcm
-    PostRegister(
-        PeerConnectionType,
-        Username,
-        Option<Username>,
-        Option<Ticket>,
-        Option<PeerResponse>,
-    ),
-    // implicated_cid, icid, target_cid
-    Deregister(PeerConnectionType),
-    // implicated_cid, icid, target_cid, udp enabled
-    PostConnect(
-        PeerConnectionType,
-        Option<Ticket>,
-        Option<PeerResponse>,
-        SessionSecuritySettings,
-        UdpMode,
-    ),
-    // implicated_cid, icid, target cid
-    Disconnect(PeerConnectionType, Option<PeerResponse>),
-    DisconnectUDP(VirtualConnectionType),
-    // implicated_cid, icid
-    BroadcastConnected(u64, GroupBroadcast),
-    // implicated_cid, icid, target cid
-    PostFileUploadRequest(PeerConnectionType, VirtualObjectMetadata, Ticket),
-    // implicated_cid, icid, target cid
-    AcceptFileUploadRequest(PeerConnectionType, Ticket),
-    // Retrieves a list of registered peers
-    GetRegisteredPeers(NodeConnectionType, Option<PeerResponse>, Option<i32>),
-    // returns a list of mutuals for implicated cid, icid. Can be used to sync between the HyperLAN client and HyperLAN server
-    GetMutuals(NodeConnectionType, Option<PeerResponse>),
-    // Returned when an error occurs
-    SignalError(Ticket, String),
-    // deregistration succeeded (contains peer cid)
-    DeregistrationSuccess(u64),
-    // Signal has been processed; response may or may not occur
-    SignalReceived(Ticket),
-    // for key-exchange
-    Kem(PeerConnectionType, KeyExchangeProcess),
+    PostRegister {
+        peer_conn_type: PeerConnectionType,
+        inviter_username: Username,
+        invitee_username: Option<Username>,
+        ticket_opt: Option<Ticket>,
+        invitee_response: Option<PeerResponse>,
+    },
+    Deregister {
+        peer_conn_type: PeerConnectionType,
+    },
+    PostConnect {
+        peer_conn_type: PeerConnectionType,
+        ticket_opt: Option<Ticket>,
+        invitee_response: Option<PeerResponse>,
+        session_security_settings: SessionSecuritySettings,
+        udp_mode: UdpMode,
+    },
+    Disconnect {
+        peer_conn_type: PeerConnectionType,
+        disconnect_response: Option<PeerResponse>,
+    },
+    DisconnectUDP {
+        peer_conn_type: PeerConnectionType,
+    },
+    // This is used for the mailbox
+    BroadcastConnected {
+        implicated_cid: u64,
+        group_broadcast: GroupBroadcast,
+    },
+    PostFileUploadRequest {
+        peer_conn_type: PeerConnectionType,
+        object_metadata: VirtualObjectMetadata,
+        ticket: Ticket,
+    },
+    AcceptFileUploadRequest {
+        peer_conn_type: PeerConnectionType,
+        ticket: Ticket,
+    },
+    GetRegisteredPeers {
+        peer_conn_type: NodeConnectionType,
+        response: Option<PeerResponse>,
+        limit: Option<i32>,
+    },
+    GetMutuals {
+        v_conn_type: NodeConnectionType,
+        response: Option<PeerResponse>,
+    },
+    SignalError {
+        ticket: Ticket,
+        error: String,
+    },
+    DeregistrationSuccess {
+        peer_conn_type: PeerConnectionType,
+    },
+    SignalReceived {
+        ticket: Ticket,
+    },
+    #[doc(hidden)]
+    Kex {
+        peer_conn_type: PeerConnectionType,
+        kex_payload: KeyExchangeProcess,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]

@@ -180,7 +180,14 @@ where
                 // cid for this group owner
                 while let Some(reg_request) = reg_rx.recv().await {
                     log::trace!(target: "citadel", "owner recv reg_request: {:?}", reg_request);
-                    if let PeerSignal::PostRegister(peer_conn, _, _, _, None) = &reg_request {
+                    if let PeerSignal::PostRegister {
+                        peer_conn_type: peer_conn,
+                        inviter_username: _,
+                        invitee_username: _,
+                        ticket_opt: _,
+                        invitee_response: None,
+                    } = &reg_request
+                    {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
                             log::warn!(target: "citadel", "Received the wrong CID. Will not accept request");
@@ -264,7 +271,7 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         if let NodeResult::PeerEvent(PeerEvent {
-            event: ps @ PeerSignal::PostRegister(..),
+            event: ps @ PeerSignal::PostRegister { .. },
             ticket: _,
         }) = &message
         {
