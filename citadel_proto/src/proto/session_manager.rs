@@ -784,7 +784,7 @@ impl HdpSessionManager {
         for peer_cid in peers_to_notify {
             let this = inner!(self);
             if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                let signal = GroupBroadcast::Invitation(key);
+                let signal = GroupBroadcast::Invitation { key };
                 super::packet_crafter::peer_cmd::craft_group_message_packet(
                     peer_hyper_ratchet,
                     &signal,
@@ -818,7 +818,7 @@ impl HdpSessionManager {
                 if *peer_cid != cid_host {
                     if let Err(err) =
                         this.send_signal_to_peer_direct(*peer_cid, |peer_hyper_ratchet| {
-                            let signal = GroupBroadcast::Disconnected(key);
+                            let signal = GroupBroadcast::Disconnected { key };
                             super::packet_crafter::peer_cmd::craft_group_message_packet(
                                 peer_hyper_ratchet,
                                 &signal,
@@ -857,7 +857,7 @@ impl HdpSessionManager {
 
         let mut to_broadcast_dc = vec![];
         let mut to_broadcast_left = vec![];
-        let dc_signal = GroupBroadcast::Disconnected(key);
+        let dc_signal = GroupBroadcast::Disconnected { key };
 
         let left_signal = match peer_layer.remove_peers_from_message_group(key, peers).await {
             Ok((peers_removed, peers_remaining)) => {
@@ -878,7 +878,12 @@ impl HdpSessionManager {
                     }
                 }
 
-                GroupBroadcast::MemberStateChanged(key, MemberState::LeftGroup(peers_removed))
+                GroupBroadcast::MemberStateChanged {
+                    key,
+                    state: MemberState::LeftGroup {
+                        cids: peers_removed,
+                    },
+                }
             }
 
             Err(_) => {
@@ -1208,7 +1213,7 @@ impl HdpSessionManager {
             HyperNodePeerLayer::try_add_mailbox(
                 &pers,
                 peer,
-                PeerSignal::BroadcastConnected(signal.clone()),
+                PeerSignal::BroadcastConnected(peer, signal.clone()),
             )
             .await
             .map_err(|err| err.into_string())?;

@@ -1321,7 +1321,9 @@ async fn process_signal_command_as_server(
             }
         },
 
-        PeerSignal::BroadcastConnected(_hypernode_conn_type) => Ok(PrimaryProcessorResult::Void),
+        PeerSignal::BroadcastConnected(_cid, _hypernode_conn_type) => {
+            Ok(PrimaryProcessorResult::Void)
+        }
 
         PeerSignal::PostFileUploadRequest(_peer_conn_type, _file_metadata, _ticket) => {
             Ok(PrimaryProcessorResult::Void)

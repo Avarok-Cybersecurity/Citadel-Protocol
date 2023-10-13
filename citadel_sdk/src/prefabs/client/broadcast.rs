@@ -113,13 +113,13 @@ where
 
                 creator_only_accept_inbound_registers = accept_registrations;
 
-                GroupBroadcast::Create(
-                    peers_registered,
-                    MessageGroupOptions {
+                GroupBroadcast::Create {
+                    initial_invitees: peers_registered,
+                    options: MessageGroupOptions {
                         group_type: GroupType::Public,
                         id: group_id.as_u128(),
                     },
-                )
+                }
             }
 
             GroupInitRequestType::Join {
@@ -155,10 +155,12 @@ where
                     ))
                 })?;
 
-                GroupBroadcast::RequestJoin(MessageGroupKey {
-                    cid: owner.cid,
-                    mgid: group_id.as_u128(),
-                })
+                GroupBroadcast::RequestJoin {
+                    key: MessageGroupKey {
+                        cid: owner.cid,
+                        mgid: group_id.as_u128(),
+                    },
+                }
             }
         };
 
@@ -222,7 +224,7 @@ where
                 NodeResult::GroupEvent(GroupEvent {
                     implicated_cid: _,
                     ticket: _,
-                    event: GroupBroadcast::CreateResponse(None),
+                    event: GroupBroadcast::CreateResponse { key: None },
                 }) => {
                     return Err(NetworkError::InternalError(
                         "Unable to create a message group",
@@ -443,7 +445,7 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation(_key),
+                                    event: GroupBroadcast::Invitation { key: _key },
                                 }) => {
                                     let _ = crate::responses::group_invite(
                                         evt,

@@ -848,7 +848,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        let group_request = GroupBroadcast::Create(initial_users, options);
+        let group_request = GroupBroadcast::Create {
+            initial_invitees: initial_users,
+            options,
+        };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
             implicated_cid,
             command: group_request,
@@ -870,7 +873,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Lists all groups that which the current peer owns
     async fn list_owned_groups(&self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
-        let group_request = GroupBroadcast::ListGroupsFor(implicated_cid);
+        let group_request = GroupBroadcast::ListGroupsFor {
+            cid: implicated_cid,
+        };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
             implicated_cid,
             command: group_request,
@@ -881,7 +886,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             if let NodeResult::GroupEvent(GroupEvent {
                 implicated_cid: _,
                 ticket: _,
-                event: GroupBroadcast::ListResponse(groups),
+                event: GroupBroadcast::ListResponse { groups },
             }) = evt
             {
                 return Ok(groups);

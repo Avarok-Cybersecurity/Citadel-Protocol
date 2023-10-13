@@ -543,7 +543,7 @@ pub enum PeerSignal {
     Disconnect(PeerConnectionType, Option<PeerResponse>),
     DisconnectUDP(VirtualConnectionType),
     // implicated_cid, icid
-    BroadcastConnected(GroupBroadcast),
+    BroadcastConnected(u64, GroupBroadcast),
     // implicated_cid, icid, target cid
     PostFileUploadRequest(PeerConnectionType, VirtualObjectMetadata, Ticket),
     // implicated_cid, icid, target cid
