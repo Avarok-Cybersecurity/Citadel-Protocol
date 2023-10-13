@@ -1383,18 +1383,12 @@ async fn process_signal_command_as_server(
             ticket: _ticket,
         } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::SignalError {
-            ticket,
-            error: err,
-        } => {
+        PeerSignal::SignalError { ticket, error: err } => {
             // in this case, we delegate the error to the higher-level kernel to determine what to do
             session
                 .kernel_tx
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::SignalError {
-                        ticket,
-                        error: err,
-                    },
+                    event: PeerSignal::SignalError { ticket, error: err },
                     ticket,
                 }))?;
             Ok(PrimaryProcessorResult::Void)
