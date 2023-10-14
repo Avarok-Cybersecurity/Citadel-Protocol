@@ -8,10 +8,10 @@ use async_trait::async_trait;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 
-#[cfg(all(feature = "sql", not(coverage)))]
-use crate::backend::mysql_backend::SqlConnectionOptions;
 #[cfg(all(feature = "redis", not(coverage)))]
 use crate::backend::redis_backend::RedisConnectionOptions;
+#[cfg(all(feature = "sql", not(coverage)))]
+use crate::backend::sql_backend::SqlConnectionOptions;
 use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::misc::{AccountError, CNACMetadata};
@@ -25,12 +25,12 @@ pub mod filesystem_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
 pub mod memory;
-#[cfg(all(feature = "sql", not(coverage)))]
-/// Implementation for the SQL backend
-pub mod mysql_backend;
 #[cfg(all(feature = "redis", not(coverage)))]
 /// Implementation for the redis backend
 pub mod redis_backend;
+#[cfg(all(feature = "sql", not(coverage)))]
+/// Implementation for the SQL backend
+pub mod sql_backend;
 /// Utils for the backend trait
 #[allow(missing_docs)]
 pub mod utils;

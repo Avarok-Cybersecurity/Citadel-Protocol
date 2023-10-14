@@ -724,7 +724,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(peer_cid.to_string())
             .bind(key)
             .bind(sub_key)
-            .fetch_optional(&mut tx)
+            .fetch_optional(&mut *tx)
             .await?;
 
         let _query = sqlx::query(&set_query)
@@ -733,7 +733,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(key)
             .bind(sub_key)
             .bind(bytes_base64)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         tx.commit().await?;
