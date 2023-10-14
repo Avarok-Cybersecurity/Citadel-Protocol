@@ -25,10 +25,8 @@ pub fn process_file_packet(
     let mut state_container = inner_mut_state!(session.state_container);
     // get the proper pqc
     let header_bytes = &header[..];
-    let header = return_if_none!(
-        LayoutVerified::new(header_bytes),
-        "Unable to validate header layout"
-    ) as LayoutVerified<&[u8], HdpHeader>;
+    let header = return_if_none!(Ref::new(header_bytes), "Unable to validate header layout")
+        as Ref<&[u8], HdpHeader>;
     let hyper_ratchet = return_if_none!(
         get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info),
         "Unable to get proper HR"
