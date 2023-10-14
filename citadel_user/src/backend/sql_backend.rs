@@ -90,6 +90,8 @@ impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> {
     async fn connect(&mut self) -> Result<(), AccountError> {
+        // Setup the drivers
+        sqlx::any::install_default_drivers();
         let conn = self.generate_conn().await?;
 
         if !self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) {
