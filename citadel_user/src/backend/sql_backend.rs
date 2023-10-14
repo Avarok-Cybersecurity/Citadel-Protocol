@@ -714,8 +714,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         sub_key: &str,
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
-        let conn = self.get_conn().await?;
-        let mut tx = conn.begin().await?;
+        let conn = &(self.get_conn().await?);
         let bytes_base64 = base64::engine::general_purpose::STANDARD.encode(value);
         let get_query = self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1");
         let set_query = self
@@ -726,7 +725,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(peer_cid.to_string())
             .bind(key)
             .bind(sub_key)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(conn)
             .await?;
 
         let _query = sqlx::query(&set_query)
@@ -735,10 +734,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(key)
             .bind(sub_key)
             .bind(bytes_base64)
-            .execute(&mut *tx)
+            .execute(conn)
             .await?;
-
-        tx.commit().await?;
 
         if let Some(row) = row {
             match row.try_get::<String, _>("bin") {
