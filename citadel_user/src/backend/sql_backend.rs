@@ -10,7 +10,8 @@ use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use itertools::Itertools;
 use sqlx::any::{AnyArguments, AnyPoolOptions, AnyQueryResult, AnyRow};
-use sqlx::{AnyPool, Arguments, Executor, Row};
+use sqlx::postgres::any::AnyTypeInfoKind;
+use sqlx::{AnyPool, Arguments, Column, Executor, Row};
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::marker::PhantomData;
@@ -931,9 +932,20 @@ impl TryFrom<&'_ BackendType> for SqlVariant {
 }
 
 pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountError> {
-    let blob = row.try_get::<Vec<u8>, _>(key)?;
-    let blob = String::from_utf8(blob)?;
-    Ok(blob)
+    match row.column(key).type_info().kind() {
+        AnyTypeInfoKind::Text => {
+            let blob = row.try_get::<String, _>(key)?;
+            Ok(blob)
+        }
+        AnyTypeInfoKind::Blob => {
+            let blob = row.try_get::<Vec<u8>, _>(key)?;
+            let blob = String::from_utf8(blob)?;
+            Ok(blob)
+        }
+        res => Err(AccountError::Generic(format!(
+            "Expected blob or text, got {res:?}"
+        ))),
+    }
 }
 
 pub fn i64_into_u64(x: i64) -> u64 {
