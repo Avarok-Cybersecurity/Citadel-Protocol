@@ -107,7 +107,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             "LONGTEXT"
         };
         // we no longer use bool due to postgresql bug with t/f not being mapped properly
-        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid BIGINT NOT NULL, is_personal BOOL, username BIGINT UNIQUE, full_name TEXT, creation_date TEXT, bin {bin_type}, PRIMARY KEY (cid))");
+        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid BIGINT NOT NULL, is_personal BOOL, username TEXT UNIQUE, full_name TEXT, creation_date TEXT, bin {bin_type}, PRIMARY KEY (cid))");
         let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid BIGINT, username TEXT, cid BIGINT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
         //let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), key TEXT, bin TEXT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
         let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid BIGINT NOT NULL, peer_cid BIGINT, id TEXT, sub_id TEXT, bin {bin_type}, CONSTRAINT fk_cid2 FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
