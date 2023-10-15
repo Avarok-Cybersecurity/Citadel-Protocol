@@ -36,7 +36,7 @@ jobs:
           app_db: hyxewave hyxewave2
       - name: Add mysql databases
         if: startsWith(matrix.os, 'ubuntu')
-        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2; set global max_connections = 1000;'
       - name: Augment connection size for psql
         if: startsWith(matrix.os, 'ubuntu')
         run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
