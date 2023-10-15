@@ -725,7 +725,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_register_p2p() -> Result<(), AccountError> {
+    async fn test_register_p2px() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();

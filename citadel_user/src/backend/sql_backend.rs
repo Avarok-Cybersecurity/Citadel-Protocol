@@ -6,7 +6,6 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
-use base64::Engine;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use itertools::Itertools;
@@ -102,14 +101,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         // The below works on MySql, Postgre, SqLite,
         let bin_type = if self.variant == SqlVariant::Postgre {
-            "TEXT"
+            "BYTEA"
         } else {
-            "LONGTEXT"
+            "LONGBLOB"
         };
         // we no longer use bool due to postgresql bug with t/f not being mapped properly
-        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid BIGINT NOT NULL, is_personal BOOL, username TEXT, full_name TEXT, creation_date TEXT, bin {bin_type}, PRIMARY KEY (cid))");
-        let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid BIGINT, username TEXT, cid BIGINT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
-        //let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), key TEXT, bin TEXT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
+        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid BIGINT NOT NULL, is_personal INT, username TEXT, full_name TEXT, creation_date TEXT, bin {bin_type}, PRIMARY KEY (cid))");
+        let cmd2 = "CREATE TABLE IF NOT EXISTS peers(peer_cid BIGINT, username TEXT, cid BIGINT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)".to_string();
         let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid BIGINT NOT NULL, peer_cid BIGINT, id TEXT, sub_id TEXT, bin {bin_type}, CONSTRAINT fk_cid2 FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
 
         // The following commands below allow us to remove entries and automatically remove corresponding values
@@ -161,8 +159,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
-        let serded =
-            base64::engine::general_purpose::STANDARD.encode(cnac.generate_proper_bytes()?);
+        let serded = cnac.generate_proper_bytes()?;
 
         let metadata = cnac.get_metadata();
 
@@ -183,7 +180,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let mut args = AnyArguments::default();
         args.add(u64_into_i64(metadata.cid));
-        args.add(metadata.is_personal);
+        args.add(metadata.is_personal as i32);
         args.add(metadata.username);
         args.add(metadata.full_name);
         args.add(metadata.creation_date);
@@ -261,7 +258,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let ret: Vec<u64> = query
             .into_iter()
             .filter_map(|r| r.try_get::<i64, _>("cid").ok())
-            .filter_map(|r| Some(i64_into_u64(r)))
+            .map(i64_into_u64)
             .collect();
 
         if ret.is_empty() {
@@ -281,7 +278,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         .fetch_optional(conn)
         .await?;
         if let Some(row) = query {
-            Ok(Some(row.try_get::<String, _>("username").unwrap()))
+            Ok(Some(try_get_blob_as_utf8("username", &row)?))
         } else {
             Ok(None)
         }
@@ -356,7 +353,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         .await?;
 
         if let Some(row) = row {
-            let peer_username: String = row.try_get("username")?;
+            let peer_username = try_get_blob_as_utf8("username", &row)?;
             let _query = sqlx::query(
                 self.format("DELETE FROM peers WHERE peer_cid = ? AND cid = ?")
                     .as_str(),
@@ -391,7 +388,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let map = query
             .into_iter()
             .filter_map(|row| row.try_get::<i64, _>("peer_cid").ok())
-            .filter_map(|val| Some(i64_into_u64(val)))
+            .map(i64_into_u64)
             .collect::<Vec<u64>>();
         if map.is_empty() {
             Ok(None)
@@ -410,9 +407,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         if let Some(query) = query {
             let is_personal = self.get_bool(&query, "is_personal")?;
-            let username = query.try_get("username")?;
-            let full_name = query.try_get("full_name")?;
-            let creation_date = query.try_get("creation_date")?;
+            let username = try_get_blob_as_utf8("username", &query)?;
+            let full_name = try_get_blob_as_utf8("full_name", &query)?;
+            let creation_date = try_get_blob_as_utf8("creation_date", &query)?;
             Ok(Some(CNACMetadata {
                 cid: implicated_cid,
                 is_personal,
@@ -447,9 +444,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 let cid = query.try_get::<i64, _>("cid").ok()?;
                 let cid = i64_into_u64(cid);
                 let is_personal = self.get_bool(&query, "is_personal").ok()?;
-                let username = query.try_get("username").ok()?;
-                let full_name = query.try_get("full_name").ok()?;
-                let creation_date = query.try_get("creation_date").ok()?;
+                let username = try_get_blob_as_utf8("username", &query).ok()?;
+                let full_name = try_get_blob_as_utf8("full_name", &query).ok()?;
+                let creation_date = try_get_blob_as_utf8("creation_date", &query).ok()?;
                 Some(CNACMetadata {
                     cid,
                     is_personal,
@@ -477,7 +474,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         .await?;
 
         if let Some(query) = query {
-            match query.try_get::<String, _>("username") {
+            match try_get_blob_as_utf8("username", &query) {
                 Ok(username) => Ok(Some(MutualPeer {
                     username: Some(username),
                     parent_icid: HYPERLAN_IDX,
@@ -526,7 +523,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let insert = self.construct_arg_insert_any(peers);
 
         let query = format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}");
-
         let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str())
             .bind(u64_into_i64(implicated_cid))
             .fetch_all(conn)
@@ -535,7 +531,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let results = query
             .into_iter()
             .filter_map(|r| r.try_get::<i64, _>("peer_cid").ok())
-            .filter_map(|v| Some(i64_into_u64(v)))
+            .map(i64_into_u64)
             .collect::<Vec<u64>>();
 
         Ok(peers
@@ -559,7 +555,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let insert = self.construct_arg_insert_any(peers);
 
         let query = format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}");
-
         let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str())
             .bind(u64_into_i64(implicated_cid))
             .fetch_all(conn)
@@ -569,7 +564,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .filter_map(|row| {
                 let peer_cid = row.try_get::<i64, _>("peer_cid").ok()?;
                 let peer_cid = i64_into_u64(peer_cid);
-                let peer_username: String = row.try_get("username").ok()?;
+                let peer_username = try_get_blob_as_utf8("username", &row).ok()?;
                 Some(MutualPeer {
                     parent_icid: HYPERLAN_IDX,
                     cid: peer_cid,
@@ -590,7 +585,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         for row in query {
             let peer_cid = row.try_get::<i64, _>("peer_cid")?;
             let peer_cid = i64_into_u64(peer_cid);
-            let username = row.try_get::<String, _>("username")?;
+            let username = try_get_blob_as_utf8("username", &row)?;
             ret.push(MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: peer_cid,
@@ -656,8 +651,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .fetch_optional(conn).await?;
 
         if let Some(row) = row {
-            match row.try_get::<String, _>("bin") {
-                Ok(val) => Ok(Some(base64::engine::general_purpose::STANDARD.decode(val)?)),
+            match row.try_get::<Vec<u8>, _>("bin") {
+                Ok(val) => Ok(Some(val)),
 
                 _ => Ok(None),
             }
@@ -707,18 +702,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let conn = self.get_conn().await?;
-        let mut tx = conn.begin().await?;
-        let bytes_base64 = base64::engine::general_purpose::STANDARD.encode(value);
         let get_query = self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1");
         let set_query = self
             .format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)");
+
+        assert_eq!(implicated_cid, i64_into_u64(u64_into_i64(implicated_cid)));
 
         let row: Option<AnyRow> = sqlx::query(&get_query)
             .bind(u64_into_i64(implicated_cid))
             .bind(u64_into_i64(peer_cid))
             .bind(key)
             .bind(sub_key)
-            .fetch_optional(tx.deref_mut())
+            .fetch_optional(&conn)
             .await?;
 
         let _query = sqlx::query(&set_query)
@@ -726,15 +721,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(u64_into_i64(peer_cid))
             .bind(key)
             .bind(sub_key)
-            .bind(bytes_base64)
-            .execute(tx.deref_mut())
+            .bind(value)
+            .execute(&conn)
             .await?;
 
-        tx.commit().await?;
-
         if let Some(row) = row {
-            match row.try_get::<String, _>("bin") {
-                Ok(val) => Ok(Some(base64::engine::general_purpose::STANDARD.decode(val)?)),
+            match row.try_get::<Vec<u8>, _>("bin") {
+                Ok(val) => Ok(Some(val)),
 
                 _ => Ok(None),
             }
@@ -764,9 +757,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let mut ret = HashMap::new();
         for row in rows {
-            let bin = row.try_get::<String, _>("bin")?;
-            let key = row.try_get::<String, _>("sub_id")?;
-            let bin = base64::engine::general_purpose::STANDARD.decode(bin)?;
+            log::info!(target: "citadel", "Rows: {:?}", row.columns());
+            let bin = row.try_get::<Vec<u8>, _>("bin")?;
+            let key = try_get_blob_as_utf8("sub_id", &row)?;
             let _ = ret.insert(key, bin);
         }
 
@@ -829,8 +822,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         query: Option<AnyRow>,
     ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
-            let bin: String = row.try_get("bin")?;
-            let bin = base64::engine::general_purpose::STANDARD.decode(bin)?;
+            let bin = row.try_get::<Vec<u8>, _>("bin")?;
             let cnac_inner =
                 ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             Ok(Some(cnac_inner.into()))
@@ -848,11 +840,19 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     }
 
     fn construct_arg_insert_mysql(&self, vals: &[u64]) -> String {
-        vals.iter().map(|val| format!("ROW('{val}')")).join(",")
+        vals.iter()
+            .copied()
+            .map(u64_into_i64)
+            .map(|val| format!("ROW('{val}')"))
+            .join(",")
     }
 
     fn construct_arg_insert_postgre(&self, vals: &[u64]) -> String {
-        vals.iter().map(|val| format!("('{val}')")).join(",")
+        vals.iter()
+            .copied()
+            .map(u64_into_i64)
+            .map(|val| format!("('{val}')"))
+            .join(",")
     }
 
     fn construct_arg_insert_sqlite(&self, vals: &[u64]) -> String {
@@ -883,7 +883,8 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     }
 
     fn get_bool(&self, row: &AnyRow, key: &str) -> Result<bool, AccountError> {
-        Ok(row.try_get(key)?)
+        let int = row.try_get::<i32, _>(key)?;
+        Ok(int != 0)
     }
 }
 
@@ -929,10 +930,31 @@ impl TryFrom<&'_ BackendType> for SqlVariant {
     }
 }
 
+pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountError> {
+    let blob = row.try_get::<Vec<u8>, _>(key)?;
+    let blob = String::from_utf8(blob)?;
+    Ok(blob)
+}
+
 pub fn i64_into_u64(x: i64) -> u64 {
     (x as u64).wrapping_add(u64::MAX / 2 + 1)
 }
 
 pub fn u64_into_i64(x: u64) -> i64 {
     x.wrapping_sub(u64::MAX / 2 + 1) as i64
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_u64_into_i64() {
+        assert_eq!(super::u64_into_i64(0), i64::MIN);
+        assert_eq!(super::u64_into_i64(u64::MAX), i64::MAX);
+    }
+
+    #[test]
+    fn test_i64_into_u64() {
+        assert_eq!(super::i64_into_u64(i64::MIN), 0);
+        assert_eq!(super::i64_into_u64(i64::MAX), u64::MAX);
+    }
 }

@@ -16,7 +16,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["filesystem", "std"]
 redis = ["redis-base", "mobc"]
-sql = ["sqlx", "base64", "itertools"]
+sql = ["sqlx", "itertools"]
 filesystem = ["citadel_crypt/filesystem", "tokio-util", "tokio-stream"]
 std = [
     "citadel_crypt/std",
@@ -48,7 +48,6 @@ twox-hash = { workspace = true }
 sha3 = { workspace = true }
 citadel_crypt = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"] }
-base64 = { workspace = true, optional = true }
 bytes = { workspace = true }
 bstr = { workspace = true, features = ["alloc", "unicode"] }
 sqlx = { workspace = true, features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
