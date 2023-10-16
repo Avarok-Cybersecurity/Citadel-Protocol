@@ -81,9 +81,11 @@ pub enum GroupBroadcast {
     /// When relayed to a group owner, the owner is expected to send an
     /// AcceptMembership signal
     RequestJoin {
+        sender: u64,
         key: MessageGroupKey,
     },
     Invitation {
+        sender: u64,
         key: MessageGroupKey,
     },
     CreateResponse {
@@ -166,7 +168,7 @@ pub async fn process_group_broadcast(
             GroupBroadcast::RequestJoinPending { result: res },
         ),
 
-        GroupBroadcast::RequestJoin { key } => {
+        GroupBroadcast::RequestJoin { sender, key } => {
             if session.is_server {
                 // if the group is auto-accept enabled, rebound a GroupBroadcast::AcceptMembershipResponse
                 let result = session
@@ -209,7 +211,7 @@ pub async fn process_group_broadcast(
                         let res = session.session_manager.route_packet_to(key.cid, |peer_hr| {
                             packet_crafter::peer_cmd::craft_group_message_packet(
                                 peer_hr,
-                                &GroupBroadcast::RequestJoin { key },
+                                &GroupBroadcast::RequestJoin { sender, key },
                                 ticket,
                                 C2S_ENCRYPTION_ONLY,
                                 timestamp,
@@ -234,7 +236,7 @@ pub async fn process_group_broadcast(
                     session,
                     ticket,
                     Some(key),
-                    GroupBroadcast::RequestJoin { key },
+                    GroupBroadcast::RequestJoin { sender, key },
                 )
             }
         }
@@ -520,7 +522,10 @@ pub async fn process_group_broadcast(
                         ticket,
                         peers.iter().cloned().zip(peer_statuses.clone()),
                         true,
-                        GroupBroadcast::Invitation { key },
+                        GroupBroadcast::Invitation {
+                            sender: implicated_cid,
+                            key,
+                        },
                         security_level,
                     )
                     .await
@@ -615,11 +620,11 @@ pub async fn process_group_broadcast(
             GroupBroadcast::KickResponse { key, success },
         ),
 
-        GroupBroadcast::Invitation { key } => forward_signal(
+        GroupBroadcast::Invitation { sender, key } => forward_signal(
             session,
             ticket,
             Some(key),
-            GroupBroadcast::Invitation { key },
+            GroupBroadcast::Invitation { sender, key },
         ),
 
         GroupBroadcast::CreateResponse { key: key_opt } => match key_opt {

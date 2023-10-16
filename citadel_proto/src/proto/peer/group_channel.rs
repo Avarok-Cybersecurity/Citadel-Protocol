@@ -142,14 +142,14 @@ impl GroupChannelSendHalf {
 
     /// Leaves the group
     pub async fn leave(&self) -> Result<(), NetworkError> {
-        self.send_group_command(GroupBroadcast::LeaveRoom(self.key))
+        self.send_group_command(GroupBroadcast::LeaveRoom { key: self.key })
             .await
     }
 
     /// Ends the group
     pub async fn end(&self) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(GroupBroadcast::End(self.key))
+        self.send_group_command(GroupBroadcast::End { key: self.key })
             .await
     }
 

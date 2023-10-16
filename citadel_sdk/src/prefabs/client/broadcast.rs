@@ -156,6 +156,7 @@ where
                 })?;
 
                 GroupBroadcast::RequestJoin {
+                    sender: local_user.get_cid(),
                     key: MessageGroupKey {
                         cid: owner.cid,
                         mgid: group_id.as_u128(),
@@ -427,7 +428,7 @@ mod tests {
                 server_addr,
                 peers,
                 move |mut results, remote| async move {
-                    let _implicated_cid = remote.conn_type.get_implicated_cid();
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
                     let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
 
                     wait_for_peers().await;
@@ -452,7 +453,7 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation { key: _key },
+                                    event: GroupBroadcast::Invitation { sender: implicated_cid, key: _key },
                                 }) => {
                                     let _ = crate::responses::group_invite(
                                         evt,
