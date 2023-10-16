@@ -168,7 +168,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 80
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install Rust
         run: rustup toolchain install stable --component llvm-tools-preview
       - uses: taiki-e/install-action@nextest
@@ -196,7 +196,7 @@ jobs:
     env:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@main
       - run: docker-compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
@@ -219,7 +219,7 @@ jobs:
       NAT_TYPE_PEER_A: ${{ matrix.nat_type_peer_a }}
       NAT_TYPE_PEER_B: ${{ matrix.nat_type_peer_b }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@main
       - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
