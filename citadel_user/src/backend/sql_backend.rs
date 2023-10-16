@@ -50,7 +50,7 @@ pub struct SqlConnectionOptions {
     pub idle_timeout: Option<Duration>,
     /// How long a connection can exist (independent to idleness) before being closed
     pub max_lifetime: Option<Duration>,
-    /// Catch and release (CAR) mode. Holding connections pools may be undesirbale for certain platforms with execution restrictions, thus, CAR mode does not keep connections
+    /// Create and release (CAR) mode. Holding connections pools may be undesirable for certain platforms with execution restrictions, thus, CAR mode does not keep connections
     pub car_mode: Option<bool>,
 }
 
@@ -253,7 +253,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .map(|limit| format!("SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {limit}",))
             .unwrap_or_else(|| "SELECT cid FROM cnacs WHERE is_personal = ?".to_string());
         let query: Vec<AnyRow> = sqlx::query(self.format(cmd).as_str())
-            .bind(false)
+            .bind(false as i32)
             .fetch_all(conn)
             .await?;
         let ret: Vec<u64> = query
@@ -852,12 +852,16 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         vals.iter()
             .copied()
             .map(u64_into_i64)
-            .map(|val| format!("('{val}')"))
+            .map(|val| format!("({val})"))
             .join(",")
     }
 
     fn construct_arg_insert_sqlite(&self, vals: &[u64]) -> String {
-        self.construct_arg_insert_postgre(vals)
+        vals.iter()
+            .copied()
+            .map(u64_into_i64)
+            .map(|val| format!("('{val}')"))
+            .join(",")
     }
 
     fn format<T: Into<String>>(&self, input: T) -> String {
