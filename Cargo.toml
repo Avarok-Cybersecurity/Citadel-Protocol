@@ -69,7 +69,7 @@ byteorder = { version = "1.4.3", default-features=false }
 num-integer = { default-features = false, version = "0.1.45" }
 arrayvec = { version = "0.7.2", default-features = false }
 bitvec = { default-features = false, version = "1.0.1" }
-rust-argon2 = { version = "1.0.1", default-features = false }
+rust-argon2 = { version = "2.0.0", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.11" }
 zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
