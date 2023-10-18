@@ -12,6 +12,7 @@ env:
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
   RUST_LOG: "citadel=warn"
+  GH_PIPELINE_MODE: "true"
 
 jobs:
   core_libs:
