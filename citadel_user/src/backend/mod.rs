@@ -111,7 +111,7 @@ impl BackendType {
     /// For requesting the use of the SqlBackend driver. Url should be in the form:
     /// "mysql://username:password@ip/database"
     /// "postgres:// [...]"
-    /// "sqlite:// [...]"
+    /// "sqlite:/path/to/file.db"
     ///
     /// PostgreSQL, MySQL, SqLite supported
     #[cfg(all(feature = "sql", not(coverage)))]
