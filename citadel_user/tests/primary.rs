@@ -228,7 +228,7 @@ mod tests {
                 container.server_acc_mgr.get_persistence_handler().clone(),
             );
             log::trace!(target: "citadel", "About to execute test on thread ...");
-            let res = citadel_io::spawn((t)(container.clone(), pers_cl, pers_se))
+            let res = (t)(container.clone(), pers_cl, pers_se)
                 .await
                 .map_err(|err| AccountError::Generic(err.to_string()));
             log::info!(target: "citadel", "About to clear test container ...");
@@ -237,7 +237,7 @@ mod tests {
             }
 
             container.purge().await;
-            res?
+            res
         }
 
         for client_backend in &client_backends {
