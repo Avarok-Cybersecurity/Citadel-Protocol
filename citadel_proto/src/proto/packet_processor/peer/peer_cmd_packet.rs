@@ -120,7 +120,7 @@ pub async fn process_peer_cmd(
 
                                 let task = async move {
                                     loop {
-                                        if let Some(ts) = last_packet.load(Ordering::SeqCst) {
+                                        if let Some(ts) = last_packet.get() {
                                             if ts.elapsed() > Duration::from_millis(1500)
                                                 && inner_mut_state!(state_container_ref)
                                                     .enqueued_packets
@@ -1197,7 +1197,7 @@ async fn process_signal_command_as_server(
 
                         let task = async move {
                             // note: this is w.r.t the server.
-                            while let Some(ts) = last_packet.load(Ordering::SeqCst) {
+                            while let Some(ts) = last_packet.get() {
                                 if ts.elapsed() > Duration::from_millis(1500) {
                                     break;
                                 }
