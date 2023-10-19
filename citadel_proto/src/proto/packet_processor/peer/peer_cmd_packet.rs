@@ -73,7 +73,7 @@ pub async fn process_peer_cmd(
     let task = async move {
         let session = &session;
         // we can unwrap below safely since the header layout has already been verified
-        let header = LayoutVerified::new(&*header).unwrap() as LayoutVerified<&[u8], HdpHeader>;
+        let header = Ref::new(&*header).unwrap() as Ref<&[u8], HdpHeader>;
 
         match aux_cmd {
             packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
@@ -769,7 +769,7 @@ async fn process_signal_command_as_server(
     signal: PeerSignal,
     ticket: Ticket,
     sess_hyper_ratchet: StackedRatchet,
-    header: LayoutVerified<&[u8], HdpHeader>,
+    header: Ref<&[u8], HdpHeader>,
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

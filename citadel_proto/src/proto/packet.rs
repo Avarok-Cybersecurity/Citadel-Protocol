@@ -1,9 +1,8 @@
-use byteorder::NetworkEndian;
-use bytes::{BufMut, Bytes, BytesMut};
-use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, I64, U128, U32, U64};
-
 use crate::constants::HDP_HEADER_BYTE_LEN;
+use bytes::{BufMut, Bytes, BytesMut};
 use std::net::SocketAddr;
+use zerocopy::byteorder::big_endian::{I64, U128, U32, U64};
+use zerocopy::{AsBytes, FromBytes, FromZeroes, Ref, Unaligned};
 
 pub(crate) mod packet_flags {
     pub(crate) mod cmd {
@@ -142,7 +141,7 @@ pub(crate) mod packet_sizes {
     }
 }
 
-#[derive(Debug, AsBytes, FromBytes, Unaligned, Clone)]
+#[derive(Debug, FromZeroes, AsBytes, FromBytes, Unaligned, Clone)]
 #[repr(C)]
 /// The header for each [HdpPacket]
 pub struct HdpHeader {
@@ -154,21 +153,21 @@ pub struct HdpHeader {
     pub algorithm: u8,
     /// A value [0,4]
     pub security_level: u8,
-    pub protocol_version: U32<NetworkEndian>,
+    pub protocol_version: U32,
     /// Some commands require arguments; the u128 can hold 16 bytes
-    pub context_info: U128<NetworkEndian>,
+    pub context_info: U128,
     /// A unique ID given to a subset of a singular object
-    pub group: U64<NetworkEndian>,
+    pub group: U64,
     /// The wave ID in the sequence
-    pub wave_id: U32<NetworkEndian>,
+    pub wave_id: U32,
     /// Multiple clients may be connected from the same node. NOTE: This can also be equal to the ticket id
-    pub session_cid: U64<NetworkEndian>,
+    pub session_cid: U64,
     /// The drill version applied to encrypt the data
-    pub drill_version: U32<NetworkEndian>,
+    pub drill_version: U32,
     /// Before a packet is sent outbound, the local time is placed into the packet header
-    pub timestamp: I64<NetworkEndian>,
+    pub timestamp: I64,
     /// The target_cid (0 if hyperLAN server)
-    pub target_cid: U64<NetworkEndian>,
+    pub target_cid: U64,
 }
 
 impl AsRef<[u8]> for HdpHeader {
@@ -196,7 +195,7 @@ pub struct HdpPacket<B: HdpBuffer = BytesMut> {
     local_port: u16,
 }
 
-pub type ParsedPacket<'a> = (LayoutVerified<&'a [u8], HdpHeader>, &'a [u8]);
+pub type ParsedPacket<'a> = (Ref<&'a [u8], HdpHeader>, &'a [u8]);
 
 impl<B: HdpBuffer> HdpPacket<B> {
     /// When a packet comes inbound, this should be used to wrap the packet
@@ -210,7 +209,7 @@ impl<B: HdpBuffer> HdpPacket<B> {
 
     /// Parses the zerocopy header
     pub fn parse(&self) -> Option<ParsedPacket> {
-        LayoutVerified::new_from_prefix(self.packet.as_ref())
+        Ref::new_from_prefix(self.packet.as_ref())
     }
 
     /// Creates a packet out of the inner device

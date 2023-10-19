@@ -10,7 +10,7 @@ use citadel_crypt::stacked_ratchet::constructor::{ConstructorType, StackedRatche
 use serde::{Deserialize, Serialize};
 
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
-use zerocopy::LayoutVerified;
+use zerocopy::Ref;
 
 use citadel_crypt::scramble::crypt_splitter::{
     GroupReceiver, GroupReceiverConfig, GroupReceiverStatus,
@@ -1003,7 +1003,7 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn on_group_header_received(
         &mut self,
-        header: &LayoutVerified<&[u8], HdpHeader>,
+        header: &Ref<&[u8], HdpHeader>,
         group_receiver_config: GroupReceiverConfig,
         virtual_target: VirtualTargetType,
     ) -> Option<RangeInclusive<u32>> {
@@ -1070,7 +1070,7 @@ impl StateContainerInner {
     #[allow(clippy::too_many_arguments)]
     pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(
         &mut self,
-        header: &LayoutVerified<&[u8], HdpHeader>,
+        header: &Ref<&[u8], HdpHeader>,
         virtual_target: VirtualTargetType,
         metadata_orig: VirtualObjectMetadata,
         pers: &PersistenceHandler<R, Fcm>,
@@ -1533,7 +1533,7 @@ impl StateContainerInner {
     pub fn on_wave_ack_received(
         &mut self,
         _implicated_cid: u64,
-        header: &LayoutVerified<&[u8], HdpHeader>,
+        header: &Ref<&[u8], HdpHeader>,
     ) -> bool {
         let object_id = header.context_info.get() as u64;
         let group = header.group.get();

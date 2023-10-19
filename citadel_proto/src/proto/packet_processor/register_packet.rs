@@ -27,8 +27,8 @@ pub async fn process_register(
 
     let task = async move {
         let (header, payload, _, _) = packet.decompose();
-        let header = return_if_none!(LayoutVerified::new(&header[..]), "Unable to parse header")
-            as LayoutVerified<&[u8], HdpHeader>;
+        let header = return_if_none!(Ref::new(&header[..]), "Unable to parse header")
+            as Ref<&[u8], HdpHeader>;
         debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
         let security_level = header.security_level.into();
 

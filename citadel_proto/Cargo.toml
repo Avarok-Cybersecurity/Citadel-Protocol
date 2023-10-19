@@ -55,7 +55,7 @@ tokio-util = { workspace = true, features = ["net", "codec", "time", "io"] }
 tokio = { workspace = true }
 auto_impl = { workspace = true }
 tokio-stream = { workspace = true }
-zerocopy = { workspace = true }
+zerocopy = { workspace = true, features = ["byteorder", "derive"] }
 bytes = { workspace = true, features = ["serde"] }
 byteorder = { workspace = true }
 atomic = { workspace = true, features = ["fallback"] }
