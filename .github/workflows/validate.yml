@@ -12,7 +12,6 @@ env:
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
   RUST_LOG: "citadel=warn"
-  GH_PIPELINE_MODE: "true"
 
 jobs:
   core_libs:
@@ -58,7 +57,7 @@ jobs:
         env:
           TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
           TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-        run: cargo nextest run --package citadel_user --features sql,redis,localhost-testing
+        run: cargo nextest run --package citadel_user --features sql,redis
       - name: Run minimal user library + SQL backend
         if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
         env:

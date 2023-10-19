@@ -784,8 +784,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
 impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     async fn get_conn(&self) -> Result<AnyPool, AccountError> {
-        let in_pipeline = std::env::var("GH_PIPELINE_MODE").is_ok();
-        if self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) || in_pipeline {
+        if self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) {
             self.generate_conn().await
         } else {
             self.conn

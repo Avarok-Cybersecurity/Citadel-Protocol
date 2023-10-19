@@ -29,7 +29,6 @@ wasm = ["citadel_crypt/wasm"]
 google-services = ["openssl", "jwt", "firebase-rtdb"]
 vendored = ["openssl/vendored"]
 
-# whenever an accountmanager is created, all accounts are purged when localhost-testing is enabled
 localhost-testing = []
 jwt-testing = []
 
