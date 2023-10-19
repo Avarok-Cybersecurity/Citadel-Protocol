@@ -121,7 +121,7 @@ pub(crate) mod group {
 
 pub(crate) mod do_register {
     use std::net::SocketAddr;
-    use zerocopy::LayoutVerified;
+    use zerocopy::Ref;
 
     use crate::proto::packet::HdpHeader;
     use crate::proto::packet_crafter::do_register::{DoRegisterStage0, DoRegisterStage2Packet};
@@ -140,7 +140,7 @@ pub(crate) mod do_register {
     /// Returns the decrypted username, password, and full name
     pub(crate) fn validate_stage2(
         hyper_ratchet: &StackedRatchet,
-        header: &LayoutVerified<&[u8], HdpHeader>,
+        header: &Ref<&[u8], HdpHeader>,
         payload: BytesMut,
         peer_addr: SocketAddr,
     ) -> Option<(DoRegisterStage2Packet, ConnectionInfo)> {
@@ -156,7 +156,7 @@ pub(crate) mod do_register {
     /// Returns the decrypted Toolset text, as well as the welcome message
     pub(crate) fn validate_success(
         hyper_ratchet: &StackedRatchet,
-        header: &LayoutVerified<&[u8], HdpHeader>,
+        header: &Ref<&[u8], HdpHeader>,
         payload: BytesMut,
         remote_addr: SocketAddr,
     ) -> Option<(Vec<u8>, ConnectionInfo)> {
@@ -167,7 +167,7 @@ pub(crate) mod do_register {
 
     /// Returns the error message
     pub(crate) fn validate_failure(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<Vec<u8>> {
         // no encryption used for this type
@@ -355,11 +355,11 @@ pub(crate) mod file {
         FileHeaderAckPacket, FileHeaderPacket, ReVFSAckPacket, ReVFSDeletePacket,
         ReVFSPullAckPacket, ReVFSPullPacket,
     };
-    use crate::proto::packet_processor::includes::LayoutVerified;
+    use crate::proto::packet_processor::includes::Ref;
     use citadel_user::serialization::SyncIO;
 
     pub fn validate_file_header(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<FileHeaderPacket> {
         FileHeaderPacket::deserialize_from_vector(payload).ok()
@@ -367,35 +367,35 @@ pub(crate) mod file {
 
     /// return Some(success, object_id) if valid, or None if invalid
     pub fn validate_file_header_ack(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<FileHeaderAckPacket> {
         FileHeaderAckPacket::deserialize_from_vector(payload).ok()
     }
 
     pub fn validate_revfs_delete(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<ReVFSDeletePacket> {
         ReVFSDeletePacket::deserialize_from_vector(payload).ok()
     }
 
     pub fn validate_revfs_pull(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<ReVFSPullPacket> {
         ReVFSPullPacket::deserialize_from_vector(payload).ok()
     }
 
     pub fn validate_revfs_ack(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<ReVFSAckPacket> {
         ReVFSAckPacket::deserialize_from_vector(payload).ok()
     }
 
     pub fn validate_revfs_pull_ack(
-        _header: &LayoutVerified<&[u8], HdpHeader>,
+        _header: &Ref<&[u8], HdpHeader>,
         payload: &[u8],
     ) -> Option<ReVFSPullAckPacket> {
         ReVFSPullAckPacket::deserialize_from_vector(payload).ok()
@@ -404,13 +404,12 @@ pub(crate) mod file {
 
 pub(crate) mod aead {
     use bytes::{Bytes, BytesMut};
-    use zerocopy::LayoutVerified;
+    use zerocopy::Ref;
 
     use crate::proto::packet::HdpHeader;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
 
-    pub(crate) type AeadValidationResult<'a> =
-        (LayoutVerified<&'a [u8], HdpHeader>, Bytes, StackedRatchet);
+    pub(crate) type AeadValidationResult<'a> = (Ref<&'a [u8], HdpHeader>, Bytes, StackedRatchet);
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM or chacha-poly
     pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(
@@ -419,7 +418,7 @@ pub(crate) mod aead {
         mut payload: BytesMut,
     ) -> Option<AeadValidationResult> {
         let header_bytes = header.as_ref();
-        let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
+        let header = Ref::new(header_bytes)? as Ref<&[u8], HdpHeader>;
         proper_hr
             .validate_message_packet_in_place_split(
                 Some(header.security_level.into()),
@@ -435,9 +434,9 @@ pub(crate) mod aead {
         hyper_ratchet: &StackedRatchet,
         header: &'b H,
         mut payload: BytesMut,
-    ) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, BytesMut)> {
+    ) -> Option<(Ref<&'a [u8], HdpHeader>, BytesMut)> {
         let header_bytes = header.as_ref();
-        let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
+        let header = Ref::new(header_bytes)? as Ref<&[u8], HdpHeader>;
         if let Err(err) = hyper_ratchet.validate_message_packet_in_place_split(
             Some(header.security_level.into()),
             header_bytes,

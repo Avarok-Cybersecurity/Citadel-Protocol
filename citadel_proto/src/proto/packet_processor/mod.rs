@@ -14,7 +14,7 @@ pub mod includes {
     pub use bytes::Bytes;
     pub use log::{trace, warn};
     pub use tokio::time::{Duration, Instant};
-    pub use zerocopy::LayoutVerified;
+    pub use zerocopy::Ref;
 
     pub use citadel_crypt::entropy_bank::EntropyBank;
     pub use citadel_crypt::entropy_bank::SecurityLevel;
