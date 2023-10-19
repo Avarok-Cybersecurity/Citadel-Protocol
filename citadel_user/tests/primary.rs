@@ -228,9 +228,7 @@ mod tests {
                 container.server_acc_mgr.get_persistence_handler().clone(),
             );
             log::trace!(target: "citadel", "About to execute test on thread ...");
-            let res = (t)(container.clone(), pers_cl, pers_se)
-                .await
-                .map_err(|err| AccountError::Generic(err.to_string()));
+            let res = (t)(container.clone(), pers_cl, pers_se).await;
             log::info!(target: "citadel", "About to clear test container ...");
             if res.is_err() {
                 log::error!(target: "citadel", "Task failed! {:?}", res);
