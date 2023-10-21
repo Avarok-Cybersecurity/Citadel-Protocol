@@ -36,7 +36,7 @@ jobs:
           app_db: hyxewave hyxewave2
       - name: Add mysql databases
         if: startsWith(matrix.os, 'ubuntu')
-        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2; set global max_connections = 1000;'
       - name: Augment connection size for psql
         if: startsWith(matrix.os, 'ubuntu')
         run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
@@ -55,9 +55,9 @@ jobs:
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         env:
-          TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
-          TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-        run: cargo nextest run --package citadel_user --features sql,redis,localhost-testing
+          TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+          TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
+        run: cargo nextest run --package citadel_user --features sql,redis
       - name: Run minimal user library + SQL backend
         if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
         env:

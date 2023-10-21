@@ -26,7 +26,6 @@ std = [
     "rand/std",
     "tokio/default",
     "citadel_io/std",
-    "rust-argon2/default"
 ]
 wasm = [
     "citadel_pqcrypto/wasm",

@@ -3,9 +3,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 //use async_std::prelude::*;
+use crate::proto::packet_processor::includes::Instant;
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
-use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
 
 use citadel_crypt::entropy_bank::SecurityLevel;
@@ -209,6 +209,7 @@ pub struct HdpSessionInner {
 
 /// allows each session worker to check the state of the session
 #[derive(Copy, Clone, PartialEq, Debug)]
+#[repr(u8)]
 pub enum SessionState {
     /// In impersonal mode, the primary socket may receive a new stream. This category implies that
     /// the next packet should be a welcome packet with information implying if it is already registered
