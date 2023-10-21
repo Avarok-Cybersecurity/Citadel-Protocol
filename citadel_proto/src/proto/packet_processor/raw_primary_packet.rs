@@ -6,7 +6,6 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use futures::Future;
-use std::sync::atomic::Ordering;
 
 pub trait ProcessorFuture:
     Future<Output = Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements
@@ -169,7 +168,7 @@ pub(crate) fn check_proxy(
                     // Ensure that any p2p conn proxied packets (i.e., TURNed packets) can continue to traverse until any full disconnections occur
                     peer_vconn
                         .last_delivered_message_timestamp
-                        .store(Some(Instant::now()), Ordering::SeqCst);
+                        .set(Some(Instant::now()));
                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy when proxying here
                     match recv_port_type {
                         ReceivePortType::OrderedReliable => {

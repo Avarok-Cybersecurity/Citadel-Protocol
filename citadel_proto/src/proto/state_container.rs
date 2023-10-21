@@ -26,6 +26,7 @@ use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
 use crate::prelude::{InternalServerError, MessageGroupKey, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_late_init::DualLateInit;
+use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::ordered_channel::OrderedChannel;
 use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::node::SecrecyMode;
@@ -191,7 +192,7 @@ impl FileKey {
 pub struct VirtualConnection<R: Ratchet = StackedRatchet> {
     /// For determining the type of connection
     pub connection_type: VirtualConnectionType,
-    pub last_delivered_message_timestamp: Arc<Atomic<Option<Instant>>>,
+    pub last_delivered_message_timestamp: DualRwLock<Option<Instant>>,
     pub is_active: Arc<AtomicBool>,
     // this is Some for server, None for endpoints
     pub sender: Option<(Option<OutboundUdpSender>, OutboundPrimaryStreamSender)>,
@@ -822,7 +823,7 @@ impl StateContainerInner {
         });
 
         let vconn = VirtualConnection {
-            last_delivered_message_timestamp: Arc::new(Atomic::new(None)),
+            last_delivered_message_timestamp: DualRwLock::from(None),
             connection_type,
             is_active,
             // this is None for endpoints, as there's no need for this
@@ -898,7 +899,7 @@ impl StateContainerInner {
         target_tcp_sender: OutboundPrimaryStreamSender,
     ) {
         let val = VirtualConnection {
-            last_delivered_message_timestamp: Arc::new(Atomic::new(None)),
+            last_delivered_message_timestamp: DualRwLock::from(None),
             endpoint_container: None,
             sender: Some((target_udp_sender, target_tcp_sender)),
             connection_type,

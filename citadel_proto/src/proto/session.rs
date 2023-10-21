@@ -83,6 +83,7 @@ use std::pin::Pin;
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
 use crate::proto::remote::{NodeRemote, Ticket};
+use bytemuck::NoUninit;
 
 //use crate::define_struct;
 
@@ -175,7 +176,7 @@ impl Clone for HdpSession {
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
 pub struct HdpSessionInner {
-    pub(super) implicated_cid: DualCell<Option<u64>>,
+    pub(super) implicated_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
     // Sends results directly to the kernel
@@ -208,7 +209,7 @@ pub struct HdpSessionInner {
 }
 
 /// allows each session worker to check the state of the session
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, NoUninit)]
 #[repr(u8)]
 pub enum SessionState {
     /// In impersonal mode, the primary socket may receive a new stream. This category implies that
@@ -361,7 +362,7 @@ impl HdpSession {
             local_bind_addr,
             local_node_type,
             remote_node_type,
-            implicated_cid: DualCell::new(implicated_cid),
+            implicated_cid: DualRwLock::from(implicated_cid),
             time_tracker,
             kernel_ticket: kernel_ticket.into(),
             remote_peer,
@@ -1111,7 +1112,7 @@ impl HdpSession {
                         let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
 
                         let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
-                            if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.load(Ordering::SeqCst).map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
+                            if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
                                 Some(vconn.1.connection_type)
                             } else {
                                 None

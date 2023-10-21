@@ -5,7 +5,7 @@ use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::prelude::ServerUnderlyingProtocol;
 use crate::proto::misc;
-use crate::proto::misc::dual_cell::DualCell;
+use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
 use crate::proto::node::Node;
@@ -152,7 +152,7 @@ async fn p2p_conn_handler(
 #[allow(clippy::too_many_arguments)]
 fn handle_p2p_stream(
     mut p2p_stream: GenericNetworkStream,
-    implicated_cid: DualCell<Option<u64>>,
+    implicated_cid: DualRwLock<Option<u64>>,
     session: HdpSession,
     kernel_tx: UnboundedSender<NodeResult>,
     from_listener: bool,
@@ -238,7 +238,7 @@ pub struct P2PInboundHandle {
     pub remote_peer: SocketAddr,
     pub local_bind_port: u16,
     // this has to be the CID of the local session, not the peer's CID
-    pub implicated_cid: DualCell<Option<u64>>,
+    pub implicated_cid: DualRwLock<Option<u64>>,
     pub kernel_tx: UnboundedSender<NodeResult>,
     pub to_primary_stream: OutboundPrimaryStreamSender,
 }
@@ -247,7 +247,7 @@ impl P2PInboundHandle {
     fn new(
         remote_peer: SocketAddr,
         local_bind_port: u16,
-        implicated_cid: DualCell<Option<u64>>,
+        implicated_cid: DualRwLock<Option<u64>>,
         kernel_tx: UnboundedSender<NodeResult>,
         to_primary_stream: OutboundPrimaryStreamSender,
     ) -> Self {
@@ -276,7 +276,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
     ticket: Ticket,
     session: HdpSession,
     peer_nat_info: PeerNatInfo,
-    implicated_cid: DualCell<Option<u64>>,
+    implicated_cid: DualRwLock<Option<u64>>,
     kernel_tx: UnboundedSender<NodeResult>,
     channel_signal: NodeResult,
     sync_time: Instant,
