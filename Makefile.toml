@@ -105,7 +105,7 @@ env = { "SKIP_EXT_BACKENDS" = "true" }
 args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs\"", "${@}"]
 dependencies = ["install-nextest", "install-llvm-cov"]
 
-[tasks.bump-proto]
+[tasks.bump-proto-inner]
 script_runner = "@rust"
 description = "Bumps the version of the inner protocol. Should not be syned with the crate versions"
 script = '''
@@ -220,6 +220,11 @@ fn maybe_extract_value_for(line: &str, line_str_name: &str) -> Option<u8> {
     }
 }
 '''
+
+[tasks.bump-proto]
+dependencies = ["bump-proto-inner"]
+command = "cargo"
+args = ["fmt", "--package", "citadel_proto"]
 
 [tasks.publish-install-deps]
 install_crate = { crate_name = "cargo-workspaces", binary = "cargo", test_arg = ["workspaces", "--help"] }

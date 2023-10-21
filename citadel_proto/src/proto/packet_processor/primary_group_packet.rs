@@ -60,10 +60,8 @@ pub fn process_primary_packet(
     let udp_mode = state_container.udp_mode;
     // get the proper pqc
     let header_bytes = &header[..];
-    let header = return_if_none!(
-        LayoutVerified::new(header_bytes),
-        "Unable to load header [PGP]"
-    ) as LayoutVerified<&[u8], HdpHeader>;
+    let header = return_if_none!(Ref::new(header_bytes), "Unable to load header [PGP]")
+        as Ref<&[u8], HdpHeader>;
     let hyper_ratchet = return_if_none!(
         get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info),
         "Unable to get proper StackedRatchet [PGP]"
@@ -741,7 +739,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
 pub(crate) fn attempt_kem_as_bob(
     resp_target_cid: u64,
-    header: &LayoutVerified<&[u8], HdpHeader>,
+    header: &Ref<&[u8], HdpHeader>,
     transfer: Option<AliceToBobTransferType>,
     state_container: &mut StateContainerInner,
     hr: &StackedRatchet,

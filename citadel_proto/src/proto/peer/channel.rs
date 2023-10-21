@@ -344,11 +344,11 @@ mod rtc_impl {
             self.send(buf).await
         }
 
-        async fn local_addr(&self) -> Result<SocketAddr, webrtc_util::Error> {
+        fn local_addr(&self) -> Result<SocketAddr, webrtc_util::Error> {
             Ok(self.send_half.local_addr())
         }
 
-        async fn remote_addr(&self) -> Option<SocketAddr> {
+        fn remote_addr(&self) -> Option<SocketAddr> {
             Some(self.send_half.remote_addr())
         }
 
