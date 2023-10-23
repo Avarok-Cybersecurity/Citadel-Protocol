@@ -85,6 +85,10 @@ pub async fn process_connect(
                                 session,
                             );
 
+                            let session_security_settings = state_container
+                                .session_security_settings
+                                .expect("Should be set");
+
                             drop(state_container);
 
                             // Upgrade the connect BEFORE updating the CNAC
@@ -146,7 +150,8 @@ pub async fn process_connect(
                                     services: post_login_object,
                                     welcome_message: format!("Client {cid} successfully established a connection to the local HyperNode"),
                                     channel,
-                                    udp_rx_opt: udp_channel_rx
+                                    udp_rx_opt: udp_channel_rx,
+                                    session_security_settings
                                 });
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container)
@@ -255,6 +260,9 @@ pub async fn process_connect(
                                 header.session_cid.get(),
                                 session,
                             );
+                            let session_security_settings = state_container
+                                .session_security_settings
+                                .expect("Should be set");
                             std::mem::drop(state_container);
 
                             session.implicated_cid.set(Some(cid)); // This makes is_provisional equal to false
@@ -305,6 +313,7 @@ pub async fn process_connect(
                                 welcome_message: message,
                                 channel,
                                 udp_rx_opt: udp_channel_rx,
+                                session_security_settings,
                             }))?;
                             //finally, if there are any mailbox items, send them to the kernel for processing
                             if let Some(mailbox_delivery) = payload.mailbox {

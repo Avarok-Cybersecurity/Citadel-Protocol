@@ -1,4 +1,6 @@
-use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpChannel};
+use crate::prelude::{
+    GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, SessionSecuritySettings, UdpChannel,
+};
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
@@ -39,6 +41,7 @@ pub struct ConnectSuccess {
     pub welcome_message: String,
     pub channel: PeerChannel,
     pub udp_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub session_security_settings: SessionSecuritySettings,
 }
 
 #[derive(Debug)]

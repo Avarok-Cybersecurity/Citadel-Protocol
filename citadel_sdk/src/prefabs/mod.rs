@@ -21,17 +21,23 @@ pub struct ClientServerRemote {
     pub(crate) inner: NodeRemote,
     pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult>>>>,
     conn_type: VirtualTargetType,
+    session_security_settings: SessionSecuritySettings,
 }
 
 impl_remote!(ClientServerRemote);
 
 impl ClientServerRemote {
     /// constructs a new [`ClientServerRemote`] from a [`NodeRemote`] and a [`VirtualTargetType`]
-    pub fn new(conn_type: VirtualTargetType, remote: NodeRemote) -> Self {
+    pub fn new(
+        conn_type: VirtualTargetType,
+        remote: NodeRemote,
+        session_security_settings: SessionSecuritySettings,
+    ) -> Self {
         Self {
             inner: remote,
             unprocessed_signals_rx: Default::default(),
             conn_type,
+            session_security_settings,
         }
     }
     /// Can only be called once per remote. Allows receiving events
@@ -54,6 +60,10 @@ impl TargetLockedRemote for ClientServerRemote {
     }
     fn user_mut(&mut self) -> &mut VirtualTargetType {
         &mut self.conn_type
+    }
+
+    fn session_security_settings(&self) -> Option<&SessionSecuritySettings> {
+        Some(&self.session_security_settings)
     }
 }
 

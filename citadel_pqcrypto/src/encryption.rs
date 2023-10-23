@@ -209,21 +209,32 @@ pub(crate) mod kyber_module {
     }
 
     pub fn encrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
-        _: KemAlgorithm,
+        kem_alg: KemAlgorithm,
         local_pk: T,
         plaintext: R,
         nonce: V,
     ) -> Result<Vec<u8>, Error> {
-        kyber_pke::encrypt(local_pk, plaintext, nonce)
-            .map_err(|err| Error::Other(format!("{err:?}")))
+        match kem_alg {
+            KemAlgorithm::Kyber => kyber_pke::encrypt(local_pk, plaintext, nonce)
+                .map_err(|err| Error::Other(format!("{err:?}"))),
+            KemAlgorithm::Ntru => Err(Error::Other(format!(
+                "Kem ALG {kem_alg:?} does not support PKE"
+            ))),
+        }
     }
 
     pub fn decrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>>(
-        _: KemAlgorithm,
+        kem_alg: KemAlgorithm,
         local_sk: T,
         ciphertext: R,
     ) -> Result<Vec<u8>, Error> {
-        kyber_pke::decrypt(local_sk, ciphertext).map_err(|err| Error::Other(format!("{err:?}")))
+        match kem_alg {
+            KemAlgorithm::Kyber => kyber_pke::decrypt(local_sk, ciphertext)
+                .map_err(|err| Error::Other(format!("{err:?}"))),
+            KemAlgorithm::Ntru => Err(Error::Other(format!(
+                "Kem ALG {kem_alg:?} does not support PKE"
+            ))),
+        }
     }
 
     fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), Error> {

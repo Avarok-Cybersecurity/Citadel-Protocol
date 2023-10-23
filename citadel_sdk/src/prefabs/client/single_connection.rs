@@ -188,6 +188,7 @@ where
         tracing::instrument(target = "citadel", skip_all, err(Debug))
     )]
     async fn on_start(&self) -> Result<(), NetworkError> {
+        let session_security_settings = self.session_security_settings;
         let remote = self.remote.clone().unwrap();
         let (auth_info, handler) = {
             (
@@ -259,6 +260,7 @@ where
                 inner: remote,
                 unprocessed_signals_rx: Arc::new(Mutex::new(unprocessed_signal_filter)),
                 conn_type,
+                session_security_settings,
             },
         )
         .await

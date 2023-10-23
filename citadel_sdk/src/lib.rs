@@ -33,8 +33,8 @@
 //!
 //! # Encryption Algorithms
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
-//! - AES-256-GCM-SIV
-//! - XChacha20Poly-1305
+//! - AES-256-GCM
+//! - Chacha20Poly-1305
 //! - Ascon-80pq
 //! - Kyber "scramcryption" (see below for explanation)
 //!

@@ -56,7 +56,7 @@ ascon-aead = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-oqs = { workspace = true, features = ["serde", "falcon"] }
+oqs = { workspace = true, features = ["serde", "falcon", "ntruprime"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 pqcrypto-falcon-wasi = { workspace = true, features = ["serialization", "avx2"] }

@@ -53,15 +53,20 @@ where
                 welcome_message: _,
                 channel,
                 udp_rx_opt: udp_channel_rx,
+                session_security_settings,
             }) => {
-                let client_server_remote =
-                    ClientServerRemote::new(conn_type, self.node_remote.clone().unwrap());
+                let client_server_remote = ClientServerRemote::new(
+                    conn_type,
+                    self.node_remote.clone().unwrap(),
+                    session_security_settings,
+                );
                 (self.on_channel_received)(
                     ConnectionSuccess {
                         channel,
                         udp_channel_rx,
                         services,
                         cid,
+                        session_security_settings,
                     },
                     client_server_remote,
                 )
