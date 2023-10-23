@@ -30,6 +30,7 @@
 //! # Post-quantum key encapsulation mechanisms
 //! The user may also select a KEM family before a session to either a central server or peer begins (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder)). Each KEM has variants that alter the degree of security
 //! - Kyber (default)
+//! - NTRU (Sntrup761)
 //!
 //! # Encryption Algorithms
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
@@ -64,7 +65,7 @@
 //! If at least one has a predictable pattern, a direct P2P connection bypassing the central server may be facilitated.
 //!
 //! If, however, both Alice and Bob do not have predictable internal/external socket mappings (e.g., both are behind symmetric NATs), then, both will use
-//! their central server to relay their packets to each other using endpoint to endpoint encryption, preventing the central server from
+//! their central server to relay their packets to each other using endpoint-to-endpoint encryption, preventing the central server from
 //! decrypting the packets.
 //!
 #![cfg_attr(
