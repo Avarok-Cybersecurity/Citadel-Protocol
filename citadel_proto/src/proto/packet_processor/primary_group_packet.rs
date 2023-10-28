@@ -292,7 +292,7 @@ pub fn process_primary_packet(
                                         );
                                         vconn
                                             .last_delivered_message_timestamp
-                                            .store(Some(Instant::now()), Ordering::SeqCst);
+                                            .set(Some(Instant::now()));
                                     }
 
                                     // TODO: make the below function return a result, not bools

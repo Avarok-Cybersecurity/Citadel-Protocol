@@ -3,6 +3,7 @@ use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStrea
 use crate::prelude::{NodeRequest, NodeResult};
 use crate::proto::node::HdpServerRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
+use bytemuck::NoUninit;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
 use serde::{Deserialize, Serialize};
@@ -233,7 +234,10 @@ impl NodeRemote {
 impl Unpin for NodeRemote {}
 
 /// A type sent through the server when a request is made
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, NoUninit,
+)]
+#[repr(C)]
 pub struct Ticket(pub u128);
 
 impl From<u128> for Ticket {

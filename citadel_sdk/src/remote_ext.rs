@@ -45,6 +45,7 @@ pub(crate) mod user_ids {
         fn remote(&self) -> &NodeRemote;
         fn target_username(&self) -> Option<&String>;
         fn user_mut(&mut self) -> &mut VirtualTargetType;
+        fn session_security_settings(&self) -> Option<&SessionSecuritySettings>;
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandleRef<'_> {
@@ -60,6 +61,10 @@ pub(crate) mod user_ids {
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
         }
+
+        fn session_security_settings(&self) -> Option<&SessionSecuritySettings> {
+            None
+        }
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandle {
@@ -74,6 +79,10 @@ pub(crate) mod user_ids {
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
+        }
+
+        fn session_security_settings(&self) -> Option<&SessionSecuritySettings> {
+            None
         }
     }
 
@@ -109,6 +118,7 @@ pub struct ConnectionSuccess {
     /// Contains the Google auth minted at the central server (if the central server enabled it), as well as any other services enabled by the central server
     pub services: ServicesObject,
     pub cid: u64,
+    pub session_security_settings: SessionSecuritySettings,
 }
 
 /// Contains the elements entailed by a successful registration
@@ -207,11 +217,13 @@ pub trait ProtocolRemoteExt: Remote {
                 welcome_message: _,
                 channel,
                 udp_rx_opt: udp_channel_rx,
+                session_security_settings,
             }) => Ok(ConnectionSuccess {
                 channel,
                 udp_channel_rx,
                 services,
                 cid,
+                session_security_settings,
             }),
             NodeResult::ConnectFail(ConnectFail {
                 ticket: _,
@@ -502,6 +514,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         chunk_size: usize,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
+        self.can_use_revfs()?;
         let mut virtual_path = virtual_directory.into();
         virtual_path = prepare_virtual_path(virtual_path);
         validate_virtual_path(&virtual_path)
@@ -539,6 +552,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
     ) -> Result<PathBuf, NetworkError> {
+        self.can_use_revfs()?;
         let request = NodeRequest::PullObject(PullObject {
             v_conn: *self.user(),
             virtual_dir: virtual_directory.into(),
@@ -585,6 +599,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         &self,
         virtual_directory: R,
     ) -> Result<(), NetworkError> {
+        self.can_use_revfs()?;
         let request = NodeRequest::DeleteObject(DeleteObject {
             v_conn: *self.user(),
             virtual_dir: virtual_directory.into(),
@@ -638,6 +653,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         inner: self.remote().clone(),
                         peer: peer_target.as_virtual_connection(),
                         username,
+                        session_security_settings,
                     };
 
                     return Ok(PeerConnectSuccess {
@@ -1009,6 +1025,23 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             verified_return(self.user())
         }
     }
+
+    #[doc(hidden)]
+    fn can_use_revfs(&self) -> Result<(), NetworkError> {
+        if let Some(sess) = self.session_security_settings() {
+            if sess.crypto_params.kem_algorithm == KemAlgorithm::Kyber {
+                Ok(())
+            } else {
+                Err(NetworkError::InvalidRequest(
+                    "RE-VFS can only be used with Kyber KEM",
+                ))
+            }
+        } else {
+            Err(NetworkError::InvalidRequest(
+                "RE-VFS cannot be used with this remote type",
+            ))
+        }
+    }
 }
 
 impl<T: TargetLockedRemote> ProtocolRemoteTargetExt for T {}
@@ -1065,6 +1098,7 @@ pub mod remote_specialization {
         pub(crate) inner: NodeRemote,
         pub(crate) peer: VirtualTargetType,
         pub(crate) username: Option<String>,
+        pub(crate) session_security_settings: SessionSecuritySettings,
     }
 
     impl TargetLockedRemote for PeerRemote {
@@ -1079,6 +1113,10 @@ pub mod remote_specialization {
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.peer
+        }
+
+        fn session_security_settings(&self) -> Option<&SessionSecuritySettings> {
+            Some(&self.session_security_settings)
         }
     }
 }

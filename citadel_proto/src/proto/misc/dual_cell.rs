@@ -1,4 +1,5 @@
 use crate::macros::ContextRequirements;
+use bytemuck::NoUninit;
 
 pub struct DualCell<T: ContextRequirements> {
     #[cfg(not(feature = "multi-threaded"))]
@@ -8,13 +9,9 @@ pub struct DualCell<T: ContextRequirements> {
 }
 
 impl<T: ContextRequirements> DualCell<T> {
-    pub fn new(value: T) -> Self {
-        Self::from(value)
-    }
-
     pub fn set(&self, new: T)
     where
-        T: Copy,
+        T: Copy + NoUninit,
     {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -28,7 +25,7 @@ impl<T: ContextRequirements> DualCell<T> {
 
     pub fn get(&self) -> T
     where
-        T: Copy,
+        T: Copy + NoUninit,
     {
         #[cfg(not(feature = "multi-threaded"))]
         {

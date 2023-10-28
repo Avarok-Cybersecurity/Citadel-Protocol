@@ -124,8 +124,10 @@ mod tests {
 
             assert_eq!(plaintext.as_slice(), decrypted);
 
-            // test local encryption
-            local_encryption(&alice_container, &bob_container, &plaintext, nonce);
+            if kem_algorithm == KemAlgorithm::Kyber {
+                // test local encryption
+                local_encryption(&alice_container, &bob_container, &plaintext, nonce);
+            }
         }
 
         Ok(())
@@ -355,12 +357,14 @@ mod tests {
                 SigAlgorithm::None,
             )
             .unwrap();
-            run(
-                algorithm.as_u8(),
-                EncryptionAlgorithm::Kyber,
-                SigAlgorithm::Falcon1024,
-            )
-            .unwrap();
+            if algorithm == KemAlgorithm::Kyber {
+                run(
+                    algorithm.as_u8(),
+                    EncryptionAlgorithm::Kyber,
+                    SigAlgorithm::Falcon1024,
+                )
+                .unwrap();
+            }
         }
     }
 

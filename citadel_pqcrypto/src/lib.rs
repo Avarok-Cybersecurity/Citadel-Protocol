@@ -808,6 +808,10 @@ pub mod algorithm_dictionary {
         }
 
         pub fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize> {
+            if ciphertext.len() < 16 {
+                return None;
+            }
+
             match self {
                 Self::AES_GCM_256 => Some(ciphertext.len() - 16),
                 Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
@@ -835,6 +839,7 @@ pub mod algorithm_dictionary {
         #[strum(ascii_case_insensitive)]
         #[default]
         Kyber = 0,
+        Ntru = 1,
     }
 
     #[derive(
@@ -995,15 +1000,29 @@ pub enum PostQuantumMeta {
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {:?}", kem_alg);
-        let pk_alice = kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
-        let (public_key, secret_key) = (pk_alice.public, pk_alice.secret);
+        let (public_key, secret_key) = match kem_alg {
+            KemAlgorithm::Kyber => {
+                let pk_alice =
+                    kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
+                (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
+            }
+            KemAlgorithm::Ntru => {
+                let (pk_alice, sk_alice) =
+                    oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                        .map_err(|err| Error::Other(err.to_string()))?
+                        .keypair()
+                        .map_err(|err| Error::Other(err.to_string()))?;
+                (pk_alice.into_vec(), sk_alice.into_vec())
+            }
+        };
+
         let ciphertext = None;
         let shared_secret = None;
         let remote_sig_public_key = None;
-        let secret_key = Some(Arc::new(secret_key.to_vec().into()));
+        let secret_key = Some(Arc::new(secret_key.into()));
 
         let kex = PostQuantumMetaKex {
-            public_key: Arc::new(public_key.to_vec().into()),
+            public_key: Arc::new(public_key.into()),
             secret_key,
             ciphertext,
             shared_secret,
@@ -1042,9 +1061,20 @@ impl PostQuantumMeta {
             } => (*kem_scheme, alice_pk),
         };
 
-        let pk_bob = kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
-        let (kem_pk_bob, kem_sk_bob) = (pk_bob.public, pk_bob.secret);
-        let (kem_pk_bob, kem_sk_bob) = (kem_pk_bob.to_vec(), kem_sk_bob.to_vec());
+        let (kem_pk_bob, kem_sk_bob) = match kem_scheme {
+            KemAlgorithm::Kyber => {
+                let pk_bob =
+                    kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
+                (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
+            }
+            KemAlgorithm::Ntru => {
+                let (pk_bob, sk_bob) = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                    .map_err(|err| Error::Other(err.to_string()))?
+                    .keypair()
+                    .map_err(|err| Error::Other(err.to_string()))?;
+                (pk_bob.into_vec(), sk_bob.into_vec())
+            }
+        };
 
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::Kyber => {
@@ -1052,6 +1082,19 @@ impl PostQuantumMeta {
                     kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default())
                         .map_err(|_err| get_generic_error("Failed encapsulate step"))?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
+            }
+
+            KemAlgorithm::Ntru => {
+                let kem = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                    .map_err(|err| Error::Other(err.to_string()))?;
+                let wrapper = kem
+                    .public_key_from_bytes(pk_alice.as_slice())
+                    .ok_or_else(|| Error::Other("Bad public key input".to_string()))?;
+
+                let (ciphertext, shared_secret) = kem
+                    .encapsulate(wrapper)
+                    .map_err(|err| Error::Other(err.to_string()))?;
+                (ciphertext.into_vec(), shared_secret.into_vec())
             }
         };
 
@@ -1141,9 +1184,29 @@ impl PostQuantumMeta {
         };
 
         let secret_key = self.get_secret_key()?;
-        let shared_secret = kyber_pke::decapsulate(&bob_ciphertext, secret_key)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.to_vec().into()));
+
+        let shared_secret = match self.kex().kem_alg {
+            KemAlgorithm::Kyber => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
+                .map_err(|err| Error::Other(err.to_string()))?
+                .to_vec(),
+            KemAlgorithm::Ntru => {
+                let kem = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                    .map_err(|err| Error::Other(err.to_string()))?;
+
+                let wrapper_sk = kem
+                    .secret_key_from_bytes(secret_key.as_slice())
+                    .ok_or_else(|| Error::Other("Bad secret key input".to_string()))?;
+                let wrapper_ct = kem
+                    .ciphertext_from_bytes(bob_ciphertext.as_slice())
+                    .ok_or_else(|| Error::Other("Bad ciphertext input".to_string()))?;
+
+                kem.decapsulate(wrapper_sk, wrapper_ct)
+                    .map_err(|err| Error::Other(err.to_string()))?
+                    .into_vec()
+            }
+        };
+
+        self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.into()));
         self.get_kex_mut().ciphertext = Some(bob_ciphertext);
 
         match params {
