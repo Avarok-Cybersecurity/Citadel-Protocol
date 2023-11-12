@@ -2214,6 +2214,7 @@ impl StateContainerInner {
             | GroupBroadcast::Message { .. }
             | GroupBroadcast::Add { .. }
             | GroupBroadcast::AcceptMembership { key: _ }
+            | GroupBroadcast::DeclineMembership { key: _ }
             | GroupBroadcast::RequestJoin { .. }
             | GroupBroadcast::ListGroupsFor { .. }
             | GroupBroadcast::LeaveRoom { key: _ } => {
