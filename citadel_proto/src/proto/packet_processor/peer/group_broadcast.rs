@@ -64,6 +64,10 @@ pub enum GroupBroadcast {
         key: MessageGroupKey,
         success: bool,
     },
+    DeclineMembershipResponse {
+        key: MessageGroupKey,
+        success: bool,
+    },
     Kick {
         key: MessageGroupKey,
         kick_list: Vec<u64>,
@@ -436,6 +440,19 @@ pub async fn process_group_broadcast(
             }
         }
 
+        GroupBroadcast::DeclineMembershipResponse { key, success } => {
+            if success {
+                create_group_channel(ticket, key, session)
+            } else {
+                forward_signal(
+                    session,
+                    ticket,
+                    Some(key),
+                    GroupBroadcast::DeclineMembershipResponse { key, success },
+                )
+            }
+        }
+
         GroupBroadcast::LeaveRoom { key } => {
             // TODO: If the user leaving the room is the message group owner, then leave
             let success = session
@@ -644,12 +661,25 @@ pub async fn process_group_broadcast(
             Some(key),
             GroupBroadcast::GroupNonExists { key },
         ),
-        GroupBroadcast::DeclineMembership { key } => forward_signal(
-            session,
-            ticket,
-            Some(key),
-            GroupBroadcast::DeclineMembership { key },
-        ),
+
+        GroupBroadcast::DeclineMembership { key } => {
+            let success = session
+                .hypernode_peer_layer
+                .upgrade_peer_in_group(key, implicated_cid)
+                .await;
+
+            // tell the user who declined the membership
+            let signal = GroupBroadcast::DeclineMembershipResponse { key, success };
+            let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                sess_hyper_ratchet,
+                &signal,
+                ticket,
+                C2S_ENCRYPTION_ONLY,
+                timestamp,
+                security_level,
+            );
+            Ok(PrimaryProcessorResult::ReplyToSender(packet))
+        },
     }
 }
 
