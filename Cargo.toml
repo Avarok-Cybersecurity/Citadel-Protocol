@@ -90,7 +90,7 @@ rcgen = { default-features = false, version = "0.11.1" }
 rustls = { version = "0.21.6", default-features = false }
 rustls-pemfile = { default-features = false, version = "1.0.1" }
 tokio-rustls = { default-features = false, version = "0.24.1" }
-itertools = { version = "0.11.0", default-features = false }
+itertools = { version = "0.12.0", default-features = false }
 serde_millis = { default-features = false, version = "0.1.1" }
 multimap = { default-features = false, version = "0.9.0" }
 parking_lot = { version = "0.12.1" }
