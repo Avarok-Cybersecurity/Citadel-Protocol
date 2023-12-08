@@ -243,6 +243,25 @@ impl HyperNodePeerLayer {
         false
     }
 
+    #[allow(unused_results)]
+    // Removes a peer from pending
+    pub async fn remove_pending_peer_from_group(
+        &self,
+        key: MessageGroupKey,
+        peer_cid: u64,
+    ) -> bool {
+        let mut this = self.inner.write().await;
+        if let Some(map) = this.message_groups.get_mut(&key.cid) {
+            if let Some(entry) = map.get_mut(&key.mgid) {
+                if entry.pending_peers.remove(&peer_cid).is_some() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Determines if the [MessageGroupKey] maps to a [MessageGroup]
     pub async fn message_group_exists(&self, key: MessageGroupKey) -> bool {
         let this = self.inner.read().await;
