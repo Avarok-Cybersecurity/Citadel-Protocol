@@ -437,22 +437,44 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::DeclineMembership { target, key } => {
-            let success = session
-                .hypernode_peer_layer
-                .remove_pending_peer_from_group(key, target)
-                .await;
+            if session.is_server {
+                let mut success = session
+                    .hypernode_peer_layer
+                    .remove_pending_peer_from_group(key, target)
+                    .await;
 
-            // tell the user who declined the membership
-            let signal = GroupBroadcast::DeclineMembershipResponse { key, success };
-            let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
-                &signal,
-                ticket,
-                C2S_ENCRYPTION_ONLY,
-                timestamp,
-                security_level,
-            );
-            Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                success =  session.session_manager.route_packet_to(target, |peer_hr| {
+                    packet_crafter::peer_cmd::craft_group_message_packet(
+                        peer_hr,
+                        &GroupBroadcast::DeclineMembership { target, key, },
+                        ticket,
+                        C2S_ENCRYPTION_ONLY,
+                        timestamp,
+                        security_level,
+                    )
+                }).is_ok() && success;
+
+                // tell the user who declined the membership
+                let signal = GroupBroadcast::DeclineMembershipResponse { key, success };
+                let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                    sess_hyper_ratchet,
+                    &signal,
+                    ticket,
+                    C2S_ENCRYPTION_ONLY,
+                    timestamp,
+                    security_level,
+                );
+
+                Ok(PrimaryProcessorResult::ReplyToSender(packet))
+            } else {
+                // send to kernel/channel
+                forward_signal(
+                    session,
+                    ticket,
+                    Some(key),
+                    GroupBroadcast::DeclineMembership { target, key, },
+                )
+            }
         }
 
         GroupBroadcast::AcceptMembershipResponse { key, success } => {
