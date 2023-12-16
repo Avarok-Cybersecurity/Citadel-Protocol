@@ -478,7 +478,7 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::AcceptMembershipResponse { key, success } => {
-            if success {
+            if success && (key.cid != implicated_cid) {
                 create_group_channel(ticket, key, session)
             } else {
                 forward_signal(
