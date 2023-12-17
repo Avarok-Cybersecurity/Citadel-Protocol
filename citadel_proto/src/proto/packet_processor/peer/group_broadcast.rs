@@ -443,16 +443,20 @@ pub async fn process_group_broadcast(
                     .remove_pending_peer_from_group(key, target)
                     .await;
 
-                success =  session.session_manager.route_packet_to(target, |peer_hr| {
-                    packet_crafter::peer_cmd::craft_group_message_packet(
-                        peer_hr,
-                        &GroupBroadcast::DeclineMembership { target, key, },
-                        ticket,
-                        C2S_ENCRYPTION_ONLY,
-                        timestamp,
-                        security_level,
-                    )
-                }).is_ok() && success;
+                success = session
+                    .session_manager
+                    .route_packet_to(target, |peer_hr| {
+                        packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_hr,
+                            &GroupBroadcast::DeclineMembership { target, key },
+                            ticket,
+                            C2S_ENCRYPTION_ONLY,
+                            timestamp,
+                            security_level,
+                        )
+                    })
+                    .is_ok()
+                    && success;
 
                 // tell the user who declined the membership
                 let signal = GroupBroadcast::DeclineMembershipResponse { key, success };
@@ -472,7 +476,7 @@ pub async fn process_group_broadcast(
                     session,
                     ticket,
                     Some(key),
-                    GroupBroadcast::DeclineMembership { target, key, },
+                    GroupBroadcast::DeclineMembership { target, key },
                 )
             }
         }
