@@ -80,6 +80,7 @@ pub enum GroupBroadcastPayload {
     Event { payload: GroupBroadcast },
 }
 
+#[derive(Clone)]
 pub struct GroupChannelSendHalf {
     #[allow(dead_code)]
     node_remote: NodeRemote,
