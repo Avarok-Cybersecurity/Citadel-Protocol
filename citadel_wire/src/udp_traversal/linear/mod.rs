@@ -198,11 +198,6 @@ impl SingleUDPHolePuncher {
         self.possible_endpoints[0]
     }
 
-    #[allow(dead_code)]
-    fn peer_internal_addr(&self) -> Option<SocketAddr> {
-        self.possible_endpoints.get(0).cloned()
-    }
-
     /// returns None if all techniques have been exhausted
     pub fn get_next_method(&self) -> Option<NatTraversalMethod> {
         if !self.method3.0 {
