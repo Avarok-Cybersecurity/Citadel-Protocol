@@ -1,4 +1,3 @@
-//use futures::channel::mpsc::{UnboundedSender, SendError, UnboundedReceiver, TrySendError};
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
 use bytes::BytesMut;
@@ -8,8 +7,7 @@ use futures::Sink;
 use std::net::SocketAddr;
 use std::pin::Pin;
 pub use tokio::sync::mpsc::{
-    error::SendError, error::TrySendError, Receiver, Sender, UnboundedReceiver,
-    UnboundedSender as UnboundedSenderInner,
+    error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
 
 pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
