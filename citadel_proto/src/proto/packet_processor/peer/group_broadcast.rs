@@ -55,12 +55,18 @@ pub enum GroupBroadcast {
         failed_to_invite_list: Option<Vec<u64>>,
     },
     AcceptMembership {
+        target: u64,
         key: MessageGroupKey,
     },
     DeclineMembership {
+        target: u64,
         key: MessageGroupKey,
     },
     AcceptMembershipResponse {
+        key: MessageGroupKey,
+        success: bool,
+    },
+    DeclineMembershipResponse {
         key: MessageGroupKey,
         success: bool,
     },
@@ -81,9 +87,11 @@ pub enum GroupBroadcast {
     /// When relayed to a group owner, the owner is expected to send an
     /// AcceptMembership signal
     RequestJoin {
+        sender: u64,
         key: MessageGroupKey,
     },
     Invitation {
+        sender: u64,
         key: MessageGroupKey,
     },
     CreateResponse {
@@ -98,6 +106,7 @@ pub enum GroupBroadcast {
     },
     RequestJoinPending {
         result: Result<(), String>,
+        key: MessageGroupKey,
     },
 }
 
@@ -159,20 +168,26 @@ pub async fn process_group_broadcast(
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
-        GroupBroadcast::RequestJoinPending { result: res } => forward_signal(
+        GroupBroadcast::RequestJoinPending { result, key } => forward_signal(
             session,
             ticket,
             None,
-            GroupBroadcast::RequestJoinPending { result: res },
+            GroupBroadcast::RequestJoinPending { result, key },
         ),
 
-        GroupBroadcast::RequestJoin { key } => {
+        GroupBroadcast::RequestJoin { sender, key } => {
             if session.is_server {
                 // if the group is auto-accept enabled, rebound a GroupBroadcast::AcceptMembershipResponse
-                let result = session
-                    .hypernode_peer_layer
-                    .request_join(implicated_cid, key)
-                    .await;
+                let peer_layer = &session.hypernode_peer_layer;
+                let result = if peer_layer.message_group_exists(key).await {
+                    peer_layer
+                        .add_pending_peers_to_group(key, vec![implicated_cid])
+                        .await;
+                    peer_layer.request_join(implicated_cid, key).await
+                } else {
+                    None
+                };
+
                 match result {
                     None => {
                         // group does not exist. Send error packet
@@ -209,7 +224,7 @@ pub async fn process_group_broadcast(
                         let res = session.session_manager.route_packet_to(key.cid, |peer_hr| {
                             packet_crafter::peer_cmd::craft_group_message_packet(
                                 peer_hr,
-                                &GroupBroadcast::RequestJoin { key },
+                                &GroupBroadcast::RequestJoin { sender, key },
                                 ticket,
                                 C2S_ENCRYPTION_ONLY,
                                 timestamp,
@@ -217,7 +232,7 @@ pub async fn process_group_broadcast(
                             )
                         });
 
-                        let signal = GroupBroadcast::RequestJoinPending { result: res };
+                        let signal = GroupBroadcast::RequestJoinPending { result: res, key };
                         let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
                             sess_hyper_ratchet,
                             &signal,
@@ -234,7 +249,7 @@ pub async fn process_group_broadcast(
                     session,
                     ticket,
                     Some(key),
-                    GroupBroadcast::RequestJoin { key },
+                    GroupBroadcast::RequestJoin { sender, key },
                 )
             }
         }
@@ -377,16 +392,16 @@ pub async fn process_group_broadcast(
             GroupBroadcast::MessageResponse { key, success },
         ),
 
-        GroupBroadcast::AcceptMembership { key } => {
+        GroupBroadcast::AcceptMembership { target, key } => {
             let success = session
                 .hypernode_peer_layer
-                .upgrade_peer_in_group(key, implicated_cid)
+                .upgrade_peer_in_group(key, target)
                 .await;
             if !success {
-                log::warn!(target: "citadel", "Unable to upgrade peer {} for {:?}", implicated_cid, key);
+                log::warn!(target: "citadel", "Unable to upgrade peer {} for {:?}", target, key);
             } else {
                 // send broadcast to all group members
-                let entered = vec![implicated_cid];
+                let entered = vec![target];
                 if !session
                     .session_manager
                     .broadcast_signal_to_group(
@@ -405,7 +420,7 @@ pub async fn process_group_broadcast(
                 {
                     log::warn!(target: "citadel", "Unable to broadcast member acceptance to group {}", key);
                 }
-                log::trace!(target: "citadel", "Successfully upgraded {} for {:?}", implicated_cid, key);
+                log::trace!(target: "citadel", "Successfully upgraded {} for {:?}", target, key);
             }
 
             // tell the user who accepted the membership
@@ -421,8 +436,53 @@ pub async fn process_group_broadcast(
             Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
+        GroupBroadcast::DeclineMembership { target, key } => {
+            if session.is_server {
+                let mut success = session
+                    .hypernode_peer_layer
+                    .remove_pending_peer_from_group(key, target)
+                    .await;
+
+                success = session
+                    .session_manager
+                    .route_packet_to(target, |peer_hr| {
+                        packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_hr,
+                            &GroupBroadcast::DeclineMembership { target, key },
+                            ticket,
+                            C2S_ENCRYPTION_ONLY,
+                            timestamp,
+                            security_level,
+                        )
+                    })
+                    .is_ok()
+                    && success;
+
+                // tell the user who declined the membership
+                let signal = GroupBroadcast::DeclineMembershipResponse { key, success };
+                let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                    sess_hyper_ratchet,
+                    &signal,
+                    ticket,
+                    C2S_ENCRYPTION_ONLY,
+                    timestamp,
+                    security_level,
+                );
+
+                Ok(PrimaryProcessorResult::ReplyToSender(packet))
+            } else {
+                // send to kernel/channel
+                forward_signal(
+                    session,
+                    ticket,
+                    Some(key),
+                    GroupBroadcast::DeclineMembership { target, key },
+                )
+            }
+        }
+
         GroupBroadcast::AcceptMembershipResponse { key, success } => {
-            if success {
+            if success && (key.cid != implicated_cid) {
                 create_group_channel(ticket, key, session)
             } else {
                 forward_signal(
@@ -433,6 +493,13 @@ pub async fn process_group_broadcast(
                 )
             }
         }
+
+        GroupBroadcast::DeclineMembershipResponse { key, success } => forward_signal(
+            session,
+            ticket,
+            Some(key),
+            GroupBroadcast::DeclineMembershipResponse { key, success },
+        ),
 
         GroupBroadcast::LeaveRoom { key } => {
             // TODO: If the user leaving the room is the message group owner, then leave
@@ -520,7 +587,10 @@ pub async fn process_group_broadcast(
                         ticket,
                         peers.iter().cloned().zip(peer_statuses.clone()),
                         true,
-                        GroupBroadcast::Invitation { key },
+                        GroupBroadcast::Invitation {
+                            sender: implicated_cid,
+                            key,
+                        },
                         security_level,
                     )
                     .await
@@ -615,11 +685,11 @@ pub async fn process_group_broadcast(
             GroupBroadcast::KickResponse { key, success },
         ),
 
-        GroupBroadcast::Invitation { key } => forward_signal(
+        GroupBroadcast::Invitation { sender, key } => forward_signal(
             session,
             ticket,
             Some(key),
-            GroupBroadcast::Invitation { key },
+            GroupBroadcast::Invitation { sender, key },
         ),
 
         GroupBroadcast::CreateResponse { key: key_opt } => match key_opt {
@@ -638,12 +708,6 @@ pub async fn process_group_broadcast(
             ticket,
             Some(key),
             GroupBroadcast::GroupNonExists { key },
-        ),
-        GroupBroadcast::DeclineMembership { key } => forward_signal(
-            session,
-            ticket,
-            Some(key),
-            GroupBroadcast::DeclineMembership { key },
         ),
     }
 }

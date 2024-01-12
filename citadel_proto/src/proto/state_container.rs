@@ -2209,14 +2209,15 @@ impl StateContainerInner {
         let timestamp = self.time_tracker.get_global_time_ns();
         let packet = match command {
             GroupBroadcast::Create { .. }
-            | GroupBroadcast::End { key: _ }
+            | GroupBroadcast::End { .. }
             | GroupBroadcast::Kick { .. }
             | GroupBroadcast::Message { .. }
             | GroupBroadcast::Add { .. }
-            | GroupBroadcast::AcceptMembership { key: _ }
+            | GroupBroadcast::AcceptMembership { .. }
+            | GroupBroadcast::DeclineMembership { .. }
             | GroupBroadcast::RequestJoin { .. }
             | GroupBroadcast::ListGroupsFor { .. }
-            | GroupBroadcast::LeaveRoom { key: _ } => {
+            | GroupBroadcast::LeaveRoom { .. } => {
                 packet_crafter::peer_cmd::craft_group_message_packet(
                     hyper_ratchet,
                     command,

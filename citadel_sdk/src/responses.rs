@@ -116,13 +116,13 @@ pub async fn group_invite(
     if let NodeResult::GroupEvent(GroupEvent {
         implicated_cid: cid,
         ticket,
-        event: GroupBroadcast::Invitation { key },
+        event: GroupBroadcast::Invitation { sender: _, key },
     }) = invite_signal
     {
         let resp = if accept {
-            GroupBroadcast::AcceptMembership { key }
+            GroupBroadcast::AcceptMembership { target: cid, key }
         } else {
-            GroupBroadcast::DeclineMembership { key }
+            GroupBroadcast::DeclineMembership { target: cid, key }
         };
 
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {

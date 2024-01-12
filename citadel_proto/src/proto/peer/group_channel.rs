@@ -54,6 +54,11 @@ impl GroupChannel {
         }
     }
 
+    /// Returns the group key of the channel
+    pub fn key(&self) -> MessageGroupKey {
+        self.recv_half.key
+    }
+
     /// Receives the next element from the channel
     pub async fn recv(&mut self) -> Option<GroupBroadcastPayload> {
         self.recv_half.next().await
@@ -75,6 +80,7 @@ pub enum GroupBroadcastPayload {
     Event { payload: GroupBroadcast },
 }
 
+#[derive(Clone)]
 pub struct GroupChannelSendHalf {
     #[allow(dead_code)]
     node_remote: NodeRemote,
@@ -133,6 +139,19 @@ impl GroupChannelSendHalf {
             invitees: peers.into(),
         })
         .await
+    }
+
+    /// Leaves the group
+    pub async fn leave(&self) -> Result<(), NetworkError> {
+        self.send_group_command(GroupBroadcast::LeaveRoom { key: self.key })
+            .await
+    }
+
+    /// Ends the group
+    pub async fn end(&self) -> Result<(), NetworkError> {
+        self.permission_gate()?;
+        self.send_group_command(GroupBroadcast::End { key: self.key })
+            .await
     }
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {

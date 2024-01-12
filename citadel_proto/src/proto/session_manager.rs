@@ -787,7 +787,10 @@ impl HdpSessionManager {
         for peer_cid in peers_to_notify {
             let this = inner!(self);
             if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                let signal = GroupBroadcast::Invitation { key };
+                let signal = GroupBroadcast::Invitation {
+                    sender: implicated_cid,
+                    key,
+                };
                 super::packet_crafter::peer_cmd::craft_group_message_packet(
                     peer_hyper_ratchet,
                     &signal,
