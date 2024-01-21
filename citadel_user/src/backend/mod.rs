@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hasher;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -12,11 +11,13 @@ use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use crate::backend::redis_backend::RedisConnectionOptions;
 #[cfg(all(feature = "sql", not(coverage)))]
 use crate::backend::sql_backend::SqlConnectionOptions;
-use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
-use crate::client_account::{ClientNetworkAccount, MutualPeer};
+use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use citadel_crypt::prelude::SecurityLevel;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
+use citadel_types::user;
+use citadel_types::user::MutualPeer;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
@@ -145,7 +146,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         &self,
         username: &str,
     ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        self.get_cnac_by_cid(username_to_cid(username)).await
+        self.get_cnac_by_cid(user::username_to_cid(username)).await
     }
     /// Determines if a CID is registered
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError>;
@@ -155,7 +156,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn purge(&self) -> Result<usize, AccountError>;
     /// Determines if a username exists
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
-        self.cid_is_registered(username_to_cid(username)).await
+        self.cid_is_registered(user::username_to_cid(username))
+            .await
     }
     /// Returns a list of impersonal cids
     async fn get_registered_impersonal_cids(
@@ -166,7 +168,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
     /// Gets the CID by username
     fn get_cid_by_username(&self, username: &str) -> u64 {
-        username_to_cid(username)
+        user::username_to_cid(username)
     }
     /// Registers two peers together
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
@@ -230,7 +232,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         implicated_cid: u64,
         username: &str,
     ) -> Result<Option<MutualPeer>, AccountError> {
-        self.get_hyperlan_peer_by_cid(implicated_cid, username_to_cid(username))
+        self.get_hyperlan_peer_by_cid(implicated_cid, user::username_to_cid(username))
             .await
     }
     /// Gets all peers for client
@@ -347,11 +349,4 @@ impl<R: Ratchet, Fcm: Ratchet> Clone for PersistenceHandler<R, Fcm> {
             inner: self.inner.clone(),
         }
     }
-}
-
-/// Generates a CID given a username
-pub fn username_to_cid(username: &str) -> u64 {
-    let mut hasher = twox_hash::XxHash64::default();
-    hasher.write(username.as_bytes());
-    hasher.finish()
 }

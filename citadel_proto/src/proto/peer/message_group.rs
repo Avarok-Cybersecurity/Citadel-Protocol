@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
+use citadel_types::proto::MessageGroupOptions;
 use std::collections::HashMap;
-use std::fmt::Formatter;
 
 /// A [MessageGroup] is a set of HyperLAN Clients communicating through the HyperLAN Server.
 /// let P_0 be peer 0. Let S be the HyperLAN Server. Let there be a set of n peers: P_0 ... P_n-1
@@ -28,57 +27,8 @@ pub struct MessageGroup {
     pub(crate) options: MessageGroupOptions,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-/// Options for creating message groups
-pub struct MessageGroupOptions {
-    pub group_type: GroupType,
-    pub id: u128,
-}
-
-impl Default for MessageGroupOptions {
-    fn default() -> Self {
-        Self {
-            group_type: GroupType::Private,
-            id: uuid::Uuid::new_v4().as_u128(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
-pub enum GroupType {
-    /// A public group is a group where any user registered to the owner can join
-    Public,
-    /// A private group is a group where the group can only be joined when the owner
-    /// sends out Invitation requests to mutually-registered peers
-    Private,
-}
-
 /// TODO: Attributed data (e.g., permissions)
 pub(crate) struct MessageGroupPeer {
     #[allow(dead_code)]
     pub peer_cid: u64,
-}
-
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct MessageGroupKey {
-    pub cid: u64,
-    pub mgid: u128,
-}
-
-impl MessageGroupKey {
-    pub fn new(cid: u64, mgid: u128) -> Self {
-        Self { cid, mgid }
-    }
-}
-
-impl std::fmt::Debug for MessageGroupKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
-impl std::fmt::Display for MessageGroupKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}:{}]", self.cid, self.mgid)
-    }
 }

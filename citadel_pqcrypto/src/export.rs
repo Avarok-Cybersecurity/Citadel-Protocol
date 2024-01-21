@@ -1,11 +1,11 @@
-use crate::algorithm_dictionary::EncryptionAlgorithm;
 use crate::encryption::aes_impl::AesModule;
 use crate::encryption::ascon_impl::AsconModule;
 use crate::encryption::chacha_impl::ChaChaModule;
 use crate::encryption::kyber_module::KyberModule;
 use crate::encryption::AeadModule;
-use crate::{CryptoParameters, KeyStore, PQNode, PostQuantumMetaKex, PostQuantumMetaSig};
+use crate::{KeyStore, PQNode, PostQuantumMetaKex, PostQuantumMetaSig};
 use aes_gcm::KeyInit;
+use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm};
 use generic_array::GenericArray;
 use serde::{Deserialize, Serialize};
 

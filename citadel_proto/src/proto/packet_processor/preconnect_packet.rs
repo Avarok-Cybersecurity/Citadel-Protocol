@@ -11,8 +11,8 @@ use crate::proto::misc::udp_internal_interface::{
 use crate::proto::packet::packet_flags::payload_identifiers;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
-use crate::proto::peer::peer_layer::UdpMode;
 use crate::proto::state_container::{StateContainerInner, VirtualTargetType};
+use citadel_types::proto::UdpMode;
 
 use super::includes::*;
 use crate::proto::node_result::ConnectFail;

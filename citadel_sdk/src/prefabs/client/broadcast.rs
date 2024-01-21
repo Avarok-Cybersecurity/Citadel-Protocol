@@ -1,6 +1,7 @@
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
+use citadel_user::prelude::UserIdentifierExt;
 use futures::{Future, StreamExt};
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -299,10 +300,11 @@ mod tests {
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::PrefabFunctions;
+    use crate::prelude::ProtocolRemoteTargetExt;
     use crate::prelude::*;
-    use crate::prelude::{ProtocolRemoteTargetExt, UserIdentifier};
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_proto::prelude::{GroupBroadcast, NetworkError};
+    use citadel_types::user::UserIdentifier;
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use rstest::rstest;
@@ -428,7 +430,7 @@ mod tests {
                 server_addr,
                 peers,
                 move |mut results, remote| async move {
-                    let implicated_cid = remote.conn_type.get_implicated_cid();
+                    let sender = remote.conn_type.get_implicated_cid();
                     let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
 
                     wait_for_peers().await;
@@ -453,7 +455,7 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation { sender: implicated_cid, key: _key },
+                                    event: GroupBroadcast::Invitation { sender, key: _key },
                                 }) => {
                                     let _ = crate::responses::group_invite(
                                         evt,

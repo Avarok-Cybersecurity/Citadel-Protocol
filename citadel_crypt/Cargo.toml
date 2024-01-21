@@ -53,12 +53,7 @@ sha3 = { workspace = true }
 tokio-stream = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
-
-[target.'cfg(target_family = "unix")'.dependencies]
-libc = { workspace = true }
-
-[target.'cfg(target_family = "windows")'.dependencies]
-kernel32-sys = { workspace = true }
+citadel_types = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = { workspace = true }

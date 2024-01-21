@@ -1,6 +1,7 @@
-use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, SecurityLevel, TargetLockedRemote};
+use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, TargetLockedRemote};
 
 use citadel_proto::prelude::NetworkError;
+use citadel_types::crypto::SecurityLevel;
 use std::path::PathBuf;
 
 /// Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem

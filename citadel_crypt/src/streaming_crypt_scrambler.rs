@@ -6,14 +6,16 @@ use tokio::macros::support::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 
-use crate::entropy_bank::{EntropyBank, SecurityLevel};
+use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
-use crate::misc::{CryptError, TransferType};
+use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
 use citadel_io::Mutex;
 use citadel_io::{BlockingSpawn, BlockingSpawnError};
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::TransferType;
 use futures::Future;
 use num_integer::Integer;
 use std::sync::Arc;

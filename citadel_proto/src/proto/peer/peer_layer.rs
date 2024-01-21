@@ -1,14 +1,14 @@
 use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::proto::peer::message_group::{
-    GroupType, MessageGroup, MessageGroupKey, MessageGroupOptions, MessageGroupPeer,
-};
+use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
-use citadel_user::backend::utils::VirtualObjectMetadata;
+use citadel_types::proto::{
+    GroupType, MessageGroupKey, MessageGroupOptions, SessionSecuritySettings, UdpMode,
+    VirtualObjectMetadata,
+};
 use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
 use futures::task::AtomicWaker;
@@ -602,18 +602,6 @@ pub enum PeerSignal {
         peer_conn_type: PeerConnectionType,
         kex_payload: KeyExchangeProcess,
     },
-}
-
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
-pub enum UdpMode {
-    Enabled,
-    Disabled,
-}
-
-impl Default for UdpMode {
-    fn default() -> Self {
-        Self::Enabled
-    }
 }
 
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints

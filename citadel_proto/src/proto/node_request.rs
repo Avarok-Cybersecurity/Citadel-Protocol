@@ -1,11 +1,10 @@
 use crate::auth::AuthenticationRequest;
-use crate::prelude::{
-    ConnectMode, GroupBroadcast, PeerSignal, SessionSecuritySettings, UdpMode, VirtualTargetType,
-};
+use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;
-use citadel_crypt::misc::TransferType;
-use citadel_crypt::prelude::SecurityLevel;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::TransferType;
+use citadel_types::proto::{ConnectMode, SessionSecuritySettings, UdpMode};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;

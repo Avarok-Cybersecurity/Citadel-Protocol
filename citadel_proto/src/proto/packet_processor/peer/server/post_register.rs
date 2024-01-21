@@ -5,8 +5,8 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::{HyperNodePeerLayerInner, Username};
 use crate::proto::remote::Ticket;
 use crate::proto::session::HdpSession;
-use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_types::crypto::SecurityLevel;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
 #[allow(clippy::too_many_arguments)]

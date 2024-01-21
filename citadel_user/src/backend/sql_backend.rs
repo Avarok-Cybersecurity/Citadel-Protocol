@@ -1,13 +1,14 @@
 use crate::backend::memory::no_backend_streaming;
-use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::backend::{BackendConnection, BackendType};
-use crate::client_account::{ClientNetworkAccount, MutualPeer};
+use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
+use citadel_types::user::MutualPeer;
 use itertools::Itertools;
 use sqlx::any::{AnyArguments, AnyPoolOptions, AnyQueryResult, AnyRow};
 use sqlx::postgres::any::AnyTypeInfoKind;

@@ -1,15 +1,17 @@
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::backend::memory::MemoryBackend;
 use crate::backend::{BackendType, PersistenceHandler};
-use crate::client_account::{ClientNetworkAccount, MutualPeer};
+use crate::client_account::ClientNetworkAccount;
 use crate::external_services::{ServicesConfig, ServicesHandler};
 use crate::misc::AccountError;
-use crate::prelude::{ConnectionInfo, UserIdentifier};
+use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_types::user::MutualPeer;
+use citadel_types::user::UserIdentifier;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.

@@ -14,8 +14,10 @@ use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::auth::DeclaredAuthenticationMode;
 use crate::serialization::SyncIO;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
-use citadel_crypt::prelude::{SecBuffer, Toolset};
+use citadel_crypt::prelude::Toolset;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_types::crypto::SecBuffer;
+use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -28,25 +30,6 @@ pub const MAX_PASSWORD_SIZE: usize = 33;
 pub const MIN_PASSWORD_SIZE: usize = 7;
 /// The default index for denoting a HyperLAN connection (relative to THIS cnac)
 pub const HYPERLAN_IDX: u64 = 0;
-
-/// This is to replace a tuple for greater organization
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct MutualPeer {
-    /// The interserver cid to which `cid` belongs to
-    pub parent_icid: u64,
-    /// the client to which belongs within `parent_icid`
-    pub cid: u64,
-    /// The username of this peer
-    pub username: Option<String>,
-}
-
-impl PartialEq for MutualPeer {
-    fn eq(&self, other: &Self) -> bool {
-        self.parent_icid == other.parent_icid
-            && self.cid == other.cid
-            && self.username.as_ref() == other.username.as_ref()
-    }
-}
 
 ///use futures::{TryFutureExt, TryStreamExt};
 #[derive(Serialize, Deserialize)]

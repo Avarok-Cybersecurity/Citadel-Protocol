@@ -6,11 +6,10 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
-use citadel_crypt::prelude::SecurityLevel;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
-use citadel_user::prelude::ConnectProtocol;
+use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
@@ -23,29 +22,31 @@ use crate::macros::SyncContextRequirements;
 use crate::prelude::Disconnect;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
-use crate::proto::node::{ConnectMode, Node};
+use crate::proto::node::Node;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_processor::includes::{Duration, Instant};
-use crate::proto::packet_processor::peer::group_broadcast::{
-    GroupBroadcast, GroupMemberAlterMode, MemberState,
-};
+use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
-use crate::proto::peer::message_group::{MessageGroupKey, MessageGroupOptions};
 use crate::proto::peer::peer_layer::{
     HyperNodePeerLayer, HyperNodePeerLayerInner, MailboxTransfer, PeerConnectionType, PeerResponse,
-    PeerSignal, UdpMode,
+    PeerSignal,
 };
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
     ClientOnlySessionInitSettings, HdpSession, HdpSessionInitMode, SessionInitParams,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
-use citadel_crypt::misc::TransferType;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::ConnectMode;
+use citadel_types::proto::SessionSecuritySettings;
+use citadel_types::proto::TransferType;
+use citadel_types::proto::{
+    GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions, UdpMode,
+};
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;

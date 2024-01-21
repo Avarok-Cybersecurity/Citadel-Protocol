@@ -1,14 +1,5 @@
-use crate::proto::node::SecrecyMode;
-use citadel_crypt::entropy_bank::SecurityLevel;
-use citadel_pqcrypto::algorithm_dictionary::CryptoParameters;
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
-pub struct SessionSecuritySettings {
-    pub security_level: SecurityLevel,
-    pub secrecy_mode: SecrecyMode,
-    pub crypto_params: CryptoParameters,
-}
+use citadel_types::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
+use citadel_types::proto::SessionSecuritySettings;
 
 #[derive(Default)]
 pub struct SessionSecuritySettingsBuilder {
@@ -67,7 +58,7 @@ impl SessionSecuritySettingsBuilder {
             crypto_params: self.crypto_params.unwrap_or_default(),
         };
 
-        citadel_pqcrypto::validate_crypto_params(&settings.crypto_params)?;
+        citadel_types::utils::validate_crypto_params(&settings.crypto_params)?;
         Ok(settings)
     }
 }

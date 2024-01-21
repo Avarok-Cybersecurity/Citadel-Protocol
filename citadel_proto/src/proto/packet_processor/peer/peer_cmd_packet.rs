@@ -9,6 +9,7 @@ use citadel_crypt::stacked_ratchet::constructor::{
 };
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_crypt::toolset::Toolset;
+use citadel_types::proto::UdpMode;
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
@@ -28,7 +29,6 @@ use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
     HyperNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
-    UdpMode,
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::HdpSessionManager;

@@ -1,7 +1,7 @@
 use bytes::BytesMut;
 
-use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
+use citadel_types::crypto::SecurityLevel;
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -439,10 +439,10 @@ pub(crate) mod do_connect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::MailboxTransfer;
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
+    use citadel_types::user::MutualPeer;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
-    use citadel_user::prelude::MutualPeer;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
@@ -600,8 +600,8 @@ pub(crate) mod keep_alive {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
 
     pub(crate) fn craft_keep_alive_packet(
         hyper_ratchet: &StackedRatchet,
@@ -637,9 +637,9 @@ pub(crate) mod do_register {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
@@ -840,8 +840,8 @@ pub mod do_disconnect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::remote::Ticket;
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
 
     /// The drill used should be an unused one. (generate a new drill)
     #[allow(unused_results)]
@@ -913,9 +913,9 @@ pub(crate) mod do_drill_update {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, packet_sizes, HdpHeader};
     use citadel_crypt::endpoint_crypto_container::KemTransferStatus;
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
@@ -1079,8 +1079,8 @@ pub(crate) mod do_deregister {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
 
     pub(crate) fn craft_stage0(
         hyper_ratchet: &StackedRatchet,
@@ -1155,15 +1155,15 @@ pub(crate) mod pre_connect {
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::misc::session_security_settings::SessionSecuritySettings;
-    use crate::proto::node::ConnectMode;
     use crate::proto::packet::packet_flags::payload_identifiers;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use crate::proto::peer::peer_layer::UdpMode;
-    use citadel_crypt::entropy_bank::SecurityLevel;
     use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_crypt::toolset::StaticAuxRatchet;
+    use citadel_types::crypto::SecurityLevel;
+    use citadel_types::proto::ConnectMode;
+    use citadel_types::proto::SessionSecuritySettings;
+    use citadel_types::proto::UdpMode;
     use citadel_user::prelude::ConnectProtocol;
     use citadel_user::serialization::SyncIO;
     use citadel_wire::nat_identification::NatType;
@@ -1414,9 +1414,9 @@ pub(crate) mod peer_cmd {
     use crate::proto::peer::peer_layer::ChannelPacket;
     use crate::proto::remote::Ticket;
     use bytes::BytesMut;
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
     use citadel_user::serialization::SyncIO;
     use serde::Serialize;
     use zerocopy::{I64, U128, U32, U64};
@@ -1580,12 +1580,13 @@ pub(crate) mod peer_cmd {
 
 pub(crate) mod file {
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::packet_processor::includes::{packet_flags, HdpHeader, SecurityLevel};
+    use crate::proto::packet_processor::includes::{packet_flags, HdpHeader};
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use bytes::BytesMut;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
-    use citadel_user::backend::utils::VirtualObjectMetadata;
+    use citadel_types::crypto::SecurityLevel;
+    use citadel_types::proto::VirtualObjectMetadata;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
     use std::path::PathBuf;
@@ -1872,8 +1873,8 @@ pub(crate) mod udp {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::BytesMut;
-    use citadel_crypt::entropy_bank::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
     pub(crate) fn craft_udp_packet(
@@ -1914,8 +1915,8 @@ pub(crate) mod hole_punch {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::{BufMut, BytesMut};
-    use citadel_crypt::prelude::SecurityLevel;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
     pub fn generate_packet(

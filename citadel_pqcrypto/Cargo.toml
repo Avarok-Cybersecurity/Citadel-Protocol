@@ -7,7 +7,7 @@ edition = "2021"
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -48,12 +48,12 @@ log = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 sha3 = { workspace = true }
 kyber-pke = { workspace = true, features=["90s"] }
-packed_struct = { workspace = true, features = ["serde"] }
 rand = { workspace = true }
 getrandom = { workspace = true, features = ["js"], optional = true }
 serde-big-array = { workspace = true }
 ascon-aead = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
+citadel_types = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 oqs = { workspace = true, features = ["serde", "falcon", "ntruprime"] }

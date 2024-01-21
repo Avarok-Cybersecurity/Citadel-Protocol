@@ -43,7 +43,6 @@ rand = { workspace = true }
 multimap = { workspace = true, features = ["serde_impl"] }
 parking_lot = { workspace = true, features = ["serde"] }
 log = { workspace = true }
-twox-hash = { workspace = true }
 sha3 = { workspace = true }
 citadel_crypt = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"] }
@@ -60,6 +59,7 @@ bincode2 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 tokio-util = { workspace = true, features = ["io"], optional = true }
 tokio-stream = { workspace = true, optional = true }
+citadel_types = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros"] }

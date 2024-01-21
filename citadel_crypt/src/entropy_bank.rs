@@ -2,13 +2,12 @@ use crate::misc::{create_port_mapping, CryptError};
 use byteorder::{BigEndian, ByteOrder};
 use rand::{thread_rng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use citadel_pqcrypto::{PostQuantumContainer, LARGEST_NONCE_LEN};
+use citadel_pqcrypto::PostQuantumContainer;
 use rand::prelude::ThreadRng;
 
 pub const PORT_RANGE: usize = 14;
@@ -257,54 +256,11 @@ impl EntropyBank {
     }
 }
 
-/// Provides the enumeration for all security levels
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
-pub enum SecurityLevel {
-    #[default]
-    Standard,
-    Reinforced,
-    High,
-    Ultra,
-    Extreme,
-    Custom(u8),
-}
-
-impl SecurityLevel {
-    /// Returns byte representation of self
-    pub fn value(self) -> u8 {
-        match self {
-            SecurityLevel::Standard => 0,
-            SecurityLevel::Reinforced => 1,
-            SecurityLevel::High => 2,
-            SecurityLevel::Ultra => 3,
-            SecurityLevel::Extreme => 4,
-            SecurityLevel::Custom(val) => val,
-        }
-    }
-
-    /// Possibly returns the security_level given an input value
-    pub fn for_value(val: usize) -> Option<Self> {
-        Some(SecurityLevel::from(u8::try_from(val).ok()?))
-    }
-}
-
-impl From<u8> for SecurityLevel {
-    fn from(val: u8) -> Self {
-        match val {
-            0 => SecurityLevel::Standard,
-            1 => SecurityLevel::Reinforced,
-            2 => SecurityLevel::High,
-            3 => SecurityLevel::Ultra,
-            4 => SecurityLevel::Extreme,
-            n => SecurityLevel::Custom(n),
-        }
-    }
-}
-
 use arrayvec::ArrayVec;
 use bytes::BufMut;
-use citadel_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
+use citadel_types::crypto::EncryptionAlgorithm;
+use citadel_types::crypto::LARGEST_NONCE_LEN;
 use sha3::Digest;
 use zeroize::Zeroizing;
 

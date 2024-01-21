@@ -1,7 +1,8 @@
 use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
 use bytes::Bytes;
-use citadel_proto::prelude::{NetworkError, SecBuffer};
+use citadel_proto::prelude::NetworkError;
 use citadel_proto::re_imports::{StreamReader, UnboundedReceiverStream};
+use citadel_types::crypto::SecBuffer;
 use futures::StreamExt;
 use std::future::Future;
 use std::pin::Pin;

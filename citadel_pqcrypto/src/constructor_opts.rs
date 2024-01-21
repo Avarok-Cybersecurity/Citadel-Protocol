@@ -1,4 +1,4 @@
-use crate::prelude::algorithm_dictionary::CryptoParameters;
+use citadel_types::crypto::CryptoParameters;
 use serde::{Deserialize, Serialize};
 
 /// WARNING! `previous_shared_secret` should never leave a node; it should only be extracted from the previous PQC when bob is constructing his PQC

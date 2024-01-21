@@ -1,6 +1,6 @@
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::UnboundedSender;
-use citadel_crypt::prelude::SecBuffer;
+use citadel_types::crypto::SecBuffer;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -87,7 +87,7 @@ impl OrderedChannel {
 mod tests {
     use crate::proto::misc::ordered_channel::OrderedChannel;
     use crate::proto::outbound_sender::unbounded;
-    use citadel_crypt::prelude::SecBuffer;
+    use citadel_types::crypto::SecBuffer;
     use futures::StreamExt;
     use rand::prelude::SliceRandom;
     use rand::rngs::ThreadRng;

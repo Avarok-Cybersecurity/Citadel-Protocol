@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -7,10 +6,9 @@ use std::sync::Arc;
 
 use crate::kernel::kernel_executor::LocalSet;
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 
-use citadel_crypt::entropy_bank::SecurityLevel;
+use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
@@ -929,32 +927,4 @@ pub(crate) struct HdpServerRemoteInner {
     pub callback_handler: KernelAsyncCallbackHandler,
     pub node_type: NodeType,
     pub account_manager: AccountManager,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
-/// If force_login is true, the protocol will disconnect any previously existent sessions in the session manager attributed to the account logging-in (so long as login succeeds)
-/// The default is a Standard login that will with force_login set to false
-pub enum ConnectMode {
-    Standard { force_login: bool },
-    Fetch { force_login: bool },
-}
-
-impl Default for ConnectMode {
-    fn default() -> Self {
-        Self::Standard { force_login: false }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
-pub enum SecrecyMode {
-    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
-    Perfect,
-    /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
-    BestEffort,
-}
-
-impl Default for SecrecyMode {
-    fn default() -> Self {
-        Self::BestEffort
-    }
 }

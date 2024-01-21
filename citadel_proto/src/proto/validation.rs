@@ -39,10 +39,10 @@ pub(crate) mod group {
     use crate::proto::packet_crafter::SecureProtocolPacket;
     use crate::proto::state_container::VirtualTargetType;
     use citadel_crypt::endpoint_crypto_container::KemTransferStatus;
-    use citadel_crypt::entropy_bank::SecurityLevel;
-    use citadel_crypt::prelude::SecBuffer;
     use citadel_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecBuffer;
+    use citadel_types::crypto::SecurityLevel;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
@@ -206,17 +206,17 @@ pub(crate) mod pre_connect {
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::error::NetworkError;
-    use crate::proto::misc::session_security_settings::SessionSecuritySettings;
-    use crate::proto::node::ConnectMode;
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
-    use crate::proto::peer::peer_layer::UdpMode;
     use crate::proto::session_manager::HdpSessionManager;
     use citadel_crypt::stacked_ratchet::constructor::{
         BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
     };
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+    use citadel_types::proto::ConnectMode;
+    use citadel_types::proto::SessionSecuritySettings;
+    use citadel_types::proto::UdpMode;
     use citadel_user::prelude::ConnectProtocol;
     use citadel_user::serialization::SyncIO;
     use citadel_wire::nat_identification::NatType;

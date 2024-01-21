@@ -16,6 +16,7 @@
 pub mod prelude {
     pub use crate::client_account::*;
     pub use crate::hypernode_account::*;
+    pub use crate::hypernode_account::*;
     pub use crate::network_account::*;
     pub use citadel_crypt::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
 }

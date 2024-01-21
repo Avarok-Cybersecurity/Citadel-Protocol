@@ -1,4 +1,5 @@
-use crate::prelude::{SecBuffer, UserIdentifier};
+use citadel_types::crypto::SecBuffer;
+use citadel_types::user::UserIdentifier;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;

@@ -1,25 +1,41 @@
 use crate::account_manager::AccountManager;
-use crate::backend::username_to_cid;
 use crate::misc::AccountError;
-use crate::prelude::{ClientNetworkAccount, MutualPeer};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::prelude::ClientNetworkAccount;
+use async_trait::async_trait;
+use citadel_types::user::MutualPeer;
+use citadel_types::user::UserIdentifier;
 
 /// The file extension for CNACs only
 pub const CNAC_SERIALIZED_EXTENSION: &str = "hca";
 
-/// A convenience wrapper for passing arguments to functions that require searches for a user
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum UserIdentifier {
-    /// Raw user ID
-    ID(u64),
-    /// Username connected by an unspecified ID
-    Username(String),
+#[async_trait]
+pub trait UserIdentifierExt {
+    type AccountManager;
+    type SearchOutput; // Usually the clientnetworkaccount
+    type Error;
+    async fn search(
+        &self,
+        account_manager: &Self::AccountManager,
+    ) -> Result<Option<Self::SearchOutput>, Self::Error>;
+
+    /// Performs a search for the current peer given the `implicated_cid`
+    async fn search_peer(
+        &self,
+        implicated_cid: u64,
+        account_manager: &Self::AccountManager,
+    ) -> Result<Option<MutualPeer>, Self::Error>;
+
+    fn get_cid(&self) -> u64;
 }
 
-impl UserIdentifier {
+#[async_trait]
+impl UserIdentifierExt for UserIdentifier {
+    type AccountManager = AccountManager;
+    type SearchOutput = ClientNetworkAccount;
+    type Error = AccountError;
+
     /// Searches for the account
-    pub async fn search(
+    async fn search(
         &self,
         account_manager: &AccountManager,
     ) -> Result<Option<ClientNetworkAccount>, AccountError> {
@@ -30,7 +46,7 @@ impl UserIdentifier {
     }
 
     /// Performs a search for the current peer given the `implicated_cid`
-    pub async fn search_peer(
+    async fn search_peer(
         &self,
         implicated_cid: u64,
         account_manager: &AccountManager,
@@ -52,34 +68,10 @@ impl UserIdentifier {
     }
 
     /// Gets the CID of this target
-    pub fn get_cid(&self) -> u64 {
+    fn get_cid(&self) -> u64 {
         match self {
             UserIdentifier::ID(cid) => *cid,
-            UserIdentifier::Username(uname) => username_to_cid(uname),
+            UserIdentifier::Username(uname) => citadel_types::user::username_to_cid(uname),
         }
-    }
-}
-
-impl From<String> for UserIdentifier {
-    fn from(username: String) -> Self {
-        Self::Username(username)
-    }
-}
-
-impl From<&str> for UserIdentifier {
-    fn from(username: &str) -> Self {
-        Self::Username(username.to_string())
-    }
-}
-
-impl From<u64> for UserIdentifier {
-    fn from(cid: u64) -> Self {
-        Self::ID(cid)
-    }
-}
-
-impl From<Uuid> for UserIdentifier {
-    fn from(uuid: Uuid) -> Self {
-        Self::Username(uuid.to_string())
     }
 }

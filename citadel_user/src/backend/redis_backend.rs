@@ -1,11 +1,12 @@
 use crate::backend::memory::no_backend_streaming;
-use crate::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
 use crate::backend::BackendConnection;
-use crate::client_account::{ClientNetworkAccount, MutualPeer};
+use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
+use citadel_types::user::MutualPeer;
 use mobc::async_trait;
 use mobc::Manager;
 use mobc::Pool;

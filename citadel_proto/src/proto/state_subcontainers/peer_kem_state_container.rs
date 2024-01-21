@@ -1,6 +1,6 @@
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
+use citadel_types::proto::SessionSecuritySettings;
 
 pub struct PeerKemStateContainer {
     pub(crate) constructor: Option<StackedRatchetConstructor>,
