@@ -947,7 +947,7 @@ async fn process_signal_command_as_server(
                                 return_if_none!(session.to_primary_stream.clone());
                             let sess_mgr = session.session_manager.clone();
                             route_signal_and_register_ticket_forwards(
-                                &mut peer_layer,
+                                &peer_layer,
                                 PeerSignal::PostRegister {
                                     peer_conn_type,
                                     inviter_username: username,
@@ -1140,7 +1140,7 @@ async fn process_signal_command_as_server(
                             Ok(PrimaryProcessorResult::Void)
                         } else {
                             route_signal_and_register_ticket_forwards(
-                                &mut peer_layer,
+                                &peer_layer,
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
@@ -1468,7 +1468,7 @@ fn construct_error_signal<E: ToString>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn route_signal_and_register_ticket_forwards(
-    peer_layer: &mut HyperNodePeerLayerInner,
+    peer_layer: &HyperNodePeerLayerInner,
     signal: PeerSignal,
     timeout: Duration,
     implicated_cid: u64,

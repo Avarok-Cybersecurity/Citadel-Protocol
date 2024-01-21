@@ -1077,7 +1077,7 @@ impl HdpSessionManager {
     #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
-        peer_layer: &mut HyperNodePeerLayerInner,
+        peer_layer: &HyperNodePeerLayerInner,
         implicated_cid: u64,
         target_cid: u64,
         ticket: Ticket,

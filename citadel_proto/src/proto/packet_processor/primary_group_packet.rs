@@ -156,7 +156,7 @@ pub fn process_primary_packet(
                                 Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                             } else {
                                 let group_header = return_if_none!(
-                                    validation::group::validate_header(&mut payload),
+                                    validation::group::validate_header(&payload),
                                     "Bad non-message group header"
                                 );
                                 match group_header {

@@ -8,7 +8,7 @@ workspace = ".."
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -46,7 +46,6 @@ arrayvec = { workspace = true, features = ["serde"] }
 citadel_pqcrypto = { workspace = true }
 citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
-serde-big-array = { workspace = true }
 rust-argon2 = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
 sha3 = { workspace = true }

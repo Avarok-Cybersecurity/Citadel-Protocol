@@ -65,7 +65,7 @@ pub(crate) mod group {
         //FastMessage(SecBuffer, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>)
     }
 
-    pub(crate) fn validate_header(payload: &mut BytesMut) -> Option<GroupHeader> {
+    pub(crate) fn validate_header(payload: &BytesMut) -> Option<GroupHeader> {
         let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
         match &mut group_header {
             GroupHeader::Standard(group_receiver_config, _) => {
