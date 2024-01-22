@@ -3,7 +3,7 @@
 pub mod prelude {
     pub use crate::crypto::*;
     pub use crate::proto::*;
-    pub use crate::user::MutualPeer;
+    pub use crate::user::*;
 }
 
 pub mod crypto;
