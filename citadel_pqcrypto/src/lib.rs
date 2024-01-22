@@ -6,7 +6,10 @@ use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
 use crate::encryption::AeadModule;
 use crate::export::keys_to_aead_store;
 use crate::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
-use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm};
+use citadel_types::crypto::{
+    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES,
+    ASCON_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
+};
 use citadel_types::errors::Error;
 use generic_array::GenericArray;
 use rand::rngs::ThreadRng;
@@ -24,7 +27,7 @@ use crate::functions::AsSlice;
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
-    pub use crate::{PQNode, PostQuantumContainer, PostQuantumMeta};
+    pub use crate::{EncryptionAlgorithmExt, PQNode, PostQuantumContainer, PostQuantumMeta};
 }
 
 pub mod bytes_in_place;
@@ -1118,5 +1121,59 @@ fn get_generic_error(text: &'static str) -> Error {
 impl Debug for PostQuantumContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "PQC {:?} | {:?}", self.node, self.params)
+    }
+}
+
+pub trait EncryptionAlgorithmExt {
+    fn nonce_len(&self) -> usize;
+    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize;
+    fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize>;
+}
+
+impl EncryptionAlgorithmExt for EncryptionAlgorithm {
+    fn nonce_len(&self) -> usize {
+        match self {
+            Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
+            Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
+            Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
+            Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
+        }
+    }
+
+    // calculates the max ciphertext len given an input plaintext length
+    fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
+        const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
+        match self {
+            Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+            // plaintext len + 128 bit tag
+            Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+            Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+            // Add 32 for internal apendees
+            Self::Kyber => {
+                const LENGTH_FIELD: usize = 8;
+                let signature_len = functions::signature_bytes();
+
+                let aes_input_len = signature_len + LENGTH_FIELD;
+                let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
+                let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
+                let kyber_output_len = kyber_pke::ct_len(kyber_input_len);
+
+                // add 8 for the length encoding
+                aes_output_len + kyber_output_len + LENGTH_FIELD
+            }
+        }
+    }
+
+    fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize> {
+        if ciphertext.len() < 16 {
+            return None;
+        }
+
+        match self {
+            Self::AES_GCM_256 => Some(ciphertext.len() - 16),
+            Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
+            Self::Ascon80pq => Some(ciphertext.len() - 16),
+            Self::Kyber => kyber_pke::plaintext_len(ciphertext),
+        }
     }
 }

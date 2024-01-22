@@ -312,7 +312,7 @@ mod tests {
     fn bad_config2() {
         assert!(NodeBuilder::default()
             .with_stun_servers(["dummy1", "dummy2"])
-            .build(EmptyKernel::default())
+            .build(EmptyKernel)
             .is_err());
     }
 
@@ -350,6 +350,6 @@ mod tests {
             builder.kernel_executor_settings.clone().unwrap()
         );
 
-        drop(builder.build(EmptyKernel::default()).unwrap());
+        drop(builder.build(EmptyKernel).unwrap());
     }
 }

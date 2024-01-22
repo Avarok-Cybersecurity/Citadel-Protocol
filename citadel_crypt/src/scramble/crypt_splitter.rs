@@ -388,7 +388,7 @@ pub struct GroupReceiver {
 }
 
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
-use citadel_pqcrypto::PostQuantumContainer;
+use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::crypto::{EncryptionAlgorithm, SigAlgorithm};
 use citadel_types::proto::TransferType;

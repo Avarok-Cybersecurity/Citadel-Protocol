@@ -315,57 +315,6 @@ pub enum EncryptionAlgorithm {
     Ascon80pq = 3,
 }
 
-impl EncryptionAlgorithm {
-    pub fn nonce_len(&self) -> usize {
-        match self {
-            Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
-            Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
-            Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
-            Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
-        }
-    }
-
-    // calculates the max ciphertext len given an input plaintext length
-    pub fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
-        const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
-        match self {
-            Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-            // plaintext len + 128 bit tag
-            Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-            Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-            // Add 32 for internal apendees
-            Self::Kyber => {
-                const LENGTH_FIELD: usize = 8;
-                // let signature_len = citadel_pqcrypto::functions::signature_bytes(); TODO
-                let signature_len = 0;
-
-                let aes_input_len = signature_len + LENGTH_FIELD;
-                let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
-                let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
-                                                         // let kyber_output_len = kyber_pke::ct_len(kyber_input_len); TODO
-                let kyber_output_len = 0;
-
-                // add 8 for the length encoding
-                aes_output_len + kyber_output_len + LENGTH_FIELD
-            }
-        }
-    }
-
-    pub fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize> {
-        if ciphertext.len() < 16 {
-            return None;
-        }
-
-        match self {
-            Self::AES_GCM_256 => Some(ciphertext.len() - 16),
-            Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
-            Self::Ascon80pq => Some(ciphertext.len() - 16),
-            // Self::Kyber => kyber_pke::plaintext_len(ciphertext), TODO
-            Self::Kyber => Some(ciphertext.len() - 16),
-        }
-    }
-}
-
 #[derive(
     PrimitiveEnum_u8,
     Default,

@@ -1,8 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-
 pub mod prelude {
     pub use crate::crypto::*;
     pub use crate::proto::*;

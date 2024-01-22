@@ -8,7 +8,7 @@ mod tests {
     use citadel_pqcrypto::bytes_in_place::EzBuffer;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_pqcrypto::replay_attack_container::HISTORY_LEN;
-    use citadel_pqcrypto::PostQuantumContainer;
+    use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
     use citadel_types::crypto::{
         AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
     };

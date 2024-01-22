@@ -89,7 +89,7 @@ mod tests {
     use uuid::Uuid;
 
     pub fn server_info<'a>() -> (NodeFuture<'a, AcceptFileTransferKernel>, SocketAddr) {
-        crate::test_common::server_test_node(AcceptFileTransferKernel::default(), |_| {})
+        crate::test_common::server_test_node(AcceptFileTransferKernel, |_| {})
     }
 
     #[rstest]

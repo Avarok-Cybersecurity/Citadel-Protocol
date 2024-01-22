@@ -430,7 +430,7 @@ mod tests {
                 server_addr,
                 peers,
                 move |mut results, remote| async move {
-                    let sender = remote.conn_type.get_implicated_cid();
+                    let _sender = remote.conn_type.get_implicated_cid();
                     let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
 
                     wait_for_peers().await;
@@ -455,7 +455,7 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation { sender, key: _key },
+                                    event: GroupBroadcast::Invitation { sender: _, key: _key },
                                 }) => {
                                     let _ = crate::responses::group_invite(
                                         evt,

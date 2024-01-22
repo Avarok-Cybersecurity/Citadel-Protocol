@@ -7,7 +7,7 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use citadel_pqcrypto::PostQuantumContainer;
+use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
 use rand::prelude::ThreadRng;
 
 pub const PORT_RANGE: usize = 14;

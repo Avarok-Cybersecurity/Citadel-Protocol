@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use citadel_proto::kernel::kernel_executor::LocalSet;
     use citadel_proto::prelude::SyncIO;
     use citadel_proto::prelude::{
         NetworkError, SecureProtocolPacket, SessionSecuritySettingsBuilder,
@@ -31,8 +30,11 @@ mod tests {
 
     struct TestSpawner {
         // this may not be a real localset
+        #[cfg(not(feature = "multi-threaded"))]
+        local_set: tokio::task::LocalSet,
         #[cfg_attr(feature = "multi-threaded", allow(dead_code))]
-        local_set: LocalSet,
+        #[cfg(feature = "multi-threaded")]
+        local_set: (),
     }
 
     impl TestSpawner {
