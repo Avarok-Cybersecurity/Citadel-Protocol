@@ -1,5 +1,6 @@
-use crate::{Error, KemAlgorithm, SigAlgorithm};
 use aes_gcm::aead::Buffer;
+use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
+use citadel_types::errors::Error;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

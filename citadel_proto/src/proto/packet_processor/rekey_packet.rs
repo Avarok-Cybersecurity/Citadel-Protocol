@@ -1,7 +1,6 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::ReKeyReturnType;
-use crate::proto::node::SecrecyMode;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
@@ -10,6 +9,7 @@ use crate::proto::packet_processor::primary_group_packet::{
 };
 use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use citadel_crypt::stacked_ratchet::RatchetType;
+use citadel_types::crypto::SecrecyMode;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 

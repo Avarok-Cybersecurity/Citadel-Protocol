@@ -1,6 +1,6 @@
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
 use crate::proto::node::TlsDomain;
-use crate::proto::peer::peer_layer::UdpMode;
+use citadel_types::proto::SessionSecuritySettings;
+use citadel_types::proto::UdpMode;
 use citadel_wire::nat_identification::NatType;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;

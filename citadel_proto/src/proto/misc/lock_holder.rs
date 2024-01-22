@@ -101,7 +101,7 @@ mod test {
         t.wrapping_add(1)
     }*/
 
-    fn accessor2(t: &mut u8) -> u8 {
+    fn accessor2(t: &u8) -> u8 {
         t.wrapping_add(2)
     }
 

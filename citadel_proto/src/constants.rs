@@ -1,5 +1,5 @@
 use crate::proto::packet::HdpHeader;
-use crate::proto::peer::peer_layer::UdpMode;
+use citadel_types::proto::UdpMode;
 use embedded_semver::prelude::*;
 use lazy_static::lazy_static;
 

@@ -10,7 +10,7 @@ use rand::prelude::{SliceRandom, ThreadRng};
 
 use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
-use crate::prelude::{CryptError, SecurityLevel};
+use crate::prelude::CryptError;
 use crate::stacked_ratchet::Ratchet;
 #[cfg(not(target_family = "wasm"))]
 use rayon::{iter::IndexedParallelIterator, prelude::*};
@@ -387,10 +387,11 @@ pub struct GroupReceiver {
     wave_timeout: Duration,
 }
 
-use crate::misc::TransferType;
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
-use citadel_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, SigAlgorithm};
-use citadel_pqcrypto::PostQuantumContainer;
+use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::crypto::{EncryptionAlgorithm, SigAlgorithm};
+use citadel_types::proto::TransferType;
 use serde::{Deserialize, Serialize};
 
 /// For containing the data needed to receive a corresponding group

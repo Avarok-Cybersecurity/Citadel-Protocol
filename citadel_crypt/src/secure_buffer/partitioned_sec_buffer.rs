@@ -1,5 +1,5 @@
-use crate::prelude::SecBuffer;
 use bytes::{BufMut, BytesMut};
+use citadel_types::crypto::SecBuffer;
 use std::ops::{Deref, DerefMut, Range};
 
 /// N determines the number of partitions in the buffer

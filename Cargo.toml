@@ -13,7 +13,7 @@ members = [
     "netbeam",
 	"citadel_logging",
     "citadel_io",
-    "citadel_io"
+    "citadel_types"
 ]
 
 exclude = [
@@ -30,6 +30,7 @@ citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, vers
 citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.7.0" }
 citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.7.0" }
 citadel_io = { path = "./citadel_io", default-features = false, version = "0.7.0" }
+citadel_types = { path = "./citadel_types", default-features = false, version = "0.7.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.7.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.7.0" }
 async_ip = { path = "./async_ip", default-features = false, version = "0.7.0" }

@@ -1,5 +1,5 @@
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-use crate::entropy_bank::{EntropyBank, SecurityLevel};
+use crate::entropy_bank::EntropyBank;
 use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
 use crate::stacked_ratchet::constructor::StackedRatchetConstructor;
@@ -7,6 +7,7 @@ use bytes::BytesMut;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
 use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
 use citadel_pqcrypto::PostQuantumContainer;
+use citadel_types::crypto::SecurityLevel;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::borrow::Cow;
@@ -394,18 +395,19 @@ impl From<StackedRatchetInner> for StackedRatchet {
 /// For constructing the StackedRatchet during KEM stage
 pub mod constructor {
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-    use crate::entropy_bank::{EntropyBank, SecurityLevel};
+    use crate::entropy_bank::EntropyBank;
     use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
     use crate::prelude::CryptError;
     use crate::stacked_ratchet::{Ratchet, StackedRatchet};
     use arrayvec::ArrayVec;
     use bytes::BufMut;
     use bytes::BytesMut;
-    use citadel_pqcrypto::algorithm_dictionary::CryptoParameters;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
     use citadel_pqcrypto::PostQuantumContainer;
-    use citadel_pqcrypto::LARGEST_NONCE_LEN;
+    use citadel_types::crypto::CryptoParameters;
+    use citadel_types::crypto::SecurityLevel;
+    use citadel_types::crypto::LARGEST_NONCE_LEN;
     use serde::{Deserialize, Serialize};
     use std::convert::TryFrom;
 

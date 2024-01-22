@@ -5,13 +5,14 @@ mod tests {
     use rand::RngCore;
 
     use citadel_logging::setup_log;
-    use citadel_pqcrypto::algorithm_dictionary::{
-        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
-    };
     use citadel_pqcrypto::bytes_in_place::EzBuffer;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_pqcrypto::replay_attack_container::HISTORY_LEN;
-    use citadel_pqcrypto::{validate_crypto_params, PostQuantumContainer};
+    use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
+    use citadel_types::crypto::{
+        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
+    };
+    use citadel_types::utils::validate_crypto_params;
     use std::convert::TryFrom;
     use std::fmt::Debug;
     use std::iter::FromIterator;
@@ -106,7 +107,7 @@ mod tests {
                 plaintext.push((x % 256) as u8)
             }
 
-            let nonce = &Vec::from_iter(0..citadel_pqcrypto::LARGEST_NONCE_LEN as u8);
+            let nonce = &Vec::from_iter(0..citadel_types::crypto::LARGEST_NONCE_LEN as u8);
 
             let mut ciphertext = alice_container
                 .encrypt(plaintext.as_slice(), nonce)

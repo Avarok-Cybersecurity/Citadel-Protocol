@@ -1,6 +1,7 @@
-use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, SecurityLevel, TargetLockedRemote};
+use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, TargetLockedRemote};
 
 use citadel_proto::prelude::NetworkError;
+use citadel_types::crypto::SecurityLevel;
 use std::path::PathBuf;
 
 /// Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem
@@ -88,7 +89,7 @@ mod tests {
     use uuid::Uuid;
 
     pub fn server_info<'a>() -> (NodeFuture<'a, AcceptFileTransferKernel>, SocketAddr) {
-        crate::test_common::server_test_node(AcceptFileTransferKernel::default(), |_| {})
+        crate::test_common::server_test_node(AcceptFileTransferKernel, |_| {})
     }
 
     #[rstest]

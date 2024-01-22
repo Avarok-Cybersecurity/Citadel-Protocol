@@ -5,7 +5,7 @@ use bstr::ByteSlice;
 use citadel_crypt::argon::argon_container::{
     ArgonContainerType, ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
 };
-use citadel_crypt::prelude::SecBuffer;
+use citadel_types::crypto::SecBuffer;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;

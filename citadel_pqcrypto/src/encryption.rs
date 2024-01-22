@@ -1,5 +1,5 @@
-use crate::ez_error::Error;
 use aes_gcm::aead::Buffer;
+use citadel_types::errors::Error;
 
 pub trait AeadModule: Send + Sync {
     fn encrypt(&self, nonce: &[u8], input: &[u8]) -> Result<Vec<u8>, Error> {
@@ -54,62 +54,65 @@ pub trait AeadModule: Send + Sync {
 
 pub(crate) mod aes_impl {
     use crate::encryption::AeadModule;
-    use crate::ez_error::Error;
     use crate::PostQuantumMetaKex;
     use aes_gcm::aead::generic_array::GenericArray;
     use aes_gcm::aead::{AeadInPlace, Buffer};
     use aes_gcm::Aes256Gcm;
+    use citadel_types::errors::Error;
 
     pub struct AesModule {
         pub aead: Aes256Gcm,
         pub kex: PostQuantumMetaKex,
     }
 
-    crate::impl_basic_aead_module!(AesModule, crate::AES_GCM_NONCE_LENGTH_BYTES);
+    crate::impl_basic_aead_module!(AesModule, citadel_types::crypto::AES_GCM_NONCE_LENGTH_BYTES);
 }
 
 pub(crate) mod chacha_impl {
     use crate::encryption::AeadModule;
-    use crate::ez_error::Error;
     use crate::PostQuantumMetaKex;
     use aes_gcm::aead::Buffer;
     use chacha20poly1305::aead::generic_array::GenericArray;
     use chacha20poly1305::aead::AeadInPlace;
     use chacha20poly1305::ChaCha20Poly1305;
+    use citadel_types::errors::Error;
 
     pub struct ChaChaModule {
         pub aead: ChaCha20Poly1305,
         pub kex: PostQuantumMetaKex,
     }
 
-    crate::impl_basic_aead_module!(ChaChaModule, crate::CHA_CHA_NONCE_LENGTH_BYTES);
+    crate::impl_basic_aead_module!(
+        ChaChaModule,
+        citadel_types::crypto::CHA_CHA_NONCE_LENGTH_BYTES
+    );
 }
 
 pub(crate) mod ascon_impl {
     use crate::encryption::AeadModule;
-    use crate::ez_error::Error;
     use crate::PostQuantumMetaKex;
     use aes_gcm::aead::Buffer;
     use ascon_aead::Ascon80pq;
     use chacha20poly1305::aead::generic_array::GenericArray;
     use chacha20poly1305::aead::AeadInPlace;
+    use citadel_types::errors::Error;
 
     pub struct AsconModule {
         pub aead: Ascon80pq,
         pub kex: PostQuantumMetaKex,
     }
 
-    crate::impl_basic_aead_module!(AsconModule, crate::ASCON_NONCE_LENGTH_BYTES);
+    crate::impl_basic_aead_module!(AsconModule, citadel_types::crypto::ASCON_NONCE_LENGTH_BYTES);
 }
 
 pub(crate) mod kyber_module {
     #[cfg(target_family = "wasm")]
     use crate::functions::AsSlice;
     use crate::wire::ScramCryptDictionary;
-    use crate::{
-        AeadModule, Error, KemAlgorithm, PostQuantumMetaKex, PostQuantumMetaSig, SigAlgorithm,
-    };
+    use crate::{AeadModule, PostQuantumMetaKex, PostQuantumMetaSig};
     use aes_gcm::aead::Buffer;
+    use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
+    use citadel_types::errors::Error;
 
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,

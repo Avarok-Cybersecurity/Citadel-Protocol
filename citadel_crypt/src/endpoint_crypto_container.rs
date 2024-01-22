@@ -1,12 +1,12 @@
 #![allow(missing_docs)]
 
 use crate::misc::CryptError;
-use crate::prelude::SecurityLevel;
 use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::stacked_ratchet::{Ratchet, StackedRatchet};
 use crate::toolset::{Toolset, UpdateStatus};
-use citadel_pqcrypto::algorithm_dictionary::CryptoParameters;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+use citadel_types::crypto::CryptoParameters;
+use citadel_types::crypto::SecurityLevel;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

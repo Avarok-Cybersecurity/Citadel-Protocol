@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests {
 
-    use citadel_crypt::prelude::{ConstructorOpts, SecBuffer};
+    use citadel_crypt::prelude::ConstructorOpts;
     use citadel_crypt::stacked_ratchet::constructor::{
         BobToAliceTransferType, StackedRatchetConstructor,
     };
     use citadel_crypt::stacked_ratchet::StackedRatchet;
-    use citadel_pqcrypto::algorithm_dictionary::KemAlgorithm;
+    use citadel_types::crypto::KemAlgorithm;
     use citadel_user::account_manager::AccountManager;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::backend::{BackendType, PersistenceHandler};
@@ -14,10 +14,12 @@ mod tests {
     use futures::Future;
     use std::str::FromStr;
 
-    use citadel_pqcrypto::prelude::algorithm_dictionary::EncryptionAlgorithm;
+    use citadel_types::crypto::EncryptionAlgorithm;
+    use citadel_types::crypto::SecBuffer;
+    use citadel_types::user::MutualPeer;
     use citadel_user::credentials::CredentialRequirements;
     use citadel_user::misc::{AccountError, CNACMetadata};
-    use citadel_user::prelude::{ConnectionInfo, MutualPeer};
+    use citadel_user::prelude::ConnectionInfo;
     use std::collections::HashMap;
     use std::net::SocketAddr;
 

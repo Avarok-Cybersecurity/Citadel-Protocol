@@ -11,8 +11,8 @@ pub mod includes {
     pub use tokio::time::{Duration, Instant};
     pub use zerocopy::Ref;
 
-    pub use citadel_crypt::entropy_bank::SecurityLevel;
-    pub use citadel_crypt::prelude::SecBuffer;
+    pub use citadel_types::crypto::SecBuffer;
+    pub use citadel_types::crypto::SecurityLevel;
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
     pub use crate::proto::node_result::NodeResult;

@@ -8,7 +8,7 @@ workspace = ".."
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 [features]
@@ -46,6 +46,7 @@ wasm = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+citadel_types = { workspace = true }
 embedded-semver = { workspace = true }
 lazy_static = { workspace = true }
 futures = { workspace = true }

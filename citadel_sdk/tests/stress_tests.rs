@@ -1,10 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use citadel_proto::kernel::kernel_executor::LocalSet;
     use citadel_proto::prelude::SyncIO;
     use citadel_proto::prelude::{
-        EncryptionAlgorithm, KemAlgorithm, NetworkError, SecBuffer, SecrecyMode,
-        SecureProtocolPacket, SessionSecuritySettingsBuilder, UdpMode,
+        NetworkError, SecureProtocolPacket, SessionSecuritySettingsBuilder,
     };
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
@@ -12,6 +10,9 @@ mod tests {
     use citadel_sdk::prefabs::client::PrefabFunctions;
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::server_info;
+    use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecBuffer};
+    use citadel_types::prelude::SecrecyMode;
+    use citadel_types::proto::UdpMode;
     use futures::prelude::stream::FuturesUnordered;
     use futures::{StreamExt, TryStreamExt};
     use rand::prelude::ThreadRng;
@@ -29,8 +30,11 @@ mod tests {
 
     struct TestSpawner {
         // this may not be a real localset
+        #[cfg(not(feature = "multi-threaded"))]
+        local_set: tokio::task::LocalSet,
         #[cfg_attr(feature = "multi-threaded", allow(dead_code))]
-        local_set: LocalSet,
+        #[cfg(feature = "multi-threaded")]
+        local_set: (),
     }
 
     impl TestSpawner {

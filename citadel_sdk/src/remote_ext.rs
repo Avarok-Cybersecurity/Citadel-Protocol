@@ -6,6 +6,8 @@ use crate::remote_ext::results::LocalGroupPeer;
 use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
 
 use citadel_proto::auth::AuthenticationRequest;
+use citadel_types::proto::ConnectMode;
+use citadel_types::proto::ObjectTransferStatus;
 use futures::StreamExt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -1159,6 +1161,7 @@ mod tests {
                     .accept()
                     .map_err(|err| NetworkError::msg(err.into_string()))?;
 
+                use citadel_types::proto::ObjectTransferStatus;
                 use futures::StreamExt;
                 while let Some(status) = handle.next().await {
                     match status {

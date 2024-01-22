@@ -4,8 +4,10 @@ use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::Mutex;
-use citadel_proto::prelude::{PeerConnectionType, SessionSecuritySettings, UdpMode};
+use citadel_proto::prelude::PeerConnectionType;
 use citadel_proto::re_imports::async_trait;
+use citadel_types::proto::{SessionSecuritySettings, UdpMode};
+use citadel_user::hypernode_account::UserIdentifierExt;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
 use std::collections::HashMap;
@@ -363,6 +365,7 @@ mod tests {
     };
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier, PEERS};
+    use citadel_user::prelude::UserIdentifierExt;
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use rstest::rstest;
@@ -640,6 +643,7 @@ mod tests {
                             handle.accept().unwrap();
 
                             use futures::StreamExt;
+                            use citadel_types::proto::ObjectTransferStatus;
                             let mut path = None;
                             while let Some(status) = handle.next().await {
                                 match status {

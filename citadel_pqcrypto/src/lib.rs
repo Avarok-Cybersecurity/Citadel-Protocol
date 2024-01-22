@@ -1,15 +1,16 @@
 #![allow(non_camel_case_types)]
 #![forbid(unsafe_code)]
 
-use crate::algorithm_dictionary::{
-    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm,
-};
 use crate::bytes_in_place::{EzBuffer, InPlaceBuffer};
 use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
 use crate::encryption::AeadModule;
 use crate::export::keys_to_aead_store;
-use crate::ez_error::Error;
 use crate::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
+use citadel_types::crypto::{
+    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES,
+    ASCON_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
+};
+use citadel_types::errors::Error;
 use generic_array::GenericArray;
 use rand::rngs::ThreadRng;
 use serde::{Deserialize, Serialize};
@@ -26,23 +27,13 @@ use crate::functions::AsSlice;
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
-    pub use crate::{algorithm_dictionary, PQNode, PostQuantumContainer, PostQuantumMeta};
+    pub use crate::{EncryptionAlgorithmExt, PQNode, PostQuantumContainer, PostQuantumMeta};
 }
-
-pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
-
-pub const CHA_CHA_NONCE_LENGTH_BYTES: usize = 12;
-pub const ASCON_NONCE_LENGTH_BYTES: usize = 16;
-pub const AES_GCM_NONCE_LENGTH_BYTES: usize = 12;
-pub const KYBER_NONCE_LENGTH_BYTES: usize = 32;
 
 pub mod bytes_in_place;
 
 /// For handling serialization/deserialization
 pub mod export;
-
-/// For organizing error types
-pub mod ez_error;
 
 /// For protecting against replay attacks
 pub mod replay_attack_container;
@@ -73,7 +64,7 @@ pub const fn get_approx_bytes_per_container() -> usize {
 
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod functions {
-    use crate::Error;
+    use citadel_types::errors::Error;
     use oqs::sig::Sig;
     use zeroize::Zeroizing;
 
@@ -129,7 +120,7 @@ pub(crate) mod functions {
 
 #[cfg(target_family = "wasm")]
 pub(crate) mod functions {
-    use crate::Error;
+    use citadel_types::errors::Error;
     use pqcrypto_falcon_wasi::falcon1024;
     use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
     use pqcrypto_traits_wasi::sign::PublicKey as PublicKeyTrait;
@@ -240,7 +231,7 @@ impl PostQuantumContainer {
     /// `algorithm`: If this is None, a random algorithm will be used
     pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
         let params = opts.cryptography.unwrap_or_default();
-        validate_crypto_params(&params)?;
+        citadel_types::utils::validate_crypto_params(&params)?;
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
             .map_err(|err| Error::Other(err.to_string()))?;
@@ -273,7 +264,7 @@ impl PostQuantumContainer {
     ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
         let params = opts.cryptography.unwrap_or_default();
-        validate_crypto_params(&params)?;
+        citadel_types::utils::validate_crypto_params(&params)?;
 
         let chain = opts.chain;
 
@@ -701,258 +692,6 @@ impl Clone for PostQuantumContainer {
     fn clone(&self) -> Self {
         let ser = self.serialize_to_vector().unwrap();
         PostQuantumContainer::deserialize_from_bytes(ser).unwrap()
-    }
-}
-
-/// Used for packet transmission
-#[allow(missing_docs)]
-pub mod algorithm_dictionary {
-    use crate::{
-        validate_crypto_params, Error, AES_GCM_NONCE_LENGTH_BYTES, ASCON_NONCE_LENGTH_BYTES,
-        CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
-    };
-    use enum_primitive::*;
-    use packed_struct::prelude::*;
-    use serde::{Deserialize, Serialize};
-    use std::convert::TryFrom;
-    use std::fmt::Debug;
-    use std::ops::Add;
-    use strum::EnumCount;
-    use strum::ParseError;
-
-    pub const KEM_ALGORITHM_COUNT: u8 = KemAlgorithm::COUNT as u8;
-
-    #[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
-    #[packed_struct(bit_numbering = "msb0")]
-    pub struct CryptoParameters {
-        #[packed_field(bits = "0..=2", ty = "enum")]
-        pub encryption_algorithm: EncryptionAlgorithm,
-        #[packed_field(bits = "3..=5", ty = "enum")]
-        pub kem_algorithm: KemAlgorithm,
-        #[packed_field(bits = "6..=7", ty = "enum")]
-        pub sig_algorithm: SigAlgorithm,
-    }
-
-    impl From<CryptoParameters> for u8 {
-        fn from(val: CryptoParameters) -> Self {
-            let bytes: [u8; 1] = val.pack().unwrap();
-            bytes[0]
-        }
-    }
-
-    impl TryFrom<u8> for CryptoParameters {
-        type Error = crate::ez_error::Error;
-
-        fn try_from(value: u8) -> Result<Self, Self::Error> {
-            let value: [u8; 1] = [value];
-            let this: CryptoParameters =
-                CryptoParameters::unpack(&value).map_err(|err| Error::Other(err.to_string()))?;
-            validate_crypto_params(&this)?;
-            Ok(this)
-        }
-    }
-
-    #[derive(
-        PrimitiveEnum_u8,
-        Default,
-        Copy,
-        Clone,
-        Debug,
-        Eq,
-        PartialEq,
-        Serialize,
-        Deserialize,
-        strum::EnumString,
-        strum::EnumIter,
-    )]
-    pub enum EncryptionAlgorithm {
-        #[default]
-        AES_GCM_256 = 0,
-        ChaCha20Poly_1305 = 1,
-        Kyber = 2,
-        Ascon80pq = 3,
-    }
-
-    impl EncryptionAlgorithm {
-        pub fn nonce_len(&self) -> usize {
-            match self {
-                Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
-                Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
-                Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
-                Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
-            }
-        }
-
-        // calculates the max ciphertext len given an input plaintext length
-        pub fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
-            const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
-            match self {
-                Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-                // plaintext len + 128 bit tag
-                Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-                Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-                // Add 32 for internal apendees
-                Self::Kyber => {
-                    const LENGTH_FIELD: usize = 8;
-                    let signature_len = crate::functions::signature_bytes();
-
-                    let aes_input_len = signature_len + LENGTH_FIELD;
-                    let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
-                    let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
-                    let kyber_output_len = kyber_pke::ct_len(kyber_input_len);
-
-                    // add 8 for the length encoding
-                    aes_output_len + kyber_output_len + LENGTH_FIELD
-                }
-            }
-        }
-
-        pub fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize> {
-            if ciphertext.len() < 16 {
-                return None;
-            }
-
-            match self {
-                Self::AES_GCM_256 => Some(ciphertext.len() - 16),
-                Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
-                Self::Ascon80pq => Some(ciphertext.len() - 16),
-                Self::Kyber => kyber_pke::plaintext_len(ciphertext),
-            }
-        }
-    }
-
-    #[derive(
-        PrimitiveEnum_u8,
-        Default,
-        Copy,
-        Clone,
-        Debug,
-        Eq,
-        PartialEq,
-        Serialize,
-        Deserialize,
-        strum::EnumString,
-        strum::EnumIter,
-        strum::EnumCount,
-    )]
-    pub enum KemAlgorithm {
-        #[strum(ascii_case_insensitive)]
-        #[default]
-        Kyber = 0,
-        Ntru = 1,
-    }
-
-    #[derive(
-        PrimitiveEnum_u8,
-        strum::EnumString,
-        strum::EnumIter,
-        Default,
-        Serialize,
-        Deserialize,
-        Copy,
-        Clone,
-        Debug,
-        Eq,
-        PartialEq,
-    )]
-    pub enum SigAlgorithm {
-        #[default]
-        None = 0,
-        Falcon1024 = 1,
-    }
-
-    pub trait AlgorithmsExt:
-        strum::IntoEnumIterator + for<'a> TryFrom<&'a str> + Debug + PrimitiveEnum<Primitive = u8>
-    {
-        fn list() -> Vec<Self> {
-            Self::iter().collect()
-        }
-
-        fn try_from_str<R: AsRef<str>>(t: R) -> Result<Self, ParseError> {
-            Self::try_from(t.as_ref()).map_err(|_| ParseError::VariantNotFound)
-        }
-
-        fn names() -> Vec<String> {
-            Self::iter()
-                .map(|r| format!("{r:?}").to_lowercase())
-                .collect()
-        }
-
-        fn from_u8(input: u8) -> Option<Self> {
-            Self::from_primitive(input)
-        }
-
-        fn as_u8(&self) -> u8 {
-            self.to_primitive()
-        }
-
-        fn set_crypto_param(&self, params: &mut CryptoParameters);
-    }
-
-    impl AlgorithmsExt for KemAlgorithm {
-        fn set_crypto_param(&self, params: &mut CryptoParameters) {
-            params.kem_algorithm = *self;
-        }
-    }
-
-    impl AlgorithmsExt for EncryptionAlgorithm {
-        fn set_crypto_param(&self, params: &mut CryptoParameters) {
-            params.encryption_algorithm = *self;
-        }
-    }
-
-    impl AlgorithmsExt for SigAlgorithm {
-        fn set_crypto_param(&self, params: &mut CryptoParameters) {
-            params.sig_algorithm = *self;
-        }
-    }
-
-    impl<R: AlgorithmsExt> Add<R> for KemAlgorithm {
-        type Output = CryptoParameters;
-
-        fn add(self, rhs: R) -> Self::Output {
-            add_inner(self, rhs)
-        }
-    }
-
-    impl<R: AlgorithmsExt> Add<R> for EncryptionAlgorithm {
-        type Output = CryptoParameters;
-
-        fn add(self, rhs: R) -> Self::Output {
-            add_inner(self, rhs)
-        }
-    }
-
-    impl<R: AlgorithmsExt> Add<R> for SigAlgorithm {
-        type Output = CryptoParameters;
-
-        fn add(self, rhs: R) -> Self::Output {
-            add_inner(self, rhs)
-        }
-    }
-
-    impl<R: AlgorithmsExt> Add<R> for CryptoParameters {
-        type Output = CryptoParameters;
-
-        fn add(mut self, rhs: R) -> Self::Output {
-            rhs.set_crypto_param(&mut self);
-            self
-        }
-    }
-
-    fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoParameters {
-        let mut ret = CryptoParameters::default();
-        lhs.set_crypto_param(&mut ret);
-        rhs.set_crypto_param(&mut ret);
-        ret
-    }
-
-    impl<T: AlgorithmsExt> From<T> for CryptoParameters {
-        fn from(this: T) -> Self {
-            let mut ret = CryptoParameters::default();
-            this.set_crypto_param(&mut ret);
-            ret
-        }
     }
 }
 
@@ -1385,25 +1124,56 @@ impl Debug for PostQuantumContainer {
     }
 }
 
-pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
-    if params.encryption_algorithm == EncryptionAlgorithm::Kyber
-        && params.kem_algorithm != KemAlgorithm::Kyber
-    {
-        return Err(Error::Generic(
-            "Invalid crypto parameter combination. Kyber encryption must be paired with Kyber KEM",
-        ));
+pub trait EncryptionAlgorithmExt {
+    fn nonce_len(&self) -> usize;
+    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize;
+    fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize>;
+}
+
+impl EncryptionAlgorithmExt for EncryptionAlgorithm {
+    fn nonce_len(&self) -> usize {
+        match self {
+            Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
+            Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
+            Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
+            Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
+        }
     }
 
-    if params.encryption_algorithm == EncryptionAlgorithm::Kyber
-        && params.kem_algorithm == KemAlgorithm::Kyber
-        && params.sig_algorithm == SigAlgorithm::None
-    {
-        return Err(Error::Generic(
-            "A post-quantum signature scheme must be selected when using Kyber encryption + KEM",
-        ));
+    // calculates the max ciphertext len given an input plaintext length
+    fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
+        const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
+        match self {
+            Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+            // plaintext len + 128 bit tag
+            Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+            Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+            // Add 32 for internal apendees
+            Self::Kyber => {
+                const LENGTH_FIELD: usize = 8;
+                let signature_len = functions::signature_bytes();
+
+                let aes_input_len = signature_len + LENGTH_FIELD;
+                let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
+                let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
+                let kyber_output_len = kyber_pke::ct_len(kyber_input_len);
+
+                // add 8 for the length encoding
+                aes_output_len + kyber_output_len + LENGTH_FIELD
+            }
+        }
     }
 
-    // NOTE: it's okay to have a sig scheme defined with no Kyber. That just means every packet gets non-repudiation endowed onto its security
+    fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize> {
+        if ciphertext.len() < 16 {
+            return None;
+        }
 
-    Ok(())
+        match self {
+            Self::AES_GCM_256 => Some(ciphertext.len() - 16),
+            Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
+            Self::Ascon80pq => Some(ciphertext.len() - 16),
+            Self::Kyber => kyber_pke::plaintext_len(ciphertext),
+        }
+    }
 }

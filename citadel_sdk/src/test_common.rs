@@ -33,7 +33,7 @@ pub fn server_test_node<'a, K: NetKernel + 'a>(
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
 pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
-    crate::test_common::server_test_node(EmptyKernel::default(), |_| {})
+    crate::test_common::server_test_node(EmptyKernel, |_| {})
 }
 
 #[allow(dead_code)]

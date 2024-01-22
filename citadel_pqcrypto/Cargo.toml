@@ -7,7 +7,7 @@ edition = "2021"
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,7 +24,6 @@ std = [
     "chacha20poly1305/alloc",
     "chacha20poly1305/std",
     "bytes/std",
-    "strum/std",
     "kyber-pke/std",
     "pqcrypto-falcon-wasi/std",
     "pqcrypto-traits-wasi/std",
@@ -36,8 +35,6 @@ wasm = []
 
 [dependencies]
 generic-array = { workspace = true, features = ["serde"] }
-lazy_static = { workspace = true }
-enum_primitive = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 bincode2 = { workspace = true }
 aes-gcm = { workspace = true, features = ["heapless", "aes", "alloc"]}
@@ -45,15 +42,13 @@ chacha20poly1305 = { workspace = true, features = ["heapless", "alloc"] }
 bytes = { workspace = true }
 parking_lot = { workspace = true, features = ["serde"] }
 log = { workspace = true }
-strum = { workspace = true, features = ["derive"] }
 sha3 = { workspace = true }
 kyber-pke = { workspace = true, features=["90s"] }
-packed_struct = { workspace = true, features = ["serde"] }
 rand = { workspace = true }
-getrandom = { workspace = true, features = ["js"], optional = true }
 serde-big-array = { workspace = true }
 ascon-aead = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
+citadel_types = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 oqs = { workspace = true, features = ["serde", "falcon", "ntruprime"] }

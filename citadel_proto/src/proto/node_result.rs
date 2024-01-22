@@ -1,10 +1,9 @@
-use crate::prelude::{
-    GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, SessionSecuritySettings, UdpChannel,
-};
+use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpChannel};
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
 
+use citadel_types::proto::SessionSecuritySettings;
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_user::client_account::ClientNetworkAccount;
 use std::net::SocketAddr;

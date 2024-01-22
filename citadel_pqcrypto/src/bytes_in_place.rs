@@ -1,8 +1,8 @@
 use std::ops::Range;
 
-use crate::Error;
 use aes_gcm::aead::{Buffer, Error as AesError};
 use bytes::{BufMut, BytesMut};
+use citadel_types::errors::Error;
 
 pub struct InPlaceBuffer<'a, T> {
     inner: &'a mut T,

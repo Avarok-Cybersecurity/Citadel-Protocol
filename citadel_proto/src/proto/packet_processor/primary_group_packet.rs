@@ -3,10 +3,8 @@ use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
-use crate::proto::node::SecrecyMode;
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::peer::peer_layer::UdpMode;
 use crate::proto::session_queue_handler::QueueWorkerResult;
 use crate::proto::state_container::{FileKey, GroupKey, StateContainerInner};
 use crate::proto::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
@@ -17,6 +15,8 @@ use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::misc::CryptError;
 use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use citadel_crypt::stacked_ratchet::{Ratchet, RatchetType, StackedRatchet};
+use citadel_types::crypto::SecrecyMode;
+use citadel_types::proto::UdpMode;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 
@@ -156,7 +156,7 @@ pub fn process_primary_packet(
                                 Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                             } else {
                                 let group_header = return_if_none!(
-                                    validation::group::validate_header(&mut payload),
+                                    validation::group::validate_header(&payload),
                                     "Bad non-message group header"
                                 );
                                 match group_header {

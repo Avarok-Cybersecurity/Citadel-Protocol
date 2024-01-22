@@ -8,9 +8,9 @@ use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 use tokio_util::codec::LengthDelimitedCodec;
 
-use citadel_crypt::entropy_bank::SecurityLevel;
 use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_types::proto::UdpMode;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::client_account::ClientNetworkAccount;
@@ -28,17 +28,17 @@ use crate::error::NetworkError;
 use crate::proto::packet::{packet_flags, HdpPacket};
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
-use citadel_user::backend::utils::VirtualObjectMetadata;
+use citadel_types::proto::VirtualObjectMetadata;
 //use futures_codec::Framed;
 use crate::proto::misc;
 use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::GenericNetworkStream;
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
-use crate::proto::node::ConnectMode;
 use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::session_manager::HdpSessionManager;
+use citadel_types::proto::ConnectMode;
+use citadel_types::proto::SessionSecuritySettings;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::kernel::RuntimeFuture;
@@ -55,7 +55,7 @@ use crate::proto::outbound_sender::{
 };
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
-use crate::proto::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, UdpMode};
+use crate::proto::peer::peer_layer::{HyperNodePeerLayer, PeerSignal};
 use crate::proto::session_queue_handler::{
     QueueWorkerResult, QueueWorkerTicket, SessionQueueWorker, SessionQueueWorkerHandle,
     DRILL_REKEY_WORKER, FIREWALL_KEEP_ALIVE, KEEP_ALIVE_CHECKER, PROVISIONAL_CHECKER,
@@ -69,9 +69,9 @@ use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSen
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
 use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
-use citadel_crypt::misc::TransferType;
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
+use citadel_types::proto::TransferType;
 use citadel_user::backend::PersistenceHandler;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::Connection;
@@ -84,6 +84,7 @@ use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
 use crate::proto::remote::{NodeRemote, Ticket};
 use bytemuck::NoUninit;
+use citadel_types::crypto::SecurityLevel;
 
 //use crate::define_struct;
 

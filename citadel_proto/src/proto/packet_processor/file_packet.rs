@@ -7,7 +7,7 @@ use crate::proto::packet_processor::primary_group_packet::{
     get_proper_hyper_ratchet, get_resp_target_cid_from_header,
 };
 use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
-use citadel_crypt::misc::TransferType;
+use citadel_types::proto::TransferType;
 use std::sync::atomic::Ordering;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]

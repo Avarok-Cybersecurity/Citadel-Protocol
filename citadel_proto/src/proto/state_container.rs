@@ -24,12 +24,10 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::{InternalServerError, MessageGroupKey, ReKeyResult, ReKeyReturnType};
+use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::ordered_channel::OrderedChannel;
-use crate::proto::misc::session_security_settings::SessionSecuritySettings;
-use crate::proto::node::SecrecyMode;
 use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
@@ -44,7 +42,7 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::channel::{PeerChannel, UdpChannel};
 use crate::proto::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
 use crate::proto::peer::p2p_conn_handler::DirectP2PRemote;
-use crate::proto::peer::peer_layer::{PeerConnectionType, UdpMode};
+use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::SessionState;
 use crate::proto::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHandle};
@@ -60,9 +58,14 @@ use crate::proto::{packet_crafter, send_with_error_logging};
 use atomic::Atomic;
 use bytes::Bytes;
 use citadel_crypt::endpoint_crypto_container::{KemTransferStatus, PeerSessionCrypto};
-use citadel_crypt::entropy_bank::SecurityLevel;
-use citadel_crypt::prelude::SecBuffer;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_types::crypto::SecBuffer;
+use citadel_types::crypto::SecrecyMode;
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::{
+    MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
+    UdpMode, VirtualObjectMetadata,
+};
 use citadel_user::backend::utils::*;
 use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;

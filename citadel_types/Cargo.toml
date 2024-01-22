@@ -1,0 +1,27 @@
+[package]
+name = "citadel_types"
+version = "0.7.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "Types for the citadel protocol"
+edition = "2021"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { workspace = true, features = ["derive"]}
+strum = { workspace = true, features = ["derive"] }
+bytes = { workspace = true, features = ["serde"] }
+twox-hash = { workspace = true }
+packed_struct = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+bincode2 = { workspace = true}
+
+[target.'cfg(target_family = "unix")'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_family = "windows")'.dependencies]
+kernel32-sys = { workspace = true }

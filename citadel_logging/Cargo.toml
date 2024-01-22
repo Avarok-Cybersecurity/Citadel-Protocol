@@ -7,7 +7,7 @@ description = "logging library for the Citadel Protocol"
 homepage = "https://avarok.net/"
 repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
 readme = "../README.md"
-categories = ["cryptography", "quantum", "network-programming", "asynchronous"]
+categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,4 +15,3 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-log = { workspace = true }

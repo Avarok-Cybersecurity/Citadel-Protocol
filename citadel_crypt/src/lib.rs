@@ -13,15 +13,14 @@ pub mod prelude {
     pub use ::async_trait::async_trait;
 
     pub use citadel_pqcrypto::constructor_opts::ConstructorOpts;
-    pub use citadel_pqcrypto::{
-        algorithm_dictionary, bytes_in_place::EzBuffer, PostQuantumContainer,
-    };
+    pub use citadel_pqcrypto::{bytes_in_place::EzBuffer, PostQuantumContainer};
 
-    pub use crate::entropy_bank::{EntropyBank, SecurityLevel};
+    pub use crate::entropy_bank::EntropyBank;
     pub use crate::misc::CryptError;
     pub use crate::packet_vector::PacketVector;
-    pub use crate::secure_buffer::sec_bytes::SecBuffer;
     pub use crate::toolset::Toolset;
+    pub use citadel_types::crypto::SecBuffer;
+    pub use citadel_types::crypto::SecurityLevel;
 }
 
 /// For argon-related functionality

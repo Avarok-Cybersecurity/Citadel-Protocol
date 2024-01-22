@@ -2,7 +2,7 @@ use crate::argon::argon_container::{
     ArgonDefaultServerSettings, ArgonSettings, ArgonStatus, AsyncArgon, DEFAULT_HASH_LENGTH,
 };
 use crate::misc::CryptError;
-use crate::prelude::SecBuffer;
+use citadel_types::crypto::SecBuffer;
 use sysinfo::SystemExt;
 
 /// Uses: https://www.ory.sh/choose-recommended-argon2-parameters-password-hashing/

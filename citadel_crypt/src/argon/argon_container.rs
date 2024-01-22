@@ -1,6 +1,6 @@
-use crate::prelude::SecBuffer;
 use argon2::Config;
 use citadel_io::{BlockingSpawn, BlockingSpawnError};
+use citadel_types::crypto::SecBuffer;
 use futures::Future;
 use rand::rngs::ThreadRng;
 use rand::Rng;

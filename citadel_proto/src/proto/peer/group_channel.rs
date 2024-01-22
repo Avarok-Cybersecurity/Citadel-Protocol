@@ -1,9 +1,10 @@
 use crate::error::NetworkError;
-use crate::prelude::{MessageGroupKey, SecBuffer};
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::SessionRequest;
+use citadel_types::crypto::SecBuffer;
+use citadel_types::proto::MessageGroupKey;
 use citadel_user::re_exports::__private::Formatter;
 use futures::Stream;
 use std::fmt::Debug;

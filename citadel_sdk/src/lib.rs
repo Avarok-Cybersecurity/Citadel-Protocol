@@ -237,6 +237,7 @@ pub mod prelude {
     pub use crate::remote_ext::*;
     pub use crate::responses;
     pub use citadel_proto::prelude::*;
+    pub use citadel_types::prelude::*;
 }
 
 /// Store data to the backend using this library

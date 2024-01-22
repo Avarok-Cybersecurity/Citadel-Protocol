@@ -4,9 +4,11 @@ use crate::functional::*;
 use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
-use crate::proto::peer::message_group::{MessageGroupKey, MessageGroupOptions};
 use crate::proto::remote::Ticket;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_types::proto::{
+    GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
+};
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
 
@@ -108,18 +110,6 @@ pub enum GroupBroadcast {
         result: Result<(), String>,
         key: MessageGroupKey,
     },
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MemberState {
-    EnteredGroup { cids: Vec<u64> },
-    LeftGroup { cids: Vec<u64> },
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum GroupMemberAlterMode {
-    Leave,
-    Kick,
 }
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
