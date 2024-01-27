@@ -106,14 +106,14 @@ impl PostQuantumGroup {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum Transmission {
     Broadcast(GroupMessage),
     AddPeer(AddPeer),
     RemovePeer(RemovePeer),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GroupMessage {
     ciphertext: SecBuffer,
     // A map from the hash of the public keys of the recipients to the encrypted symmetric key used to encrypt the message
@@ -122,18 +122,18 @@ pub struct GroupMessage {
     nonce: SecBuffer,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GroupMessageTarget {
     pub ciphertext: SecBuffer,
     pub asymmetric_nonce: SecBuffer,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AddPeer {
     pub peer_public_key: SecBuffer,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RemovePeer {
     pub peer_public_key: SecBuffer,
 }
@@ -144,7 +144,7 @@ mod tests {
     use crate::group::group_pq_impls::Kyber1024WithAes256Gcm;
 
     #[test]
-    fn test_group() {
+    fn test_group_basic() {
         let plaintext = b"Hello, world!" as &[u8];
 
         let (pk, sk) = kyber_pke::pke_keypair().unwrap();
@@ -175,5 +175,65 @@ mod tests {
         };
         let decrypted = group.decrypt(message).unwrap();
         assert_eq!(plaintext, decrypted.as_ref());
+    }
+
+    #[test]
+    fn test_group_with_2_members() {
+        test_group_with_n_members(2);
+    }
+
+    #[test]
+    fn test_group_with_3_members() {
+        test_group_with_n_members(3);
+    }
+
+    #[test]
+    fn test_group_with_4_members() {
+        test_group_with_n_members(4);
+    }
+
+    #[test]
+    fn test_group_with_10_members() {
+        test_group_with_n_members(10);
+    }
+
+    fn test_group_with_n_members(n: usize) {
+        let plaintext = b"Hello, world!" as &[u8];
+
+        let mut groups = Vec::new();
+        let mut public_keys = Vec::<SecBuffer>::new();
+        let mut private_keys = Vec::<SecBuffer>::new();
+        for _ in 0..n {
+            let (pk, sk) = kyber_pke::pke_keypair().unwrap();
+            let group = PostQuantumGroup::new(Kyber1024WithAes256Gcm::new(
+                pk.to_vec().into(),
+                sk.to_vec().into(),
+            ));
+            public_keys.push(pk.to_vec().into());
+            private_keys.push(sk.to_vec().into());
+            groups.push(group);
+        }
+
+        for i in 0..n {
+            for j in 0..n {
+                if i == j {
+                    continue;
+                }
+                groups[i].add_peer(public_keys[j].clone());
+            }
+        }
+
+        for sender in 0..n {
+            let ciphertext = groups[sender].encrypt(&plaintext);
+            let Transmission::Broadcast(message) = ciphertext else {
+                panic!("Should be correct type")
+            };
+            for i in 0..n {
+                if i != sender {
+                    let decrypted = groups[i].decrypt(message.clone()).unwrap();
+                    assert_eq!(plaintext, decrypted.as_ref());
+                }
+            }
+        }
     }
 }
