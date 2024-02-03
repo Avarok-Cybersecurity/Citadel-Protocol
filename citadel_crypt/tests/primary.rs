@@ -595,7 +595,10 @@ mod tests {
         };
 
         fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
-            assert_ne!(decrypted, plaintext);
+            if !plaintext.is_empty() {
+                assert_ne!(decrypted, plaintext);
+            }
+
             let decrypted_real = sa_alice
                 .local_decrypt(decrypted, SecurityLevel::Standard)
                 .unwrap();
@@ -659,7 +662,6 @@ mod tests {
             log::trace!(target: "citadel", "{:?}", &config);
 
             while let Some(mut packet) = scramble_transmitter.get_next_packet() {
-                //log::trace!(target: "citadel", "Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
                 let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
                 let _result = receiver.on_packet_received(
                     0,
@@ -668,7 +670,6 @@ mod tests {
                     &ratchet_bob,
                     packet_payload,
                 );
-                //println!("Wave {} result: {:?}", packet.vector.wave_id, result);
             }
 
             let decrypted_descrambled_plaintext = receiver.finalize();
