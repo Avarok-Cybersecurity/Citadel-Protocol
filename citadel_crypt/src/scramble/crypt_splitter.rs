@@ -202,7 +202,7 @@ where
 
     let empty_transfer = plain_text.is_empty();
     if empty_transfer {
-        // In the case the plaintext is empty, we need to generate some random data to now give away the information
+        // In the case the plaintext is empty, we need to generate some random data to not give away the information
         // that the file is empty
         let random_length = rand::random::<u8>();
         let mut entropy = vec![0u8; random_length as usize];
