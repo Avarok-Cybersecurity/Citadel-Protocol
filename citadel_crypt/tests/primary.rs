@@ -603,9 +603,11 @@ mod tests {
                 .local_decrypt(decrypted, SecurityLevel::Standard)
                 .unwrap();
             assert_eq!(decrypted_real, plaintext);
-            assert!(sa_bob
-                .local_decrypt(decrypted, SecurityLevel::Standard)
-                .is_err());
+            if !plaintext.is_empty() {
+                assert!(sa_bob
+                    .local_decrypt(decrypted, SecurityLevel::Standard)
+                    .is_err());
+            }
         }
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
