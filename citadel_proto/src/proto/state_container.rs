@@ -1052,7 +1052,8 @@ impl StateContainerInner {
                 receiver_container.last_window_size = last_window_size;
                 let waves_in_group = receiver_container.receiver.get_wave_count();
                 // take waves_in_group - 1 because it needs to take into account the max inclusive boundary
-                let max_idx = std::cmp::min(last_window_size, waves_in_group - 1) as u32;
+                let max_idx =
+                    std::cmp::min(last_window_size, waves_in_group.saturating_sub(1)) as u32;
                 let min_idx = 0; // this is a new group; start at zero
                 receiver_container.current_window = min_idx..=max_idx;
                 min_idx..=max_idx
@@ -1464,7 +1465,7 @@ impl StateContainerInner {
 
                 send_wave_ack = true;
 
-                if group_id as usize == file_container.total_groups - 1 {
+                if group_id as usize == file_container.total_groups.saturating_sub(1) {
                     complete = true;
                     let file_container = self.inbound_files.remove(&file_key).unwrap();
                     // status of reception complete now located where the streaming to HD completes
@@ -1573,7 +1574,9 @@ impl StateContainerInner {
 
                 if let Some(tx) = self.file_transfer_handles.get(&file_key) {
                     let status = if relative_group_id as usize
-                        != transmitter_container.parent_object_total_groups - 1
+                        != transmitter_container
+                            .parent_object_total_groups
+                            .saturating_sub(1)
                     {
                         ObjectTransferStatus::TransferTick(
                             relative_group_id as usize,

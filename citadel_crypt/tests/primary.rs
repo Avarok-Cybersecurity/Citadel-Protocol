@@ -630,7 +630,9 @@ mod tests {
             gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
 
         for x in 0..1500_usize {
-            data.put_u8((x % 256) as u8);
+            if x != 0 {
+                data.put_u8((x % 256) as u8);
+            }
             let input_data = &data[..];
 
             let mut scramble_transmitter =

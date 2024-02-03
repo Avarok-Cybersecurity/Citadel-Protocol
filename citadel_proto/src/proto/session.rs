@@ -1427,7 +1427,7 @@ impl HdpSession {
                 };
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                let amt_to_reserve = groups_needed - 1;
+                let amt_to_reserve = groups_needed.saturating_sub(1);
                 crypt_container.rolling_group_id += amt_to_reserve as u64;
                 let file_header = packet_crafter::file::craft_file_header_packet(
                     &latest_hr,
@@ -1523,7 +1523,7 @@ impl HdpSession {
                 );
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                let amt_to_reserve = groups_needed - 1;
+                let amt_to_reserve = groups_needed.saturating_sub(1);
                 endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
 
                 (

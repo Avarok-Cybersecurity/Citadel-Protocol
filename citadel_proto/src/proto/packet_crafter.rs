@@ -138,9 +138,11 @@ impl GroupTransmitter {
         // Gets the latest drill version by default for this operation
         log::trace!(target: "citadel", "Will use StackedRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
 
-        let bytes_encrypted = input_packet.inner.message_len(); //the number of bytes that will be encrypted
-                                                                // + 1 byte source port offset (needed for sending across port-address-translation networks)
-                                                                // + 1 byte recv port offset
+        let plaintext_len = input_packet.inner.message_len(); //the number of bytes that will be encrypted
+                                                              // + 1 byte source port offset (needed for sending across port-address-translation networks)
+                                                              // + 1 byte recv port offset
+
+        let is_empty = plaintext_len == 0;
         const HDP_HEADER_EXTENDED_BYTE_LEN: usize = HDP_HEADER_BYTE_LEN + 2;
         //let res = encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
         let res = oneshot_unencrypted_group_unified(
@@ -148,6 +150,7 @@ impl GroupTransmitter {
             HDP_HEADER_EXTENDED_BYTE_LEN,
             group_id,
             object_id,
+            is_empty,
         );
 
         match res {
@@ -160,7 +163,7 @@ impl GroupTransmitter {
                     to_primary_stream,
                     group_transmitter,
                     group_config,
-                    bytes_encrypted,
+                    bytes_encrypted: plaintext_len,
                     security_level,
                     group_id,
                     ticket,

@@ -26,7 +26,7 @@ pub fn print_tick(
 /// There are two boundaries when this returns false: when the relative group ID == 0 (first) || == total_groups -1 (last)
 /// Then, there are intermediate points in a cycle when this returns false
 fn can_print_progress(relative_group_id: usize, total_groups: usize) -> bool {
-    if relative_group_id != 0 && relative_group_id != total_groups - 1 {
+    if relative_group_id != 0 && relative_group_id != total_groups.saturating_sub(1) {
         // suppose the total # of groups is n. We want to print out only every v% complete (where 0 < v < 1)
         // Let floor(n * v) = k. Thus every k relative_group_id's, a print out occurs.
         // Thus, if r = the current relative group id, then print-out when:

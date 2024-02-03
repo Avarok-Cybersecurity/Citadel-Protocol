@@ -445,7 +445,13 @@ where
     usize: From<<T as Sub>::Output>,
 {
     let vals = vals.as_ref().iter().copied().sorted().collect::<Vec<T>>();
+
+    if vals.is_empty() {
+        return 0;
+    }
+
     let count = vals.len() as f32;
+
     let sum_diff: usize = vals
         .into_iter()
         .tuple_windows()
