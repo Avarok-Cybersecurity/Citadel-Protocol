@@ -116,7 +116,11 @@ impl Ratchet for ThinRatchet {
         _security_level: SecurityLevel,
     ) -> Result<Vec<u8>, CryptError> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.local_decrypt(pqc, contents.into())
+        let contents = contents.into();
+        if contents.is_empty() {
+            return Ok(vec![]);
+        }
+        drill.local_decrypt(pqc, contents)
     }
 }
 

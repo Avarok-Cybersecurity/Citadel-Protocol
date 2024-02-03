@@ -364,7 +364,7 @@ mod tests {
         PeerConnectionKernel, PeerConnectionSetupAggregator,
     };
     use crate::prelude::*;
-    use crate::test_common::{server_info, wait_for_peers, TestBarrier, PEERS};
+    use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_user::prelude::UserIdentifierExt;
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
@@ -372,6 +372,14 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use uuid::Uuid;
+
+    lazy_static::lazy_static! {
+        pub static ref PEERS: Vec<(String, String, String)> = {
+            ["alpha", "beta", "charlie", "echo", "delta", "epsilon", "foxtrot"]
+            .iter().map(|base| (format!("{base}.username"), format!("{base}.password"), format!("{base}.full_name")))
+            .collect()
+        };
+    }
 
     #[rstest]
     #[case(2, false, UdpMode::Enabled)]

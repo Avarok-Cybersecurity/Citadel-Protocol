@@ -184,12 +184,18 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "localhost-testing")]
     fn get_barrier() -> Arc<Barrier> {
         citadel_sdk::test_common::TEST_BARRIER
             .lock()
             .clone()
             .unwrap()
             .inner
+    }
+
+    #[cfg(not(feature = "localhost-testing"))]
+    fn get_barrier() -> Arc<Barrier> {
+        panic!("TestBarrier is not available without the localhost-testing feature");
     }
 
     #[rstest]

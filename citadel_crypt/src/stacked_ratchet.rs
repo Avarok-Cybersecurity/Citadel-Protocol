@@ -189,6 +189,10 @@ impl Ratchet for StackedRatchet {
         security_level: SecurityLevel,
     ) -> Result<Vec<u8>, CryptError> {
         let mut data = contents.into();
+        if data.is_empty() {
+            return Ok(vec![]);
+        }
+
         let idx = self.verify_level(Some(security_level))?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));

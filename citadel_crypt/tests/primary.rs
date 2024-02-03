@@ -595,14 +595,19 @@ mod tests {
         };
 
         fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
-            assert_ne!(decrypted, plaintext);
+            if !plaintext.is_empty() {
+                assert_ne!(decrypted, plaintext);
+            }
+
             let decrypted_real = sa_alice
                 .local_decrypt(decrypted, SecurityLevel::Standard)
                 .unwrap();
             assert_eq!(decrypted_real, plaintext);
-            assert!(sa_bob
-                .local_decrypt(decrypted, SecurityLevel::Standard)
-                .is_err());
+            if !plaintext.is_empty() {
+                assert!(sa_bob
+                    .local_decrypt(decrypted, SecurityLevel::Standard)
+                    .is_err());
+            }
         }
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
@@ -630,7 +635,9 @@ mod tests {
             gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
 
         for x in 0..1500_usize {
-            data.put_u8((x % 256) as u8);
+            if x != 0 {
+                data.put_u8((x % 256) as u8);
+            }
             let input_data = &data[..];
 
             let mut scramble_transmitter =
@@ -657,7 +664,6 @@ mod tests {
             log::trace!(target: "citadel", "{:?}", &config);
 
             while let Some(mut packet) = scramble_transmitter.get_next_packet() {
-                //log::trace!(target: "citadel", "Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
                 let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
                 let _result = receiver.on_packet_received(
                     0,
@@ -666,7 +672,6 @@ mod tests {
                     &ratchet_bob,
                     packet_payload,
                 );
-                //println!("Wave {} result: {:?}", packet.vector.wave_id, result);
             }
 
             let decrypted_descrambled_plaintext = receiver.finalize();
