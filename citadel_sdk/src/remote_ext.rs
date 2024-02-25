@@ -4,6 +4,7 @@ use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::LocalGroupPeer;
 use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
+use std::future::Future;
 
 use citadel_proto::auth::AuthenticationRequest;
 use citadel_types::proto::ConnectMode;
@@ -620,12 +621,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         }
     }
 
-    /// Connects to the peer with custom settings
-    async fn connect_to_peer_custom(
+    /// Posts a registration request to a peer, with a custom function to handle the response. The function
+    /// should return Some if the signal is the required signal needed to terminate the process, None otherwise.
+    async fn connect_to_peer_with_fn<F, T>(
         &self,
         session_security_settings: SessionSecuritySettings,
         udp_mode: UdpMode,
-    ) -> Result<PeerConnectSuccess, NetworkError> {
+        mut f: F,
+    ) -> Result<PeerConnectSuccess, NetworkError>
+    where
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<Option<PeerConnectSuccess>, NetworkError>> + Send,
+    {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection().await?;
 
@@ -643,8 +650,25 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }))
             .await?;
 
-        while let Some(status) = stream.next().await {
-            match map_errors(status)? {
+        while let Some(signal) = stream.next().await {
+            if let Some(result) = f(map_errors(signal)?).await? {
+                return Ok(result);
+            }
+        }
+
+        Err(NetworkError::InternalError("Internal kernel stream died"))
+    }
+
+    /// Connects to the peer with custom settings
+    async fn connect_to_peer_custom(
+        &self,
+        session_security_settings: SessionSecuritySettings,
+        udp_mode: UdpMode,
+    ) -> Result<PeerConnectSuccess, NetworkError> {
+        let peer_target = self.try_as_peer_connection().await?;
+
+        self.connect_to_peer_with_fn(session_security_settings, udp_mode, |status| async move {
+            match status {
                 NodeResult::PeerChannelCreated(PeerChannelCreated {
                     ticket: _,
                     channel,
@@ -658,12 +682,12 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         session_security_settings,
                     };
 
-                    return Ok(PeerConnectSuccess {
+                    Ok(Some(PeerConnectSuccess {
                         remote,
                         channel,
                         udp_channel_rx: udp_rx_opt,
                         incoming_object_transfer_handles: None,
-                    });
+                    }))
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -675,13 +699,12 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                             ..
                         },
                     ..
-                }) => return Err(NetworkError::msg("Peer declined to connect")),
+                }) => Err(NetworkError::msg("Peer declined to connect")),
 
-                _ => {}
+                _ => Ok(None),
             }
-        }
-
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        })
+        .await
     }
 
     /// Connects to the target peer with default settings
@@ -690,8 +713,16 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .await
     }
 
-    /// Posts a registration request to a peer
-    async fn register_to_peer(&self) -> Result<PeerRegisterStatus, NetworkError> {
+    /// Posts a registration request to a peer, with a custom function to handle the response. The function
+    /// should return Some if the signal is the required signal needed to terminate the process, None otherwise.
+    async fn register_to_peer_with_fn<F, T>(
+        &self,
+        mut f: F,
+    ) -> Result<PeerRegisterStatus, NetworkError>
+    where
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<Option<PeerRegisterStatus>, NetworkError>> + Send,
+    {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection().await?;
         // TODO: Get rid of this step. Should be handled by the protocol
@@ -718,28 +749,39 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .await?;
 
         while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(PeerEvent {
-                event:
-                    PeerSignal::PostRegister {
-                        peer_conn_type: _,
-                        inviter_username: _,
-                        invitee_username: _,
-                        ticket_opt: _,
-                        invitee_response: Some(resp),
-                    },
-                ticket: _,
-            }) = map_errors(status)?
-            {
-                match resp {
-                    PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
-                    PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
-                    PeerResponse::Timeout => return Ok(PeerRegisterStatus::Failed { reason: Some("Timeout on register request. Peer did not accept in time. Try again later".to_string()) }),
-                    _ => {}
-                }
+            if let Some(ret) = f(map_errors(status)?).await? {
+                return Ok(ret);
             }
         }
 
         Err(NetworkError::InternalError("Internal kernel stream died"))
+    }
+
+    /// Posts a registration request to a peer
+    async fn register_to_peer(&self) -> Result<PeerRegisterStatus, NetworkError> {
+        self.register_to_peer_with_fn(|status| async move {
+            if let NodeResult::PeerEvent(PeerEvent {
+                                             event:
+                                             PeerSignal::PostRegister {
+                                                 peer_conn_type: _,
+                                                 inviter_username: _,
+                                                 invitee_username: _,
+                                                 ticket_opt: _,
+                                                 invitee_response: Some(resp),
+                                             },
+                                             ticket: _,
+                                         }) = status
+            {
+                match resp {
+                    PeerResponse::Accept(..) => Ok(Some(PeerRegisterStatus::Accepted)),
+                    PeerResponse::Decline => Ok(Some(PeerRegisterStatus::Declined)),
+                    PeerResponse::Timeout => Ok(Some(PeerRegisterStatus::Failed { reason: Some("Timeout on register request. Peer did not accept in time. Try again later".to_string()) })),
+                    _ => Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
+        }).await
     }
 
     /// Deregisters the currently locked target. If the target is a client to server
@@ -1062,8 +1104,7 @@ pub mod results {
         pub remote: PeerRemote,
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
-        pub(crate) incoming_object_transfer_handles:
-            Option<UnboundedReceiver<ObjectTransferHandler>>,
+        pub incoming_object_transfer_handles: Option<UnboundedReceiver<ObjectTransferHandler>>,
     }
 
     impl PeerConnectSuccess {
@@ -1097,10 +1138,10 @@ pub mod remote_specialization {
 
     #[derive(Debug, Clone)]
     pub struct PeerRemote {
-        pub(crate) inner: NodeRemote,
-        pub(crate) peer: VirtualTargetType,
-        pub(crate) username: Option<String>,
-        pub(crate) session_security_settings: SessionSecuritySettings,
+        pub inner: NodeRemote,
+        pub peer: VirtualTargetType,
+        pub username: Option<String>,
+        pub session_security_settings: SessionSecuritySettings,
     }
 
     impl TargetLockedRemote for PeerRemote {
