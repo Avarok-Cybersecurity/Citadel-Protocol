@@ -453,13 +453,21 @@ impl ProtocolRemoteExt for ClientServerRemote {
 #[async_trait]
 /// Some functions require that a target exists
 pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
-    /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
-    async fn send_file_with_custom_opts<T: ObjectSource>(
+    /// Sends a file with a custom chunk size and a custom function to handle the response. The
+    /// function should return Some if the signal is the required signal needed to terminate
+    /// the process, None otherwise.
+    async fn send_file_with_custom_opts_and_with_fn<F, T, S>(
         &self,
-        source: T,
+        source: S,
         chunk_size: usize,
         transfer_type: TransferType,
-    ) -> Result<(), NetworkError> {
+        mut f: F,
+    ) -> Result<(), NetworkError>
+    where
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<(), NetworkError>> + Send,
+        S: ObjectSource,
+    {
         let chunk_size = if chunk_size == 0 {
             None
         } else {
@@ -469,7 +477,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let user = *self.user();
         let remote = self.remote();
 
-        let result = remote
+        let status = remote
             .send_callback(NodeRequest::SendObject(SendObject {
                 source: Box::new(source),
                 chunk_size,
@@ -478,30 +486,87 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 transfer_type,
             }))
             .await?;
-        match map_errors(result)? {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _ticket,
-                mut handle,
-            }) => {
-                while let Some(res) = handle.next().await {
-                    log::trace!(target: "citadel", "Client received RES {:?}", res);
-                    if let ObjectTransferStatus::TransferComplete = res {
-                        return Ok(());
+        f(map_errors(status)?).await
+    }
+
+    /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
+    async fn send_file_with_custom_opts<T: ObjectSource>(
+        &self,
+        source: T,
+        chunk_size: usize,
+        transfer_type: TransferType,
+    ) -> Result<(), NetworkError> {
+        self.send_file_with_custom_opts_and_with_fn(source, chunk_size, transfer_type, |status| async move {
+            match status {
+                NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                                                     ticket: _ticket,
+                                                     mut handle,
+                                                 }) => {
+                    while let Some(res) = handle.next().await {
+                        log::trace!(target: "citadel", "Client received RES {:?}", res);
+                        if let ObjectTransferStatus::TransferComplete = res {
+                            return Ok(());
+                        }
                     }
+                    Err(NetworkError::msg("Failed To Receive TransferComplete Response During FileTransfer"))
+                }
+
+                res => {
+                    log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res);
+                    Err(NetworkError::msg("Invalid Response Received During FileTransfer"))
                 }
             }
+        })
+            .await
+    }
 
-            res => {
-                log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res)
-            }
-        }
-
-        Err(NetworkError::InternalError("File transfer stream died"))
+    /// Sends a file to the provided target using the default chunking size and a custom function
+    /// to handle the response. The function should return Some if the signal is the required signal
+    /// needed to terminate the process, None otherwise.
+    async fn send_file_with_fn<T, F, S>(&self, source: S, f: F) -> Result<(), NetworkError>
+    where
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<(), NetworkError>> + Send,
+        S: ObjectSource,
+    {
+        self.send_file_with_custom_opts_and_with_fn(source, 0, TransferType::FileTransfer, f)
+            .await
     }
 
     /// Sends a file to the provided target using the default chunking size
     async fn send_file<T: ObjectSource>(&self, source: T) -> Result<(), NetworkError> {
         self.send_file_with_custom_opts(source, 0, TransferType::FileTransfer)
+            .await
+    }
+
+    /// Sends a file to the provided target using custom chunking size with local encryption. Only
+    /// this local node may decrypt the information send to the adjacent node. Uses a custom
+    /// function to handle the response. The function should return Some if the signal is the
+    /// required signal needed to terminate the process, None otherwise.
+    async fn remote_encrypted_virtual_filesystem_push_custom_chunking_with_fn<S, R, F, T>(
+        &self,
+        source: S,
+        virtual_directory: R,
+        chunk_size: usize,
+        security_level: SecurityLevel,
+        f: F,
+    ) -> Result<(), NetworkError>
+    where
+        S: ObjectSource,
+        R: Into<PathBuf> + Send,
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<(), NetworkError>> + Send,
+    {
+        self.can_use_revfs()?;
+        let mut virtual_path = virtual_directory.into();
+        virtual_path = prepare_virtual_path(virtual_path);
+        validate_virtual_path(&virtual_path)
+            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+        let tx_type = TransferType::RemoteEncryptedVirtualFilesystem {
+            virtual_path,
+            security_level,
+        };
+        self.send_file_with_custom_opts_and_with_fn(source, chunk_size, tx_type, f)
             .await
     }
 
@@ -531,6 +596,33 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Sends a file to the provided target using the default chunking size with local encryption.
+    /// Only this local node may decrypt the information send to the adjacent node. Uses a custom
+    /// function to handle the response. The function should return Some if the signal is the
+    /// required signal needed to terminate the process, None otherwise.
+    async fn remote_encrypted_virtual_filesystem_push_with_fn<S, R, F, T>(
+        &self,
+        source: S,
+        virtual_directory: R,
+        security_level: SecurityLevel,
+        f: F,
+    ) -> Result<(), NetworkError>
+    where
+        S: ObjectSource,
+        R: Into<PathBuf> + Send,
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<(), NetworkError>> + Send,
+    {
+        self.remote_encrypted_virtual_filesystem_push_custom_chunking_with_fn(
+            source,
+            virtual_directory,
+            0,
+            security_level,
+            f,
+        )
+        .await
+    }
+
+    /// Sends a file to the provided target using the default chunking size with local encryption.
     /// Only this local node may decrypt the information send to the adjacent node.
     async fn remote_encrypted_virtual_filesystem_push<T: ObjectSource, R: Into<PathBuf> + Send>(
         &self,
@@ -548,13 +640,21 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
-    /// will be taken from the RE-VFS
-    async fn remote_encrypted_virtual_filesystem_pull<R: Into<PathBuf> + Send>(
+    /// will be taken from the RE-VFS. Uses a custom function to handle the response. The function
+    /// should return Some if the signal is the required signal needed to terminate the process,
+    /// None otherwise.
+    async fn remote_encrypted_virtual_filesystem_pull_with_fn<R, F, T>(
         &self,
         virtual_directory: R,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
-    ) -> Result<PathBuf, NetworkError> {
+        mut f: F,
+    ) -> Result<PathBuf, NetworkError>
+    where
+        R: Into<PathBuf> + Send,
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<Option<PathBuf>, NetworkError>> + Send,
+    {
         self.can_use_revfs()?;
         let request = NodeRequest::PullObject(PullObject {
             v_conn: *self.user(),
@@ -562,37 +662,82 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             delete_on_pull,
             transfer_security_level,
         });
+        let status = self.remote().send_callback(request).await?;
 
-        match map_errors(self.remote().send_callback(request).await?)? {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _ticket,
-                mut handle,
-            }) => {
-                let mut local_path = None;
-                while let Some(res) = handle.next().await {
-                    log::trace!(target: "citadel", "Client received RES {:?}", res);
-                    match res {
-                        ObjectTransferStatus::ReceptionBeginning(path, _) => {
-                            local_path = Some(path)
-                        }
-                        ObjectTransferStatus::TransferComplete => {
-                            break;
-                        }
+        if let Some(result) = f(map_errors(status)?).await? {
+            return Ok(result);
+        } else {
+            Err(NetworkError::InternalError(
+                "Invalid Response From Protocol",
+            ))
+        }
+    }
 
-                        _ => {}
+    /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
+    /// will be taken from the RE-VFS
+    async fn remote_encrypted_virtual_filesystem_pull<R: Into<PathBuf> + Send>(
+        &self,
+        virtual_directory: R,
+        transfer_security_level: SecurityLevel,
+        delete_on_pull: bool,
+    ) -> Result<PathBuf, NetworkError> {
+        self.remote_encrypted_virtual_filesystem_pull_with_fn(virtual_directory, transfer_security_level, delete_on_pull, |status| async move {
+            match status {
+                NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                                                     ticket: _ticket,
+                                                     mut handle,
+                                                 }) => {
+                    let mut local_path = None;
+                    while let Some(res) = handle.next().await {
+                        match res {
+                            ObjectTransferStatus::ReceptionBeginning(path, _) => {
+                                local_path = Some(path)
+                            }
+                            ObjectTransferStatus::TransferComplete => {
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if local_path.is_some() {
+                        Ok(local_path)
+                    } else {
+                        Err(NetworkError::InternalError("Local path never loaded"))
                     }
                 }
 
-                Ok(local_path.ok_or(NetworkError::InternalError("Local path never loaded"))?)
+                res => {
+                    log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res);
+                    Err(NetworkError::InternalError(
+                        "Invalid Response From Protocol",
+                    ))
+                }
             }
+        }).await
+    }
 
-            res => {
-                log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res);
-                Err(NetworkError::InternalError(
-                    "Received invalid response from protocol",
-                ))
-            }
-        }
+    /// Deletes the file from the RE-VFS. If the contents are desired on delete, consider calling
+    /// `Self::remote_encrypted_virtual_filesystem_pull` with the delete parameter set to true.
+    /// Uses a custom function to handle the response. The function should return Some if the
+    /// signal is the required signal needed to terminate the process, None otherwise.
+    async fn remote_encrypted_virtual_filesystem_delete_with_fn<R, F, T>(
+        &self,
+        virtual_directory: R,
+        mut f: F,
+    ) -> Result<(), NetworkError>
+    where
+        R: Into<PathBuf> + Send,
+        F: FnMut(NodeResult) -> T + Send,
+        T: Future<Output = Result<(), NetworkError>> + Send,
+    {
+        self.can_use_revfs()?;
+        let request = NodeRequest::DeleteObject(DeleteObject {
+            v_conn: *self.user(),
+            virtual_dir: virtual_directory.into(),
+            security_level: Default::default(),
+        });
+        let status = self.remote().send_callback(request).await?;
+        f(map_errors(status)?).await
     }
 
     /// Deletes the file from the RE-VFS. If the contents are desired on delete,
@@ -602,26 +747,26 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         &self,
         virtual_directory: R,
     ) -> Result<(), NetworkError> {
-        self.can_use_revfs()?;
-        let request = NodeRequest::DeleteObject(DeleteObject {
-            v_conn: *self.user(),
-            virtual_dir: virtual_directory.into(),
-            security_level: Default::default(),
-        });
-
-        let response = map_errors(self.remote().send_callback(request).await?)?;
-        if let NodeResult::ReVFS(result) = response {
-            if let Some(error) = result.error_message {
-                Err(NetworkError::Generic(error))
-            } else {
-                Ok(())
-            }
-        } else {
-            Err(NetworkError::InternalError("Invalid NodeRequest response"))
-        }
+        self.remote_encrypted_virtual_filesystem_delete_with_fn(
+            virtual_directory,
+            |status| async move {
+                if let NodeResult::ReVFS(result) = status {
+                    if let Some(error) = result.error_message {
+                        Err(NetworkError::Generic(error))
+                    } else {
+                        Ok(())
+                    }
+                } else {
+                    Err(NetworkError::InternalError(
+                        "Invalid Response From Protocol",
+                    ))
+                }
+            },
+        )
+        .await
     }
 
-    /// Posts a registration request to a peer, with a custom function to handle the response. The function
+    /// Posts a connection request to a peer, with a custom function to handle the response. The function
     /// should return Some if the signal is the required signal needed to terminate the process, None otherwise.
     async fn connect_to_peer_with_fn<F, T>(
         &self,
