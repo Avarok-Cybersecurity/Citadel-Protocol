@@ -465,7 +465,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     ) -> Result<(), NetworkError>
     where
         F: FnMut(NodeResult) -> T + Send,
-        T: Future<Output = Result<(), NetworkError>> + Send,
+        T: Future<Output = Result<Option<()>, NetworkError>> + Send,
         S: ObjectSource,
     {
         let chunk_size = if chunk_size == 0 {
@@ -477,8 +477,8 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let user = *self.user();
         let remote = self.remote();
 
-        let status = remote
-            .send_callback(NodeRequest::SendObject(SendObject {
+        let mut stream = remote
+            .send_callback_subscription(NodeRequest::SendObject(SendObject {
                 source: Box::new(source),
                 chunk_size,
                 implicated_cid,
@@ -486,7 +486,14 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 transfer_type,
             }))
             .await?;
-        f(map_errors(status)?).await
+
+        while let Some(status) = stream.next().await {
+            if let Some(ret) = f(map_errors(status)?).await? {
+                return Ok(ret);
+            }
+        }
+
+        Err(NetworkError::InternalError("Internal kernel stream died"))
     }
 
     /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
@@ -505,7 +512,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     while let Some(res) = handle.next().await {
                         log::trace!(target: "citadel", "Client received RES {:?}", res);
                         if let ObjectTransferStatus::TransferComplete = res {
-                            return Ok(());
+                            return Ok(Some(()));
                         }
                     }
                     Err(NetworkError::msg("Failed To Receive TransferComplete Response During FileTransfer"))
@@ -526,7 +533,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     async fn send_file_with_fn<T, F, S>(&self, source: S, f: F) -> Result<(), NetworkError>
     where
         F: FnMut(NodeResult) -> T + Send,
-        T: Future<Output = Result<(), NetworkError>> + Send,
+        T: Future<Output = Result<Option<()>, NetworkError>> + Send,
         S: ObjectSource,
     {
         self.send_file_with_custom_opts_and_with_fn(source, 0, TransferType::FileTransfer, f)
@@ -555,7 +562,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         S: ObjectSource,
         R: Into<PathBuf> + Send,
         F: FnMut(NodeResult) -> T + Send,
-        T: Future<Output = Result<(), NetworkError>> + Send,
+        T: Future<Output = Result<Option<()>, NetworkError>> + Send,
     {
         self.can_use_revfs()?;
         let mut virtual_path = virtual_directory.into();
@@ -610,7 +617,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         S: ObjectSource,
         R: Into<PathBuf> + Send,
         F: FnMut(NodeResult) -> T + Send,
-        T: Future<Output = Result<(), NetworkError>> + Send,
+        T: Future<Output = Result<Option<()>, NetworkError>> + Send,
     {
         self.remote_encrypted_virtual_filesystem_push_custom_chunking_with_fn(
             source,
@@ -662,15 +669,15 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             delete_on_pull,
             transfer_security_level,
         });
-        let status = self.remote().send_callback(request).await?;
+        let mut stream = self.remote().send_callback_subscription(request).await?;
 
-        if let Some(result) = f(map_errors(status)?).await? {
-            return Ok(result);
-        } else {
-            Err(NetworkError::InternalError(
-                "Invalid Response From Protocol",
-            ))
+        while let Some(status) = stream.next().await {
+            if let Some(ret) = f(map_errors(status)?).await? {
+                return Ok(ret);
+            }
         }
+
+        Err(NetworkError::InternalError("Internal kernel stream died"))
     }
 
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
@@ -728,7 +735,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     where
         R: Into<PathBuf> + Send,
         F: FnMut(NodeResult) -> T + Send,
-        T: Future<Output = Result<(), NetworkError>> + Send,
+        T: Future<Output = Result<Option<()>, NetworkError>> + Send,
     {
         self.can_use_revfs()?;
         let request = NodeRequest::DeleteObject(DeleteObject {
@@ -736,8 +743,15 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             virtual_dir: virtual_directory.into(),
             security_level: Default::default(),
         });
-        let status = self.remote().send_callback(request).await?;
-        f(map_errors(status)?).await
+        let mut stream = self.remote().send_callback_subscription(request).await?;
+
+        while let Some(status) = stream.next().await {
+            if let Some(ret) = f(map_errors(status)?).await? {
+                return Ok(ret);
+            }
+        }
+
+        Err(NetworkError::InternalError("Internal kernel stream died"))
     }
 
     /// Deletes the file from the RE-VFS. If the contents are desired on delete,
@@ -754,7 +768,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     if let Some(error) = result.error_message {
                         Err(NetworkError::Generic(error))
                     } else {
-                        Ok(())
+                        Ok(Some(()))
                     }
                 } else {
                     Err(NetworkError::InternalError(
