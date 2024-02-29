@@ -31,6 +31,7 @@ pub mod prelude {
 }
 
 pub mod bytes_in_place;
+pub mod group;
 
 /// For handling serialization/deserialization
 pub mod export;

@@ -49,6 +49,7 @@ serde-big-array = { workspace = true }
 ascon-aead = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }
+md5 = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 oqs = { workspace = true, features = ["serde", "falcon", "ntruprime"] }
