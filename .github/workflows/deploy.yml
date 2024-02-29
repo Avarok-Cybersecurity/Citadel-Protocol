@@ -26,7 +26,7 @@ jobs:
         run: cargo make docs
       - name: Deploy documentation
         if: success()
-        uses: crazy-max/ghaction-github-pages@v2.6.0
+        uses: crazy-max/ghaction-github-pages@v4.0.0
         with:
           build_dir: target/doc
           target_branch: gh-pages
