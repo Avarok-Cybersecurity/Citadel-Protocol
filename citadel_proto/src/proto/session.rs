@@ -1899,6 +1899,9 @@ impl HdpSession {
                                     )),
                                 },
                                 ticket,
+                                implicated_cid: self.implicated_cid.get().ok_or_else(|| {
+                                    NetworkError::InternalError("Implicated CID not set")
+                                })?,
                             }))
                             .map_err(|err| NetworkError::Generic(err.to_string()));
                     }

@@ -1,5 +1,7 @@
 use crate::error::NetworkError;
-use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
+use crate::kernel::kernel_communicator::{
+    CallbackKey, KernelAsyncCallbackHandler, KernelStreamSubscription,
+};
 use crate::prelude::{NodeRequest, NodeResult};
 use crate::proto::node::HdpServerRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
@@ -135,14 +137,19 @@ impl NodeRemote {
         request: NodeRequest,
         ticket: Ticket,
     ) -> Result<NodeResult, NetworkError> {
-        let rx = self.inner.callback_handler.register_future(ticket)?;
+        let callback_key = CallbackKey {
+            ticket,
+            implicated_cid: request.implicated_cid(),
+        };
+
+        let rx = self.inner.callback_handler.register_future(callback_key)?;
         match self.send_with_custom_ticket(ticket, request).await {
             Ok(_) => rx
                 .await
                 .map_err(|err| NetworkError::Generic(err.to_string())),
 
             Err(err) => {
-                self.inner.callback_handler.remove_listener(ticket);
+                self.inner.callback_handler.remove_listener(callback_key);
                 Err(err)
             }
         }
@@ -154,12 +161,17 @@ impl NodeRemote {
         request: NodeRequest,
         ticket: Ticket,
     ) -> Result<KernelStreamSubscription, NetworkError> {
-        let rx = self.inner.callback_handler.register_stream(ticket)?;
+        let callback_key = CallbackKey {
+            ticket,
+            implicated_cid: request.implicated_cid(),
+        };
+
+        let rx = self.inner.callback_handler.register_stream(callback_key)?;
         match self.send_with_custom_ticket(ticket, request).await {
             Ok(_) => Ok(rx),
 
             Err(err) => {
-                self.inner.callback_handler.remove_listener(ticket);
+                self.inner.callback_handler.remove_listener(callback_key);
                 Err(err)
             }
         }

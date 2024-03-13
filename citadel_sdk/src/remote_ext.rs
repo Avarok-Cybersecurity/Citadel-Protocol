@@ -353,6 +353,7 @@ pub trait ProtocolRemoteExt: Remote {
                         limit: _,
                     },
                 ticket: _,
+                ..
             }) = map_errors(status)?
             {
                 return Ok(cids
@@ -390,6 +391,7 @@ pub trait ProtocolRemoteExt: Remote {
                         response: Some(PeerResponse::RegisteredCids(cids, is_onlines)),
                     },
                 ticket: _,
+                ..
             }) = map_errors(status)?
             {
                 return Ok(cids
@@ -432,6 +434,7 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
                     error: err,
                 },
             ticket: _,
+            ..
         }) => Err(NetworkError::Generic(err)),
         res => Ok(res),
     }
@@ -728,6 +731,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         invitee_response: Some(resp),
                     },
                 ticket: _,
+                ..
             }) = map_errors(status)?
             {
                 match resp {
@@ -761,6 +765,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 if let NodeResult::PeerEvent(PeerEvent {
                     event: PeerSignal::DeregistrationSuccess { .. },
                     ticket: _,
+                    ..
                 }) = map_errors(result)?
                 {
                     return Ok(());
@@ -824,6 +829,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                                 disconnect_response: Some(_),
                             },
                         ticket: _,
+                        ..
                     }) = map_errors(event)?
                     {
                         return Ok(());

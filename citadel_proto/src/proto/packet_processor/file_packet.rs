@@ -265,6 +265,7 @@ pub fn process_file_packet(
                                 error_message: payload.error_msg,
                                 data: None,
                                 ticket,
+                                implicated_cid: hyper_ratchet.get_cid(),
                             });
 
                             session.send_to_kernel(response)?;
@@ -294,6 +295,7 @@ pub fn process_file_packet(
                                     error_message: Some(error),
                                     data: None,
                                     ticket,
+                                    implicated_cid: hyper_ratchet.get_cid(),
                                 });
 
                                 session.send_to_kernel(error_signal)?;

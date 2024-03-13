@@ -157,6 +157,7 @@ pub async fn process_peer_cmd(
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,
                                 ticket,
+                                implicated_cid,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
@@ -190,6 +191,7 @@ pub async fn process_peer_cmd(
                                     peer_conn_type: *peer_conn_type,
                                 },
                                 ticket,
+                                implicated_cid,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
@@ -228,6 +230,7 @@ pub async fn process_peer_cmd(
                                             ))),
                                         },
                                         ticket,
+                                        implicated_cid,
                                     }))?;
                                 }
 
@@ -239,6 +242,7 @@ pub async fn process_peer_cmd(
                                             error: err.into_string(),
                                         },
                                         ticket,
+                                        implicated_cid,
                                     }))?;
                                 }
                             }
@@ -736,6 +740,7 @@ pub async fn process_peer_cmd(
                         .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                             event: signal,
                             ticket,
+                            implicated_cid,
                         }))?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
@@ -1390,6 +1395,7 @@ async fn process_signal_command_as_server(
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: PeerSignal::SignalError { ticket, error: err },
                     ticket,
+                    implicated_cid: sess_hyper_ratchet.get_cid(),
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }
@@ -1400,6 +1406,7 @@ async fn process_signal_command_as_server(
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: signal,
                     ticket,
+                    implicated_cid: sess_hyper_ratchet.get_cid(),
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }

@@ -99,6 +99,32 @@ pub enum NodeRequest {
     Shutdown,
 }
 
+impl NodeRequest {
+    pub fn implicated_cid(&self) -> Option<u64> {
+        match self {
+            NodeRequest::RegisterToHypernode(_) => None,
+            NodeRequest::PeerCommand(PeerCommand { implicated_cid, .. }) => Some(*implicated_cid),
+            NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
+                implicated_cid,
+                ..
+            }) => Some(*implicated_cid),
+            NodeRequest::ConnectToHypernode(connect) => connect.auth_request.implicated_cid(),
+            NodeRequest::ReKey(rk) => Some(rk.v_conn_type.get_implicated_cid()),
+            NodeRequest::SendObject(SendObject { implicated_cid, .. }) => Some(*implicated_cid),
+            NodeRequest::PullObject(pull) => Some(pull.v_conn.get_implicated_cid()),
+            NodeRequest::DeleteObject(del) => Some(del.v_conn.get_implicated_cid()),
+            NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+                implicated_cid, ..
+            }) => Some(*implicated_cid),
+            NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { implicated_cid }) => {
+                Some(*implicated_cid)
+            }
+            NodeRequest::GetActiveSessions => None,
+            NodeRequest::Shutdown => None,
+        }
+    }
+}
+
 impl Debug for NodeRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeRequest")

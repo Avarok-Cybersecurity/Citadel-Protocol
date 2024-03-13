@@ -275,6 +275,7 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
         if let NodeResult::PeerEvent(PeerEvent {
             event: ps @ PeerSignal::PostRegister { .. },
             ticket: _,
+            ..
         }) = &message
         {
             if self.shared.route_registers.load(Ordering::Relaxed) {

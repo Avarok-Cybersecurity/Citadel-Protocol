@@ -290,7 +290,7 @@ impl VirtualConnectionType {
             VirtualConnectionType::LocalGroupServer {
                 implicated_cid: _cid,
             } => {
-                // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan serve conn
+                // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan server conn
                 0
             }
 
@@ -2039,11 +2039,13 @@ impl StateContainerInner {
         fn return_already_in_progress(
             kernel_tx: &UnboundedSender<NodeResult>,
             ticket: Ticket,
+            implicated_cid: u64,
         ) -> Result<(), NetworkError> {
             kernel_tx
                 .unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
                     ticket,
                     status: ReKeyReturnType::AlreadyInProgress,
+                    implicated_cid,
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))
         }
@@ -2108,7 +2110,11 @@ impl StateContainerInner {
                     None => {
                         log::trace!(target: "citadel", "Won't perform update b/c concurrent c2s update occurring");
                         if let Some(ticket) = ticket {
-                            return_already_in_progress(&self.kernel_tx, ticket)
+                            return_already_in_progress(
+                                &self.kernel_tx,
+                                ticket,
+                                virtual_target.get_implicated_cid(),
+                            )
                         } else {
                             Ok(())
                         }
@@ -2179,7 +2185,11 @@ impl StateContainerInner {
                     None => {
                         log::trace!(target: "citadel", "Won't perform update b/c concurrent update occurring");
                         if let Some(ticket) = ticket {
-                            return_already_in_progress(&self.kernel_tx, ticket)
+                            return_already_in_progress(
+                                &self.kernel_tx,
+                                ticket,
+                                virtual_target.get_implicated_cid(),
+                            )
                         } else {
                             Ok(())
                         }
