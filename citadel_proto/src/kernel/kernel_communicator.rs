@@ -56,7 +56,8 @@ fn search_for_value(
         } else {
             // We do not expect a CID. Therefore, we don't need to check the CID received
             if ticket == key.ticket {
-                found = Some(*key)
+                found = Some(*key);
+                break;
             } else {
                 // Incorrect match
                 continue;
