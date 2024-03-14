@@ -445,7 +445,7 @@ mod tests {
 
         for idx in 0..peer_count {
             let uuid = total_peers.get(idx).cloned().unwrap();
-            let owner = total_peers.get(0).cloned().unwrap().into();
+            let owner = total_peers.first().cloned().unwrap().into();
 
             let request = if idx == 0 {
                 // invite list is empty since we will expect the users to post_register to us before attempting to join

@@ -345,7 +345,7 @@ mod tests {
             } else {
                 GroupInitRequestType::Join {
                     local_user: UserIdentifier::from(uuid),
-                    owner: total_peers.get(0).cloned().unwrap().into(),
+                    owner: total_peers.first().cloned().unwrap().into(),
                     group_id,
                     do_peer_register: true,
                 }

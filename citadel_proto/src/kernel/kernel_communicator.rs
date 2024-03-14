@@ -134,7 +134,6 @@ impl KernelAsyncCallbackHandler {
                 if let Some(prev) = search_for_value(&mut this.map, received_callback_key) {
                     match prev {
                         CallbackNotifier::Future(_) => {
-                            let prev = this.map.remove(received_callback_key).unwrap();
                             // it's possible the future listening dropped
                             match prev.send(result) {
                                 Ok(_) => None,
