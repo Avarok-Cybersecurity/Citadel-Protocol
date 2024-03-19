@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 
 use citadel_io::UdpSocket;
@@ -211,9 +212,20 @@ impl Method3 {
                         }
                     }
                     Err(err) => {
-                        log::warn!(target: "citadel", "Error sending packet from {:?} to {endpoint}: {:?}", socket.socket.local_addr()?, err);
-                        if err.kind().to_string().contains("NetworkUnreachable") {
+                        if err.kind() == ErrorKind::AddrNotAvailable {
                             endpoints_not_reachable.push(*endpoint);
+                        } else {
+                            log::warn!(target: "citadel", "Error sending packet from {:?} to {endpoint}: {:?}", socket.socket.local_addr()?, err);
+                            if err.kind().to_string().contains("NetworkUnreachable") {
+                                endpoints_not_reachable.push(*endpoint);
+                            }
+                        }
+
+                        if endpoints_not_reachable.len() == endpoints.len() {
+                            log::warn!(target: "citadel", "All endpoints are unreachable");
+                            return Err(anyhow::Error::msg(
+                                "All UDP endpoints are unreachable for NAT traversal",
+                            ));
                         }
                     }
                 }

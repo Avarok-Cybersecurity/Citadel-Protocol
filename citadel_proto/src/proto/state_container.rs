@@ -1133,6 +1133,7 @@ impl StateContainerInner {
                 .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                     ticket,
                     handle,
+                    implicated_cid: hyper_ratchet.get_cid(),
                 }));
 
             let task = async move {
@@ -1295,6 +1296,7 @@ impl StateContainerInner {
                     .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                         ticket,
                         handle,
+                        implicated_cid,
                     }))
                     .ok()?;
             } else {

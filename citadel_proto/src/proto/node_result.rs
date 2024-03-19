@@ -4,7 +4,6 @@ use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
 
 use crate::kernel::kernel_communicator::CallbackKey;
-use citadel_types::prelude::ObjectTransferOrientation;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_user::client_account::ClientNetworkAccount;
@@ -76,6 +75,7 @@ pub struct OutboundRequestRejected {
 pub struct ObjectTransferHandle {
     pub ticket: Ticket,
     pub handle: ObjectTransferHandler,
+    pub implicated_cid: u64,
 }
 
 #[derive(Debug)]
@@ -218,14 +218,11 @@ impl NodeResult {
                 ticket: t,
                 message_opt: _,
             }) => Some(CallbackKey::ticket_only(*t)),
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: t, handle }) => {
-                match handle.orientation {
-                    ObjectTransferOrientation::Receiver { .. } => {
-                        Some(CallbackKey::new(*t, handle.receiver))
-                    }
-                    ObjectTransferOrientation::Sender => Some(CallbackKey::new(*t, handle.source)),
-                }
-            }
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                implicated_cid,
+                ticket,
+                ..
+            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
             NodeResult::MailboxDelivery(MailboxDelivery {
                 implicated_cid,
                 ticket_opt: t,

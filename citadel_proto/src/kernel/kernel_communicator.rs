@@ -142,7 +142,12 @@ impl KernelAsyncCallbackHandler {
                         }
 
                         CallbackNotifier::Stream(tx) => match tx.send(result) {
-                            Ok(_) => None,
+                            Ok(_) => {
+                                // Reinsert into the map
+                                this.map
+                                    .insert(*received_callback_key, CallbackNotifier::Stream(tx));
+                                None
+                            }
                             Err(err) => Some(err.0),
                         },
                     }
@@ -193,6 +198,12 @@ pub struct KernelStreamSubscription {
     inner: tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
     ptr: KernelAsyncCallbackHandler,
     callback_key: CallbackKey,
+}
+
+impl KernelStreamSubscription {
+    pub fn callback_key(&self) -> &CallbackKey {
+        &self.callback_key
+    }
 }
 
 impl Stream for KernelStreamSubscription {

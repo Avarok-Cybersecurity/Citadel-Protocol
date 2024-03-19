@@ -481,10 +481,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }))
             .await?;
         match map_errors(result)? {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _ticket,
-                mut handle,
-            }) => {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
                 while let Some(res) = handle.next().await {
                     log::trace!(target: "citadel", "Client received RES {:?}", res);
                     if let ObjectTransferStatus::TransferComplete = res {
@@ -566,10 +563,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         });
 
         match map_errors(self.remote().send_callback(request).await?)? {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _ticket,
-                mut handle,
-            }) => {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
                 let mut local_path = None;
                 while let Some(res) = handle.next().await {
                     log::trace!(target: "citadel", "Client received RES {:?}", res);
@@ -1156,10 +1150,8 @@ mod tests {
 
         async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
             log::trace!(target: "citadel", "SERVER received {:?}", message);
-            if let NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _,
-                mut handle,
-            }) = map_errors(message)?
+            if let NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) =
+                map_errors(message)?
             {
                 let mut path = None;
                 // accept the transfer

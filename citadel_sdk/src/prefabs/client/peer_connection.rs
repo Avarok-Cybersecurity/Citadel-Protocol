@@ -51,18 +51,22 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                ticket: _,
+                handle,
+                implicated_cid,
+            }) => {
                 let v_conn = if matches!(
                     handle.orientation,
                     ObjectTransferOrientation::Receiver { .. }
                 ) {
                     PeerConnectionType::LocalGroupPeer {
-                        implicated_cid: handle.receiver,
+                        implicated_cid,
                         peer_cid: handle.source,
                     }
                 } else {
                     PeerConnectionType::LocalGroupPeer {
-                        implicated_cid: handle.source,
+                        implicated_cid,
                         peer_cid: handle.receiver,
                     }
                 };
@@ -291,13 +295,11 @@ where
                 let inner_task = async move {
                     let (file_transfer_tx, file_transfer_rx) =
                         tokio::sync::mpsc::unbounded_channel();
-
                     let handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(implicated_cid, id).await?
                     } else {
                         // TODO: optimize peer registration + connection in one go
                         let handle = remote.propose_target(implicated_cid, id.clone()).await?;
-
                         // if the peer is not yet registered to the central node, wait for it to become registered
                         // this is useful especially for testing purposes
                         if ensure_registered {
@@ -344,7 +346,7 @@ where
         // TODO: What should be done if a peer conn fails? No room for error here
         let collection_task = async move { requests.try_collect::<()>().await };
 
-        tokio::try_join!(collection_task, (f)(rx, cls_remote)).map(|_| ())
+        tokio::try_join!(collection_task, f(rx, cls_remote)).map(|_| ())
     }
 
     fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {

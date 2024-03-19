@@ -111,15 +111,18 @@ mod tests {
         count: usize,
     ) -> Result<(), NetworkError> {
         let (tx, rx) = channel.split();
-
+        log::error!(target: "citadel", "AB0");
         for idx in 0..count {
             tx.send_message(MessageTransfer::create(idx as u64)).await?;
         }
+
+        log::error!(target: "citadel", "AB1");
 
         let mut cur_idx = 0usize;
 
         let mut rx = rx.take(count);
         while let Some(msg) = rx.next().await {
+            log::error!(target: "citadel", "AB2 - {}", cur_idx+1);
             log::trace!(target: "citadel", "**~ Received message {} ~**", cur_idx);
             let msg = MessageTransfer::receive(msg);
             assert_eq!(msg.idx, cur_idx as u64);
@@ -127,8 +130,11 @@ mod tests {
             cur_idx += 1;
         }
 
+        log::error!(target: "citadel", "AB3");
         assert_eq!(cur_idx, count);
+        log::error!(target: "citadel", "AB4");
         let _ = barrier.wait().await;
+        log::error!(target: "citadel", "AB5");
 
         Ok(())
     }
@@ -393,6 +399,8 @@ mod tests {
             UdpMode::Enabled,
             session_security,
             move |mut connection, remote| async move {
+                log::error!(target: "citadel", "X00");
+                // TODO: the recv below is failing
                 handle_send_receive_e2e(
                     get_barrier(),
                     connection.recv().await.unwrap()?.channel,
