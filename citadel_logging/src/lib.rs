@@ -11,6 +11,10 @@ pub fn setup_log() {
         std::process::exit(1);
     }));
 
+    setup_log_no_panic_hook()
+}
+
+pub fn setup_log_no_panic_hook() {
     let _ = SubscriberBuilder::default()
         .with_line_number(true)
         .with_file(true)
