@@ -76,6 +76,7 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 itertools = { workspace = true }
 tracing = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = ["derive"] }
+chrono = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

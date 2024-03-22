@@ -118,6 +118,7 @@ pub struct Disconnect {
 pub struct InternalServerError {
     pub ticket_opt: Option<Ticket>,
     pub message: String,
+    pub cid_opt: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -256,8 +257,12 @@ impl NodeResult {
             }),
             NodeResult::InternalServerError(InternalServerError {
                 ticket_opt: t,
+                cid_opt,
                 message: _,
-            }) => Some(CallbackKey::ticket_only((*t)?)),
+            }) => Some(CallbackKey {
+                ticket: (*t)?,
+                implicated_cid: *cid_opt,
+            }),
             NodeResult::SessionList(SessionList {
                 ticket: t,
                 sessions: _,

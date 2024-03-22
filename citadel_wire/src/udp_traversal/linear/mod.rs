@@ -134,7 +134,7 @@ impl SingleUDPHolePuncher {
 
                 let kill_listener = async move {
                     if let Ok((local_id, peer_id)) = kill_switch.recv().await {
-                        log::warn!(target: "citadel", "[Kill Listener] Received signal. {:?} must == {:?} || {:?}", local_id, this_local_id, peer_id);
+                        log::trace!(target: "citadel", "[Kill Listener] Received signal. {:?} must == {:?}", local_id, this_local_id);
                         if local_id == this_local_id {
                             return Some((local_id, peer_id));
                         }

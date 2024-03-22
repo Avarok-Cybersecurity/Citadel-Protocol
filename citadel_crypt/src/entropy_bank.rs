@@ -73,7 +73,7 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.wrap_with_unique_nonce_enx_vec(input, move |input, nonce| {
+        self.wrap_with_unique_nonce_enx_vec(input, false, move |input, nonce| {
             quantum_container
                 .encrypt(input, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))
@@ -86,7 +86,7 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         input: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.wrap_with_unique_nonce_dex_vec(input, move |input, nonce| {
+        self.wrap_with_unique_nonce_dex_vec(input, false, move |input, nonce| {
             quantum_container
                 .decrypt(input, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))
@@ -159,6 +159,7 @@ impl EntropyBank {
     fn wrap_with_unique_nonce_enx_vec<T: AsRef<[u8]>>(
         &self,
         input: T,
+        local: bool,
         function: impl FnOnce(&[u8], &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<Vec<u8>, CryptError>,
     ) -> Result<Vec<u8>, CryptError> {
         let transient_id = self.transient_counter.fetch_add(1, Ordering::Relaxed);
@@ -166,12 +167,16 @@ impl EntropyBank {
         let input = input.as_ref();
         let mut out = function(input, nonce)?;
         out.extend_from_slice(&transient_id.to_be_bytes());
+        if local {
+            log::error!(target: "citadel", "Local ENX w/ Transient ID {transient_id} = {nonce:?} | CID = {} | Version = {} | Full len: {}", self.cid, self.version, out.len());
+        }
         Ok(out)
     }
 
     fn wrap_with_unique_nonce_dex_vec<T: AsRef<[u8]>>(
         &self,
         input: T,
+        local: bool,
         function: impl FnOnce(&[u8], &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<Vec<u8>, CryptError>,
     ) -> Result<Vec<u8>, CryptError> {
         let buf = input.as_ref();
@@ -186,6 +191,9 @@ impl EntropyBank {
 
         let transient_id = byteorder::BigEndian::read_u64(transient_id_bytes);
         let nonce = &self.get_nonce(transient_id);
+        if local {
+            log::error!(target: "citadel", "Local DEX w/ Transient ID {transient_id} = {nonce:?} | CID = {} | Version = {} | Full len: {}", self.cid, self.version, buf.len());
+        }
         // trim the last 8 bytes
         let input = &buf[..starting_pos];
         function(input, nonce)
@@ -196,7 +204,7 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.wrap_with_unique_nonce_enx_vec(payload, move |payload, nonce| {
+        self.wrap_with_unique_nonce_enx_vec(payload, true, move |payload, nonce| {
             quantum_container
                 .local_encrypt(payload, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))
@@ -208,7 +216,7 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
-        self.wrap_with_unique_nonce_dex_vec(payload, move |payload, nonce| {
+        self.wrap_with_unique_nonce_dex_vec(payload, true, move |payload, nonce| {
             quantum_container
                 .local_decrypt(payload, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))

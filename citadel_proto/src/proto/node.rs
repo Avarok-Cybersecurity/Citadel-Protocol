@@ -643,6 +643,7 @@ impl Node {
                             to_kernel.unbounded_send(NodeResult::InternalServerError(
                                 InternalServerError {
                                     ticket_opt: None,
+                                    cid_opt: None,
                                     message: format!(
                                         "HDP Server dropping connection to {peer_addr}. Reason: {err}"
                                     ),
@@ -704,6 +705,7 @@ impl Node {
             if to_kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: Some(ticket_id),
+                    cid_opt: None,
                     message: err.clone(),
                 }))
                 .is_err()

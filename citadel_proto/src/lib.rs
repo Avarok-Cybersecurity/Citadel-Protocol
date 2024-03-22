@@ -317,7 +317,7 @@ pub mod macros {
             match $opt {
                 Some(val) => val,
                 _ => {
-                    log::warn!(target: "citadel", "[X-03] NoneError in file {}:{}: {}", file!(), line!(), $err);
+                    log::warn!(target: "citadel", "NoneError in file {}:{}: {}", file!(), line!(), $err);
                     return Ok(PrimaryProcessorResult::Void);
                 }
             }
@@ -397,7 +397,7 @@ pub mod prelude {
     pub use crate::auth::AuthenticationRequest;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
-    pub use citadel_crypt::streaming_crypt_scrambler::{BytesSource, ObjectSource};
+    pub use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
     pub use citadel_types::crypto::EncryptionAlgorithm;
     pub use citadel_types::crypto::KemAlgorithm;
     pub use citadel_types::crypto::SecurityLevel;

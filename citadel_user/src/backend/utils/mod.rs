@@ -22,8 +22,36 @@ pub struct ObjectTransferHandler {
     pub receiver: u64,
     pub metadata: VirtualObjectMetadata,
     pub orientation: ObjectTransferOrientation,
-    start_recv_tx: Option<tokio::sync::oneshot::Sender<bool>>,
+    start_recv_tx: FileTransferStarter,
     pub inner: ObjectTransferHandlerInner,
+}
+
+#[derive(Debug)]
+pub struct FileTransferStarter {
+    inner: Option<tokio::sync::oneshot::Sender<bool>>,
+}
+
+impl Deref for FileTransferStarter {
+    type Target = Option<tokio::sync::oneshot::Sender<bool>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for FileTransferStarter {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl Drop for FileTransferStarter {
+    fn drop(&mut self) {
+        // TODO: Remove this once debugging complete
+        if self.inner.is_some() {
+            log::error!(target: "citadel", "FileTransferStarter dropped without being used");
+        }
+    }
 }
 
 impl Stream for ObjectTransferHandlerInner {
@@ -64,7 +92,9 @@ impl ObjectTransferHandler {
             receiver,
             orientation,
             metadata,
-            start_recv_tx,
+            start_recv_tx: FileTransferStarter {
+                inner: start_recv_tx,
+            },
         };
 
         (this, tx)
@@ -90,6 +120,7 @@ impl ObjectTransferHandler {
                 is_revfs_pull: true
             }
         ) {
+            let _ = self.start_recv_tx.take();
             return Ok(());
         }
 
@@ -100,6 +131,7 @@ impl ObjectTransferHandler {
                 .send(accept)
                 .map_err(|err| AccountError::msg(err.to_string()))
         } else {
+            let _ = self.start_recv_tx.take();
             Ok(())
         }
     }

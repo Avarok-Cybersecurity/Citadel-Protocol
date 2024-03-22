@@ -559,6 +559,9 @@ impl HdpSessionManager {
         transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
         let this = inner!(self);
+
+        let local_encryption_level = None;
+
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
             existing_session.1.process_outbound_file(
                 ticket,
@@ -567,7 +570,7 @@ impl HdpSessionManager {
                 virtual_target,
                 security_level,
                 transfer_type,
-                None,
+                local_encryption_level,
                 |_| {},
             )
         } else {
@@ -758,7 +761,7 @@ impl HdpSessionManager {
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
     pub fn clear_provisional_session(&self, addr: &SocketAddr, init_time: Instant) {
-        log::warn!(target: "citadel", "Attempting to clear provisional session ...");
+        log::trace!(target: "citadel", "Attempting to clear provisional session ...");
         let mut this = inner_mut!(self);
         if let Some((prev_init_time, _, _)) = this.provisional_connections.get(addr) {
             if *prev_init_time == init_time {

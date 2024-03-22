@@ -110,6 +110,7 @@ pub(crate) mod packet_flags {
                 pub(crate) const REVFS_DELETE: u8 = 3;
                 pub(crate) const REVFS_ACK: u8 = 4;
                 pub(crate) const REVFS_PULL_ACK: u8 = 5;
+                pub(crate) const FILE_ERROR: u8 = 6;
             }
 
             pub(crate) mod udp {

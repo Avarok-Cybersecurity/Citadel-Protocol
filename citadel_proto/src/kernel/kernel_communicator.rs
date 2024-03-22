@@ -131,6 +131,9 @@ impl KernelAsyncCallbackHandler {
         match result.callback_key() {
             Some(ref received_callback_key) => {
                 let mut this = self.inner.lock();
+                //let res_str = format!("{:?}", result);
+                //log::error!(target: "citadel", "Received callback key: {:?} || Event: {result:?}", received_callback_key);
+                //log::error!(target: "citadel", "Active listeners: {:?}", this.map.keys().collect::<Vec<_>>());
                 if let Some(prev) = search_for_value(&mut this.map, received_callback_key) {
                     match prev {
                         CallbackNotifier::Future(_) => {
@@ -146,6 +149,7 @@ impl KernelAsyncCallbackHandler {
                                 // Reinsert into the map
                                 this.map
                                     .insert(*received_callback_key, CallbackNotifier::Stream(tx));
+                                //log::error!(target: "citadel", "Signal {res_str} delivered to stream {:?}", received_callback_key);
                                 None
                             }
                             Err(err) => Some(err.0),

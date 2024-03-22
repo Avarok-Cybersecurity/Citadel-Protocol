@@ -93,7 +93,6 @@ pub async fn process_peer_cmd(
                 );
                 let timestamp = session.time_tracker.get_global_time_ns();
                 let ticket = header.context_info.get().into();
-
                 if !session.is_server {
                     // forward the signal to the kernel, with some exceptions.
                     match &signal {
@@ -560,6 +559,7 @@ pub async fn process_peer_cmd(
                                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
                                         //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                         let client_config = session.client_config.clone();
+
                                         let _ = attempt_simultaneous_hole_punch(
                                             conn.reverse(),
                                             ticket,
