@@ -349,11 +349,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
                 log::trace!(target: "citadel", "BOTH trying to acquire!");
                 // in this case both are trying to acquire, give to the node that requested first, OR, if it was given preference in case of the next conflict
                 let local_wins = if remote_request_time == local_request_time {
-                    if mutex.node_type() == RelativeNodeType::Initiator {
-                        true
-                    } else {
-                        false
-                    }
+                    mutex.node_type() == RelativeNodeType::Initiator
                 } else {
                     remote_request_time < local_request_time
                 };

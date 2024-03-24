@@ -229,7 +229,7 @@ where
         empty_transfer,
     )?;
 
-    log::error!(target: "citadel", "[crypt_splitter]: Plaintext len for group {}: {}", cfg.group_id, cfg.plaintext_length);
+    log::trace!(target: "citadel", "[crypt_splitter]: Plaintext len for group {}: {}", cfg.group_id, cfg.plaintext_length);
 
     #[cfg(not(target_family = "wasm"))]
     let chunks = plain_text.par_chunks(cfg.max_plaintext_wave_length as usize);

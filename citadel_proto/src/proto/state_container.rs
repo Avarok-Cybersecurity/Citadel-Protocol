@@ -1507,7 +1507,7 @@ impl StateContainerInner {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 let receiver = self.inbound_groups.remove(&group_key).unwrap().receiver;
                 let mut chunk = receiver.finalize();
-                log::error!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
+                log::info!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
 
                 if let Some(local_encryption_level) = file_container.local_encryption_level {
                     // which static hr do we need? Since we are receiving this chunk, always our local account's

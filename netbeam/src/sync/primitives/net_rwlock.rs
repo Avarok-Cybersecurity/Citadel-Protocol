@@ -766,11 +766,7 @@ where
                 }
 
                 let local_wins = if remote_request_time == local_request_time {
-                    if rwlock.node_type() == RelativeNodeType::Initiator {
-                        true
-                    } else {
-                        false
-                    }
+                    rwlock.node_type() == RelativeNodeType::Initiator
                 } else {
                     remote_request_time < local_request_time
                 };

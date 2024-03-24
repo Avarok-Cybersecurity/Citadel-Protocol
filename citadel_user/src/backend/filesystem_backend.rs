@@ -383,7 +383,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         match tokio::io::copy(&mut reader, &mut writer).await {
             Ok(bytes_written) => {
-                log::error!(target: "citadel", "Successfully wrote {bytes_written} bytes to {file_path:?}");
+                log::info!(target: "citadel", "Successfully wrote {bytes_written} bytes to {file_path:?}");
             }
 
             Err(err) => {
