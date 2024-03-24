@@ -174,11 +174,12 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     transfer_type: TransferType,
     header_inscriber: F,
 ) -> Result<(usize, usize, usize), CryptError> {
+    let path = source.path();
     let source = source.try_get_stream()?;
     let object_len = source
         .length()
         .map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
-    log::error!(target: "citadel", "Object length: {}", object_len);
+    log::error!(target: "citadel", "Object length: {} | Path: {:?}", object_len, path);
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {

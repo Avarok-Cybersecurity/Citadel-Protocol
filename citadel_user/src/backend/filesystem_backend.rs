@@ -381,8 +381,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
                 .map_err(|err| AccountError::IoError(err.to_string()))?
         }
 
-        if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
-            log::error!(target: "citadel", "Error while copying from reader to writer: {}", err);
+        match tokio::io::copy(&mut reader, &mut writer).await {
+            Ok(bytes_written) => {
+                log::error!(target: "citadel", "Successfully wrote {bytes_written} bytes to {file_path:?}");
+            }
+
+            Err(err) => {
+                log::error!(target: "citadel", "Error while copying from reader to writer: {err}");
+                status_tx
+                    .send(ObjectTransferStatus::Fail(err.to_string()))
+                    .map_err(|err| AccountError::IoError(err.to_string()))?;
+                return Err(AccountError::IoError(err.to_string()));
+            }
         }
 
         writer
