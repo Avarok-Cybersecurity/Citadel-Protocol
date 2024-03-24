@@ -762,7 +762,7 @@ where
                             Some(owned_local_lock.assert_read().clone())
                     }
 
-                    return Ok((fx)(owned_local_lock));
+                    return Ok(fx(owned_local_lock));
                 }
 
                 let local_wins = if remote_request_time == local_request_time {

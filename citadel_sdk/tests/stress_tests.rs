@@ -9,7 +9,7 @@ mod tests {
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use citadel_sdk::prefabs::client::PrefabFunctions;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::server_info;
+    use citadel_sdk::test_common::{server_info, wait_for_peers};
     use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecBuffer};
     use citadel_types::prelude::SecrecyMode;
     use citadel_types::proto::UdpMode;
@@ -336,7 +336,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -427,7 +427,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);
@@ -469,9 +469,11 @@ mod tests {
                 request,
                 move |channel, remote| async move {
                     log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                    wait_for_peers().await;
                     // wait for every group member to connect to ensure all receive all messages
                     handle_send_receive_group(get_barrier(), channel, message_count, peer_count)
                         .await?;
+                    wait_for_peers().await;
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
                     remote.shutdown_kernel().await
                 },

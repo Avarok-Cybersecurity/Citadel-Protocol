@@ -314,14 +314,23 @@ pub trait ProtocolRemoteExt: Remote {
                 remote: self.remote_ref(),
                 target_username: None,
             }),
-            UserIdentifier::Username(uname) => Ok(SymmetricIdentifierHandleRef {
-                user: VirtualTargetType::LocalGroupPeer {
-                    implicated_cid: local_cid,
-                    peer_cid: 0,
-                },
-                remote: self.remote_ref(),
-                target_username: Some(uname),
-            }),
+            UserIdentifier::Username(uname) => {
+                let peer_cid = self
+                    .remote_ref()
+                    .account_manager()
+                    .find_target_information(local_cid, uname.clone())
+                    .await?
+                    .map(|r| r.1.cid)
+                    .unwrap_or(0);
+                Ok(SymmetricIdentifierHandleRef {
+                    user: VirtualTargetType::LocalGroupPeer {
+                        implicated_cid: local_cid,
+                        peer_cid,
+                    },
+                    remote: self.remote_ref(),
+                    target_username: Some(uname),
+                })
+            }
         }
     }
 
@@ -956,9 +965,14 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
-
+        log::error!(target: "citadel", "Create_group");
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::GroupChannelCreated(GroupChannelCreated { ticket: _, channel }) = evt
+            log::error!(target: "citadel", "Create_group {evt:?}");
+            if let NodeResult::GroupChannelCreated(GroupChannelCreated {
+                ticket: _,
+                channel,
+                implicated_cid: _,
+            }) = evt
             {
                 return Ok(channel);
             }

@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 /// A kernel that streamlines creating, connecting, and interacting with groups
@@ -72,6 +73,7 @@ where
         self.shared.clone()
     }
 
+    #[allow(unreachable_code)]
     #[cfg_attr(
         feature = "localhost-testing",
         tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
@@ -84,7 +86,6 @@ where
         shared: Arc<BroadcastShared>,
     ) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
-
         wait_for_peers().await;
 
         let mut creator_only_accept_inbound_registers = false;
@@ -134,6 +135,7 @@ where
                 let owner_find = owner_orig
                     .search_peer(implicated_cid, remote.inner.account_manager())
                     .await?;
+
                 let owner = if let Some(owner) = owner_find {
                     Some(owner)
                 } else if do_peer_register {
@@ -148,6 +150,8 @@ where
                 } else {
                     None
                 };
+
+                // TODO: exponential backoff to wait for the owner to create the group
 
                 let owner = owner.ok_or_else(|| {
                     NetworkError::msg(format!(
@@ -171,24 +175,41 @@ where
             command: request,
         });
 
-        let mut subscription = remote.inner.send_callback_subscription(request).await?;
-
+        let subscription = &Mutex::new(Some(
+            remote.inner.send_callback_subscription(request).await?,
+        ));
+        log::trace!(target: "citadel", "Peer {implicated_cid} is attempting to join group");
         let acceptor_task = if creator_only_accept_inbound_registers {
             shared.route_registers.store(true, Ordering::Relaxed);
             let mut reg_rx = { shared.register_rx.lock().take().unwrap() };
             let remote = remote.inner.clone();
             Box::pin(async move {
-                // Accept every inbound request, so long as the cid is equal to the
-                // cid for this group owner
-                while let Some(reg_request) = reg_rx.recv().await {
-                    log::trace!(target: "citadel", "owner recv reg_request: {:?}", reg_request);
+                let mut subscription = subscription.lock().await.take().unwrap();
+                // Merge the reg_rx stream and the subscription stream
+                loop {
+                    let post_register = tokio::select! {
+                        reg_request = reg_rx.recv() => {
+                            reg_request.ok_or_else(|| NetworkError::InternalError("reg_rx ended unexpectedly"))?
+                        },
+
+                        reg_request2 = subscription.next() => {
+                            let signal = reg_request2.ok_or_else(|| NetworkError::InternalError("subscription ended unexpectedly"))?;
+                            if let NodeResult::PeerEvent(PeerEvent { event: sig @ PeerSignal::PostRegister { .. }, .. }) = &signal {
+                                sig.clone()
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+
+                    log::trace!(target: "citadel", "ACCEPTOR {implicated_cid} RECV reg_request: {:?}", post_register);
                     if let PeerSignal::PostRegister {
                         peer_conn_type: peer_conn,
                         inviter_username: _,
                         invitee_username: _,
                         ticket_opt: _,
                         invitee_response: None,
-                    } = &reg_request
+                    } = &post_register
                     {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
@@ -196,9 +217,7 @@ where
                             continue;
                         }
 
-                        log::trace!(target: "citadel", "Sending ACCEPT_REQUEST to {}", cid);
-
-                        let _ = responses::peer_register(reg_request, true, &remote).await?;
+                        let _ = responses::peer_register(post_register, true, &remote).await?;
                     }
                 }
 
@@ -222,11 +241,29 @@ where
                 >
         };
 
+        let mut lock = subscription.lock().await;
+        let subscription = lock.as_mut().unwrap();
         while let Some(event) = subscription.next().await {
-            log::trace!(target: "citadel", "{:?} *recv* {:?}", implicated_cid, event);
+            log::trace!(target: "citadel", "{:?} * broadcast recv* {:?}", implicated_cid, event);
             match map_errors(event)? {
-                NodeResult::GroupChannelCreated(GroupChannelCreated { ticket: _, channel }) => {
+                NodeResult::PeerEvent(PeerEvent {
+                    event: ref ps @ PeerSignal::PostRegister { .. },
+                    ticket: _,
+                    ..
+                }) => {
+                    shared
+                        .register_tx
+                        .send(ps.clone())
+                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                }
+                NodeResult::GroupChannelCreated(GroupChannelCreated {
+                    ticket: _,
+                    channel,
+                    implicated_cid: _,
+                }) => {
                     // in either case, whether owner or not, we get a channel
+                    // Drop the lock to allow the acceptor task to gain access to the subscription
+                    drop(lock);
                     return tokio::try_join!((fx)(channel, remote), acceptor_task).map(|_| ());
                 }
 
@@ -368,7 +405,7 @@ mod tests {
                     }
 
                     wait_for_peers().await;
-                    std::mem::drop(channel);
+                    drop(channel);
                     remote.shutdown_kernel().await
                 },
             ).unwrap();
@@ -469,6 +506,7 @@ mod tests {
                                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                                     ticket: _,
                                     channel: _chan,
+                                    implicated_cid: _
                                 }) => {
                                     receiver_success.store(true, Ordering::Relaxed);
                                     log::trace!(target: "citadel", "***PEER {} CONNECT***", uuid);

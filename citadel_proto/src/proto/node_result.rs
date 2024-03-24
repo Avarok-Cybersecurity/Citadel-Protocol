@@ -96,6 +96,7 @@ pub struct PeerEvent {
 pub struct GroupChannelCreated {
     pub ticket: Ticket,
     pub channel: GroupChannel,
+    pub implicated_cid: u64,
 }
 
 #[derive(Debug)]
@@ -242,9 +243,11 @@ impl NodeResult {
             NodeResult::PeerChannelCreated(PeerChannelCreated {
                 ticket: t, channel, ..
             }) => Some(CallbackKey::new(*t, channel.get_implicated_cid())),
-            NodeResult::GroupChannelCreated(GroupChannelCreated { ticket: t, channel }) => {
-                Some(CallbackKey::new(*t, channel.cid()))
-            }
+            NodeResult::GroupChannelCreated(GroupChannelCreated {
+                ticket: t,
+                channel: _,
+                implicated_cid,
+            }) => Some(CallbackKey::new(*t, *implicated_cid)),
             NodeResult::Disconnect(Disconnect {
                 ticket: t,
                 cid_opt,

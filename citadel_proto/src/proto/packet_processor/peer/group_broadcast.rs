@@ -709,9 +709,14 @@ fn create_group_channel(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
+    let implicated_cid = session
+        .implicated_cid
+        .get()
+        .ok_or_else(|| NetworkError::msg("Implicated CID not loaded"))?;
     session.send_to_kernel(NodeResult::GroupChannelCreated(GroupChannelCreated {
         ticket,
         channel,
+        implicated_cid,
     }))?;
     Ok(PrimaryProcessorResult::Void)
 }
