@@ -37,7 +37,7 @@ citadel_proto = { workspace = true }
 citadel_io = { workspace = true }
 citadel_user = { workspace = true }
 embed-doc-image = { workspace = true, optional = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["parking_lot"] }
 futures = { workspace = true }
 log = { workspace = true }
 lazy_static = { workspace = true }

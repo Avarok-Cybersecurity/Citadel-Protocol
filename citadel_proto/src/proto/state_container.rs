@@ -435,14 +435,6 @@ impl Display for VirtualConnectionType {
     }
 }
 
-#[derive(Hash, Ord, PartialOrd, Eq, PartialEq)]
-/// Since it is possible for multiple connections to have an equivalent ticket, we include the CID. This will
-/// guarantee uniqueness because each CID keeps track an incrementing ticket
-pub(super) struct VirtualKey {
-    pub(super) cid: u64,
-    pub(super) ticket: Ticket,
-}
-
 #[derive(Default)]
 pub(super) struct NetworkStats {
     pub(super) last_keep_alive: Option<i64>,

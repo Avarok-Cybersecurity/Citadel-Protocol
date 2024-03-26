@@ -1,12 +1,9 @@
-use crate::prefabs::client::PrefabFunctions;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::Mutex;
-use citadel_proto::prelude::PeerConnectionType;
 use citadel_proto::re_imports::async_trait;
-use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 use citadel_user::hypernode_account::UserIdentifierExt;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
@@ -408,9 +405,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::prefabs::client::peer_connection::{
-        PeerConnectionKernel, PeerConnectionSetupAggregator,
-    };
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_user::prelude::UserIdentifierExt;

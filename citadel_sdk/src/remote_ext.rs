@@ -3,11 +3,7 @@ use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::LocalGroupPeer;
-use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
 
-use citadel_proto::auth::AuthenticationRequest;
-use citadel_types::proto::ConnectMode;
-use citadel_types::proto::ObjectTransferStatus;
 use futures::StreamExt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -156,12 +152,24 @@ pub trait ProtocolRemoteExt: Remote {
             static_security_settings: default_security_settings,
         });
 
-        match map_errors(self.send_callback(register_request).await?)? {
-            NodeResult::RegisterOkay(RegisterOkay { .. }) => Ok(RegisterSuccess {}),
-            res => Err(NetworkError::msg(format!(
-                "An unexpected response occurred: {res:?}"
-            ))),
+        let mut subscription = self.send_callback_subscription(register_request).await?;
+        while let Some(status) = subscription.next().await {
+            match map_errors(status)? {
+                NodeResult::RegisterOkay(RegisterOkay { .. }) => {
+                    return Ok(RegisterSuccess {});
+                }
+                NodeResult::RegisterFailure(err) => {
+                    return Err(NetworkError::Generic(err.error_message));
+                }
+                evt => {
+                    log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
+                }
+            }
         }
+
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (register)",
+        ))
     }
 
     /// Registers using the default settings. The default uses No Google FCM keys and the default session security settings
@@ -198,8 +206,6 @@ pub trait ProtocolRemoteExt: Remote {
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
     ) -> Result<ConnectionSuccess, NetworkError> {
-        //let fcm_keys = fcm_keys.or_else(||cnac.get_fcm_keys()); // use the specified keys, or else get the fcm keys created during the registration phase
-
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
             connect_mode,
@@ -208,7 +214,15 @@ pub trait ProtocolRemoteExt: Remote {
             session_security_settings,
         });
 
-        match map_errors(self.send_callback(connect_request).await?)? {
+        let mut subscription = self.send_callback_subscription(connect_request).await?;
+        let status = subscription
+            .next()
+            .await
+            .ok_or(NetworkError::InternalError(
+                "Internal kernel stream died (connect)",
+            ))?;
+
+        return match map_errors(status)? {
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: _,
                 implicated_cid: cid,
@@ -232,10 +246,11 @@ pub trait ProtocolRemoteExt: Remote {
                 cid_opt: _,
                 error_message: err,
             }) => Err(NetworkError::Generic(err)),
+
             res => Err(NetworkError::msg(format!(
                 "[connect] An unexpected response occurred: {res:?}"
             ))),
-        }
+        };
     }
 
     /// Connects with the default settings
@@ -373,7 +388,9 @@ pub trait ProtocolRemoteExt: Remote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (get_local_group_peers)",
+        ))
     }
 
     /// Returns a list of mutually-registered peers with the local_user
@@ -411,7 +428,9 @@ pub trait ProtocolRemoteExt: Remote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (get_local_group_mutual_peers)",
+        ))
     }
 
     #[doc(hidden)]
@@ -739,7 +758,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (connect_to_peer_custom)",
+        ))
     }
 
     /// Connects to the target peer with default settings
@@ -798,7 +819,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::Generic(format!(
+            "Internal kernel stream died (register_to_peer): {:?}",
+            stream.callback_key()
+        )))
     }
 
     /// Deregisters the currently locked target. If the target is a client to server
@@ -986,13 +1010,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Lists all groups that which the current peer owns
     async fn list_owned_groups(&self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
+        let cid_to_check_for = match self.try_as_peer_connection().await {
+            Ok(res) => res.get_original_target_cid(),
+            _ => implicated_cid,
+        };
         let group_request = GroupBroadcast::ListGroupsFor {
-            cid: implicated_cid,
+            cid: cid_to_check_for,
         };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
             implicated_cid,
             command: group_request,
         });
+
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
         while let Some(evt) = subscription.next().await {
@@ -1000,7 +1029,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 implicated_cid: _,
                 ticket: _,
                 event: GroupBroadcast::ListResponse { groups },
-            }) = evt
+            }) = map_errors(evt)?
             {
                 return Ok(groups);
             }
@@ -1032,9 +1061,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "List_members ended unexpectedly",
-        ))
+        Err(NetworkError::InternalError("Rekey ended unexpectedly"))
     }
 
     /// Checks if the locked target is registered
@@ -1190,9 +1217,7 @@ pub mod remote_specialization {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::node_builder::{NodeBuilder, NodeFuture};
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prelude::ProtocolRemoteTargetExt;
     use crate::prelude::*;
     use rstest::rstest;
     use std::net::SocketAddr;

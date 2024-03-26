@@ -2,7 +2,6 @@ use crate::prefabs::{get_socket_addr, ClientServerRemote};
 use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
 use citadel_io::Mutex;
-use citadel_proto::auth::AuthenticationRequest;
 use citadel_proto::prelude::*;
 use futures::Future;
 use std::marker::PhantomData;

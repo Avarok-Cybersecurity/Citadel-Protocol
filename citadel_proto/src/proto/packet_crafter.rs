@@ -230,7 +230,6 @@ pub(crate) mod group {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
-    use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::prelude::*;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;

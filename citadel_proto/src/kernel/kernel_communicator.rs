@@ -6,7 +6,6 @@ use futures::{Future, Stream};
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 #[derive(Default)]
 pub struct KernelAsyncCallbackHandler {
@@ -18,9 +17,10 @@ pub struct KernelAsyncCallbackHandlerInner {
     map: HashMap<CallbackKey, CallbackNotifier>,
 }
 
-pub(crate) enum CallbackNotifier {
-    Future(tokio::sync::oneshot::Sender<NodeResult>),
-    Stream(tokio::sync::mpsc::UnboundedSender<NodeResult>),
+#[allow(dead_code)]
+pub(crate) struct CallbackNotifier {
+    tx: tokio::sync::mpsc::UnboundedSender<NodeResult>,
+    key: CallbackKey,
 }
 
 #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
@@ -29,12 +29,12 @@ pub struct CallbackKey {
     pub implicated_cid: Option<u64>,
 }
 
-fn search_for_value(
-    map: &mut HashMap<CallbackKey, CallbackNotifier>,
-    callback_key_received: &CallbackKey,
-) -> Option<CallbackNotifier> {
-    let mut found = None;
-    for key in map.keys() {
+fn search_for_value<'a>(
+    map: &'a mut HashMap<CallbackKey, CallbackNotifier>,
+    callback_key_received: &'a CallbackKey,
+) -> Option<(&'a mut CallbackNotifier, CallbackKey)> {
+    let expected_ticket = callback_key_received.ticket;
+    for (key, notifier) in map.iter_mut() {
         let ticket = key.ticket;
         let cid_opt = key.implicated_cid;
 
@@ -42,9 +42,14 @@ fn search_for_value(
         // If we locally do not expect a cid, then, we don't need to check the cid
         if let Some(cid_expected) = cid_opt {
             if let Some(cid_received) = callback_key_received.implicated_cid {
-                if ticket == key.ticket && cid_expected == cid_received {
-                    found = Some(*key);
-                    break;
+                if expected_ticket == key.ticket && cid_expected == cid_received {
+                    return Some((
+                        notifier,
+                        CallbackKey {
+                            ticket,
+                            implicated_cid: Some(cid_expected),
+                        },
+                    ));
                 } else {
                     // Incorrect match
                     continue;
@@ -55,9 +60,14 @@ fn search_for_value(
             }
         } else {
             // We do not expect a CID. Therefore, we don't need to check the CID received
-            if ticket == key.ticket {
-                found = Some(*key);
-                break;
+            if expected_ticket == key.ticket {
+                return Some((
+                    notifier,
+                    CallbackKey {
+                        ticket,
+                        implicated_cid: None,
+                    },
+                ));
             } else {
                 // Incorrect match
                 continue;
@@ -65,8 +75,7 @@ fn search_for_value(
         }
     }
 
-    let found = found?;
-    map.remove(&found)
+    None
 }
 
 impl CallbackKey {
@@ -85,34 +94,20 @@ impl CallbackKey {
     }
 }
 
-impl CallbackNotifier {
-    #[allow(clippy::result_large_err)]
-    fn send(self, item: NodeResult) -> Result<(), NodeResult> {
-        match self {
-            Self::Future(tx) => tx.send(item),
-            Self::Stream(tx) => tx.send(item).map_err(|err| err.0),
-        }
-    }
-}
-
 impl KernelAsyncCallbackHandler {
-    pub fn register_future(
-        &self,
-        callback_key: CallbackKey,
-    ) -> Result<tokio::sync::oneshot::Receiver<NodeResult>, NetworkError> {
-        let mut this = self.inner.lock();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        this.insert(callback_key, CallbackNotifier::Future(tx))?;
-        Ok(rx)
-    }
-
     pub fn register_stream(
         &self,
         callback_key: CallbackKey,
     ) -> Result<KernelStreamSubscription, NetworkError> {
         let mut this = self.inner.lock();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        this.insert(callback_key, CallbackNotifier::Stream(tx))?;
+        this.insert(
+            callback_key,
+            CallbackNotifier {
+                tx,
+                key: callback_key,
+            },
+        )?;
         Ok(KernelStreamSubscription {
             inner: rx,
             ptr: self.clone(),
@@ -123,6 +118,7 @@ impl KernelAsyncCallbackHandler {
     #[allow(unused_results)]
     pub fn remove_listener(&self, callback_key: CallbackKey) {
         let mut this = self.inner.lock();
+        log::trace!(target: "citadel", "Removing listener {callback_key:?}");
         this.map.remove(&callback_key);
     }
 
@@ -131,29 +127,12 @@ impl KernelAsyncCallbackHandler {
         match result.callback_key() {
             Some(ref received_callback_key) => {
                 let mut this = self.inner.lock();
-                //let res_str = format!("{:?}", result);
-                //log::error!(target: "citadel", "Received callback key: {:?} || Event: {result:?}", received_callback_key);
-                //log::error!(target: "citadel", "Active listeners: {:?}", this.map.keys().collect::<Vec<_>>());
-                if let Some(prev) = search_for_value(&mut this.map, received_callback_key) {
-                    match prev {
-                        CallbackNotifier::Future(_) => {
-                            // it's possible the future listening dropped
-                            match prev.send(result) {
-                                Ok(_) => None,
-                                Err(err) => Some(err),
-                            }
-                        }
-
-                        CallbackNotifier::Stream(tx) => match tx.send(result) {
-                            Ok(_) => {
-                                // Reinsert into the map
-                                this.map
-                                    .insert(*received_callback_key, CallbackNotifier::Stream(tx));
-                                //log::error!(target: "citadel", "Signal {res_str} delivered to stream {:?}", received_callback_key);
-                                None
-                            }
-                            Err(err) => Some(err.0),
-                        },
+                if let Some((prev, _new_key)) =
+                    search_for_value(&mut this.map, received_callback_key)
+                {
+                    match prev.tx.send(result) {
+                        Ok(_) => None,
+                        Err(err) => Some(err.0),
                     }
                 } else {
                     Some(result)
@@ -198,6 +177,7 @@ impl Clone for KernelAsyncCallbackHandler {
     }
 }
 
+#[allow(dead_code)]
 pub struct KernelStreamSubscription {
     inner: tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
     ptr: KernelAsyncCallbackHandler,
@@ -210,16 +190,19 @@ impl KernelStreamSubscription {
     }
 }
 
-impl Stream for KernelStreamSubscription {
-    type Item = NodeResult;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.inner).poll_recv(cx)
-    }
-}
-
 impl Drop for KernelStreamSubscription {
     fn drop(&mut self) {
         self.ptr.remove_listener(self.callback_key)
+    }
+}
+
+impl Stream for KernelStreamSubscription {
+    type Item = NodeResult;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_recv(cx)
     }
 }

@@ -28,16 +28,29 @@ pub struct NodeBuilder {
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
 pub struct NodeFuture<'a, K> {
-    inner: Pin<Box<dyn LocalFutureContextRequirements<'a, Result<K, NetworkError>>>>,
+    inner: Pin<Box<dyn FutureContextRequirements<'a, Result<K, NetworkError>>>>,
     _pd: PhantomData<fn() -> K>,
 }
 
-trait LocalFutureContextRequirements<'a, Output>:
+#[cfg(feature = "multi-threaded")]
+trait FutureContextRequirements<'a, Output>:
+    Future<Output = Output> + Send + LocalContextRequirements<'a>
+{
+}
+#[cfg(feature = "multi-threaded")]
+impl<'a, T: Future<Output = Output> + Send + LocalContextRequirements<'a>, Output>
+    FutureContextRequirements<'a, Output> for T
+{
+}
+
+#[cfg(not(feature = "multi-threaded"))]
+trait FutureContextRequirements<'a, Output>:
     Future<Output = Output> + LocalContextRequirements<'a>
 {
 }
+#[cfg(not(feature = "multi-threaded"))]
 impl<'a, T: Future<Output = Output> + LocalContextRequirements<'a>, Output>
-    LocalFutureContextRequirements<'a, Output> for T
+    crate::builder::node_builder::FutureContextRequirements<'a, Output> for T
 {
 }
 

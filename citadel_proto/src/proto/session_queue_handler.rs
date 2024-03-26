@@ -28,20 +28,12 @@ pub trait QueueFunction:
     Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + Send + 'static
 {
 }
-pub trait QueueOneshotFunction:
-    Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + Send + 'static
-{
-}
 
 impl<
         T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult
             + Send
             + 'static,
     > QueueFunction for T
-{
-}
-impl<T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + Send + 'static>
-    QueueOneshotFunction for T
 {
 }
 

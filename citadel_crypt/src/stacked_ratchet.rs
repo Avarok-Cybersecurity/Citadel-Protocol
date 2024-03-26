@@ -11,7 +11,6 @@ use citadel_types::crypto::SecurityLevel;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
@@ -413,7 +412,6 @@ pub mod constructor {
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::LARGEST_NONCE_LEN;
     use serde::{Deserialize, Serialize};
-    use std::convert::TryFrom;
 
     /// Used during the key exchange process
     #[derive(Serialize, Deserialize)]

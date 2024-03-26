@@ -178,7 +178,7 @@ impl<T> Sink<T> for UnboundedSender<T> {
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.0.is_closed() {
-            Poll::Ready(Err(NetworkError::InternalError("Channel closed")))
+            Poll::Ready(Err(NetworkError::InternalError("Channel tx closed")))
         } else {
             Poll::Ready(Ok(()))
         }

@@ -490,7 +490,6 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 udp_sck.connect(server).await?;
                 let (handler_tx, mut handler_rx) = tokio::sync::mpsc::unbounded_channel();
                 log::trace!(target: "citadel", "Connected to STUN server {:?}", server);
-
                 let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
 
                 client.send(msg, Some(Arc::new(handler_tx))).await?;

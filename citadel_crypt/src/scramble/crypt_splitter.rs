@@ -14,7 +14,7 @@ use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::stacked_ratchet::Ratchet;
 #[cfg(not(target_family = "wasm"))]
-use rayon::{iter::IndexedParallelIterator, prelude::*};
+use rayon::prelude::*;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;

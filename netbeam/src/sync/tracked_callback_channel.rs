@@ -9,15 +9,31 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[derive(Clone)]
 pub struct TrackedCallbackChannel<T, R> {
     inner: Arc<TrackedCallbackChannelInner<T, R>>,
+}
+
+impl<T, R> Clone for TrackedCallbackChannel<T, R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 pub enum TrackedCallbackError<T> {
     SendError(T),
     RecvError,
     InternalError(&'static str),
+}
+
+impl<T> TrackedCallbackError<T> {
+    pub fn payload(self) -> Option<T> {
+        match self {
+            Self::SendError(payload) => Some(payload),
+            _ => None,
+        }
+    }
 }
 
 const NO_RESPONSE: u64 = 0;
