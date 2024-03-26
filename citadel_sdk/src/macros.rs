@@ -21,13 +21,6 @@ macro_rules! impl_remote {
                 self.inner.send_callback_subscription(request).await
             }
 
-            async fn send_callback(
-                &self,
-                request: NodeRequest,
-            ) -> Result<NodeResult, NetworkError> {
-                self.inner.send_callback(request).await
-            }
-
             fn account_manager(&self) -> &AccountManager {
                 self.inner.account_manager()
             }

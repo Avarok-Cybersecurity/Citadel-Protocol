@@ -348,7 +348,13 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
             UpdatePacket::TryAcquire(remote_request_time) => {
                 log::trace!(target: "citadel", "BOTH trying to acquire!");
                 // in this case both are trying to acquire, give to the node that requested first, OR, if it was given preference in case of the next conflict
-                if remote_request_time <= local_request_time {
+                let local_wins = if remote_request_time == local_request_time {
+                    mutex.node_type() == RelativeNodeType::Initiator
+                } else {
+                    remote_request_time < local_request_time
+                };
+
+                if local_wins {
                     // remote gets the lock. We send the local value first. Then, we must continue looping
                     // yield the lock
                     owned_local_lock = yield_lock::<S, T>(conn, owned_local_lock).await?;
@@ -370,13 +376,12 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
 
             UpdatePacket::ReleasedVerified => {
                 // TODO: Figure out why this got called
-                log::warn!(target: "citadel", "RELEASED_VERIFIED should only be received by the drop_lock subroutine")
+                log::warn!(target: "citadel", "RELEASED_VERIFIED should only be received by the yield_lock subroutine")
             }
         }
     }
 }
 
-// the local lock will be dropped after this function, allowing local calls to acquire the lock once again
 async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
     channel: &Arc<InnerChannel<S>>,
     mut lock: LocalLockHolder<T>,
@@ -409,12 +414,19 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
                 return Ok(lock);
             }
 
-            UpdatePacket::LockAcquired | UpdatePacket::ReleasedVerified => {
-                // this is received after sending the Released packet. We do nothing here
+            UpdatePacket::ReleasedVerified => {
+                // Ignore this packets and continue waiting for the Released packet
+                continue;
+            }
+
+            UpdatePacket::LockAcquired => {
+                // Ignore this packet, we have to wait for the user to release their lock
+                continue;
             }
 
             p => {
-                log::warn!(target: "citadel", "Received invalid packet type in inner_loop! {:?}", p)
+                log::warn!(target: "citadel", "Received invalid packet type in inner_loop! {p:?}");
+                return Err(anyhow::Error::msg("Received invalid packet type"));
             }
         }
     }
@@ -429,7 +441,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
 ) -> Result<(), anyhow::Error> {
     let background_task = async move {
         // first, check to see if the other end is listening
-        'outer_loop: loop {
+        loop {
             match shared_state.clone().try_lock_owned() {
                 Ok(lock) => {
                     // here, any local requests will be blocked until an external packet gets received OR local signals background to stop;
@@ -438,7 +450,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         res1 = active_to_background_rx.recv() => {
                             // in the case local tries ot make an outgoing request, we will stop listening in the background
                             res1.ok_or_else(|| anyhow::Error::msg("The active_to_background_tx died"))?;
-                            continue 'outer_loop;
+                            continue;
                         }
                     };
 

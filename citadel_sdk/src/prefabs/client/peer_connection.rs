@@ -1,12 +1,9 @@
-use crate::prefabs::client::PrefabFunctions;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::Mutex;
-use citadel_proto::prelude::PeerConnectionType;
 use citadel_proto::re_imports::async_trait;
-use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 use citadel_user::hypernode_account::UserIdentifierExt;
 use futures::stream::FuturesUnordered;
 use futures::{Future, TryStreamExt};
@@ -39,6 +36,32 @@ struct PeerContext {
     send_file_transfer_tx: UnboundedSender<ObjectTransferHandler>,
 }
 
+#[derive(Debug)]
+pub struct FileTransferHandleRx {
+    pub inner: tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>,
+    pub peer_conn: PeerConnectionType,
+}
+
+impl std::ops::Deref for FileTransferHandleRx {
+    type Target = tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for FileTransferHandleRx {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl Drop for FileTransferHandleRx {
+    fn drop(&mut self) {
+        log::trace!(target: "citadel", "Dropping file transfer handle receiver {:?}", self.peer_conn);
+    }
+}
+
 #[async_trait]
 impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
@@ -49,31 +72,52 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
         self.inner_kernel.on_start().await
     }
 
+    #[allow(clippy::collapsible_else_if)]
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: _, handle }) => {
-                let v_conn = if matches!(
-                    handle.orientation,
-                    ObjectTransferOrientation::Receiver { .. }
-                ) {
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                ticket: _,
+                handle,
+                implicated_cid,
+            }) => {
+                let is_revfs = matches!(
+                    handle.metadata.transfer_type,
+                    TransferType::RemoteEncryptedVirtualFilesystem { .. }
+                );
+                let active_peers = self.shared.active_peer_conns.lock();
+                let v_conn = if is_revfs {
+                    let peer_cid = if implicated_cid != handle.source {
+                        handle.source
+                    } else {
+                        handle.receiver
+                    };
                     PeerConnectionType::LocalGroupPeer {
-                        implicated_cid: handle.receiver,
-                        peer_cid: handle.source,
+                        implicated_cid,
+                        peer_cid,
                     }
                 } else {
-                    PeerConnectionType::LocalGroupPeer {
-                        implicated_cid: handle.source,
-                        peer_cid: handle.receiver,
+                    if matches!(
+                        handle.orientation,
+                        ObjectTransferOrientation::Receiver { .. }
+                    ) {
+                        PeerConnectionType::LocalGroupPeer {
+                            implicated_cid,
+                            peer_cid: handle.source,
+                        }
+                    } else {
+                        PeerConnectionType::LocalGroupPeer {
+                            implicated_cid,
+                            peer_cid: handle.receiver,
+                        }
                     }
                 };
 
-                let active_peers = self.shared.active_peer_conns.lock();
                 if let Some(peer_ctx) = active_peers.get(&v_conn) {
                     if let Err(err) = peer_ctx.send_file_transfer_tx.send(handle) {
-                        log::warn!(target: "citadel", "Error forwarding file transfer handle: {:?}", err);
+                        log::warn!(target: "citadel", "Error forwarding file transfer handle: {:?}", err.to_string());
                     }
                 } else {
-                    log::warn!(target: "citadel", "Unable to find key for inbound file transfer handle: {:?}", v_conn);
+                    log::warn!(target: "citadel", "Unable to find key for inbound file transfer handle: {:?}\n Active Peers: {:?} \n handle_source = {}, handle_receiver = {}", v_conn, active_peers.keys(), handle.source, handle.receiver);
                 }
 
                 Ok(())
@@ -291,13 +335,11 @@ where
                 let inner_task = async move {
                     let (file_transfer_tx, file_transfer_rx) =
                         tokio::sync::mpsc::unbounded_channel();
-
                     let handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(implicated_cid, id).await?
                     } else {
                         // TODO: optimize peer registration + connection in one go
                         let handle = remote.propose_target(implicated_cid, id.clone()).await?;
-
                         // if the peer is not yet registered to the central node, wait for it to become registered
                         // this is useful especially for testing purposes
                         if ensure_registered {
@@ -324,7 +366,10 @@ where
                                 send_file_transfer_tx: file_transfer_tx,
                             };
                             // add an incoming file transfer receiver
-                            success.incoming_object_transfer_handles = Some(file_transfer_rx);
+                            success.incoming_object_transfer_handles = Some(FileTransferHandleRx {
+                                inner: file_transfer_rx,
+                                peer_conn,
+                            });
                             let _ = shared
                                 .active_peer_conns
                                 .lock()
@@ -344,7 +389,7 @@ where
         // TODO: What should be done if a peer conn fails? No room for error here
         let collection_task = async move { requests.try_collect::<()>().await };
 
-        tokio::try_join!(collection_task, (f)(rx, cls_remote)).map(|_| ())
+        tokio::try_join!(collection_task, f(rx, cls_remote)).map(|_| ())
     }
 
     fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
@@ -360,9 +405,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::prefabs::client::peer_connection::{
-        PeerConnectionKernel, PeerConnectionSetupAggregator,
-    };
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_user::prelude::UserIdentifierExt;
@@ -442,10 +485,10 @@ mod tests {
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", username, conn);
-                        let conn = conn?;
-                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
+                        let mut conn = conn?;
+                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx.take()).await;
                         success += 1;
-                        let _ = p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote);
+                        let _ = p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote.clone());
                         if success == peer_count - 1 {
                             break;
                         }
@@ -530,14 +573,14 @@ mod tests {
 
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let conn = conn?;
+                        let mut conn = conn?;
                         let peer_cid = conn.channel.get_peer_cid();
 
                         crate::test_common::p2p_assertions(implicated_cid, &conn).await;
 
                         crate::test_common::udp_mode_assertions(
                             Default::default(),
-                            conn.udp_channel_rx,
+                            conn.udp_channel_rx.take(),
                         )
                         .await;
 
@@ -624,7 +667,7 @@ mod tests {
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
                         wait_for_peers().await;
-                        let conn = conn?;
+                        let mut conn = conn?;
                         //let peer_cid = conn.channel.get_peer_cid();
 
                         crate::test_common::p2p_assertions(implicated_cid, &conn).await;
@@ -644,6 +687,7 @@ mod tests {
                             // TODO: route file-transfer + other events to peer channel
                             let mut handle = conn
                                 .incoming_object_transfer_handles
+                                .take()
                                 .unwrap()
                                 .recv()
                                 .await

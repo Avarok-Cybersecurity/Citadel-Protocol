@@ -30,9 +30,10 @@ pub(crate) mod do_connect {
 }
 
 pub(crate) mod group {
+    use byteorder::{BigEndian, ReadBytesExt};
     use std::ops::RangeInclusive;
 
-    use bytes::{Bytes, BytesMut};
+    use bytes::{Buf, Bytes, BytesMut};
 
     use citadel_crypt::scramble::crypt_splitter::GroupReceiverConfig;
 
@@ -82,12 +83,17 @@ pub(crate) mod group {
     }
 
     pub(crate) fn validate_message(
-        payload: &mut BytesMut,
-    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>)> {
-        let message = SecureProtocolPacket::extract_message(payload).ok()?;
-        let deser =
-            citadel_user::serialization::SyncIO::deserialize_from_vector(&payload[..]).ok()?;
-        Some((message.into(), deser))
+        payload_orig: &mut BytesMut,
+    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>, u64)> {
+        // Safely check that there are 8 bytes in length, then, split at the end - 8
+        if payload_orig.len() < 8 {
+            return None;
+        }
+        let mut payload = payload_orig.split_to(payload_orig.len() - 8);
+        let object_id = payload_orig.reader().read_u64::<BigEndian>().ok()?;
+        let message = SecureProtocolPacket::extract_message(&mut payload).ok()?;
+        let deser = SyncIO::deserialize_from_vector(&payload[..]).ok()?;
+        Some((message.into(), deser, object_id))
     }
 
     #[derive(Serialize, Deserialize)]
@@ -97,9 +103,11 @@ pub(crate) mod group {
             fast_msg: bool,
             initial_window: Option<RangeInclusive<u32>>,
             transfer: KemTransferStatus,
+            object_id: u64,
         },
         NotReady {
             fast_msg: bool,
+            object_id: u64,
         },
     }
 
@@ -352,8 +360,8 @@ pub(crate) mod pre_connect {
 pub(crate) mod file {
     use crate::proto::packet::HdpHeader;
     use crate::proto::packet_crafter::file::{
-        FileHeaderAckPacket, FileHeaderPacket, ReVFSAckPacket, ReVFSDeletePacket,
-        ReVFSPullAckPacket, ReVFSPullPacket,
+        FileHeaderAckPacket, FileHeaderPacket, FileTransferErrorPacket, ReVFSAckPacket,
+        ReVFSDeletePacket, ReVFSPullAckPacket, ReVFSPullPacket,
     };
     use crate::proto::packet_processor::includes::Ref;
     use citadel_user::serialization::SyncIO;
@@ -363,6 +371,13 @@ pub(crate) mod file {
         payload: &[u8],
     ) -> Option<FileHeaderPacket> {
         FileHeaderPacket::deserialize_from_vector(payload).ok()
+    }
+
+    pub fn validate_file_error(
+        _header: &Ref<&[u8], HdpHeader>,
+        payload: &[u8],
+    ) -> Option<FileTransferErrorPacket> {
+        FileTransferErrorPacket::deserialize_from_vector(payload).ok()
     }
 
     /// return Some(success, object_id) if valid, or None if invalid

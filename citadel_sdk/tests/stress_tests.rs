@@ -1,18 +1,12 @@
 #[cfg(test)]
 mod tests {
-    use citadel_proto::prelude::SyncIO;
-    use citadel_proto::prelude::{
-        NetworkError, SecureProtocolPacket, SessionSecuritySettingsBuilder,
-    };
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use citadel_sdk::prefabs::client::PrefabFunctions;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::server_info;
-    use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecBuffer};
+    use citadel_sdk::test_common::{server_info, wait_for_peers};
+    use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm};
     use citadel_types::prelude::SecrecyMode;
-    use citadel_types::proto::UdpMode;
     use futures::prelude::stream::FuturesUnordered;
     use futures::{StreamExt, TryStreamExt};
     use rand::prelude::ThreadRng;
@@ -111,7 +105,6 @@ mod tests {
         count: usize,
     ) -> Result<(), NetworkError> {
         let (tx, rx) = channel.split();
-
         for idx in 0..count {
             tx.send_message(MessageTransfer::create(idx as u64)).await?;
         }
@@ -337,7 +330,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -428,7 +421,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);
@@ -445,7 +438,7 @@ mod tests {
 
         for idx in 0..peer_count {
             let uuid = total_peers.get(idx).cloned().unwrap();
-            let owner = total_peers.get(0).cloned().unwrap().into();
+            let owner = total_peers.first().cloned().unwrap().into();
 
             let request = if idx == 0 {
                 // invite list is empty since we will expect the users to post_register to us before attempting to join
@@ -470,9 +463,11 @@ mod tests {
                 request,
                 move |channel, remote| async move {
                     log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                    wait_for_peers().await;
                     // wait for every group member to connect to ensure all receive all messages
                     handle_send_receive_group(get_barrier(), channel, message_count, peer_count)
                         .await?;
+                    wait_for_peers().await;
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
                     remote.shutdown_kernel().await
                 },

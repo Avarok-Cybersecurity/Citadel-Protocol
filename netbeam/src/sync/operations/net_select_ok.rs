@@ -81,6 +81,7 @@ impl<R> NetSelectOkResult<R> {
     }
 }
 
+#[allow(clippy::if_same_then_else)]
 async fn resolve<
     S: Subscribable<ID = K, UnderlyingConn = Conn>,
     K: MultiplexedConnKey,
@@ -188,6 +189,7 @@ where
                                 // remote won't be able to conclude; Ping to wait for local to finish
                                 conn.send_serialized(State::Pinging(local_state_info))
                                     .await?;
+                                // TODO: Properly handle this
                             } else {
                                 // both local and remote are pending
                                 conn.send_serialized(State::Pinging(local_state_info))

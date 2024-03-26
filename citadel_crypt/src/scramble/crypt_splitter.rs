@@ -14,7 +14,7 @@ use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::stacked_ratchet::Ratchet;
 #[cfg(not(target_family = "wasm"))]
-use rayon::{iter::IndexedParallelIterator, prelude::*};
+use rayon::prelude::*;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -211,10 +211,9 @@ where
     }
 
     if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
+        log::trace!(target: "citadel", "Detected REVFS. Locally encrypting w/level {security_level:?} | Ratchet used: {} w/version {}", static_aux_ratchet.get_cid(), static_aux_ratchet.version());
         // pre-encrypt
-        let local_encrypted = static_aux_ratchet
-            .local_encrypt(plain_text, *security_level)
-            .unwrap();
+        let local_encrypted = static_aux_ratchet.local_encrypt(plain_text, *security_level)?;
 
         plain_text = Cow::Owned(local_encrypted);
     }
@@ -229,6 +228,8 @@ where
         &transfer_type,
         empty_transfer,
     )?;
+
+    log::trace!(target: "citadel", "[crypt_splitter]: Plaintext len for group {}: {}", cfg.group_id, cfg.plaintext_length);
 
     #[cfg(not(target_family = "wasm"))]
     let chunks = plain_text.par_chunks(cfg.max_plaintext_wave_length as usize);

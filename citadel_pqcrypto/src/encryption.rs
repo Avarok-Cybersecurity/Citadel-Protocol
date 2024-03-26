@@ -114,6 +114,7 @@ pub(crate) mod kyber_module {
     use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
     use citadel_types::errors::Error;
 
+    #[allow(dead_code)]
     pub struct KyberModule {
         pub kem_alg: KemAlgorithm,
         pub sig_alg: SigAlgorithm,

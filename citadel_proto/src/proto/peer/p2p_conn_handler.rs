@@ -222,7 +222,10 @@ fn handle_p2p_stream(
         };
 
         if let Err(err) = &res {
-            log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+            // TODO: better error code handling
+            if !err.to_string().contains("p2p stopper triggered") {
+                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+            }
         }
 
         log::trace!(target: "citadel", "[P2P-stream] Dropping tri-joined future");

@@ -4,6 +4,7 @@ use crate::proto::session::SessionState;
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use tokio::sync::broadcast::Sender;
 use tokio::time::error::Error;
@@ -11,7 +12,7 @@ use tokio_util::time::{delay_queue, DelayQueue};
 
 use crate::inner_arg::ExpectedInnerTargetMut;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
@@ -27,20 +28,12 @@ pub trait QueueFunction:
     Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + Send + 'static
 {
 }
-pub trait QueueOneshotFunction:
-    Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + Send + 'static
-{
-}
 
 impl<
         T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult
             + Send
             + 'static,
     > QueueFunction for T
-{
-}
-impl<T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + Send + 'static>
-    QueueOneshotFunction for T
 {
 }
 
@@ -58,6 +51,7 @@ pub struct SessionQueueWorker {
 #[derive(Clone)]
 pub struct SessionQueueWorkerHandle {
     tx: UnboundedSender<ChannelInner>,
+    rolling_idx: Arc<AtomicUsize>,
 }
 
 type ChannelInner = (Option<QueueWorkerTicket>, Duration, Box<dyn QueueFunction>);
@@ -100,7 +94,7 @@ impl SessionQueueWorkerHandle {
     ) {
         self.insert_reserved(
             Some(QueueWorkerTicket::Periodic(
-                idx + QUEUE_WORKER_RESERVED_INDEX,
+                idx + QUEUE_WORKER_RESERVED_INDEX + self.rolling_idx.fetch_add(1, Ordering::SeqCst),
                 target_cid,
             )),
             timeout,
@@ -125,7 +119,10 @@ pub enum QueueWorkerResult {
 impl SessionQueueWorker {
     pub fn new(sess_shutdown: Sender<()>) -> (Self, SessionQueueWorkerHandle) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let handle = SessionQueueWorkerHandle { tx };
+        let handle = SessionQueueWorkerHandle {
+            tx,
+            rolling_idx: Arc::new(Default::default()),
+        };
         (
             Self {
                 rx,
@@ -149,19 +146,19 @@ impl SessionQueueWorker {
     #[allow(unused_results)]
     pub fn insert_reserved(
         &mut self,
-        key: Option<QueueWorkerTicket>,
+        key_orig: Option<QueueWorkerTicket>,
         timeout: Duration,
         on_timeout: Box<dyn QueueFunction>,
     ) {
         // the zero in the default unwrap ensures that the key is going to be unique
-        let key = key.unwrap_or(QueueWorkerTicket::Oneshot(
+        let key_new = key_orig.unwrap_or(QueueWorkerTicket::Oneshot(
             self.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1,
             RESERVED_CID_IDX,
         ));
-        let delay = self.expirations.insert(key, timeout);
+        let delay = self.expirations.insert(key_new, timeout);
 
-        if let Some(key) = self.entries.insert(key, (on_timeout, delay, timeout)) {
-            log::error!(target: "citadel", "Overwrote a session key: {:?}", key.1);
+        if let Some(key) = self.entries.insert(key_new, (on_timeout, delay, timeout)) {
+            log::warn!(target: "citadel", "Overwrote a session key: {:?} || Original: {key_orig:?}", key.1);
         }
 
         self.rolling_idx += 1;
@@ -178,8 +175,7 @@ impl SessionQueueWorker {
         self.insert_reserved(key, timeout, Box::new(on_timeout))
     }
 
-    // Single-thread note: re-entrancy is okay since we can hold multiple borrow at once, but not multiple borrow_muts
-    fn register_waker(&mut self, waker: &futures::task::Waker) {
+    fn register_waker(&mut self, waker: &Waker) {
         self.waker = Some(waker.clone());
     }
 
@@ -191,7 +187,6 @@ impl SessionQueueWorker {
 
     #[allow(unused_results)]
     fn poll_purge(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        //log::trace!(target: "citadel", "poll_purge");
         self.register_waker(cx.waker());
 
         let SessionQueueWorker {
@@ -218,14 +213,14 @@ impl SessionQueueWorker {
                     QueueWorkerTicket::Periodic(_, _) => {
                         let (fx, _key, duration) = entries.get(&entry).unwrap();
 
-                        let next_key = match (fx)(&mut state_container) {
+                        let next_key = match fx(&mut state_container) {
                             QueueWorkerResult::Complete => {
                                 // nothing to do here since already removed entry
                                 //this.expirations.remove(&key2);
                                 entries.remove(&entry);
                                 // the below line was to fix a bug where the queue wouldn't be polled if ANY
                                 // task returned Complete
-                                std::mem::drop(state_container);
+                                drop(state_container);
                                 self.wake();
                                 return Poll::Pending;
                             }
@@ -278,7 +273,6 @@ impl Stream for SessionQueueWorker {
 
         match futures::ready!(self.poll_purge(cx)) {
             Ok(_) => Poll::Pending,
-
             Err(_) => Poll::Ready(None),
         }
     }

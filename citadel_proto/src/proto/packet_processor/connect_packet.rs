@@ -2,7 +2,6 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use crate::proto::state_container::VirtualConnectionType;
 use citadel_types::proto::ConnectMode;
 use citadel_user::external_services::ServicesObject;
 use std::sync::atomic::Ordering;

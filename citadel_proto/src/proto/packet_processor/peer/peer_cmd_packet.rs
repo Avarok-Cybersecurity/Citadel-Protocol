@@ -93,7 +93,6 @@ pub async fn process_peer_cmd(
                 );
                 let timestamp = session.time_tracker.get_global_time_ns();
                 let ticket = header.context_info.get().into();
-
                 if !session.is_server {
                     // forward the signal to the kernel, with some exceptions.
                     match &signal {
@@ -157,6 +156,7 @@ pub async fn process_peer_cmd(
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,
                                 ticket,
+                                implicated_cid,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
@@ -190,6 +190,7 @@ pub async fn process_peer_cmd(
                                     peer_conn_type: *peer_conn_type,
                                 },
                                 ticket,
+                                implicated_cid,
                             }))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
@@ -228,6 +229,7 @@ pub async fn process_peer_cmd(
                                             ))),
                                         },
                                         ticket,
+                                        implicated_cid,
                                     }))?;
                                 }
 
@@ -239,6 +241,7 @@ pub async fn process_peer_cmd(
                                             error: err.into_string(),
                                         },
                                         ticket,
+                                        implicated_cid,
                                     }))?;
                                 }
                             }
@@ -556,6 +559,7 @@ pub async fn process_peer_cmd(
                                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
                                         //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                         let client_config = session.client_config.clone();
+
                                         let _ = attempt_simultaneous_hole_punch(
                                             conn.reverse(),
                                             ticket,
@@ -736,6 +740,7 @@ pub async fn process_peer_cmd(
                         .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                             event: signal,
                             ticket,
+                            implicated_cid,
                         }))?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
@@ -1390,6 +1395,7 @@ async fn process_signal_command_as_server(
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: PeerSignal::SignalError { ticket, error: err },
                     ticket,
+                    implicated_cid: sess_hyper_ratchet.get_cid(),
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }
@@ -1400,6 +1406,7 @@ async fn process_signal_command_as_server(
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: signal,
                     ticket,
+                    implicated_cid: sess_hyper_ratchet.get_cid(),
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }

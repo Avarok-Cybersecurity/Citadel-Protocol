@@ -39,7 +39,6 @@ use citadel_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
 use citadel_wire::exports::Endpoint;
 use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
 use citadel_wire::tls::client_config_to_tls_connector;
-use std::convert::TryFrom;
 
 pub type TlsDomain = Option<String>;
 
@@ -161,7 +160,9 @@ impl Node {
 
         let (outbound_send_request_tx, outbound_send_request_rx) =
             BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
-        let kernel_async_callback_handler = KernelAsyncCallbackHandler::default();
+        let kernel_async_callback_handler = KernelAsyncCallbackHandler {
+            inner: Default::default(),
+        };
         let remote = NodeRemote::new(
             outbound_send_request_tx,
             kernel_async_callback_handler.clone(),
@@ -643,6 +644,7 @@ impl Node {
                             to_kernel.unbounded_send(NodeResult::InternalServerError(
                                 InternalServerError {
                                     ticket_opt: None,
+                                    cid_opt: None,
                                     message: format!(
                                         "HDP Server dropping connection to {peer_addr}. Reason: {err}"
                                     ),
@@ -704,6 +706,7 @@ impl Node {
             if to_kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: Some(ticket_id),
+                    cid_opt: None,
                     message: err.clone(),
                 }))
                 .is_err()

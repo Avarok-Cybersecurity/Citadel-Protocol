@@ -74,7 +74,7 @@ where
 #[cfg(feature = "localhost-testing")]
 pub async fn wait_for_peers() {
     let barrier = { TEST_BARRIER.lock().clone() };
-
+    assert!(*DEADLOCK_INIT, "Deadlock detector not initialized");
     if let Some(test_barrier) = barrier {
         // Wait for all peers to reach this point in the code
         test_barrier.wait().await;
@@ -85,12 +85,31 @@ pub async fn wait_for_peers() {
 pub async fn wait_for_peers() {}
 
 #[cfg(feature = "localhost-testing")]
+pub fn num_local_test_peers() -> usize {
+    let barrier = { TEST_BARRIER.lock().clone() };
+    assert!(*DEADLOCK_INIT, "Deadlock detector not initialized");
+    if let Some(test_barrier) = barrier {
+        // Wait for all peers to reach this point in the code
+        test_barrier.count
+    } else {
+        panic!("Test barrier should be initialized")
+    }
+}
+
+#[cfg(not(feature = "localhost-testing"))]
+pub const fn num_local_test_peers() -> usize {
+    0
+}
+
+#[cfg(feature = "localhost-testing")]
 pub static TEST_BARRIER: citadel_io::Mutex<Option<TestBarrier>> = citadel_io::const_mutex(None);
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct TestBarrier {
     #[allow(dead_code)]
     pub inner: std::sync::Arc<tokio::sync::Barrier>,
+    count: usize,
 }
 
 #[cfg(feature = "localhost-testing")]
@@ -102,6 +121,7 @@ impl TestBarrier {
     pub(crate) fn new(count: usize) -> Self {
         Self {
             inner: std::sync::Arc::new(tokio::sync::Barrier::new(count)),
+            count,
         }
     }
     pub async fn wait(&self) {
@@ -125,9 +145,9 @@ impl TestBarrier {
 
 #[cfg(feature = "localhost-testing")]
 lazy_static::lazy_static! {
-    static ref DEADLOCK_INIT: () = {
+    static ref DEADLOCK_INIT: bool = {
         let _ = std::thread::spawn(move || {
-            log::info!(target: "citadel", "Executing deadlock detector ...");
+            log::trace!(target: "citadel", "Executing deadlock detector ...");
             use std::thread;
             use std::time::Duration;
             use citadel_io::deadlock;
@@ -135,6 +155,7 @@ lazy_static::lazy_static! {
                 std::thread::sleep(Duration::from_secs(5));
                 let deadlocks = deadlock::check_deadlock();
                 if deadlocks.is_empty() {
+                    log::error!(target: "citadel", "No deadlocks detected");
                     continue;
                 }
 
@@ -148,6 +169,8 @@ lazy_static::lazy_static! {
                 }
             }
         });
+
+        true
     };
 }
 

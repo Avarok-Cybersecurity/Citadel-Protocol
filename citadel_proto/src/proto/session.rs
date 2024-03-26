@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -79,6 +80,7 @@ use citadel_wire::nat_identification::NatType;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::time::{SystemTime, UNIX_EPOCH};
 //use futures_codec::Framed;
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
@@ -951,6 +953,7 @@ impl HdpSession {
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult>,
             session: &HdpSession,
+            cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             match result {
                 Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
@@ -959,6 +962,7 @@ impl HdpSession {
                         kernel_tx,
                         return_packet,
                         None,
+                        cid_opt,
                     )
                     .map_err(|err| {
                         std::io::Error::new(
@@ -1020,15 +1024,16 @@ impl HdpSession {
 
         let res = reader
             .try_for_each_concurrent(None, |packet| async move {
+                let implicated_cid = implicated_cid.get();
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
-                    implicated_cid.get(),
+                    implicated_cid,
                     this_main,
                     *remote_peer,
                     *local_primary_port,
                     packet,
                 )
                 .await;
-                evaluate_result(result, primary_stream, kernel_tx, this_main)
+                evaluate_result(result, primary_stream, kernel_tx, this_main, implicated_cid)
             })
             .map_err(|err| handle_session_terminating_error(err, is_server, p2p))
             .await;
@@ -1047,11 +1052,13 @@ impl HdpSession {
         kernel_tx: &UnboundedSender<NodeResult>,
         msg: BytesMut,
         ticket: Option<Ticket>,
+        cid_opt: Option<u64>,
     ) -> Result<(), NetworkError> {
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
             kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: ticket,
+                    cid_opt,
                     message: err.to_string(),
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -1083,7 +1090,7 @@ impl HdpSession {
 
             let kernel_ticket = borrow.kernel_ticket.get();
             let is_server = borrow.is_server;
-            std::mem::drop(borrow);
+            drop(borrow);
 
             // now, begin loading the subroutines
             //let mut loop_idx = 0;
@@ -1160,8 +1167,6 @@ impl HdpSession {
                 }
             });
 
-            // TODO: Rework UDP keep-alive subsystem to take QUIC into consideration.
-            // QUIC already handles KA, but raw udp does not
             queue_worker.insert_reserved_fn(
                 Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)),
                 FIREWALL_KEEP_ALIVE_UDP,
@@ -1188,7 +1193,6 @@ impl HdpSession {
             queue_worker
         };
 
-        //std::mem::drop(this_main);
         queue_worker.await
     }
 
@@ -1351,7 +1355,16 @@ impl HdpSession {
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
         let this = self;
-        let source_path_location_opt = source.delete_path();
+        let source_path = source.path().ok_or_else(|| {
+            NetworkError::InternalError("The source object does not have a path location")
+        })?;
+
+        let file =
+            File::open(&source_path).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let file_metadata = file
+            .metadata()
+            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+
         self.ensure_connected(&ticket)?;
 
         let file_name = source
@@ -1414,12 +1427,18 @@ impl HdpSession {
                 )
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
+                let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+
                 let file_metadata = VirtualObjectMetadata {
                     object_id,
                     name: file_name,
-                    // TODO: update metadata using the local file handle metadata
-                    date_created: "".to_string(),
-                    author: "N/A".to_string(),
+                    date_created: chrono::DateTime::from_timestamp(
+                        date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+                        0,
+                    )
+                    .expect("Invalid timestamp")
+                    .to_rfc2822(),
+                    author: implicated_cid.to_string(),
                     plaintext_length: file_size,
                     group_count: groups_needed,
                     cid: implicated_cid,
@@ -1456,6 +1475,16 @@ impl HdpSession {
             } => {
                 log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
                 // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
+                let crypt_container_c2s = &state_container
+                    .c2s_channel_container
+                    .as_ref()
+                    .unwrap()
+                    .peer_session_crypto;
+                let static_aux_ratchet = crypt_container_c2s
+                    .toolset
+                    .get_static_auxiliary_ratchet()
+                    .clone();
+
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
 
@@ -1472,11 +1501,11 @@ impl HdpSession {
                     .get_hyper_ratchet(None)
                     .unwrap();
 
-                let static_aux_ratchet = endpoint_container
-                    .endpoint_crypto
-                    .toolset
-                    .get_static_auxiliary_ratchet()
-                    .clone();
+                /*let static_aux_ratchet = endpoint_container
+                .endpoint_crypto
+                .toolset
+                .get_static_auxiliary_ratchet()
+                .clone();*/
 
                 let preferred_primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
@@ -1500,11 +1529,18 @@ impl HdpSession {
                 )
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
+                let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+
                 let file_metadata = VirtualObjectMetadata {
                     object_id,
                     name: file_name,
-                    date_created: "".to_string(),
-                    author: "".to_string(),
+                    date_created: chrono::DateTime::from_timestamp(
+                        date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+                        0,
+                    )
+                    .expect("Invalid timestamp")
+                    .to_rfc2822(),
+                    author: implicated_cid.to_string(),
                     plaintext_length: file_size,
                     group_count: groups_needed,
                     cid: implicated_cid,
@@ -1574,7 +1610,7 @@ impl HdpSession {
             .outbound_files
             .insert(file_key, outbound_file_transfer_container);
         // spawn the task that takes GroupSenders from the threadpool cryptscrambler
-        std::mem::drop(state_container);
+        drop(state_container);
 
         let this = self.clone();
         let future = async move {
@@ -1606,6 +1642,7 @@ impl HdpSession {
             //
 
             let mut relative_group_id = 0;
+            let implicated_cid = this.implicated_cid.get();
             // while waiting, we likely have a set of GroupSenders to process
             while let Some(sender) = group_sender_rx.next().await {
                 match sender {
@@ -1689,7 +1726,7 @@ impl HdpSession {
                             relative_group_id += 1;
                             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
                             // the key is the target_cid coupled with the group id
-                            let key = GroupKey::new(key_cid, group_id);
+                            let key = GroupKey::new(key_cid, group_id, object_id);
 
                             assert!(state_container
                                 .outbound_transmitters
@@ -1704,7 +1741,6 @@ impl HdpSession {
                         };
 
                         let kernel_tx2 = kernel_tx.clone();
-
                         this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                             if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
                                 // as long as a wave ACK has been received, proceed with the timeout check
@@ -1727,6 +1763,7 @@ impl HdpSession {
 
                                             if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                 ticket_opt: Some(ticket),
+                                                cid_opt: implicated_cid,
                                                 message: format!("Timeout on ticket {ticket}")
                                             })).is_err() {
                                                 log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
@@ -1735,7 +1772,7 @@ impl HdpSession {
                                                 QueueWorkerResult::Complete
                                             }
                                         } else {
-                                            log::trace!(target: "citadel", "[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                            log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {}", group_id);
                                             QueueWorkerResult::Incomplete
                                         }
                                     } else {
@@ -1766,6 +1803,7 @@ impl HdpSession {
                             .clone()
                             .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                 ticket_opt: Some(ticket),
+                                cid_opt: implicated_cid,
                                 message: err.to_string(),
                             }));
                     }
@@ -1773,9 +1811,7 @@ impl HdpSession {
             }
 
             // we finished pulling. Now, execute the hook if present
-            if let Some(path) = source_path_location_opt {
-                post_close_hook(path);
-            }
+            post_close_hook(source_path);
         };
 
         spawn!(future);
@@ -1823,6 +1859,7 @@ impl HdpSession {
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
                                             ticket_opt: Some(ticket),
+                                            cid_opt: this.implicated_cid.get(),
                                             message: err.into_string(),
                                         },
                                     ))
@@ -1838,6 +1875,7 @@ impl HdpSession {
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
                                             ticket_opt: Some(ticket),
+                                            cid_opt: this.implicated_cid.get(),
                                             message: err.into_string(),
                                         },
                                     ))
@@ -1899,6 +1937,9 @@ impl HdpSession {
                                     )),
                                 },
                                 ticket,
+                                implicated_cid: self.implicated_cid.get().ok_or_else(|| {
+                                    NetworkError::InternalError("Implicated CID not set")
+                                })?,
                             }))
                             .map_err(|err| NetworkError::Generic(err.to_string()));
                     }
@@ -2118,6 +2159,7 @@ impl HdpSession {
                     to_kernel_tx,
                     disconnect_stage0_packet,
                     Some(ticket),
+                    self.implicated_cid.get(),
                 )
             })?
             .map(|_| true)
@@ -2176,6 +2218,7 @@ impl HdpSessionInner {
                 Err(err) => {
                     self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                         ticket_opt: ticket,
+                        cid_opt: self.implicated_cid.get(),
                         message: err.to_string(),
                     }))
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -2200,6 +2243,7 @@ impl HdpSessionInner {
                 self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: ticket,
                     message: err.to_string(),
+                    cid_opt: self.implicated_cid.get(),
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 Err(err)

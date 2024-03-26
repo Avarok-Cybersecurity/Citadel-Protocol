@@ -3,6 +3,7 @@ use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
+use crate::prelude::InternalServerError;
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::session_queue_handler::QueueWorkerResult;
@@ -82,9 +83,39 @@ pub fn process_primary_packet(
                     Ok(res)
                 }
 
-                Err(err) => {
+                Err((err, ticket, object_id)) => {
                     log::error!(target: "citadel", "on_group_payload_received error: {:?}", err);
-                    Ok(PrimaryProcessorResult::Void)
+                    // Send an error packet back to the source and send a signal to the handle
+                    // TODO: File transfer handle cleanup on failure
+                    if let Err(err) = state_container.notify_object_transfer_handle_failure(
+                        &header,
+                        err.to_string(),
+                        object_id,
+                    ) {
+                        log::error!(target: "citadel", "Unable to notify object transfer handle failure: {err:?}");
+                        // Send error to kernel instead
+                        session.send_to_kernel(NodeResult::InternalServerError(
+                            InternalServerError {
+                                ticket_opt: Some(ticket),
+                                message: err.to_string(),
+                                cid_opt: session.implicated_cid.get(),
+                            },
+                        ))?;
+                    }
+
+                    let v_conn = get_v_conn_from_header(&header);
+
+                    // Finally, alert the adjacent endpoint by crafting an error packet
+                    let error_packet = packet_crafter::file::craft_file_error_packet(
+                        &hyper_ratchet,
+                        ticket,
+                        security_level,
+                        v_conn,
+                        timestamp,
+                        err.into_string(),
+                        object_id,
+                    );
+                    Ok(PrimaryProcessorResult::ReplyToSender(error_packet))
                 }
             }
         }
@@ -93,13 +124,12 @@ pub fn process_primary_packet(
             match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
                 Some((header, mut payload)) => {
                     state_container.meta_expiry_state.on_event_confirmation();
-
                     match cmd_aux {
                         packet_flags::cmd::aux::group::GROUP_HEADER => {
                             log::trace!(target: "citadel", "RECV GROUP HEADER");
                             let is_message = header.algorithm == 1;
                             if is_message {
-                                let (plaintext, transfer) = return_if_none!(
+                                let (plaintext, transfer, object_id) = return_if_none!(
                                     validation::group::validate_message(&mut payload),
                                     "Bad message packet"
                                 );
@@ -146,6 +176,7 @@ pub fn process_primary_packet(
                                         &hyper_ratchet,
                                         header.group.get(),
                                         resp_target_cid,
+                                        object_id,
                                         ticket,
                                         None,
                                         true,
@@ -165,7 +196,7 @@ pub fn process_primary_packet(
                                         virtual_target,
                                     ) => {
                                         // First, check to make sure the virtual target can accept
-
+                                        let object_id = group_receiver_config.object_id;
                                         let ticket = header.context_info.get().into();
 
                                         //let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
@@ -191,7 +222,7 @@ pub fn process_primary_packet(
                                             let peer_cid = header.session_cid.get();
 
                                             session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                                                let key = GroupKey::new(peer_cid, group_id);
+                                                let key = GroupKey::new(peer_cid, group_id, object_id);
                                                 if let Some(group) = state_container.inbound_groups.get(&key) {
                                                     if group.has_begun {
                                                         if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
@@ -213,7 +244,7 @@ pub fn process_primary_packet(
 
                                                                 QueueWorkerResult::Complete
                                                             } else {
-                                                                log::trace!(target: "citadel", "[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                                log::trace!(target: "citadel", "Other inbound groups being processed; patiently awaiting group {}", group_id);
                                                                 QueueWorkerResult::Incomplete
                                                             }
                                                         } else {
@@ -236,6 +267,7 @@ pub fn process_primary_packet(
                                                 &hyper_ratchet,
                                                 header.group.get(),
                                                 resp_target_cid,
+                                                object_id,
                                                 ticket,
                                                 initial_wave_window,
                                                 false,
@@ -256,6 +288,7 @@ pub fn process_primary_packet(
                                     initial_window,
                                     transfer,
                                     fast_msg,
+                                    object_id,
                                 }) => {
                                     // we need to begin sending the data
                                     // valid and ready to accept!
@@ -301,6 +334,7 @@ pub fn process_primary_packet(
                                         peer_cid,
                                         target_cid,
                                         group_id,
+                                        object_id,
                                         initial_wave_window,
                                         transfer,
                                         fast_msg,
@@ -351,12 +385,16 @@ pub fn process_primary_packet(
                                     }
                                 }
 
-                                Some(GroupHeaderAck::NotReady { fast_msg }) => {
+                                Some(GroupHeaderAck::NotReady {
+                                    fast_msg,
+                                    object_id,
+                                }) => {
                                     // valid but not ready to accept.
                                     // Possible reasons: too large, target not valid (e.g., not registered, not connected, etc)
                                     //let mut state_container = session.state_container.borrow_mut();
                                     let group = header.group.get();
-                                    let key = GroupKey::new(header.session_cid.get(), group);
+                                    let key =
+                                        GroupKey::new(header.session_cid.get(), group, object_id);
                                     if state_container.outbound_transmitters.remove(&key).is_none()
                                     {
                                         log::error!(target: "citadel", "Unable to remove outbound transmitter for group {} (non-existent)", group);
@@ -804,5 +842,19 @@ pub(crate) fn update_toolset_as_bob(
                 .update(ConstructorType::Default(constructor), false)
                 .ok()?,
         )
+    }
+}
+
+/// Returns the virtual connection type for the response target cid. Is relative to the current node, not the receiving node
+pub fn get_v_conn_from_header(header: &HdpHeader) -> VirtualConnectionType {
+    let target_cid = header.session_cid.get();
+    let implicated_cid = header.target_cid.get();
+    if target_cid != C2S_ENCRYPTION_ONLY {
+        VirtualConnectionType::LocalGroupPeer {
+            implicated_cid,
+            peer_cid: target_cid,
+        }
+    } else {
+        VirtualConnectionType::LocalGroupServer { implicated_cid }
     }
 }

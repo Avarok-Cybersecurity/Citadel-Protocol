@@ -1,6 +1,6 @@
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::prelude::{ReVFSResult, Ticket};
+use crate::prelude::{InternalServerError, ReVFSResult, Ticket};
 use crate::proto::packet_crafter::file::ReVFSPullAckPacket;
 use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
@@ -39,6 +39,41 @@ pub fn process_file_packet(
     match validation::group::validate(&hyper_ratchet, security_level, header_bytes, payload) {
         Some(payload) => {
             match header.cmd_aux {
+                packet_flags::cmd::aux::file::FILE_ERROR => {
+                    log::error!(target: "citadel", "RECV FILE ERROR");
+                    match validation::file::validate_file_error(&header, &payload[..]) {
+                        Some(payload) => {
+                            let ticket: Ticket = header.context_info.get().into();
+                            let target_cid = header.session_cid.get();
+                            let object_id = payload.object_id;
+
+                            if let Err(err) = state_container
+                                .notify_object_transfer_handle_failure_with(
+                                    target_cid,
+                                    object_id,
+                                    payload.error_message.clone(),
+                                )
+                            {
+                                log::error!(target: "citadel", "Failed to notify object transfer handle failure: {err}");
+                            }
+
+                            session.send_to_kernel(NodeResult::InternalServerError(
+                                InternalServerError {
+                                    ticket_opt: Some(ticket),
+                                    message: payload.error_message,
+                                    cid_opt: session.implicated_cid.get(),
+                                },
+                            ))?;
+
+                            Ok(PrimaryProcessorResult::Void)
+                        }
+
+                        _ => {
+                            log::error!(target: "citadel", "Unable to validate payload of file error");
+                            Ok(PrimaryProcessorResult::Void)
+                        }
+                    }
+                }
                 packet_flags::cmd::aux::file::FILE_HEADER => {
                     log::trace!(target: "citadel", "RECV FILE HEADER");
                     match validation::file::validate_file_header(&header, &payload[..]) {
@@ -108,7 +143,14 @@ pub fn process_file_packet(
                             let success = payload.success;
                             let object_id = payload.object_id;
                             let v_target = payload.virtual_target;
-                            let implicated_cid = header.session_cid.get();
+                            let is_p2p =
+                                header.session_cid.get() != 0 && header.target_cid.get() != 0;
+                            let implicated_cid = if is_p2p {
+                                header.target_cid.get()
+                            } else {
+                                header.session_cid.get()
+                            };
+                            //let implicated_cid = header.session_cid.get();
                             // conclude by passing this data into the state container
                             if state_container
                                 .on_file_header_ack_received(
@@ -117,6 +159,7 @@ pub fn process_file_packet(
                                     header.context_info.get().into(),
                                     object_id,
                                     v_target,
+                                    payload.transfer_type,
                                 )
                                 .is_none()
                             {
@@ -265,6 +308,7 @@ pub fn process_file_packet(
                                 error_message: payload.error_msg,
                                 data: None,
                                 ticket,
+                                implicated_cid: hyper_ratchet.get_cid(),
                             });
 
                             session.send_to_kernel(response)?;
@@ -294,6 +338,7 @@ pub fn process_file_packet(
                                     error_message: Some(error),
                                     data: None,
                                     ticket,
+                                    implicated_cid: hyper_ratchet.get_cid(),
                                 });
 
                                 session.send_to_kernel(error_signal)?;

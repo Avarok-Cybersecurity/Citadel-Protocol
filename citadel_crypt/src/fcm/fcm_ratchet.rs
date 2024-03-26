@@ -13,7 +13,6 @@ use citadel_types::crypto::SecurityLevel;
 use citadel_types::crypto::LARGEST_NONCE_LEN;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]

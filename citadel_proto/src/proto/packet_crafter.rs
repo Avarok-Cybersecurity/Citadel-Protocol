@@ -230,7 +230,6 @@ pub(crate) mod group {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
-    use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::prelude::*;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -298,6 +297,8 @@ pub(crate) mod group {
             packet
         };
 
+        packet.put_u64(processor.object_id);
+
         processor
             .hyper_ratchet_container
             .base
@@ -320,6 +321,7 @@ pub(crate) mod group {
         hyper_ratchet: &StackedRatchet,
         group_id: u64,
         target_cid: u64,
+        object_id: u64,
         ticket: Ticket,
         initial_wave_window: Option<RangeInclusive<u32>>,
         fast_msg: bool,
@@ -346,6 +348,7 @@ pub(crate) mod group {
             fast_msg,
             initial_window: initial_wave_window,
             transfer,
+            object_id,
         };
 
         let mut packet =
@@ -362,7 +365,6 @@ pub(crate) mod group {
 
     /// This is called by the scrambler. NOTE: the scramble_drill MUST have the same drill/cid as the message_drill, otherwise
     /// packets will not be rendered on the otherside
-    #[inline]
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
         scramble_drill: &EntropyBank,
@@ -392,7 +394,7 @@ pub(crate) mod group {
         debug_assert!(src_port <= scramble_drill.get_multiport_width() as u16);
         debug_assert!(remote_port <= scramble_drill.get_multiport_width() as u16);
         buffer.put_u8(src_port as u8);
-        buffer.put_u8(remote_port as u8)
+        buffer.put_u8(remote_port as u8);
     }
 
     // NOTE: context infos contain the object ID in most of the GROUP packets
@@ -1589,11 +1591,58 @@ pub(crate) mod file {
     use bytes::BytesMut;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::SecurityLevel;
+    use citadel_types::prelude::TransferType;
     use citadel_types::proto::VirtualObjectMetadata;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
     use std::path::PathBuf;
     use zerocopy::{I64, U128, U32, U64};
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct FileTransferErrorPacket {
+        pub error_message: String,
+        pub object_id: u64,
+    }
+
+    pub(crate) fn craft_file_error_packet(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        security_level: SecurityLevel,
+        virtual_target: VirtualTargetType,
+        timestamp: i64,
+        error_message: String,
+        object_id: u64,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FILE,
+            cmd_aux: packet_flags::cmd::aux::file::FILE_ERROR,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+        let payload = FileTransferErrorPacket {
+            error_message,
+            object_id,
+        };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct FileHeaderPacket {
@@ -1630,7 +1679,6 @@ pub(crate) mod file {
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
-
         let payload = FileHeaderPacket {
             file_metadata,
             virtual_target,
@@ -1651,6 +1699,7 @@ pub(crate) mod file {
         pub success: bool,
         pub virtual_target: VirtualTargetType,
         pub object_id: u64,
+        pub transfer_type: TransferType,
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1663,6 +1712,7 @@ pub(crate) mod file {
         security_level: SecurityLevel,
         virtual_target: VirtualTargetType,
         timestamp: i64,
+        transfer_type: TransferType,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1686,6 +1736,7 @@ pub(crate) mod file {
             success,
             virtual_target,
             object_id,
+            transfer_type,
         };
 
         payload.serialize_into_buf(&mut packet).unwrap();

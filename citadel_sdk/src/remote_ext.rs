@@ -3,11 +3,7 @@ use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::LocalGroupPeer;
-use crate::remote_ext::user_ids::{SymmetricIdentifierHandleRef, TargetLockedRemote};
 
-use citadel_proto::auth::AuthenticationRequest;
-use citadel_types::proto::ConnectMode;
-use citadel_types::proto::ObjectTransferStatus;
 use futures::StreamExt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -156,12 +152,24 @@ pub trait ProtocolRemoteExt: Remote {
             static_security_settings: default_security_settings,
         });
 
-        match map_errors(self.send_callback(register_request).await?)? {
-            NodeResult::RegisterOkay(RegisterOkay { .. }) => Ok(RegisterSuccess {}),
-            res => Err(NetworkError::msg(format!(
-                "An unexpected response occurred: {res:?}"
-            ))),
+        let mut subscription = self.send_callback_subscription(register_request).await?;
+        while let Some(status) = subscription.next().await {
+            match map_errors(status)? {
+                NodeResult::RegisterOkay(RegisterOkay { .. }) => {
+                    return Ok(RegisterSuccess {});
+                }
+                NodeResult::RegisterFailure(err) => {
+                    return Err(NetworkError::Generic(err.error_message));
+                }
+                evt => {
+                    log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
+                }
+            }
         }
+
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (register)",
+        ))
     }
 
     /// Registers using the default settings. The default uses No Google FCM keys and the default session security settings
@@ -198,8 +206,6 @@ pub trait ProtocolRemoteExt: Remote {
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
     ) -> Result<ConnectionSuccess, NetworkError> {
-        //let fcm_keys = fcm_keys.or_else(||cnac.get_fcm_keys()); // use the specified keys, or else get the fcm keys created during the registration phase
-
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
             connect_mode,
@@ -208,7 +214,15 @@ pub trait ProtocolRemoteExt: Remote {
             session_security_settings,
         });
 
-        match map_errors(self.send_callback(connect_request).await?)? {
+        let mut subscription = self.send_callback_subscription(connect_request).await?;
+        let status = subscription
+            .next()
+            .await
+            .ok_or(NetworkError::InternalError(
+                "Internal kernel stream died (connect)",
+            ))?;
+
+        return match map_errors(status)? {
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: _,
                 implicated_cid: cid,
@@ -232,10 +246,11 @@ pub trait ProtocolRemoteExt: Remote {
                 cid_opt: _,
                 error_message: err,
             }) => Err(NetworkError::Generic(err)),
+
             res => Err(NetworkError::msg(format!(
                 "[connect] An unexpected response occurred: {res:?}"
             ))),
-        }
+        };
     }
 
     /// Connects with the default settings
@@ -314,14 +329,23 @@ pub trait ProtocolRemoteExt: Remote {
                 remote: self.remote_ref(),
                 target_username: None,
             }),
-            UserIdentifier::Username(uname) => Ok(SymmetricIdentifierHandleRef {
-                user: VirtualTargetType::LocalGroupPeer {
-                    implicated_cid: local_cid,
-                    peer_cid: 0,
-                },
-                remote: self.remote_ref(),
-                target_username: Some(uname),
-            }),
+            UserIdentifier::Username(uname) => {
+                let peer_cid = self
+                    .remote_ref()
+                    .account_manager()
+                    .find_target_information(local_cid, uname.clone())
+                    .await?
+                    .map(|r| r.1.cid)
+                    .unwrap_or(0);
+                Ok(SymmetricIdentifierHandleRef {
+                    user: VirtualTargetType::LocalGroupPeer {
+                        implicated_cid: local_cid,
+                        peer_cid,
+                    },
+                    remote: self.remote_ref(),
+                    target_username: Some(uname),
+                })
+            }
         }
     }
 
@@ -353,6 +377,7 @@ pub trait ProtocolRemoteExt: Remote {
                         limit: _,
                     },
                 ticket: _,
+                ..
             }) = map_errors(status)?
             {
                 return Ok(cids
@@ -363,7 +388,9 @@ pub trait ProtocolRemoteExt: Remote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (get_local_group_peers)",
+        ))
     }
 
     /// Returns a list of mutually-registered peers with the local_user
@@ -390,6 +417,7 @@ pub trait ProtocolRemoteExt: Remote {
                         response: Some(PeerResponse::RegisteredCids(cids, is_onlines)),
                     },
                 ticket: _,
+                ..
             }) = map_errors(status)?
             {
                 return Ok(cids
@@ -400,7 +428,9 @@ pub trait ProtocolRemoteExt: Remote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (get_local_group_mutual_peers)",
+        ))
     }
 
     #[doc(hidden)]
@@ -423,6 +453,7 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
     match result {
         NodeResult::InternalServerError(InternalServerError {
             ticket_opt: _,
+            cid_opt: _,
             message: err,
         }) => Err(NetworkError::Generic(err)),
         NodeResult::PeerEvent(PeerEvent {
@@ -432,6 +463,7 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
                     error: err,
                 },
             ticket: _,
+            ..
         }) => Err(NetworkError::Generic(err)),
         res => Ok(res),
     }
@@ -468,8 +500,8 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let user = *self.user();
         let remote = self.remote();
 
-        let result = remote
-            .send_callback(NodeRequest::SendObject(SendObject {
+        let mut stream = remote
+            .send_callback_subscription(NodeRequest::SendObject(SendObject {
                 source: Box::new(source),
                 chunk_size,
                 implicated_cid,
@@ -477,21 +509,36 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 transfer_type,
             }))
             .await?;
-        match map_errors(result)? {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _ticket,
-                mut handle,
-            }) => {
-                while let Some(res) = handle.next().await {
-                    log::trace!(target: "citadel", "Client received RES {:?}", res);
-                    if let ObjectTransferStatus::TransferComplete = res {
-                        return Ok(());
+
+        while let Some(event) = stream.next().await {
+            match map_errors(event)? {
+                NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
+                    while let Some(res) = handle.next().await {
+                        log::trace!(target: "citadel", "Client received RES {res:?}");
+                        match res {
+                            ObjectTransferStatus::TransferComplete => {
+                                return Ok(());
+                            }
+
+                            ObjectTransferStatus::Fail(err) => {
+                                return Err(NetworkError::Generic(format!(
+                                    "File transfer failed: {err:?}"
+                                )));
+                            }
+
+                            _ => {}
+                        }
                     }
                 }
-            }
 
-            res => {
-                log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res)
+                NodeResult::PeerEvent(PeerEvent {
+                    event: PeerSignal::SignalReceived { .. },
+                    ..
+                }) => {}
+
+                res => {
+                    log::warn!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {res:?}")
+                }
             }
         }
 
@@ -562,36 +609,53 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             transfer_security_level,
         });
 
-        match map_errors(self.remote().send_callback(request).await?)? {
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _ticket,
-                mut handle,
-            }) => {
-                let mut local_path = None;
-                while let Some(res) = handle.next().await {
-                    log::trace!(target: "citadel", "Client received RES {:?}", res);
-                    match res {
-                        ObjectTransferStatus::ReceptionBeginning(path, _) => {
-                            local_path = Some(path)
-                        }
-                        ObjectTransferStatus::TransferComplete => {
-                            break;
-                        }
+        let mut stream = self.remote().send_callback_subscription(request).await?;
 
-                        _ => {}
+        while let Some(event) = stream.next().await {
+            match map_errors(event)? {
+                NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
+                    let mut local_path = None;
+                    while let Some(res) = handle.next().await {
+                        log::trace!(target: "citadel", "REVFS PULL EVENT {:?}", res);
+                        match res {
+                            ObjectTransferStatus::ReceptionBeginning(path, _) => {
+                                local_path = Some(path)
+                            }
+                            ObjectTransferStatus::TransferComplete => {
+                                break;
+                            }
+
+                            ObjectTransferStatus::Fail(err) => {
+                                return Err(NetworkError::Generic(format!(
+                                    "File download failed: {err:?}"
+                                )));
+                            }
+
+                            _ => {}
+                        }
                     }
+
+                    return local_path
+                        .ok_or(NetworkError::InternalError("Local path never loaded"));
                 }
 
-                Ok(local_path.ok_or(NetworkError::InternalError("Local path never loaded"))?)
-            }
+                NodeResult::PeerEvent(PeerEvent {
+                    event: PeerSignal::SignalReceived { .. },
+                    ..
+                }) => {}
 
-            res => {
-                log::error!(target: "citadel", "Invalid NodeResult for FileTransfer request received: {:?}", res);
-                Err(NetworkError::InternalError(
-                    "Received invalid response from protocol",
-                ))
+                res => {
+                    log::error!(target: "citadel", "Invalid NodeResult for REVFS FileTransfer request received: {:?}", res);
+                    return Err(NetworkError::InternalError(
+                        "Received invalid response from protocol",
+                    ));
+                }
             }
         }
+
+        Err(NetworkError::InternalError(
+            "REVFS File transfer stream died",
+        ))
     }
 
     /// Deletes the file from the RE-VFS. If the contents are desired on delete,
@@ -608,16 +672,24 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             security_level: Default::default(),
         });
 
-        let response = map_errors(self.remote().send_callback(request).await?)?;
-        if let NodeResult::ReVFS(result) = response {
-            if let Some(error) = result.error_message {
-                Err(NetworkError::Generic(error))
-            } else {
-                Ok(())
+        let mut stream = self.remote().send_callback_subscription(request).await?;
+        while let Some(event) = stream.next().await {
+            match map_errors(event)? {
+                NodeResult::ReVFS(result) => {
+                    if let Some(error) = result.error_message {
+                        return Err(NetworkError::Generic(error));
+                    } else {
+                        return Ok(());
+                    }
+                }
+
+                evt => {
+                    log::error!(target: "citadel", "Invalid NodeResult for REVFS Delete request received: {evt:?}");
+                }
             }
-        } else {
-            Err(NetworkError::InternalError("Invalid NodeRequest response"))
         }
+
+        Err(NetworkError::InternalError("REVFS Delete stream died"))
     }
 
     /// Connects to the peer with custom settings
@@ -669,19 +741,26 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 NodeResult::PeerEvent(PeerEvent {
                     event:
                         PeerSignal::PostConnect {
-                            peer_conn_type: _,
-                            ticket_opt: _,
-                            invitee_response: Some(PeerResponse::Decline),
-                            ..
+                            invitee_response, ..
                         },
                     ..
-                }) => return Err(NetworkError::msg("Peer declined to connect")),
+                }) => match invitee_response {
+                    Some(PeerResponse::Timeout) => {
+                        return Err(NetworkError::msg("Peer did not respond in time"))
+                    }
+                    Some(PeerResponse::Decline) => {
+                        return Err(NetworkError::msg("Peer declined to connect"))
+                    }
+                    _ => {}
+                },
 
                 _ => {}
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError(
+            "Internal kernel stream died (connect_to_peer_custom)",
+        ))
     }
 
     /// Connects to the target peer with default settings
@@ -728,6 +807,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                         invitee_response: Some(resp),
                     },
                 ticket: _,
+                ..
             }) = map_errors(status)?
             {
                 match resp {
@@ -739,7 +819,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::Generic(format!(
+            "Internal kernel stream died (register_to_peer): {:?}",
+            stream.callback_key()
+        )))
     }
 
     /// Deregisters the currently locked target. If the target is a client to server
@@ -761,6 +844,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 if let NodeResult::PeerEvent(PeerEvent {
                     event: PeerSignal::DeregistrationSuccess { .. },
                     ticket: _,
+                    ..
                 }) = map_errors(result)?
                 {
                     return Ok(());
@@ -824,6 +908,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                                 disconnect_response: Some(_),
                             },
                         ticket: _,
+                        ..
                     }) = map_errors(event)?
                     {
                         return Ok(());
@@ -904,9 +989,14 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
-
+        log::error!(target: "citadel", "Create_group");
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::GroupChannelCreated(GroupChannelCreated { ticket: _, channel }) = evt
+            log::error!(target: "citadel", "Create_group {evt:?}");
+            if let NodeResult::GroupChannelCreated(GroupChannelCreated {
+                ticket: _,
+                channel,
+                implicated_cid: _,
+            }) = evt
             {
                 return Ok(channel);
             }
@@ -920,13 +1010,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Lists all groups that which the current peer owns
     async fn list_owned_groups(&self) -> Result<Vec<MessageGroupKey>, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
+        let cid_to_check_for = match self.try_as_peer_connection().await {
+            Ok(res) => res.get_original_target_cid(),
+            _ => implicated_cid,
+        };
         let group_request = GroupBroadcast::ListGroupsFor {
-            cid: implicated_cid,
+            cid: cid_to_check_for,
         };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
             implicated_cid,
             command: group_request,
         });
+
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
         while let Some(evt) = subscription.next().await {
@@ -934,7 +1029,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 implicated_cid: _,
                 ticket: _,
                 event: GroupBroadcast::ListResponse { groups },
-            }) = evt
+            }) = map_errors(evt)?
             {
                 return Ok(groups);
             }
@@ -966,9 +1061,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "List_members ended unexpectedly",
-        ))
+        Err(NetworkError::InternalError("Rekey ended unexpectedly"))
     }
 
     /// Checks if the locked target is registered
@@ -1049,10 +1142,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 impl<T: TargetLockedRemote> ProtocolRemoteTargetExt for T {}
 
 pub mod results {
-    use crate::prelude::{ObjectTransferHandler, PeerChannel, UdpChannel};
+    use crate::prefabs::client::peer_connection::FileTransferHandleRx;
+    use crate::prelude::{PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
     use citadel_proto::prelude::NetworkError;
-    use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::sync::oneshot::Receiver;
 
     #[derive(Debug)]
@@ -1062,15 +1155,14 @@ pub mod results {
         pub remote: PeerRemote,
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
-        pub(crate) incoming_object_transfer_handles:
-            Option<UnboundedReceiver<ObjectTransferHandler>>,
+        pub(crate) incoming_object_transfer_handles: Option<FileTransferHandleRx>,
     }
 
     impl PeerConnectSuccess {
         /// Obtains a receiver which yields incoming file/object transfer handles
         pub fn get_incoming_file_transfer_handle(
             &mut self,
-        ) -> Result<UnboundedReceiver<ObjectTransferHandler>, NetworkError> {
+        ) -> Result<FileTransferHandleRx, NetworkError> {
             self.incoming_object_transfer_handles
                 .take()
                 .ok_or(NetworkError::InternalError(
@@ -1125,9 +1217,7 @@ pub mod remote_specialization {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::node_builder::{NodeBuilder, NodeFuture};
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prelude::ProtocolRemoteTargetExt;
     use crate::prelude::*;
     use rstest::rstest;
     use std::net::SocketAddr;
@@ -1150,10 +1240,8 @@ mod tests {
 
         async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
             log::trace!(target: "citadel", "SERVER received {:?}", message);
-            if let NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _,
-                mut handle,
-            }) = map_errors(message)?
+            if let NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) =
+                map_errors(message)?
             {
                 let mut path = None;
                 // accept the transfer

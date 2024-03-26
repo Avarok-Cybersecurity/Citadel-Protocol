@@ -1,6 +1,8 @@
 use crate::error::NetworkError;
-use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
-use crate::prelude::{NodeRequest, NodeResult};
+use crate::kernel::kernel_communicator::{
+    CallbackKey, KernelAsyncCallbackHandler, KernelStreamSubscription,
+};
+use crate::prelude::NodeRequest;
 use crate::proto::node::HdpServerRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
 use bytemuck::NoUninit;
@@ -9,7 +11,6 @@ use citadel_wire::hypernode_type::NodeType;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::error::TrySendError;
 
 /// allows convenient communication with the server
@@ -38,7 +39,6 @@ pub trait Remote: Clone + Send {
         &self,
         request: NodeRequest,
     ) -> Result<KernelStreamSubscription, NetworkError>;
-    async fn send_callback(&self, request: NodeRequest) -> Result<NodeResult, NetworkError>;
     fn account_manager(&self) -> &AccountManager;
     fn get_next_ticket(&self) -> Ticket;
 }
@@ -62,10 +62,6 @@ impl Remote for NodeRemote {
         request: NodeRequest,
     ) -> Result<KernelStreamSubscription, NetworkError> {
         NodeRemote::send_callback_subscription(self, request).await
-    }
-
-    async fn send_callback(&self, request: NodeRequest) -> Result<NodeResult, NetworkError> {
-        NodeRemote::send_callback(self, request).await
     }
 
     fn account_manager(&self) -> &AccountManager {
@@ -129,37 +125,24 @@ impl NodeRemote {
             .map(|_| ticket)
     }
 
-    /// Returns an error if the ticket is already registered for a callback
-    pub async fn send_callback_custom_ticket(
-        &self,
-        request: NodeRequest,
-        ticket: Ticket,
-    ) -> Result<NodeResult, NetworkError> {
-        let rx = self.inner.callback_handler.register_future(ticket)?;
-        match self.send_with_custom_ticket(ticket, request).await {
-            Ok(_) => rx
-                .await
-                .map_err(|err| NetworkError::Generic(err.to_string())),
-
-            Err(err) => {
-                self.inner.callback_handler.remove_listener(ticket);
-                Err(err)
-            }
-        }
-    }
-
     /// Returns an error if the ticket is already registered for a stream-callback
     pub(crate) async fn send_callback_subscription_custom_ticket(
         &self,
         request: NodeRequest,
         ticket: Ticket,
     ) -> Result<KernelStreamSubscription, NetworkError> {
-        let rx = self.inner.callback_handler.register_stream(ticket)?;
+        let callback_key = CallbackKey {
+            ticket,
+            implicated_cid: request.implicated_cid(),
+        };
+
+        let rx = self.inner.callback_handler.register_stream(callback_key)?;
         match self.send_with_custom_ticket(ticket, request).await {
             Ok(_) => Ok(rx),
 
             Err(err) => {
-                self.inner.callback_handler.remove_listener(ticket);
+                log::error!(target: "citadel", "****** Error sending callback subscription: {err:?}");
+                self.inner.callback_handler.remove_listener(callback_key);
                 Err(err)
             }
         }
@@ -173,23 +156,6 @@ impl NodeRemote {
         let ticket = self.get_next_ticket();
         self.send_callback_subscription_custom_ticket(request, ticket)
             .await
-    }
-
-    /// Convenience method for sending and awaiting for a response for the related ticket
-    pub async fn send_callback(&self, request: NodeRequest) -> Result<NodeResult, NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.send_callback_custom_ticket(request, ticket).await
-    }
-
-    /// Convenience method for sending and awaiting for a response for the related ticket (with a timeout)
-    pub async fn send_callback_timeout(
-        &self,
-        request: NodeRequest,
-        timeout: Duration,
-    ) -> Result<NodeResult, NetworkError> {
-        tokio::time::timeout(timeout, self.send_callback(request))
-            .await
-            .map_err(|_| NetworkError::Timeout(0))?
     }
 
     /// Safely shutsdown the internal server

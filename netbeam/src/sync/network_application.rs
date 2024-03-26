@@ -111,7 +111,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         citadel_io::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
-                    log::warn!(target: "citadel", "Unable to forward packet: {:?}", err);
+                    log::trace!(target: "citadel", "Unable to forward packet: {:?}", err);
                 }
             }
         });
