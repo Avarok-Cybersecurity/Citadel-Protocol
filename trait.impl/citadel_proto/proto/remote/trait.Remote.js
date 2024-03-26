@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"citadel_sdk":[["impl <a class=\"trait\" href=\"citadel_sdk/prelude/trait.Remote.html\" title=\"trait citadel_sdk::prelude::Remote\">Remote</a> for <a class=\"struct\" href=\"citadel_sdk/prefabs/struct.ClientServerRemote.html\" title=\"struct citadel_sdk::prefabs::ClientServerRemote\">ClientServerRemote</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
