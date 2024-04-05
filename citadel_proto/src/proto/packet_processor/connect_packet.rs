@@ -3,6 +3,7 @@ use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use citadel_types::proto::ConnectMode;
+use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
 use std::sync::atomic::Ordering;
 
@@ -57,9 +58,15 @@ pub async fn process_connect(
                 log::trace!(target: "citadel", "STAGE 2 CONNECT PACKET");
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
-                        Ok(_) => {
+                        Ok(stage0_packet) => {
                             let mut state_container = inner_mut_state!(session.state_container);
-
+                            let local_uses_file_system = matches!(
+                                session.account_manager.get_backend_type(),
+                                BackendType::Filesystem(..)
+                            );
+                            session
+                                .file_transfer_compatible
+                                .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
                             let cid = hyper_ratchet.get_cid();
                             let success_time = session.time_tracker.get_global_time_ns();
                             let addr = session.remote_peer;

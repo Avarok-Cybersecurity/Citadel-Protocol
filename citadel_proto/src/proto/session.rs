@@ -208,6 +208,7 @@ pub struct HdpSessionInner {
     pub(super) hypernode_peer_layer: HyperNodePeerLayer,
     pub(super) stun_servers: Option<Vec<String>>,
     pub(super) init_time: Instant,
+    pub(super) file_transfer_compatible: DualLateInit<bool>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -392,6 +393,7 @@ impl HdpSession {
             client_config,
             stun_servers,
             init_time,
+            file_transfer_compatible: DualLateInit::default(),
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -1205,7 +1207,6 @@ impl HdpSession {
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
         self.ensure_connected(&ticket)?;
-
         let mut state_container = inner_mut_state!(self.state_container);
         let ts = self.time_tracker.get_global_time_ns();
 
@@ -1366,6 +1367,10 @@ impl HdpSession {
             .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
         self.ensure_connected(&ticket)?;
+
+        if !*self.file_transfer_compatible {
+            return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+        }
 
         let file_name = source
             .get_source_name()

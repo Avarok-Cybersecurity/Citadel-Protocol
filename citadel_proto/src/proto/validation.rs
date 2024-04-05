@@ -11,15 +11,15 @@ pub(crate) mod do_connect {
     pub(crate) async fn validate_stage0_packet(
         cnac: &ClientNetworkAccount,
         payload: &[u8],
-    ) -> Result<(), NetworkError> {
+    ) -> Result<DoConnectStage0Packet, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
-        cnac.validate_credentials(payload.proposed_credentials)
+        cnac.validate_credentials(payload.proposed_credentials.clone())
             .await
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::trace!(target: "citadel", "Success validating credentials!");
-        Ok(())
+        Ok(payload)
     }
 
     pub(crate) fn validate_final_status_packet(

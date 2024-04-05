@@ -448,12 +448,14 @@ pub(crate) mod do_connect {
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::user::MutualPeer;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
+    use citadel_user::backend::BackendType;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet {
         pub proposed_credentials: ProposedCredentials,
+        pub uses_filesystem: bool,
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
@@ -463,6 +465,7 @@ pub(crate) mod do_connect {
         proposed_credentials: ProposedCredentials,
         timestamp: i64,
         security_level: SecurityLevel,
+        backend_type: &BackendType,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -480,8 +483,11 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0),
         };
 
+        let uses_filesystem = matches!(backend_type, BackendType::Filesystem(..));
+
         let payload = DoConnectStage0Packet {
             proposed_credentials,
+            uses_filesystem,
         };
 
         let mut packet =

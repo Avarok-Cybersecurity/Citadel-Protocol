@@ -539,6 +539,7 @@ fn begin_connect_process(
         proposed_credentials,
         timestamp,
         security_level,
+        session.account_manager.get_backend_type(),
     );
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container
