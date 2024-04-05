@@ -24,7 +24,7 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::sync::atomic::Ordering;
 
 /// Handles preconnect packets. Handles the NAT traversal
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_preconnect(
     session_orig: &HdpSession,
     packet: HdpPacket,

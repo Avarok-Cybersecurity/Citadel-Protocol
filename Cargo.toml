@@ -43,7 +43,7 @@ chacha20poly1305 = { version = "0.10.1", default-features = false }
 log = { default-features = false, version = "0.4.17" }
 strum = { version = "0.26.2", default-features = false }
 sha3 = { version = "0.10", default-features = false }
-kyber-pke = { version = "0.4.0", default-features = false }
+kyber-pke = { version = "0.5.0", default-features = false }
 packed_struct = { version = "0.10.1" }
 getrandom = { version = "0.2.8", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }

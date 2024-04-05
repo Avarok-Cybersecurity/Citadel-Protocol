@@ -7,7 +7,7 @@ use citadel_user::external_services::ServicesObject;
 use std::sync::atomic::Ordering;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_connect(
     sess_ref: &HdpSession,
     packet: HdpPacket,

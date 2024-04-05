@@ -94,7 +94,7 @@ impl NatType {
     /// `local_bind_addr`: Only relevant for localhost testing
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
         match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
@@ -463,7 +463,7 @@ where
 
 #[cfg_attr(
     feature = "localhost-testing",
-    tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
 )]
 async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyhow::Error> {
     let stun_servers = if let Some(stun_servers) = &stun_servers {

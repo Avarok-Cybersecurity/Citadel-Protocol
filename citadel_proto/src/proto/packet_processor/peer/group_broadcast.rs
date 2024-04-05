@@ -112,7 +112,7 @@ pub enum GroupBroadcast {
     },
 }
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
 pub async fn process_group_broadcast(
     session_ref: &HdpSession,
     header: Ref<&[u8], HdpHeader>,

@@ -411,7 +411,7 @@ impl HdpSession {
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn execute(
         &self,
@@ -539,7 +539,7 @@ impl HdpSession {
     /// Before going through the usual flow, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn handle_zero_state(
         zero_packet: Option<BytesMut>,
@@ -875,7 +875,7 @@ impl HdpSession {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn outbound_stream(
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
@@ -886,7 +886,7 @@ impl HdpSession {
             .map(|r| {
                 #[cfg_attr(
                     feature = "localhost-testing",
-                    tracing::instrument(target = "citadel", skip_all, fields(packet_length = r.len()))
+                    tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()))
                 )]
                 fn process_outbound_packet(r: BytesMut) -> Bytes {
                     r.freeze()
@@ -902,7 +902,7 @@ impl HdpSession {
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
@@ -1070,7 +1070,7 @@ impl HdpSession {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn execute_queue_worker(this_main: HdpSession) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");

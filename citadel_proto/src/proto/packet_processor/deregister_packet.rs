@@ -6,7 +6,7 @@ use citadel_crypt::stacked_ratchet::StackedRatchet;
 use std::sync::atomic::Ordering;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_deregister(
     session_ref: &HdpSession,
     packet: HdpPacket,

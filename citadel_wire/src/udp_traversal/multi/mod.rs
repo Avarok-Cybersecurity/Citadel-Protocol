@@ -40,7 +40,7 @@ impl DualStackUdpHolePuncher {
     /// `peer_internal_port`: Required for determining the internal socket addr
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     pub fn new(
         relative_node_type: RelativeNodeType,
@@ -90,7 +90,7 @@ impl Future for DualStackUdpHolePuncher {
 
 #[cfg_attr(
     feature = "localhost-testing",
-    tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
 )]
 async fn drive(
     hole_punchers: Vec<SingleUDPHolePuncher>,
