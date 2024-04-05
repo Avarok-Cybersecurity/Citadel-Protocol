@@ -10,7 +10,7 @@ use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_response_phase_post_connect(
     peer_layer: &mut HyperNodePeerLayerInner,

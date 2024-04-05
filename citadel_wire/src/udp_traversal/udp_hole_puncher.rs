@@ -55,7 +55,7 @@ impl Future for UdpHolePuncher<'_> {
 
 #[cfg_attr(
     feature = "localhost-testing",
-    tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
 )]
 async fn driver(
     conn: &NetworkEndpoint,

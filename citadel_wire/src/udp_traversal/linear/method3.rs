@@ -74,7 +74,7 @@ impl Method3 {
     /// Note! The endpoints should be the port-predicted addrs
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn execute_either(
         &self,

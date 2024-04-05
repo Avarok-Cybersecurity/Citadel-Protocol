@@ -10,7 +10,7 @@ use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
 use citadel_types::proto::TransferType;
 use std::sync::atomic::Ordering;
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_file_packet(
     session: &HdpSession,
     packet: HdpPacket,

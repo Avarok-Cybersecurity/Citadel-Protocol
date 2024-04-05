@@ -76,7 +76,7 @@ where
     #[allow(unreachable_code)]
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn on_c2s_channel_received(
         connect_success: ConnectionSuccess,

@@ -184,7 +184,7 @@ where
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     async fn on_start(&self) -> Result<(), NetworkError> {
         let session_security_settings = self.session_security_settings;
@@ -293,7 +293,7 @@ mod tests {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     async fn on_server_received_conn(
         udp_mode: UdpMode,
@@ -306,7 +306,7 @@ mod tests {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     async fn default_server_harness(
         udp_mode: UdpMode,
