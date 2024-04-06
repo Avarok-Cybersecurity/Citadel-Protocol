@@ -448,12 +448,14 @@ pub(crate) mod do_connect {
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::user::MutualPeer;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
+    use citadel_user::backend::BackendType;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet {
         pub proposed_credentials: ProposedCredentials,
+        pub uses_filesystem: bool,
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
@@ -463,6 +465,7 @@ pub(crate) mod do_connect {
         proposed_credentials: ProposedCredentials,
         timestamp: i64,
         security_level: SecurityLevel,
+        backend_type: &BackendType,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -480,8 +483,11 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0),
         };
 
+        let uses_filesystem = matches!(backend_type, BackendType::Filesystem(..));
+
         let payload = DoConnectStage0Packet {
             proposed_credentials,
+            uses_filesystem,
         };
 
         let mut packet =
@@ -526,6 +532,7 @@ pub(crate) mod do_connect {
         peers: Vec<MutualPeer>,
         timestamp: i64,
         security_level: SecurityLevel,
+        backend_type: &BackendType,
     ) -> BytesMut {
         let payload = DoConnectFinalStatusPacket {
             mailbox,
@@ -540,6 +547,8 @@ pub(crate) mod do_connect {
             packet_flags::cmd::aux::do_connect::FAILURE
         };
 
+        let is_filesystem = matches!(backend_type, BackendType::Filesystem(..));
+
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
@@ -547,7 +556,7 @@ pub(crate) mod do_connect {
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
-            group: U64::new(0),
+            group: U64::new(is_filesystem as u64),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),

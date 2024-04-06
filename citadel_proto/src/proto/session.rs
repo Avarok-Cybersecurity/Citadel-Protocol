@@ -208,6 +208,7 @@ pub struct HdpSessionInner {
     pub(super) hypernode_peer_layer: HyperNodePeerLayer,
     pub(super) stun_servers: Option<Vec<String>>,
     pub(super) init_time: Instant,
+    pub(super) file_transfer_compatible: DualLateInit<bool>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -392,6 +393,7 @@ impl HdpSession {
             client_config,
             stun_servers,
             init_time,
+            file_transfer_compatible: DualLateInit::default(),
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -1205,7 +1207,6 @@ impl HdpSession {
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
         self.ensure_connected(&ticket)?;
-
         let mut state_container = inner_mut_state!(self.state_container);
         let ts = self.time_tracker.get_global_time_ns();
 
@@ -1395,6 +1396,10 @@ impl HdpSession {
             VirtualTargetType::LocalGroupServer { implicated_cid } => {
                 // if we are sending this just to the HyperLAN server (in the case of file uploads),
                 // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                if !*self.file_transfer_compatible {
+                    return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+                }
+
                 let crypt_container = &mut state_container
                     .c2s_channel_container
                     .as_mut()
@@ -1474,7 +1479,8 @@ impl HdpSession {
                 peer_cid: target_cid,
             } => {
                 log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
+                // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
+                // of the file
                 let crypt_container_c2s = &state_container
                     .c2s_channel_container
                     .as_ref()
@@ -1487,6 +1493,10 @@ impl HdpSession {
 
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
+
+                if !endpoint_container.file_transfer_compatible {
+                    return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
+                }
 
                 let object_id = endpoint_container
                     .endpoint_crypto

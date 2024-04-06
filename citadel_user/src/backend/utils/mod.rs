@@ -47,9 +47,8 @@ impl DerefMut for FileTransferStarter {
 
 impl Drop for FileTransferStarter {
     fn drop(&mut self) {
-        // TODO: Remove this once debugging complete
         if self.inner.is_some() {
-            log::error!(target: "citadel", "FileTransferStarter dropped without being used");
+            log::warn!(target: "citadel", "FileTransferStarter dropped without being used");
         }
     }
 }

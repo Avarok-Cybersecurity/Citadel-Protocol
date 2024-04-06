@@ -108,7 +108,7 @@ mod tests {
         SigAlgorithm::Falcon1024
     )]
     #[tokio::test]
-    async fn test_c2s_file_transfer_revfs(
+    async fn test_c2s_file_transfer_revfsq(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
