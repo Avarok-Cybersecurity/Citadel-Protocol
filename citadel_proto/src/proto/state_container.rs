@@ -225,6 +225,7 @@ pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     #[allow(dead_code)]
     pub(crate) peer_socket_addr: SocketAddr,
+    pub(crate) file_transfer_compatible: bool,
 }
 
 pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
@@ -788,6 +789,7 @@ impl StateContainerInner {
         connection_type: VirtualConnectionType,
         endpoint_crypto: PeerSessionCrypto,
         sess: &HdpSession,
+        file_transfer_compatible: bool,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -817,6 +819,7 @@ impl StateContainerInner {
             to_default_channel: to_channel,
             to_unordered_channel: None,
             peer_socket_addr,
+            file_transfer_compatible,
         });
 
         let vconn = VirtualConnection {
