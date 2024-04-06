@@ -1,12 +1,12 @@
 use crate::macros::ContextRequirements;
+use citadel_io::tokio::io::{AsyncRead, AsyncWrite};
+use citadel_io::tokio_util::codec::{Decoder, Encoder, Framed};
 use futures::stream::{SplitSink, SplitStream};
 use futures::{Sink, SinkExt, StreamExt};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::{Decoder, Encoder, Framed};
 
 pub fn clean_framed_shutdown<
     S: AsyncWrite + AsyncRead + Unpin + ContextRequirements,

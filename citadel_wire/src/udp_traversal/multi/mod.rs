@@ -3,11 +3,11 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
@@ -69,7 +69,7 @@ impl DualStackUdpHolePuncher {
 
         // TODO: Setup concurrent UPnP AND NAT-PMP async https://docs.rs/natpmp/latest/natpmp/struct.NatpmpAsync.html
         let task = async move {
-            tokio::task::spawn(drive(hole_punchers, relative_node_type, napp))
+            citadel_io::tokio::task::spawn(drive(hole_punchers, relative_node_type, napp))
                 .await
                 .map_err(|err| anyhow::Error::msg(format!("panic in hole puncher: {:?}", err)))?
         };
@@ -114,13 +114,13 @@ async fn drive(
     let net_mutex = &(app.mutex::<Option<()>>(value).await?);
 
     let (final_candidate_tx, final_candidate_rx) =
-        tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
-    let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
+        citadel_io::tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
+    let (reader_done_tx, mut reader_done_rx) = citadel_io::tokio::sync::broadcast::channel::<()>(2);
     let mut reader_done_rx_3 = reader_done_tx.subscribe();
 
     let (ref kill_signal_tx, _kill_signal_rx) =
-        tokio::sync::broadcast::channel(hole_punchers.len());
-    let (ref post_rebuild_tx, post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
+        citadel_io::tokio::sync::broadcast::channel(hole_punchers.len());
+    let (ref post_rebuild_tx, post_rebuild_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
 
     let final_candidate_tx = &mut citadel_io::Mutex::new(Some(final_candidate_tx));
 
@@ -138,7 +138,7 @@ async fn drive(
         post_rebuild_rx: Option<UnboundedReceiver<Option<HolePunchedUdpSocket>>>,
     }
 
-    let rebuilder = &tokio::sync::Mutex::new(RebuildReadyContainer {
+    let rebuilder = &citadel_io::tokio::sync::Mutex::new(RebuildReadyContainer {
         local_failures: HashMap::new(),
         post_rebuild_rx: Some(post_rebuild_rx),
     });
@@ -162,7 +162,7 @@ async fn drive(
         });
     }
 
-    let current_enqueued = &tokio::sync::Mutex::new(None);
+    let current_enqueued = &citadel_io::tokio::sync::Mutex::new(None);
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
@@ -213,7 +213,7 @@ async fn drive(
         }
     };
 
-    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+    let (done_tx, done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
     let done_tx = citadel_io::Mutex::new(Some(done_tx));
 
     let signal_done = || -> Result<(), anyhow::Error> {
@@ -225,9 +225,9 @@ async fn drive(
             .map_err(|_| anyhow::Error::msg("signal_done oneshot sender failed to send"))
     };
 
-    let (winner_can_end_tx, winner_can_end_rx) = tokio::sync::oneshot::channel();
+    let (winner_can_end_tx, winner_can_end_rx) = citadel_io::tokio::sync::oneshot::channel();
 
-    let (futures_tx, mut futures_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (futures_tx, mut futures_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
 
     let futures_executor = async move {
         while let Some(res) = futures.next().await {
@@ -336,7 +336,7 @@ async fn drive(
     log::trace!(target: "citadel", "[DualStack] Executing hole-puncher ....");
     let sender_reader_combo = futures::future::try_join(futures_resolver, reader);
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = sender_reader_combo => {
             log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished {res0:?}");
             res0.map(|_| ())?

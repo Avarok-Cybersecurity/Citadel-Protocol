@@ -139,7 +139,8 @@ pub async fn process_peer_cmd(
                                             break;
                                         }
 
-                                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                                        citadel_io::tokio::time::sleep(Duration::from_millis(1500))
+                                            .await;
                                     }
 
                                     log::trace!(target: "citadel", "[Peer Vconn] No packets received in the last 1500ms; will drop the connection cleanly");
@@ -1240,7 +1241,7 @@ async fn process_signal_command_as_server(
                                     break;
                                 }
 
-                                tokio::time::sleep(Duration::from_millis(1500)).await;
+                                citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
                             }
 
                             log::trace!(target: "citadel", "[Peer Vconn @ Server] No packets received in the last 1500ms; will drop the virtual connection cleanly");

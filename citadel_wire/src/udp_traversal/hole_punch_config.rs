@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
 
 use crate::nat_identification::NatType;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 

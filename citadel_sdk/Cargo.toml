@@ -37,7 +37,6 @@ citadel_proto = { workspace = true }
 citadel_io = { workspace = true }
 citadel_user = { workspace = true }
 embed-doc-image = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["parking_lot"] }
 futures = { workspace = true }
 log = { workspace = true }
 lazy_static = { workspace = true }
@@ -50,7 +49,6 @@ bytes = { workspace = true }
 citadel_types = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt"] }
 citadel_io = { workspace = true }
 dirs2 = { workspace = true }
 rstest = { workspace = true }

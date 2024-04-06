@@ -1,5 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use citadel_io::tokio;
+    use citadel_io::tokio::sync::Barrier;
+    use citadel_io::tokio::task::JoinError;
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
@@ -18,14 +21,12 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::Barrier;
-    use tokio::task::JoinError;
     use uuid::Uuid;
 
     struct TestSpawner {
         // this may not be a real localset
         #[cfg(not(feature = "multi-threaded"))]
-        local_set: tokio::task::LocalSet,
+        local_set: citadel_io::tokio::task::LocalSet,
         #[cfg_attr(feature = "multi-threaded", allow(dead_code))]
         #[cfg(feature = "multi-threaded")]
         local_set: (),
@@ -39,7 +40,10 @@ mod tests {
         }
 
         #[cfg(not(feature = "multi-threaded"))]
-        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        pub fn spawn<T>(
+            &self,
+            future: T,
+        ) -> citadel_io::tokio::task::JoinHandle<<T as Future>::Output>
         where
             T: Future + 'static,
             T::Output: 'static,
@@ -48,12 +52,15 @@ mod tests {
         }
 
         #[cfg(feature = "multi-threaded")]
-        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        pub fn spawn<T>(
+            &self,
+            future: T,
+        ) -> citadel_io::tokio::task::JoinHandle<<T as Future>::Output>
         where
             T: Future + Send + 'static,
             T::Output: Send + 'static,
         {
-            tokio::task::spawn(future)
+            citadel_io::tokio::task::spawn(future)
         }
 
         #[cfg(not(feature = "multi-threaded"))]
@@ -195,7 +202,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -265,7 +272,7 @@ mod tests {
     #[case(100, SecrecyMode::Perfect)]
     #[case(100, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -330,7 +337,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -404,13 +411,13 @@ mod tests {
         let clients = futures::future::try_join(client0, client1);
 
         let task = async move {
-            tokio::select! {
+            citadel_io::tokio::select! {
                 server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
                 client_res = clients => client_res.map(|_| ())
             }
         };
 
-        let _ = tokio::time::timeout(Duration::from_secs(120), task)
+        let _ = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
             .await
             .unwrap();
 
@@ -421,7 +428,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);

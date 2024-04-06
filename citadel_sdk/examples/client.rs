@@ -1,7 +1,7 @@
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[tokio::main]
+#[citadel_io::tokio::main]
 async fn main() {
     citadel_logging::setup_log();
     let addr = get_env("CITADEL_SERVER_ADDR");
@@ -13,7 +13,7 @@ async fn main() {
     let client = citadel_sdk::prefabs::client::single_connection
     ::SingleClientServerConnectionKernel::new_register("Dummy user", "dummyusername", "notsecurepassword", addr, UdpMode::Enabled, Default::default(), |mut connection, remote| async move {
         let chan = connection.udp_channel_rx.take();
-        tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(UdpMode::Enabled, chan))
+        citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(UdpMode::Enabled, chan))
             .await.map_err(|err| NetworkError::Generic(err.to_string()))?;
         finished.store(true, Ordering::SeqCst);
         remote.shutdown_kernel().await?;

@@ -3,8 +3,8 @@ use crate::proto::peer::channel::UdpChannel;
 use crate::proto::remote::Ticket;
 use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_wire::hypernode_type::NodeType;
-use tokio::sync::oneshot::{channel, Receiver, Sender};
 
 /// For keeping track of the pre-connect state
 pub struct PreConnectState {

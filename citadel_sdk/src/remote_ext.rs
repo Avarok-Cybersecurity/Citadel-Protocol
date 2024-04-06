@@ -112,7 +112,7 @@ pub struct ConnectionSuccess {
     /// An interface to send ordered, reliable, and encrypted messages
     pub channel: PeerChannel,
     /// Only available if UdpMode was enabled at the beginning of a session
-    pub udp_channel_rx: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub udp_channel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
     /// Contains the Google auth minted at the central server (if the central server enabled it), as well as any other services enabled by the central server
     pub services: ServicesObject,
     pub cid: u64,
@@ -1145,8 +1145,8 @@ pub mod results {
     use crate::prefabs::client::peer_connection::FileTransferHandleRx;
     use crate::prelude::{PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
+    use citadel_io::tokio::sync::oneshot::Receiver;
     use citadel_proto::prelude::NetworkError;
-    use tokio::sync::oneshot::Receiver;
 
     #[derive(Debug)]
     pub struct PeerConnectSuccess {
@@ -1219,6 +1219,7 @@ pub mod remote_specialization {
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prelude::*;
+    use citadel_io::tokio;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1256,8 +1257,9 @@ mod tests {
                         ObjectTransferStatus::ReceptionComplete => {
                             log::trace!(target: "citadel", "Server has finished receiving the file!");
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
-                            let streamed_data =
-                                tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                            let streamed_data = citadel_io::tokio::fs::read(path.clone().unwrap())
+                                .await
+                                .unwrap();
                             assert_eq!(
                                 cmp,
                                 streamed_data.as_slice(),
@@ -1304,7 +1306,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_c2s_file_transfer(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,

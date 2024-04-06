@@ -53,6 +53,7 @@ impl NetworkEndpoint {
 mod tests {
     use crate::reliable_conn::ConnAddr;
     use crate::sync::test_utils::create_streams_with_addrs;
+    use citadel_io::tokio;
 
     #[tokio::test]
     async fn main() {

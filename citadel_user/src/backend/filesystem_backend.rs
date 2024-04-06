@@ -9,6 +9,8 @@ use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_io::tokio;
+use citadel_io::tokio_stream::StreamExt;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
@@ -16,7 +18,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio_stream::StreamExt;
 
 /// For handling I/O with the local filesystem
 pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
@@ -365,8 +366,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         let mut size = 0;
         let mut writer = tokio::io::BufWriter::new(file);
-        let mut reader = tokio_util::io::StreamReader::new(
-            tokio_stream::wrappers::UnboundedReceiverStream::new(source).map(|r| {
+        let mut reader = citadel_io::tokio_util::io::StreamReader::new(
+            citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(source).map(|r| {
                 size += r.len();
                 Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>
             }),

@@ -7,8 +7,8 @@ use citadel_user::re_exports::__private::Formatter;
 pub mod includes {
     pub use std::net::SocketAddr;
 
+    pub use citadel_io::tokio::time::{Duration, Instant};
     pub use log::{trace, warn};
-    pub use tokio::time::{Duration, Instant};
     pub use zerocopy::Ref;
 
     pub use citadel_types::crypto::SecBuffer;

@@ -18,7 +18,8 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
     udp_mode: UdpMode,
     auth_info: Mutex<Option<ConnectionType>>,
     session_security_settings: SessionSecuritySettings,
-    unprocessed_signal_filter_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
+    unprocessed_signal_filter_tx:
+        Mutex<Option<citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
     remote: Option<NodeRemote>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
@@ -182,6 +183,7 @@ where
         Ok(())
     }
 
+    #[allow(clippy::blocks_in_conditions)]
     #[cfg_attr(
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
@@ -246,7 +248,7 @@ where
         };
 
         let unprocessed_signal_filter = if cfg!(feature = "localhost-testing") {
-            let (reroute_tx, reroute_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (reroute_tx, reroute_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
             *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
             Some(reroute_rx)
         } else {
@@ -287,6 +289,7 @@ mod tests {
     use crate::prefabs::ClientServerRemote;
     use crate::prelude::*;
     use crate::test_common::{server_info_reactive, wait_for_peers, TestBarrier};
+    use citadel_io::tokio;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
@@ -323,7 +326,7 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_registered(
         #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode,
         #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap())]
@@ -381,7 +384,7 @@ mod tests {
     #[rstest]
     #[case(false, UdpMode::Enabled)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless(
         #[case] debug_force_nat_timeout: bool,
         #[case] udp_mode: UdpMode,
@@ -436,7 +439,7 @@ mod tests {
     #[rstest]
     #[case(UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless_deregister(#[case] udp_mode: UdpMode) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
@@ -482,7 +485,7 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_backend_store_c2s() {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
@@ -558,7 +561,7 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_rekey_c2s() {
         citadel_logging::setup_log();
         TestBarrier::setup(2);

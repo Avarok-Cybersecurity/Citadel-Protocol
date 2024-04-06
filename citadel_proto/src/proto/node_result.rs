@@ -40,7 +40,7 @@ pub struct ConnectSuccess {
     pub services: citadel_user::external_services::ServicesObject,
     pub welcome_message: String,
     pub channel: PeerChannel,
-    pub udp_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
     pub session_security_settings: SessionSecuritySettings,
 }
 
@@ -126,7 +126,7 @@ pub struct InternalServerError {
 pub struct PeerChannelCreated {
     pub ticket: Ticket,
     pub channel: PeerChannel,
-    pub udp_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
 }
 
 #[derive(Debug)]

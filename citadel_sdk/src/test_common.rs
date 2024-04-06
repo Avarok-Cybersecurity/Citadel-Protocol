@@ -5,11 +5,11 @@ use crate::prefabs::server::empty::EmptyKernel;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
+use citadel_io::tokio::net::TcpListener;
 use futures::Future;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::net::TcpListener;
 
 #[allow(dead_code)]
 pub fn server_test_node<'a, K: NetKernel + 'a>(
@@ -108,7 +108,7 @@ pub static TEST_BARRIER: citadel_io::Mutex<Option<TestBarrier>> = citadel_io::co
 #[allow(dead_code)]
 pub struct TestBarrier {
     #[allow(dead_code)]
-    pub inner: std::sync::Arc<tokio::sync::Barrier>,
+    pub inner: std::sync::Arc<citadel_io::tokio::sync::Barrier>,
     count: usize,
 }
 
@@ -120,7 +120,7 @@ impl TestBarrier {
     #[allow(dead_code)]
     pub(crate) fn new(count: usize) -> Self {
         Self {
-            inner: std::sync::Arc::new(tokio::sync::Barrier::new(count)),
+            inner: std::sync::Arc::new(citadel_io::tokio::sync::Barrier::new(count)),
             count,
         }
     }
@@ -181,7 +181,7 @@ lazy_static::lazy_static! {
 #[allow(dead_code)]
 pub async fn udp_mode_assertions(
     udp_mode: UdpMode,
-    udp_channel_rx_opt: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    udp_channel_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
 ) {
     use futures::StreamExt;
     citadel_logging::info!(target: "citadel", "Inside UDP mode assertions ...");
@@ -199,7 +199,7 @@ pub async fn udp_mode_assertions(
             tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
             assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
             // wait to give time for the other side to receive the message
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
             //wait_for_peers().await;
             std::mem::forget((tx, rx)); // do not run destructor to not trigger premature
         }

@@ -1,7 +1,7 @@
+use citadel_io::tokio::macros::support::{Pin, Poll};
+use citadel_io::tokio::task::{JoinError, JoinHandle};
 use futures::task::Context;
 use std::future::Future;
-use tokio::macros::support::{Pin, Poll};
-use tokio::task::{JoinError, JoinHandle};
 
 /// Ensures that if a panic occurs in a task, the panic backtrace prints and halts the program
 pub struct ExplicitPanicFuture<F> {

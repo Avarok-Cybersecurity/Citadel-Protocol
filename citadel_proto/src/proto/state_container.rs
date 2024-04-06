@@ -118,8 +118,9 @@ pub struct StateContainerInner {
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: Arc<Atomic<SessionState>>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
-    pub(super) tcp_loaded_status: Option<tokio::sync::oneshot::Sender<()>>,
-    pub(super) hole_puncher_pipes: HashMap<u64, tokio::sync::mpsc::UnboundedSender<Bytes>>,
+    pub(super) tcp_loaded_status: Option<citadel_io::tokio::sync::oneshot::Sender<()>>,
+    pub(super) hole_puncher_pipes:
+        HashMap<u64, citadel_io::tokio::sync::mpsc::UnboundedSender<Bytes>>,
     pub(super) cnac: Option<ClientNetworkAccount>,
     pub(super) time_tracker: TimeTracker,
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
@@ -158,7 +159,7 @@ pub(crate) struct InboundFileTransfer {
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualObjectMetadata,
     pub stream_to_hd: UnboundedSender<Vec<u8>>,
-    pub reception_complete_tx: tokio::sync::oneshot::Sender<HdpHeader>,
+    pub reception_complete_tx: citadel_io::tokio::sync::oneshot::Sender<HdpHeader>,
     pub local_encryption_level: Option<SecurityLevel>,
 }
 
@@ -169,9 +170,9 @@ pub(crate) struct OutboundFileTransfer {
     // for alerting the group sender to begin sending the next group
     pub next_gs_alerter: UnboundedSender<()>,
     // for alerting the async task to begin creating GroupSenders
-    pub start: Option<tokio::sync::oneshot::Sender<bool>>,
+    pub start: Option<citadel_io::tokio::sync::oneshot::Sender<bool>>,
     // This sends a shutdown signal to the async cryptscambler
-    pub stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    pub stop_tx: Option<citadel_io::tokio::sync::oneshot::Sender<()>>,
 }
 
 impl GroupKey {
@@ -240,7 +241,7 @@ pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
 
 pub(crate) struct UnorderedChannelContainer {
     to_channel: UnboundedSender<SecBuffer>,
-    stopper_tx: tokio::sync::oneshot::Sender<()>,
+    stopper_tx: citadel_io::tokio::sync::oneshot::Sender<()>,
 }
 
 impl EndpointChannelContainer {
@@ -670,7 +671,7 @@ impl StateContainerInner {
         v_conn: VirtualConnectionType,
         ticket: Ticket,
         to_udp_stream: OutboundUdpSender,
-        stopper_tx: tokio::sync::oneshot::Sender<()>,
+        stopper_tx: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> Option<UdpChannel> {
         if target_cid == 0 {
             if let Some(c2s_container) = self.c2s_channel_container.as_mut() {
@@ -883,8 +884,8 @@ impl StateContainerInner {
         peer_channel
     }
 
-    pub fn setup_tcp_alert_if_udp_c2s(&mut self) -> tokio::sync::oneshot::Receiver<()> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+    pub fn setup_tcp_alert_if_udp_c2s(&mut self) -> citadel_io::tokio::sync::oneshot::Receiver<()> {
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         self.tcp_loaded_status = Some(tx);
         rx
     }
@@ -1089,7 +1090,8 @@ impl StateContainerInner {
 
         if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
-            let (start_recv_tx, start_recv_rx) = tokio::sync::oneshot::channel::<bool>();
+            let (start_recv_tx, start_recv_rx) =
+                citadel_io::tokio::sync::oneshot::channel::<bool>();
 
             let security_level_rebound: SecurityLevel = header.security_level.into();
             let timestamp = self.time_tracker.get_global_time_ns();
@@ -1097,7 +1099,8 @@ impl StateContainerInner {
             let pers = pers.clone();
             let metadata = metadata_orig.clone();
             let tt = self.time_tracker;
-            let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel();
+            let (reception_complete_tx, success_receiving_rx) =
+                citadel_io::tokio::sync::oneshot::channel();
             let entry = InboundFileTransfer {
                 last_group_finish_time: Instant::now(),
                 last_group_window_len: 0,

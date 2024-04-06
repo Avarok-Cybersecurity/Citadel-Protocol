@@ -1,8 +1,9 @@
 use bytes::BytesMut;
+use citadel_io::tokio;
 use futures::task::Context;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-use tokio::macros::support::Pin;
+use std::pin::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 
@@ -12,15 +13,15 @@ use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDev
 
 use crate::misc::CryptError;
 use crate::stacked_ratchet::StackedRatchet;
+use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_io::Mutex;
-use citadel_io::{BlockingSpawn, BlockingSpawnError};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;
 use futures::Future;
 use num_integer::Integer;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio_stream::{Stream, StreamExt};
+use tokio::task::{JoinError, JoinHandle};
 use zeroize::Zeroizing;
 
 /// 3Mb per group
@@ -221,8 +222,8 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         cur_task: None,
     };
 
-    let handle = citadel_io::spawn(async move {
-        let res = tokio::select! {
+    let handle = tokio::task::spawn(async move {
+        let res = citadel_io::tokio::select! {
             res0 = stopper(stop) => res0,
             res1 = file_streamer(group_sender.clone(), file_scrambler) => res1
         };
@@ -276,7 +277,7 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     poll_amt: usize,
     buffer: Arc<Mutex<Vec<u8>>>,
     header_inscriber: Arc<F>,
-    cur_task: Option<BlockingSpawn<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
 }
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
@@ -284,10 +285,10 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
         groups_rendered: &mut usize,
         read_cursor: &mut usize,
         poll_amt: usize,
-        cur_task: &mut Option<BlockingSpawn<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+        cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<GroupSenderDevice<N>>> {
-        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, BlockingSpawnError> =
+        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, JoinError> =
             futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
         if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;
@@ -351,7 +352,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 let object_id = *object_id;
                 let transfer_type = transfer_type.clone();
 
-                let task = citadel_io::spawn_blocking(move || {
+                let task = tokio::task::spawn_blocking(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,

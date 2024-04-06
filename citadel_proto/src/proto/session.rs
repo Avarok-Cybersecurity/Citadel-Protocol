@@ -6,8 +6,8 @@ use std::sync::Arc;
 //use async_std::prelude::*;
 use crate::proto::packet_processor::includes::Instant;
 use bytes::{Bytes, BytesMut};
+use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
-use tokio_util::codec::LengthDelimitedCodec;
 
 use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use citadel_crypt::stacked_ratchet::Ratchet;
@@ -197,7 +197,7 @@ pub struct HdpSessionInner {
     pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
     pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult>>>,
     pub(super) is_server: bool,
-    pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
+    pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
     pub(super) primary_stream_quic_conn: DualRwLock<Option<Connection>>,
@@ -274,8 +274,8 @@ pub(crate) struct ClientOnlySessionInitSettings {
 impl HdpSession {
     pub(crate) fn new(
         session_init_params: SessionInitParams,
-    ) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
-        let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
+    ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+        let (stopper_tx, _stopper_rx) = citadel_io::tokio::sync::broadcast::channel(10);
         let client_only_settings = &session_init_params.client_only_settings;
         let is_server = client_only_settings.is_none();
         let (cnac, state, implicated_cid) =
@@ -470,7 +470,7 @@ impl HdpSession {
             );
 
             let session_future = spawn_handle!(async move {
-                tokio::select! {
+                citadel_io::tokio::select! {
                     res0 = writer_future => res0,
                     res1 = reader_future => res1,
                     res2 = stopper_future => res2
@@ -518,7 +518,7 @@ impl HdpSession {
     }
 
     async fn stopper(
-        mut receiver: tokio::sync::broadcast::Receiver<()>,
+        mut receiver: citadel_io::tokio::sync::broadcast::Receiver<()>,
     ) -> Result<(), NetworkError> {
         receiver
             .recv()
@@ -718,7 +718,7 @@ impl HdpSession {
         udp_conn: UdpSplittableTypes,
         addr: TargettedSocketAddr,
         ticket: Ticket,
-        tcp_conn_awaiter: Option<tokio::sync::oneshot::Receiver<()>>,
+        tcp_conn_awaiter: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
     ) {
         let this_weak = this.as_weak();
         std::mem::drop(this);
@@ -744,7 +744,7 @@ impl HdpSession {
                     hole_punched_socket,
                     needs_manual_ka,
                 );
-                let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
+                let (stopper_tx, stopper_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
                 let is_server = sess.is_server;
                 std::mem::drop(sess);
@@ -865,7 +865,7 @@ impl HdpSession {
                     .map_err(|err| NetworkError::Generic(err.to_string()))
             };
 
-            tokio::select! {
+            citadel_io::tokio::select! {
                 res0 = listener => res0,
                 res1 = udp_sender_future => res1,
                 res2 = stopper => res2
@@ -1375,8 +1375,9 @@ impl HdpSession {
         let time_tracker = this.time_tracker;
         let timestamp = this.time_tracker.get_global_time_ns();
         let (group_sender, group_sender_rx) = channel(5);
-        let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let mut group_sender_rx =
+            citadel_io::tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
+        let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
         // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
         let mut state_container = inner_mut_state!(this.state_container);
@@ -1606,8 +1607,8 @@ impl HdpSession {
         let kernel_tx = state_container.kernel_tx.clone();
         let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
         let mut next_gs_alerter_rx =
-            tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
-        let (start, start_rx) = tokio::sync::oneshot::channel();
+            citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
+        let (start, start_rx) = citadel_io::tokio::sync::oneshot::channel();
         let outbound_file_transfer_container = OutboundFileTransfer {
             stop_tx: Some(stop_tx),
             metadata,
@@ -1832,7 +1833,7 @@ impl HdpSession {
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
         this: HdpSession,
-        mut rx: tokio::sync::mpsc::Receiver<SessionRequest>,
+        mut rx: citadel_io::tokio::sync::mpsc::Receiver<SessionRequest>,
     ) {
         let task = async move {
             let this = &this;
@@ -1898,7 +1899,7 @@ impl HdpSession {
                 Ok(())
             };
 
-            tokio::select! {
+            citadel_io::tokio::select! {
                 res0 = stopper => res0,
                 res1 = receiver => res1
             }
@@ -2056,7 +2057,8 @@ impl HdpSession {
         mut sink: S,
         peer_session_accessor: EndpointCryptoAccessor,
     ) -> Result<(), NetworkError> {
-        let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
+        let mut receiver =
+            citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
         while let Some((cmd_aux, packet)) = receiver.next().await {

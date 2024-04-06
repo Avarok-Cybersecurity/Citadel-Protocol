@@ -5,6 +5,9 @@ use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_io::tokio::time::error::Error;
+use citadel_io::tokio::time::Duration;
+use citadel_io::tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use citadel_types::proto::{
     GroupType, MessageGroupKey, MessageGroupOptions, SessionSecuritySettings, UdpMode,
     VirtualObjectMetadata,
@@ -20,9 +23,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::time::error::Error;
-use tokio::time::Duration;
-use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use uuid::Uuid;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
@@ -51,7 +51,7 @@ const MAILBOX: &str = "mailbox";
 
 #[derive(Clone)]
 pub struct HyperNodePeerLayer {
-    pub(crate) inner: std::sync::Arc<tokio::sync::RwLock<HyperNodePeerLayerInner>>,
+    pub(crate) inner: std::sync::Arc<citadel_io::tokio::sync::RwLock<HyperNodePeerLayerInner>>,
     waker: std::sync::Arc<AtomicWaker>,
 }
 
@@ -91,7 +91,7 @@ impl HyperNodePeerLayer {
             persistence_handler,
             message_groups: HashMap::new(),
         };
-        let inner = std::sync::Arc::new(tokio::sync::RwLock::new(inner));
+        let inner = std::sync::Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 
         Self { inner, waker }
     }

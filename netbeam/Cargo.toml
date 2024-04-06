@@ -26,7 +26,6 @@ wasm = [
 ]
 
 [dependencies]
-tokio = { workspace = true, features = ["macros", "rt", "time", "io-util", "sync"] }
 citadel_io = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
@@ -34,7 +33,6 @@ async-trait = { workspace = true }
 bincode2 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
-tokio-util = { workspace = true, features = ["codec"] }
 rand = { workspace = true }
 async-stream = { workspace = true }
 sync_wrapper = { workspace = true}

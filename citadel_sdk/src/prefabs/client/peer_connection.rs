@@ -2,6 +2,7 @@ use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
+use citadel_io::tokio::sync::mpsc::{Receiver, UnboundedSender};
 use citadel_io::Mutex;
 use citadel_proto::re_imports::async_trait;
 use citadel_user::hypernode_account::UserIdentifierExt;
@@ -10,7 +11,6 @@ use futures::{Future, TryStreamExt};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tokio::sync::mpsc::{Receiver, UnboundedSender};
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -38,12 +38,12 @@ struct PeerContext {
 
 #[derive(Debug)]
 pub struct FileTransferHandleRx {
-    pub inner: tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>,
+    pub inner: citadel_io::tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>,
     pub peer_conn: PeerConnectionType,
 }
 
 impl std::ops::Deref for FileTransferHandleRx {
-    type Target = tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>;
+    type Target = citadel_io::tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -287,6 +287,7 @@ where
         self.shared.clone()
     }
 
+    #[allow(clippy::blocks_in_conditions)]
     #[cfg_attr(
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
@@ -315,7 +316,7 @@ where
         }
 
         let remote = cls_remote.inner.clone();
-        let (ref tx, rx) = tokio::sync::mpsc::channel(peers_to_connect.len());
+        let (ref tx, rx) = citadel_io::tokio::sync::mpsc::channel(peers_to_connect.len());
         let requests = FuturesUnordered::new();
 
         for (mutually_registered, peer_to_connect) in
@@ -334,7 +335,7 @@ where
             let task = async move {
                 let inner_task = async move {
                     let (file_transfer_tx, file_transfer_rx) =
-                        tokio::sync::mpsc::unbounded_channel();
+                        citadel_io::tokio::sync::mpsc::unbounded_channel();
                     let handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(implicated_cid, id).await?
                     } else {
@@ -347,7 +348,10 @@ where
                                 if handle.is_peer_registered().await? {
                                     break;
                                 }
-                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(
+                                    200,
+                                ))
+                                .await;
                             }
                         }
 
@@ -389,7 +393,7 @@ where
         // TODO: What should be done if a peer conn fails? No room for error here
         let collection_task = async move { requests.try_collect::<()>().await };
 
-        tokio::try_join!(collection_task, f(rx, cls_remote)).map(|_| ())
+        citadel_io::tokio::try_join!(collection_task, f(rx, cls_remote)).map(|_| ())
     }
 
     fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
@@ -408,6 +412,7 @@ mod tests {
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
+    use citadel_io::tokio;
     use citadel_user::prelude::UserIdentifierExt;
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
@@ -428,7 +433,7 @@ mod tests {
     #[case(2, false, UdpMode::Enabled)]
     #[case(3, true, UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn peer_to_peer_connect(
         #[case] peer_count: usize,
         #[case] debug_force_nat_timeout: bool,
@@ -536,7 +541,7 @@ mod tests {
     #[case(2)]
     #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn peer_to_peer_connect_passwordless(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -629,7 +634,7 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_file_transfer(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -704,7 +709,7 @@ mod tests {
                                         let cmp =
                                             include_bytes!("../../../../resources/TheBridge.pdf");
                                         let streamed_data =
-                                            tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                                            citadel_io::tokio::fs::read(path.clone().unwrap()).await.unwrap();
                                         assert_eq!(
                                             cmp,
                                             streamed_data.as_slice(),
@@ -759,7 +764,7 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_rekey(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -836,7 +841,7 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_disconnect(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {

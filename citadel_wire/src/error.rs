@@ -1,4 +1,4 @@
-use tokio::io::Error;
+use citadel_io::tokio::io::Error;
 
 #[derive(Debug)]
 pub enum FirewallError {

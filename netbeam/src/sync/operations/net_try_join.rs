@@ -3,11 +3,11 @@ use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamT
 use crate::sync::subscription::{Subscribable, SubscriptionBiStream};
 use crate::sync::RelativeNodeType;
 use crate::ScopedFutureResult;
+use citadel_io::tokio::sync::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::sync::{Mutex, MutexGuard};
 
 /// Two endpoints produce Ok(T). Returns when both endpoints produce Ok(T), or, when the first error occurs
 pub struct NetTryJoin<'a, T, E> {
@@ -87,7 +87,7 @@ where
 {
     let conn = &(conn.initiate_subscription().await?);
     log::trace!(target: "citadel", "NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
-    let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
+    let (stopper_tx, stopper_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<T, E> {
         local_state: State,
@@ -189,7 +189,7 @@ where
         Err(anyhow::Error::msg("Stopped before the resolver"))
     };
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = evaluator => {
             log::trace!(target: "citadel", "NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id());
             let ret = res0?;
@@ -208,6 +208,7 @@ fn wrap_return<T, E>(value: Option<Result<T, E>>) -> Result<NetTryJoinResult<T, 
 mod tests {
     use crate::sync::network_application::NetworkApplication;
     use crate::sync::test_utils::create_streams;
+    use citadel_io::tokio;
     use std::fmt::Debug;
     use std::future::Future;
     use std::time::Duration;
@@ -290,9 +291,9 @@ mod tests {
             res
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
+        let server = citadel_io::tokio::spawn(server);
+        let client = citadel_io::tokio::spawn(client);
+        let (res0, res1) = citadel_io::tokio::join!(server, client);
 
         log::trace!(target: "citadel", "Unwrapping ....");
 
@@ -312,7 +313,7 @@ mod tests {
     }
 
     async fn dummy_function() -> Result<(), &'static str> {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        citadel_io::tokio::time::sleep(Duration::from_millis(50)).await;
         Ok(())
     }
 

@@ -42,7 +42,7 @@ pub async fn handle_response_phase_post_register(
                                       }
                                   };
 
-                                  let handle = citadel_io::spawn(task);
+                                  let handle = citadel_io::tokio::task::spawn(task);
                                   // dont process the handle
                                   std::mem::drop(handle);
                               }

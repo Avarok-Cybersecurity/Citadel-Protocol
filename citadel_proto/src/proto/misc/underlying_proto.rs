@@ -12,7 +12,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 #[allow(variant_size_differences)]
 pub enum ServerUnderlyingProtocol {
-    Tcp(Option<Arc<Mutex<Option<tokio::net::TcpListener>>>>),
+    Tcp(Option<Arc<Mutex<Option<citadel_io::tokio::net::TcpListener>>>>),
     Tls(TLSQUICInterop, TlsDomain, bool),
     Quic(Option<(Vec<Certificate>, PrivateKey)>, TlsDomain, bool),
 }
@@ -27,13 +27,13 @@ impl ServerUnderlyingProtocol {
     pub fn from_tcp_listener(listener: TcpListener) -> Result<Self, NetworkError> {
         listener.set_nonblocking(true)?;
         Ok(Self::Tcp(Some(Arc::new(Mutex::new(Some(
-            tokio::net::TcpListener::from_std(listener)?,
+            citadel_io::tokio::net::TcpListener::from_std(listener)?,
         ))))))
     }
 
-    /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`tokio::net::TcpListener`]
+    /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`citadel_io::tokio::net::TcpListener`]
     pub fn from_tokio_tcp_listener(
-        listener: tokio::net::TcpListener,
+        listener: citadel_io::tokio::net::TcpListener,
     ) -> Result<Self, NetworkError> {
         Ok(Self::Tcp(Some(Arc::new(Mutex::new(Some(listener))))))
     }

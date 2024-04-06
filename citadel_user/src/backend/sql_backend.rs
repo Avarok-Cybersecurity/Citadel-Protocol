@@ -7,6 +7,7 @@ use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use itertools::Itertools;
@@ -19,7 +20,6 @@ use std::marker::PhantomData;
 use std::ops::DerefMut;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 /// A container for handling db conns
 pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {

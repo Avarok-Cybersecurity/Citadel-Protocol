@@ -58,6 +58,7 @@ mod test {
     use crate::prefabs::shared::internal_service::InternalServerCommunicator;
     use crate::prelude::*;
     use crate::test_common::TestBarrier;
+    use citadel_io::tokio;
     use citadel_logging::setup_log;
     use hyper::client::conn::Builder;
     use hyper::server::conn::Http;
@@ -105,7 +106,7 @@ mod test {
         Ok(())
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_internal_service_basic_bytes() {
         setup_log();
         let barrier = &TestBarrier::new(2);
@@ -158,7 +159,7 @@ mod test {
             .build(server_kernel)
             .unwrap();
 
-        let res = tokio::select! {
+        let res = citadel_io::tokio::select! {
             res0 = server => {
                 citadel_logging::info!(target: "citadel", "Server exited");
                 res0.map(|_|())
@@ -175,7 +176,7 @@ mod test {
         assert_eq!(success_count.load(Ordering::SeqCst), 2);
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_internal_service_http() {
         setup_log();
         let barrier = &TestBarrier::new(2);
@@ -208,14 +209,14 @@ mod test {
                     |internal_server_communicator| async move {
                         barrier.wait().await;
                         // wait for the server
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
                         let (mut request_sender, connection) = Builder::new()
                             .handshake(internal_server_communicator)
                             .await
                             .map_err(from_hyper_error)?;
 
                         // spawn a task to poll the connection and drive the HTTP state
-                        drop(tokio::spawn(async move {
+                        drop(citadel_io::tokio::spawn(async move {
                             if let Err(e) = connection.await {
                                 citadel_logging::error!(target: "citadel", "Error in connection: {e}");
                                 std::process::exit(-1);
@@ -223,7 +224,7 @@ mod test {
                         }));
 
                         // give time for task to spawn
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
                         let request = Request::builder()
                             // We need to manually add the host header because SendRequest does not
                             .header("Host", "example.com")
@@ -260,7 +261,7 @@ mod test {
             .build(server_kernel)
             .unwrap();
 
-        let res = tokio::select! {
+        let res = citadel_io::tokio::select! {
             res0 = server => {
                 citadel_logging::info!(target: "citadel", "Server exited");
                 res0.map(|_|())

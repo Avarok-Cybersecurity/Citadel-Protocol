@@ -5,7 +5,7 @@ use quinn::{
 };
 
 use async_trait_with_sync::async_trait;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use either::Either;
 use quinn::TransportConfig;
 use rustls::{Certificate, PrivateKey};
@@ -369,6 +369,7 @@ mod tests {
         QuicClient, QuicEndpointConnector, QuicEndpointListener, QuicServer, SELF_SIGNED_DOMAIN,
     };
     use crate::socket_helpers::is_ipv6_enabled;
+    use citadel_io::tokio;
     use rstest::*;
     use std::net::SocketAddr;
 
@@ -385,10 +386,11 @@ mod tests {
             return Ok(());
         }
         let mut server =
-            QuicServer::new_self_signed(citadel_io::UdpSocket::bind(addr).await?).unwrap();
+            QuicServer::new_self_signed(citadel_io::tokio::net::UdpSocket::bind(addr).await?)
+                .unwrap();
         let client_bind_addr = SocketAddr::from((addr.ip(), 0));
-        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
-        let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
+        let (start_tx, start_rx) = citadel_io::tokio::sync::oneshot::channel();
+        let (end_tx, end_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
         let addr = server.endpoint.local_addr().unwrap();
 
         let server = async move {
@@ -406,7 +408,9 @@ mod tests {
         let client = async move {
             start_rx.await.unwrap();
             let client = QuicClient::new_no_verify(
-                citadel_io::UdpSocket::bind(client_bind_addr).await.unwrap(),
+                citadel_io::tokio::net::UdpSocket::bind(client_bind_addr)
+                    .await
+                    .unwrap(),
             )
             .unwrap();
             let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;
@@ -416,7 +420,7 @@ mod tests {
             end_rx.await.unwrap();
         };
 
-        let (_r0, _r1) = tokio::join!(server, client);
+        let (_r0, _r1) = citadel_io::tokio::join!(server, client);
         Ok(())
     }
 }

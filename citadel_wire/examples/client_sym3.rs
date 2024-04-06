@@ -1,11 +1,11 @@
+use citadel_io::tokio::io::{AsyncBufReadExt, BufReader};
 use citadel_wire::quic::QuicEndpointConnector;
 use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
 
-#[tokio::main]
+#[citadel_io::tokio::main]
 async fn main() {
     //citadel_logging::setup_log();
 
@@ -37,7 +37,7 @@ async fn main() {
     log::trace!(target: "citadel", "Successfully obtained QUIC connection ...");
 
     let writer = async move {
-        let mut stdin = BufReader::new(tokio::io::stdin()).lines();
+        let mut stdin = BufReader::new(citadel_io::tokio::io::stdin()).lines();
         while let Ok(Some(input)) = stdin.next_line().await {
             log::trace!(target: "citadel", "About to send: {}", &input);
             sink.write(input.as_bytes()).await.unwrap();
@@ -56,14 +56,14 @@ async fn main() {
         }
     };
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = writer => res0,
         res1 = reader => res1
     }
 
     /*
     let writer = async move {
-        let mut stdin = BufReader::new(tokio::io::stdin()).lines();
+        let mut stdin = BufReader::new(citadel_io::tokio::io::stdin()).lines();
         while let Ok(Some(input)) = stdin.next_line().await {
             log::trace!(target: "citadel", "About to send (bind:{:?}->{:?}): {}", hole_punched_socket.socket.local_addr().unwrap(), hole_punched_socket.addr.natted, &input);
             hole_punched_socket.socket.send_to(input.as_bytes(), hole_punched_socket.addr.natted).await.unwrap();
@@ -82,7 +82,7 @@ async fn main() {
         }
     };
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = writer => res0,
         res1 = reader => res1
     }*/
