@@ -53,23 +53,20 @@ cargo make test
 ## WASM (dev only WIP)
 The target triple `wasm32-wasi` is a WIP for support. These commands should be executed in order to compile to wasm
 ```bash
-# Allows execution of `cargo wasi test --package citadel_pqcrypto`
-cargo install cargo-wasi
-# install wasmtime
-curl https://wasmtime.dev/install.sh -sSf | bash
-# get the include/build files
+cargo install cargo-wasix
+curl https://get.wasmer.io -sSfL | sudo sh
+export PATH=$PATH:~/.wasmer/bin/
+
+# If on mac, ensure llvm via brew is installed to allow webassembly as a target
+brew install llvm
+
+# Install wasi-sysroot
 wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-12/wasi-sysroot-12.0.tar.gz
 tar -xvzf wasi-sysroot-12.0.tar.gz
 rm wasi-sysroot-12.0.tar.gz
+
 # Set environment variables
 export WASI_SDK_DIR="$(pwd)/wasi-sysroot"
-export WASMTIME_HOME="$(pwd)/.wasmtime"
-export PATH="$WASMTIME_HOME/bin:$PATH"
-export RUSTFLAGS="--cfg tokio_unstable"
-# If on Mac M1, make sure to use the clang/ar provided by homebrew. Make sure to replace <LATEST_VERSION>
-export PATH="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/:$PATH"
-export AR="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/llvm-ar"
-export CC="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/clang"
 ```
 
 Additionally, the feature `wasm` should be enabled when checking/compiling.

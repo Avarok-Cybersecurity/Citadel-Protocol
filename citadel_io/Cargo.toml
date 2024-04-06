@@ -15,12 +15,15 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["std"]
-std = []
-wasm = []
+std = ["tokio"]
+wasm = ["tokio-wasm"]
 deadlock-detection = ["parking_lot/deadlock_detection"]
 
 [dependencies]
-tokio = { workspace = true, features = ["net", "rt"] }
+tokio = { workspace = true, features = ["net", "rt"], optional = true }
+tokio-wasm = { package = "tokio", optional = true, version = "=1.24.2", git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.24.2-fixed", features = [
+    "full",
+] }
 
 [target.'cfg(not(target_family="wasm"))'.dependencies]
 parking_lot = { workspace = true }

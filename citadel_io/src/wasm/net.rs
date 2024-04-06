@@ -1,8 +1,5 @@
 use std::fmt::Debug;
 
-pub type TcpStream = tokio::net::TcpStream;
-pub type UdpSocket = UdpSocketImpl;
-pub type TcpListener = tokio::net::TcpListener;
-
-#[derive(Debug)]
-pub struct UdpSocketImpl;
+pub type TcpStream = tokio_wasm::net::TcpStream;
+pub type UdpSocket = tokio_wasm::net::UdpSocket;
+pub type TcpListener = tokio_wasm::net::TcpListener;

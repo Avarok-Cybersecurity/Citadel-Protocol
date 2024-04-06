@@ -10,6 +10,7 @@ use citadel_crypt::stacked_ratchet::constructor::{
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_types::proto::UdpMode;
+use citadel_user::backend::BackendType;
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
@@ -376,9 +377,18 @@ pub async fn process_peer_cmd(
                                     let bob_transfer =
                                         return_if_none!(transfer.serialize_to_vector().ok());
 
+                                    let local_is_file_transfer_compat = matches!(
+                                        session.account_manager.get_backend_type(),
+                                        BackendType::Filesystem(..)
+                                    );
+
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
-                                        kex_payload: KeyExchangeProcess::Stage1(bob_transfer, None),
+                                        kex_payload: KeyExchangeProcess::Stage1(
+                                            bob_transfer,
+                                            None,
+                                            local_is_file_transfer_compat,
+                                        ),
                                     };
 
                                     let mut state_container_kem = PeerKemStateContainer::new(
@@ -401,7 +411,11 @@ pub async fn process_peer_cmd(
                                     Ok(PrimaryProcessorResult::ReplyToSender(stage1_kem))
                                 }
 
-                                KeyExchangeProcess::Stage1(transfer, Some(bob_nat_info)) => {
+                                KeyExchangeProcess::Stage1(
+                                    transfer,
+                                    Some(bob_nat_info),
+                                    peer_file_transfer_compat,
+                                ) => {
                                     // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                     // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
                                     // to combat a "chinese communist hijack" scenario wherein a rogue government takes over our
@@ -461,6 +475,10 @@ pub async fn process_peer_cmd(
                                             );
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &bob_predicted_socket_addr, needs_turn);
                                         let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
+                                        let local_is_file_transfer_compat = matches!(
+                                            session.account_manager.get_backend_type(),
+                                            BackendType::Filesystem(..)
+                                        );
 
                                         let channel = state_container
                                             .insert_new_peer_virtual_connection_as_endpoint(
@@ -471,6 +489,8 @@ pub async fn process_peer_cmd(
                                                 vconn_type,
                                                 peer_crypto,
                                                 session,
+                                                local_is_file_transfer_compat
+                                                    && *peer_file_transfer_compat,
                                             );
                                         // load the channel now that the keys have been exchanged
 
@@ -487,6 +507,7 @@ pub async fn process_peer_cmd(
                                             kex_payload: KeyExchangeProcess::Stage2(
                                                 sync_time_ns,
                                                 None,
+                                                local_is_file_transfer_compat,
                                             ),
                                         };
 
@@ -580,7 +601,11 @@ pub async fn process_peer_cmd(
                                     Ok(PrimaryProcessorResult::Void)
                                 }
 
-                                KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_nat_info)) => {
+                                KeyExchangeProcess::Stage2(
+                                    sync_time_ns,
+                                    Some(alice_nat_info),
+                                    peer_file_transfer_compat,
+                                ) => {
                                     // NEW UPDATE: now that we know the other side successfully created its toolset,
                                     // calculate sync time then begin the hole punch subroutine
                                     log::trace!(target: "citadel", "RECV STAGE 2 PEER KEM");
@@ -625,7 +650,13 @@ pub async fn process_peer_cmd(
                                             alice_nat_info.generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
                                             );
+                                        let local_is_file_transfer_compat = matches!(
+                                            session.account_manager.get_backend_type(),
+                                            BackendType::Filesystem(..)
+                                        );
+
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
+
                                         let channel = state_container
                                             .insert_new_peer_virtual_connection_as_endpoint(
                                                 alice_predicted_socket_addr,
@@ -635,6 +666,8 @@ pub async fn process_peer_cmd(
                                                 vconn_type,
                                                 peer_crypto,
                                                 session,
+                                                local_is_file_transfer_compat
+                                                    && *peer_file_transfer_compat,
                                             );
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
@@ -806,7 +839,7 @@ async fn process_signal_command_as_server(
             };
 
             match &mut kep {
-                KeyExchangeProcess::Stage1(_, val) | KeyExchangeProcess::Stage2(_, val) => {
+                KeyExchangeProcess::Stage1(_, val, _) | KeyExchangeProcess::Stage2(_, val, _) => {
                     *val = Some(peer_nat_info);
                 }
 

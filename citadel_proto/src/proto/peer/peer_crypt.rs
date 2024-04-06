@@ -9,10 +9,10 @@ use std::net::SocketAddr;
 pub enum KeyExchangeProcess {
     // alice sends public key
     Stage0(Vec<u8>, SessionSecuritySettings, UdpMode),
-    // Bob sends ciphertext, addr
-    Stage1(Vec<u8>, Option<PeerNatInfo>),
-    // Alice sends a sync time over. Server takes care of external addr
-    Stage2(i64, Option<PeerNatInfo>),
+    // Bob sends ciphertext, addr, file transfer compatibility
+    Stage1(Vec<u8>, Option<PeerNatInfo>, bool),
+    // Alice sends a sync time over. Server takes care of external addr. Includes file transfer compat
+    Stage2(i64, Option<PeerNatInfo>, bool),
     // The hole-punch failed
     HolePunchFailed,
 }

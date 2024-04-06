@@ -55,6 +55,7 @@ oqs = { workspace = true, features = ["serde", "falcon", "ntruprime"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 pqcrypto-falcon-wasi = { workspace = true, features = ["serialization", "avx2"] }
+streamlined-ntru-prime = { version = "0.1.2", features = ["serde"] }
 pqcrypto-traits-wasi = { workspace = true }
 
 [dev-dependencies]
