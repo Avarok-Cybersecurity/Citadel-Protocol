@@ -1,3 +1,4 @@
+use citadel_io::tokio;
 use citadel_io::tokio::io::{AsyncBufReadExt, BufReader};
 use citadel_wire::quic::QuicEndpointConnector;
 use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
@@ -5,11 +6,11 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 use std::sync::Arc;
 
-#[citadel_io::tokio::main]
+#[tokio::main]
 async fn main() {
     //citadel_logging::setup_log();
 
-    let server_stream = citadel_io::TcpStream::connect("51.81.86.78:25025")
+    let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025")
         .await
         .unwrap();
 

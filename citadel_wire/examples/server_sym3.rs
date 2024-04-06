@@ -1,13 +1,14 @@
-use citadel_io::citadel_io::tokio::io::{AsyncBufReadExt, BufReader};
+use citadel_io::tokio;
+use citadel_io::tokio::io::{AsyncBufReadExt, BufReader};
 use citadel_wire::quic::QuicEndpointListener;
 use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 
-#[citadel_io::tokio::main]
+#[tokio::main]
 async fn main() {
     //setup_log();
-    let listener = citadel_io::TcpListener::bind("0.0.0.0:25025")
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:25025")
         .await
         .unwrap();
     let (client_stream, peer_addr) = listener.accept().await.unwrap();

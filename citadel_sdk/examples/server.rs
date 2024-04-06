@@ -1,8 +1,9 @@
+use citadel_io::tokio;
 use citadel_sdk::prelude::*;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-#[citadel_io::tokio::main]
+#[tokio::main]
 async fn main() {
     citadel_logging::setup_log();
     let addr = get_env("CITADEL_SERVER_ADDR");
