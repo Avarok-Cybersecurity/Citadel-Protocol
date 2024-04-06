@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
+use citadel_io::tokio::sync::Mutex as TokioMutex;
+use citadel_io::tokio::time::Duration;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex as TokioMutex;
-use tokio::time::Duration;
 
 use crate::error::FirewallError;
 use crate::socket_helpers::ensure_ipv6;
@@ -107,7 +107,7 @@ impl Method3 {
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            let timeout = tokio::time::timeout(
+            let timeout = citadel_io::tokio::time::timeout(
                 Duration::from_millis(3000),
                 Self::recv_until(
                     socket_wrapper,
@@ -129,7 +129,7 @@ impl Method3 {
         };
 
         let sender_task = async move {
-            //tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
+            //citadel_io::tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
             Self::send_packet_barrage(packet_send_params, None)
                 .await
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -137,7 +137,7 @@ impl Method3 {
             Ok(()) as Result<(), FirewallError>
         };
 
-        let (res0, res1) = tokio::join!(receiver_task, sender_task);
+        let (res0, res1) = citadel_io::tokio::join!(receiver_task, sender_task);
 
         log::trace!(target: "citadel", "Hole-punch join result: recv={:?} and send={:?}", res0, res1);
 
@@ -172,7 +172,7 @@ impl Method3 {
             this_node_type,
         } = params;
 
-        let mut sleep = tokio::time::interval(Duration::from_millis(*millis_delta));
+        let mut sleep = citadel_io::tokio::time::interval(Duration::from_millis(*millis_delta));
         let delta_ttl = delta_ttl.unwrap_or(0);
         let ttls = (0..*count)
             .map(|idx| ttl_init + (idx * delta_ttl))

@@ -3,11 +3,11 @@ use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamT
 use crate::sync::subscription::Subscribable;
 use crate::sync::subscription::SubscriptionBiStream;
 use crate::sync::RelativeNodeType;
+use citadel_io::tokio::sync::{Mutex, MutexGuard};
 use futures::Future;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::sync::{Mutex, MutexGuard};
 
 /// Two endpoints race to produce Ok(R). The first endpoint to produce Ok(R) wins. Includes conflict-resolution synchronization
 pub struct NetSelectOk<'a, R> {
@@ -98,7 +98,7 @@ where
 {
     let conn = &(conn.initiate_subscription().await?);
     log::trace!(target: "citadel", "NET_SELECT_OK started conv={:?} for {:?}", conn.id(), local_node_type);
-    let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
+    let (stopper_tx, stopper_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<R> {
         local_state: State,
@@ -260,7 +260,7 @@ where
         Err(anyhow::Error::msg("Stopped before the resolver"))
     };
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = evaluator => {
             log::trace!(target: "citadel", "[conv={:?}] NET_SELECT_OK Ending for {:?}", conn.id(), local_node_type);
             let (ret, remote_success) = res0?;
@@ -292,6 +292,7 @@ fn wrap_return<R>(
 mod tests {
     use crate::sync::network_application::NetworkApplication;
     use crate::sync::test_utils::create_streams;
+    use citadel_io::tokio;
     use std::fmt::Debug;
     use std::future::Future;
     use std::time::Duration;
@@ -371,9 +372,9 @@ mod tests {
             res
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
+        let server = citadel_io::tokio::spawn(server);
+        let client = citadel_io::tokio::spawn(client);
+        let (res0, res1) = citadel_io::tokio::join!(server, client);
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
 
         if res0.result.is_some() {
@@ -399,7 +400,7 @@ mod tests {
     }
 
     async fn dummy_function() -> Result<(), anyhow::Error> {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        citadel_io::tokio::time::sleep(Duration::from_millis(50)).await;
         Ok(())
     }
 

@@ -1,10 +1,10 @@
 use crate::prelude::NodeRequest;
 use citadel_crypt::misc::CryptError;
+use citadel_io::tokio::sync::mpsc::error::SendError;
 use citadel_user::misc::AccountError;
 use std::error::Error;
 use std::fmt::Formatter;
 use std::fmt::{Debug, Display};
-use tokio::sync::mpsc::error::SendError;
 
 /// The basic error type for this crate
 pub enum NetworkError {
@@ -91,7 +91,7 @@ impl Display for NetworkError {
     }
 }
 
-impl<T> From<tokio::sync::mpsc::error::SendError<T>> for NetworkError {
+impl<T> From<citadel_io::tokio::sync::mpsc::error::SendError<T>> for NetworkError {
     fn from(err: SendError<T>) -> Self {
         NetworkError::Generic(err.to_string())
     }

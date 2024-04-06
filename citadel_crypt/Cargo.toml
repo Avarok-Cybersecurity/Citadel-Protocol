@@ -24,7 +24,6 @@ std = [
     "citadel_pqcrypto/std",
     "byteorder/std",
     "rand/std",
-    "tokio/default",
     "citadel_io/std",
 ]
 wasm = [
@@ -47,9 +46,7 @@ citadel_pqcrypto = { workspace = true }
 citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
 rust-argon2 = { workspace = true, features = ["serde"] }
-tokio = { workspace = true, features = ["rt", "macros", "time"] }
 sha3 = { workspace = true }
-tokio-stream = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }

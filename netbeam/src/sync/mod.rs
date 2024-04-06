@@ -24,15 +24,14 @@ impl From<u64> for SymmetricConvID {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 pub mod test_utils {
     use async_trait::async_trait;
     use bytes::Bytes;
+    use citadel_io::tokio::net::{TcpListener, TcpStream};
+    use citadel_io::tokio::sync::Mutex;
+    use citadel_io::tokio_util::codec::{Framed, LengthDelimitedCodec};
     use futures::stream::{SplitSink, SplitStream};
     use futures::{SinkExt, StreamExt};
-    use tokio::net::{TcpListener, TcpStream};
-    use tokio::sync::Mutex;
-    use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
     use crate::reliable_conn::simulator::NetworkConnSimulator;
     use crate::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
@@ -105,7 +104,7 @@ pub mod test_utils {
     }
 
     pub async fn create_streams() -> (NetworkApplication, NetworkApplication) {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server = async move {
             let listener = create_listener("127.0.0.1:0");
             tx.send(listener.local_addr().unwrap()).unwrap();
@@ -127,13 +126,13 @@ pub mod test_utils {
             .unwrap()
         };
 
-        tokio::join!(server, client)
+        citadel_io::tokio::join!(server, client)
     }
 
     pub async fn create_streams_with_addrs_and_lag(
         min: usize,
     ) -> (NetworkEndpoint, NetworkEndpoint) {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server = async move {
             let listener = create_listener("127.0.0.1:0");
             tx.send(listener.local_addr().unwrap()).unwrap();
@@ -155,7 +154,7 @@ pub mod test_utils {
             .unwrap()
         };
 
-        tokio::join!(server, client)
+        citadel_io::tokio::join!(server, client)
     }
 
     pub async fn create_streams_with_addrs() -> (NetworkEndpoint, NetworkEndpoint) {

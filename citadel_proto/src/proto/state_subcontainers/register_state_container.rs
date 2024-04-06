@@ -1,4 +1,4 @@
-use tokio::time::Instant;
+use citadel_io::tokio::time::Instant;
 
 use crate::proto::packet::packet_flags;
 use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;

@@ -5,6 +5,8 @@ use crate::macros::ContextRequirements;
 use crate::proto::codec::BytesCodec;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use bytes::{Bytes, BytesMut};
+use citadel_io::tokio::net::UdpSocket;
+use citadel_io::tokio_util::udp::UdpFramed;
 use citadel_wire::exports::Connection;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use futures::stream::{SplitSink, SplitStream};
@@ -12,8 +14,6 @@ use futures::{Sink, Stream, StreamExt};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::net::UdpSocket;
-use tokio_util::udp::UdpFramed;
 
 pub(crate) trait UdpSink:
     Sink<Bytes, Error = NetworkError> + Unpin + ContextRequirements

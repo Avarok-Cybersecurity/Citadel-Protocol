@@ -31,7 +31,6 @@ wasm = [
 vendored = ["openssl/vendored"]
 
 [dependencies]
-tokio = { workspace = true, features = ["net"] }
 futures = { workspace = true }
 async-trait-with-sync = { workspace = true }
 bytes = { workspace = true }
@@ -63,7 +62,6 @@ tokio-rustls = { workspace = true }
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging" }
 rand = "0.8.5"
-tokio-util = "0.7.4"
 rstest = { workspace = true }
 
 [lib]

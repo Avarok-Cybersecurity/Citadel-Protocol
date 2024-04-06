@@ -1,3 +1,4 @@
+use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
 use citadel_io::Mutex;
 use futures::Stream;
 use std::collections::HashMap;
@@ -7,7 +8,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct TrackedCallbackChannel<T, R> {
     inner: Arc<TrackedCallbackChannelInner<T, R>>,
@@ -57,7 +57,7 @@ impl<T> Debug for TrackedCallbackError<T> {
 }
 
 struct TrackedCallbackChannelInner<T, R> {
-    map: Mutex<HashMap<u64, tokio::sync::oneshot::Sender<R>>>,
+    map: Mutex<HashMap<u64, citadel_io::tokio::sync::oneshot::Sender<R>>>,
     to_channel: Sender<TrackedCallbackChannelPayload<T, R>>,
     id: AtomicU64,
 }
@@ -84,7 +84,7 @@ impl<T, R> TrackedCallbackChannelPayload<T, R> {
 
 impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
     pub fn new(buffer: usize) -> (Self, CallbackReceiver<T, R>) {
-        let (to_channel, from_channel) = tokio::sync::mpsc::channel(buffer);
+        let (to_channel, from_channel) = citadel_io::tokio::sync::mpsc::channel(buffer);
         (
             Self {
                 inner: Arc::new(TrackedCallbackChannelInner {
@@ -101,7 +101,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
 
     pub async fn send(&self, payload: T) -> Result<R, TrackedCallbackError<T>> {
         let (rx, id) = {
-            let (tx, rx) = tokio::sync::oneshot::channel();
+            let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
             let next_value = self.inner.id.fetch_add(1, Ordering::Relaxed);
             self.inner.map.lock().insert(next_value, tx);
             (rx, next_value)
@@ -164,6 +164,7 @@ impl<T, R> Stream for CallbackReceiver<T, R> {
 #[cfg(test)]
 mod tests {
     use crate::sync::tracked_callback_channel::{TrackedCallbackChannel, TrackedCallbackError};
+    use citadel_io::tokio;
     use futures::StreamExt;
 
     #[tokio::test]
@@ -192,10 +193,10 @@ mod tests {
             }
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
+        let server = citadel_io::tokio::spawn(server);
+        let client = citadel_io::tokio::spawn(client);
 
-        let (_, _) = tokio::join!(server, client);
+        let (_, _) = citadel_io::tokio::join!(server, client);
     }
 
     #[tokio::test]
@@ -224,10 +225,10 @@ mod tests {
             }
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
+        let server = citadel_io::tokio::spawn(server);
+        let client = citadel_io::tokio::spawn(client);
 
-        let (_, _) = tokio::join!(server, client);
+        let (_, _) = citadel_io::tokio::join!(server, client);
     }
 
     #[test]

@@ -68,7 +68,7 @@ pub async fn get_all_multi_concurrent_from(
             .collect::<Vec<_>>(),
     );
 
-    let (res0, res2) = tokio::join!(internal_ipv4_future, external_ipv6_future);
+    let (res0, res2) = citadel_io::tokio::join!(internal_ipv4_future, external_ipv6_future);
     let internal_ipv4 =
         res0.ok_or_else(|| IpRetrieveError::Error("Could not obtain internal IPv4".to_string()))?;
     let external_ipv6 = res2.ok().map(|r| r.0);
@@ -92,7 +92,7 @@ pub async fn get_all_from(
     let client = client.unwrap_or_else(get_default_client);
     let internal_ipv4_future = get_internal_ip(false);
     let external_ipv6_future = get_ip_from(Some(client), v6_addr);
-    let (res0, res2) = tokio::join!(internal_ipv4_future, external_ipv6_future);
+    let (res0, res2) = citadel_io::tokio::join!(internal_ipv4_future, external_ipv6_future);
     let internal_ipv4 =
         res0.ok_or_else(|| IpRetrieveError::Error("Could not obtain internal IPv4".to_string()))?;
     let external_ipv6 = res2.ok();
@@ -145,7 +145,9 @@ pub async fn get_internal_ip(ipv6: bool) -> Option<IpAddr> {
 #[cfg(not(target_family = "wasm"))]
 /// Returns the internal ipv4 address of this node
 pub async fn get_internal_ipv4() -> Option<IpAddr> {
-    let socket = tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?).await.ok()?;
+    let socket = citadel_io::tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?)
+        .await
+        .ok()?;
     socket.connect(addr("8.8.8.8:80")?).await.ok()?;
     socket.local_addr().ok().map(|sck| sck.ip())
 }
@@ -157,7 +159,9 @@ async fn get_internal_ipv4() -> Option<IpAddr> {
 
 #[cfg(not(target_family = "wasm"))]
 async fn get_internal_ipv6() -> Option<IpAddr> {
-    let socket = tokio::net::UdpSocket::bind(addr("[::]:0")?).await.ok()?;
+    let socket = citadel_io::tokio::net::UdpSocket::bind(addr("[::]:0")?)
+        .await
+        .ok()?;
     socket
         .connect(addr("[2001:4860:4860::8888]:80")?)
         .await

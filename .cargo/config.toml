@@ -1,2 +1,2 @@
 [target.wasm32-wasi]
-rustflags = ["--cfg", "tokio_unstable", "-C", "target-feature=+atomics,+bulk-memory"]
+rustflags = ["-C", "target-feature=+atomics,+bulk-memory"]

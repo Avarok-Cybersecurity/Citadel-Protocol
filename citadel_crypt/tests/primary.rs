@@ -10,6 +10,7 @@ mod tests {
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use citadel_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
+    use citadel_io::tokio;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::{
@@ -18,7 +19,6 @@ mod tests {
     };
     use citadel_types::proto::TransferType;
     use rstest::rstest;
-    #[cfg(not(target_family = "wasm"))]
     use std::path::PathBuf;
 
     #[cfg(not(target_family = "wasm"))]

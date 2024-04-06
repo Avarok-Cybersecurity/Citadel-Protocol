@@ -1,14 +1,14 @@
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
 use bytes::BytesMut;
+pub use citadel_io::tokio::sync::mpsc::{
+    error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
+};
 use citadel_user::re_exports::__private::Formatter;
 use futures::task::{Context, Poll};
 use futures::Sink;
 use std::net::SocketAddr;
 use std::pin::Pin;
-pub use tokio::sync::mpsc::{
-    error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
-};
 
 pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
 
@@ -19,7 +19,7 @@ impl<T> Clone for UnboundedSender<T> {
 }
 
 pub fn unbounded<T>() -> (UnboundedSender<T>, UnboundedReceiver<T>) {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
     (UnboundedSender(tx), rx)
 }
 
@@ -31,7 +31,7 @@ impl<T> UnboundedSender<T> {
 }
 
 pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
-    tokio::sync::mpsc::channel(len)
+    citadel_io::tokio::sync::mpsc::channel(len)
 }
 
 #[derive(Clone)]
@@ -51,12 +51,12 @@ impl From<UnboundedSender<bytes::BytesMut>> for OutboundPrimaryStreamSender {
 }
 
 pub struct OutboundPrimaryStreamReceiver(
-    pub tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>,
+    pub citadel_io::tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>,
 );
 
 impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundPrimaryStreamReceiver {
     fn from(inner: UnboundedReceiver<BytesMut>) -> Self {
-        Self(tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
+        Self(citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
     }
 }
 
@@ -145,24 +145,30 @@ impl std::fmt::Debug for OutboundUdpSender {
 }
 
 /// As asynchronous channel meant to rate-limit input
-pub struct BoundedSender<T>(tokio::sync::mpsc::Sender<T>);
+pub struct BoundedSender<T>(citadel_io::tokio::sync::mpsc::Sender<T>);
 
-pub type BoundedReceiver<T> = tokio::sync::mpsc::Receiver<T>;
+pub type BoundedReceiver<T> = citadel_io::tokio::sync::mpsc::Receiver<T>;
 
 impl<T> BoundedSender<T> {
     /// Creates a new bounded channel
     pub fn new(limit: usize) -> (BoundedSender<T>, BoundedReceiver<T>) {
-        let (tx, rx) = tokio::sync::mpsc::channel(limit);
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::channel(limit);
         (Self(tx), rx)
     }
 
     /// Attempts to send a value through the stream non-blocking and synchronously
-    pub fn try_send(&self, t: T) -> Result<(), tokio::sync::mpsc::error::TrySendError<T>> {
+    pub fn try_send(
+        &self,
+        t: T,
+    ) -> Result<(), citadel_io::tokio::sync::mpsc::error::TrySendError<T>> {
         self.0.try_send(t)
     }
 
     /// Sends a value through the channel
-    pub async fn send(&self, t: T) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
+    pub async fn send(
+        &self,
+        t: T,
+    ) -> Result<(), citadel_io::tokio::sync::mpsc::error::SendError<T>> {
         self.0.send(t).await
     }
 }

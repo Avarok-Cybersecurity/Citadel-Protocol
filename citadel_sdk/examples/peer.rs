@@ -1,3 +1,4 @@
+use citadel_io::tokio;
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -30,7 +31,7 @@ async fn main() {
         |mut connection, remote| async move {
             let mut connection = connection.recv().await.unwrap()?;
             let chan = connection.udp_channel_rx.take();
-            tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
+            citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                 UdpMode::Enabled,
                 chan,
             ))

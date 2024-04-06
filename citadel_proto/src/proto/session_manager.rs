@@ -40,6 +40,7 @@ use crate::proto::session::{
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
@@ -50,7 +51,6 @@ use citadel_types::proto::{
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
-use tokio::sync::broadcast::Sender;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 

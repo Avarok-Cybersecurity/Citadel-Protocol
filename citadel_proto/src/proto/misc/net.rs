@@ -6,6 +6,10 @@ use crate::proto::misc::clean_shutdown::{
 use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use bytes::Bytes;
+use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use citadel_io::tokio::net::{TcpListener, TcpStream};
+use citadel_io::tokio_stream::{Stream, StreamExt};
+use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
@@ -21,10 +25,6 @@ use std::ops::DerefMut;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::{Stream, StreamExt};
-use tokio_util::codec::LengthDelimitedCodec;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop
@@ -153,7 +153,9 @@ impl AsyncWrite for GenericNetworkStream {
 
 pub struct GenericNetworkListener {
     future: Pin<Box<dyn StreamOutputImpl>>,
-    recv: tokio::sync::mpsc::Receiver<std::io::Result<(GenericNetworkStream, SocketAddr)>>,
+    recv: citadel_io::tokio::sync::mpsc::Receiver<
+        std::io::Result<(GenericNetworkStream, SocketAddr)>,
+    >,
     local_addr: SocketAddr,
     #[allow(dead_code)]
     quic_endpoint: Option<Endpoint>,
@@ -168,7 +170,7 @@ impl GenericNetworkListener {
         let local_addr = quic_node.endpoint.local_addr()?;
         let tls_domain = quic_node.tls_domain_opt.clone();
         let mut listener = QuicListener::new(quic_node, is_self_signed);
-        let (send, recv) = tokio::sync::mpsc::channel(1024);
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
 
         let future = async move {
             while let Some(stream) = listener.next().await {
@@ -202,7 +204,7 @@ impl GenericNetworkListener {
         listener: TcpListener,
         redirect_to_quic: Option<(TlsDomain, bool)>,
     ) -> std::io::Result<Self> {
-        let (send, recv) = tokio::sync::mpsc::channel(1024);
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let local_addr = listener.local_addr()?;
         let tls_domain = redirect_to_quic.as_ref().and_then(|r| r.0.clone());
 
@@ -259,7 +261,7 @@ impl GenericNetworkListener {
     }
 
     pub fn new_tls(mut listener: TlsListener) -> std::io::Result<Self> {
-        let (send, recv) = tokio::sync::mpsc::channel(1024);
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let local_addr = listener.local_addr;
         let tls_domain = listener.tls_domain.clone();
 
@@ -324,7 +326,9 @@ impl Stream for GenericNetworkListener {
 
 pub struct TlsListener {
     future: Pin<Box<dyn StreamOutputImpl>>,
-    recv: tokio::sync::mpsc::Receiver<std::io::Result<(TlsStream<TcpStream>, SocketAddr)>>,
+    recv: citadel_io::tokio::sync::mpsc::Receiver<
+        std::io::Result<(TlsStream<TcpStream>, SocketAddr)>,
+    >,
     local_addr: SocketAddr,
     tls_domain: TlsDomain,
 }
@@ -337,7 +341,7 @@ impl TlsListener {
         is_self_signed: bool,
     ) -> std::io::Result<Self> {
         // TODO: add channel capacity for acceptors
-        let (send, recv) = tokio::sync::mpsc::channel(1024);
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let local_addr = inner.local_addr()?;
         let tls_domain = domain.clone();
 
@@ -410,7 +414,7 @@ impl Stream for TlsListener {
 
 pub struct QuicListener {
     future: Pin<Box<dyn StreamOutputImpl>>,
-    recv: tokio::sync::mpsc::Receiver<std::io::Result<IncomingQuicConnection>>,
+    recv: citadel_io::tokio::sync::mpsc::Receiver<std::io::Result<IncomingQuicConnection>>,
     #[allow(dead_code)]
     is_self_signed: bool,
 }
@@ -419,7 +423,7 @@ type IncomingQuicConnection = (Connection, SendStream, RecvStream, SocketAddr, E
 
 impl QuicListener {
     pub fn new(mut server: QuicNode, is_self_signed: bool) -> Self {
-        let (send, recv) = tokio::sync::mpsc::channel(1024);
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let endpoint = server.endpoint.clone();
 
         let future = async move {
@@ -509,7 +513,9 @@ pub enum FirstPacket {
 
 pub struct DualListener {
     future: Pin<Box<dyn StreamOutputImpl>>,
-    recv: tokio::sync::mpsc::Receiver<std::io::Result<(GenericNetworkStream, SocketAddr)>>,
+    recv: citadel_io::tokio::sync::mpsc::Receiver<
+        std::io::Result<(GenericNetworkStream, SocketAddr)>,
+    >,
 }
 
 impl DualListener {
@@ -517,7 +523,7 @@ impl DualListener {
         mut tcp_or_tls_listener: GenericNetworkListener,
         quic_listener: Option<GenericNetworkListener>,
     ) -> Self {
-        let (tx, recv) = tokio::sync::mpsc::channel(1024);
+        let (tx, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let tx2 = tx.clone();
         let redirects_to_quic = quic_listener.is_some();
 
@@ -555,7 +561,8 @@ impl DualListener {
                 }
             };
 
-            tokio::try_join!(tcp_or_tls_listener_future, quic_listener_future).map(|_| ())
+            citadel_io::tokio::try_join!(tcp_or_tls_listener_future, quic_listener_future)
+                .map(|_| ())
         };
 
         Self {

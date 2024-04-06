@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::udp_traversal::hole_punch_config::AddrBand;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use stun::client::ClientBuilder;
 use stun::message::{Getter, Message, BINDING_REQUEST};
 use stun::xoraddr::XorMappedAddress;
@@ -111,7 +111,7 @@ impl NatType {
         _timeout: Duration,
         stun_servers: Option<Vec<String>>,
     ) -> Result<Self, FirewallError> {
-        match tokio::time::timeout(_timeout, get_nat_type(stun_servers)).await {
+        match citadel_io::tokio::time::timeout(_timeout, get_nat_type(stun_servers)).await {
             Ok(res) => res
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))
                 .map(|nat_type| {
@@ -488,7 +488,8 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
                 let new_bind_addr = udp_sck.local_addr()?;
                 udp_sck.connect(server).await?;
-                let (handler_tx, mut handler_rx) = tokio::sync::mpsc::unbounded_channel();
+                let (handler_tx, mut handler_rx) =
+                    citadel_io::tokio::sync::mpsc::unbounded_channel();
                 log::trace!(target: "citadel", "Connected to STUN server {:?}", server);
                 let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
 
@@ -568,7 +569,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
             >
     } else {
         Box::pin(async move {
-            match tokio::time::timeout(
+            match citadel_io::tokio::time::timeout(
                 Duration::from_millis(1500),
                 async_ip::get_all_multi_concurrent(None),
             )
@@ -581,7 +582,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
         })
     };
 
-    let (nat_type, ip_info) = tokio::join!(nat_type, ip_info_future);
+    let (nat_type, ip_info) = citadel_io::tokio::join!(nat_type, ip_info_future);
     let mut nat_type = nat_type?;
     log::trace!(target: "citadel", "NAT Type: {nat_type:?} | IpInfo: {ip_info:?}");
 
@@ -607,6 +608,7 @@ mod tests {
         IpTranslation, NatType, PortTranslation, SocketPair, MAX_OCTET_DELTA,
     };
     use crate::udp_traversal::hole_punch_config::AddrBand;
+    use citadel_io::tokio;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 

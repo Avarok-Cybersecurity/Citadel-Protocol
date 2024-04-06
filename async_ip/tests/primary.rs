@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use async_ip::{get_all, get_all_multi_concurrent};
+    use citadel_io::tokio;
 
     #[tokio::test]
     async fn get() {

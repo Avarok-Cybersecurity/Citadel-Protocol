@@ -87,6 +87,8 @@ impl OrderedChannel {
 mod tests {
     use crate::proto::misc::ordered_channel::OrderedChannel;
     use crate::proto::outbound_sender::unbounded;
+    use citadel_io::tokio;
+    use citadel_io::tokio::sync::RwLock;
     use citadel_types::crypto::SecBuffer;
     use futures::StreamExt;
     use rand::prelude::SliceRandom;
@@ -95,7 +97,6 @@ mod tests {
     use std::error::Error;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::RwLock;
 
     #[tokio::test]
     async fn smoke_ordered() -> Result<(), Box<dyn Error>> {
@@ -119,7 +120,7 @@ mod tests {
             }
         };
 
-        let recv_handle = citadel_io::spawn(recv_task);
+        let recv_handle = citadel_io::tokio::task::spawn(recv_task);
 
         for (id, packet) in values_ordered {
             ordered_channel.on_packet_received(id, packet)?;
@@ -162,7 +163,7 @@ mod tests {
             }
         };
 
-        let recv_handle = citadel_io::spawn(recv_task);
+        let recv_handle = citadel_io::tokio::task::spawn(recv_task);
 
         for (id, packet) in values_unordered {
             ordered_channel.on_packet_received(id, packet)?;
@@ -173,7 +174,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn smoke_unordered_concurrent() -> Result<(), Box<dyn Error>> {
         const COUNT: usize = 10000;
         let (tx, mut rx) = unbounded();
@@ -206,12 +207,12 @@ mod tests {
             }
         };
 
-        let recv_handle = citadel_io::spawn(recv_task);
+        let recv_handle = citadel_io::tokio::task::spawn(recv_task);
 
-        tokio_stream::iter(values_unordered)
+        citadel_io::tokio_stream::iter(values_unordered)
             .for_each_concurrent(None, |(id, packet)| async move {
                 let rnd = ThreadRng::default().gen_range(1..10);
-                tokio::time::sleep(Duration::from_millis(rnd)).await;
+                citadel_io::tokio::time::sleep(Duration::from_millis(rnd)).await;
                 ordered_channel
                     .write()
                     .await

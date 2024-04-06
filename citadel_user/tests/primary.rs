@@ -14,6 +14,7 @@ mod tests {
     use futures::Future;
     use std::str::FromStr;
 
+    use citadel_io::tokio;
     use citadel_types::crypto::EncryptionAlgorithm;
     use citadel_types::crypto::SecBuffer;
     use citadel_types::user::MutualPeer;
@@ -151,6 +152,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "sql", feature = "redis", feature = "filesystem"))]
     fn generate_random_filesystem_dir() -> BackendType {
         let mut home = dirs2::home_dir().unwrap();
         let rand = uuid::Uuid::new_v4().to_string();

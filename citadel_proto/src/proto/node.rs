@@ -5,8 +5,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::kernel::kernel_executor::LocalSet;
+use citadel_io::tokio::io::AsyncRead;
 use futures::StreamExt;
-use tokio::io::AsyncRead;
 
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
@@ -66,7 +66,7 @@ impl Node {
         local_node_type: NodeType,
         to_kernel: UnboundedSender<NodeResult>,
         account_manager: AccountManager,
-        shutdown: tokio::sync::oneshot::Sender<()>,
+        shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
         underlying_proto: ServerUnderlyingProtocol,
         client_config: Option<Arc<ClientConfig>>,
         stun_servers: Option<Vec<String>>,
@@ -140,7 +140,7 @@ impl Node {
     fn load(
         this: Node,
         account_manager: AccountManager,
-        shutdown: tokio::sync::oneshot::Sender<()>,
+        shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> (
         NodeRemote,
         Pin<Box<dyn RuntimeFuture>>,
@@ -241,7 +241,7 @@ impl Node {
 
         let server_future = async move {
             let res = if let Some(primary_stream_listener) = primary_stream_listener {
-                tokio::select! {
+                citadel_io::tokio::select! {
                     res0 = outbound_kernel_request_handler => {
                         log::trace!(target: "citadel", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
                         res0
@@ -252,7 +252,7 @@ impl Node {
                     res3 = session_spawner => res3
                 }
             } else {
-                tokio::select! {
+                citadel_io::tokio::select! {
                     res0 = outbound_kernel_request_handler => {
                         log::trace!(target: "citadel", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
                         res0
@@ -270,7 +270,7 @@ impl Node {
             // the kernel will wait until the server shuts down to prevent cleanup tasks from being killed too early
             shutdown.send(());
 
-            tokio::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown())
+            citadel_io::tokio::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown())
                 .await
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
@@ -455,7 +455,7 @@ impl Node {
         log::trace!(target: "citadel", "Using cfg={:?} to connect to {:?}", cfg, remote);
 
         // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
-        let (conn, sink, stream) = tokio::time::timeout(
+        let (conn, sink, stream) = citadel_io::tokio::time::timeout(
             timeout.unwrap_or(TCP_CONN_TIMEOUT),
             quic_endpoint.connect_biconn_with(
                 remote,
@@ -572,7 +572,7 @@ impl Node {
         stream: R,
         timeout: Option<Duration>,
     ) -> std::io::Result<FirstPacket> {
-        let (_stream, ret) = tokio::time::timeout(
+        let (_stream, ret) = citadel_io::tokio::time::timeout(
             timeout.unwrap_or(TCP_CONN_TIMEOUT),
             super::misc::read_one_packet_as_framed(stream),
         )

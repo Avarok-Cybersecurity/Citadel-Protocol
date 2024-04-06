@@ -101,7 +101,7 @@ pub fn create_server_config(
 /// This can be an expensive operation, empirically lasting upwards of 200ms on some systems
 /// This should only be called once, preferably at init of the protocol
 pub async fn load_native_certs_async() -> Result<Vec<Certificate>, Error> {
-    citadel_io::spawn_blocking(load_native_certs)
+    citadel_io::tokio::task::spawn_blocking(load_native_certs)
         .await
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}")))?
 }

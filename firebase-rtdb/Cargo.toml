@@ -19,5 +19,5 @@ log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["full"] }
+citadel_io = { workspace = true }
 citadel_logging = { workspace = true }

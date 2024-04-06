@@ -38,7 +38,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
         session_security_settings: SessionSecuritySettings,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Self {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new_connect(
             username,
             password,
@@ -89,7 +89,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
         session_security_settings: SessionSecuritySettings,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Result<Self, NetworkError> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new_register(
             full_name,
             username,
@@ -148,7 +148,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
         session_security_settings: SessionSecuritySettings,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Result<Self, NetworkError> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(
             uuid,
             server_addr,
@@ -191,7 +191,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
 async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg>>(
     connect_success: ConnectionSuccess,
     remote: ClientServerRemote,
-    rx_bundle: tokio::sync::oneshot::Receiver<T::SharedBundle>,
+    rx_bundle: citadel_io::tokio::sync::oneshot::Receiver<T::SharedBundle>,
     arg: Arg,
     on_channel_received: T::UserLevelInputFunction,
 ) -> Result<(), NetworkError> {

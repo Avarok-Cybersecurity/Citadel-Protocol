@@ -14,19 +14,13 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["std"]
 std = [
-    "tokio/net",
     "futures/std",
 ]
 wasm = [
 ]
 
-[target.'cfg(target_family = "wasm")'.dependencies]
-reqwest = { workspace = true, package = "reqwest-wasm", features = ["rustls", "rustls-native-certs", "rustls-tls"] }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-reqwest = { workspace = true, features = ["rustls", "rustls-native-certs", "rustls-tls"] }
-
 [dependencies]
-tokio = { workspace = true, features = ["macros"] }
+citadel_io = { workspace = true}
 serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true, features = ["alloc"] }
+reqwest = { workspace = true, features = ["rustls", "rustls-native-certs", "rustls-tls"] }

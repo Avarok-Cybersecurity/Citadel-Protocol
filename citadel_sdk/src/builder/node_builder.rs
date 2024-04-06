@@ -108,7 +108,7 @@ impl NodeBuilder {
             _pd: Default::default(),
             inner: Box::pin(async move {
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
-                let rt = tokio::runtime::Handle::try_current()
+                let rt = citadel_io::tokio::runtime::Handle::try_current()
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(
@@ -257,7 +257,7 @@ impl NodeBuilder {
 
     /// The file should be a DER formatted certificate
     pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
-        let mut der = std::io::Cursor::new(tokio::fs::read(path).await?);
+        let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
         let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der)?;
         self.client_tls_config = Some(citadel_proto::re_imports::create_rustls_client_config(
             &certs,
@@ -298,6 +298,7 @@ mod tests {
     use crate::builder::node_builder::NodeBuilder;
     use crate::prefabs::server::empty::EmptyKernel;
     use crate::prelude::{BackendType, NodeType};
+    use citadel_io::tokio;
     use citadel_proto::prelude::{KernelExecutorSettings, ServerUnderlyingProtocol};
     use rstest::rstest;
     use std::str::FromStr;
