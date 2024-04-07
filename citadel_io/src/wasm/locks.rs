@@ -5,10 +5,12 @@ pub type RwLockWriteGuard<'a, T> = std::sync::RwLockWriteGuard<'a, T>;
 pub type Mutex<T> = MutexWasm<T>;
 pub type MutexGuard<'a, T> = std::sync::MutexGuard<'a, T>;
 
+#[derive(Default)]
 pub struct RwLockWasm<T> {
     inner: std::sync::RwLock<T>,
 }
 
+#[derive(Default)]
 pub struct MutexWasm<T> {
     inner: std::sync::Mutex<T>,
 }

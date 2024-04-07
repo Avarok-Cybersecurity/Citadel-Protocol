@@ -48,7 +48,7 @@ pub mod network_account;
 /// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!HyperWAN)
 pub mod client_account;
 
-#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+#[cfg(all(feature = "filesystem"))]
 /// This provides methods to load all locally-stored files
 pub mod account_loader;
 /// The server in legacy_citadel_proto requires a means of handling the user database. This module contains the means of achieving this
@@ -58,7 +58,7 @@ pub mod auth;
 /// For handling different I/O operations
 pub mod backend;
 pub mod credentials;
-#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+#[cfg(all(feature = "filesystem"))]
 /// Environmental constants and subroutines for pre-checking the system
 pub mod directory_store;
 /// For services

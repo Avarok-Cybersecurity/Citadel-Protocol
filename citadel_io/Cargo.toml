@@ -26,7 +26,7 @@ tokio-stream = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 tokio_wasm = { package = "tokio", version = "=1.24.2", git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.24.2-fixed", features = [
-    "sync", "macros", "io-util", "rt", "time", "net", "fs"
+    "sync", "macros", "io-util", "rt", "time", "net", "fs", "rt-multi-thread", "io-std"
 ]}
 tokio-util-wasm = { package = "tokio-util", version = "=0.7.3", git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.24.2-fixed", features = ["codec", "net", "time", "io"]}
 tokio-stream-wasm = { package = "tokio-stream", version = "=0.1.9", git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.24.2-fixed"}

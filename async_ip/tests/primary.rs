@@ -5,13 +5,13 @@ mod tests {
 
     #[tokio::test]
     async fn get() {
-        let addrs = get_all(None).await.unwrap();
+        let addrs = get_all::<()>(None).await.unwrap();
         println!("Addrs: {addrs:?}");
     }
 
     #[tokio::test]
     async fn get_multi() {
-        let addrs = get_all_multi_concurrent(None).await.unwrap();
+        let addrs = get_all_multi_concurrent::<()>(None).await.unwrap();
         println!("Addrs: {addrs:?}");
     }
 }
