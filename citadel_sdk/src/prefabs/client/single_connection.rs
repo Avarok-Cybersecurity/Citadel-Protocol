@@ -454,7 +454,6 @@ mod tests {
         assert!(server_success.load(Ordering::Relaxed));
     }
 
-    #[cfg(feature = "multi-threaded")]
     #[rstest]
     #[case(false, UdpMode::Enabled, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -494,16 +493,20 @@ mod tests {
         )
         .unwrap();
 
-        // Spawn the server, since the server won't quit when a bad connection is made;
-        let _server = tokio::spawn(server);
-
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
-        let result = client.await;
-        if let Err(error) = result {
-            assert!(error.into_string().contains("EncryptionFailure"));
-        } else {
-            panic!("Client should not have connected")
+        tokio::select! {
+            _res0 = server => {
+                panic!("Server should never finish")
+            },
+
+            result = client => {
+                if let Err(error) = result {
+                    assert!(error.into_string().contains("EncryptionFailure"));
+                } else {
+                    panic!("Client should not have connected")
+                }
+            }
         }
     }
 
