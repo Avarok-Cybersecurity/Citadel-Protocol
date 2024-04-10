@@ -17,10 +17,17 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
 
+    lazy_static::lazy_static! {
+        pub static ref PRE_SHARED_KEYS: Vec<Vec<u8>> = vec!["Hello".into(), "World".into()];
+        pub static ref PRE_SHARED_KEYS2: Vec<Vec<u8>> = vec!["World".into(), "Hello".into()];
+    }
+
     fn gen(
         kem_algorithm: KemAlgorithm,
         encryption_algorithm: EncryptionAlgorithm,
         sig_alg: SigAlgorithm,
+        bob_psks: &[Vec<u8>],
+        alice_psks: &[Vec<u8>],
     ) -> (PostQuantumContainer, PostQuantumContainer) {
         log::trace!(target: "citadel", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
@@ -32,32 +39,51 @@ mod tests {
         let bob_container = PostQuantumContainer::new_bob(
             ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm + sig_alg)),
             tx_params,
+            bob_psks,
         )
         .unwrap();
 
         let tx_params = bob_container.generate_bob_to_alice_transfer().unwrap();
         alice_container
-            .alice_on_receive_ciphertext(tx_params)
+            .alice_on_receive_ciphertext(tx_params, alice_psks)
             .unwrap();
         (alice_container, bob_container)
     }
 
     #[test]
     fn runit() {
-        run(0, EncryptionAlgorithm::AES_GCM_256, SigAlgorithm::None).unwrap();
+        run(
+            0,
+            EncryptionAlgorithm::AES_GCM_256,
+            SigAlgorithm::None,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        )
+        .unwrap();
         run(
             0,
             EncryptionAlgorithm::ChaCha20Poly_1305,
             SigAlgorithm::None,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
         )
         .unwrap();
-        run(0, EncryptionAlgorithm::Ascon80pq, SigAlgorithm::None).unwrap();
+        run(
+            0,
+            EncryptionAlgorithm::Ascon80pq,
+            SigAlgorithm::None,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        )
+        .unwrap();
     }
 
     fn run(
         algorithm: u8,
         encryption_algorithm: EncryptionAlgorithm,
         signature_algorithm: SigAlgorithm,
+        bob_psk: &[Vec<u8>],
+        alice_psk: &[Vec<u8>],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
         log::trace!(target: "citadel", "Test: {:?} w/ {:?} w/ {:?}", kem_algorithm, encryption_algorithm, signature_algorithm);
@@ -75,12 +101,14 @@ mod tests {
                 kem_algorithm + encryption_algorithm + signature_algorithm,
             )),
             tx_params.clone(),
+            bob_psk,
         )?;
         let eve_container = PostQuantumContainer::new_bob(
             ConstructorOpts::new_init(Some(
                 kem_algorithm + encryption_algorithm + signature_algorithm,
             )),
             tx_params,
+            bob_psk,
         )?;
         // Internally, this computes the CipherText. The next step is to send this CipherText back over to alice
         let bob_ciphertext = bob_container.get_ciphertext().unwrap();
@@ -90,7 +118,7 @@ mod tests {
         // Next, alice received Bob's ciphertext. She must now run an update on her internal data in order to get the shared secret
         let tx_params = bob_container.generate_bob_to_alice_transfer().unwrap();
         alice_container
-            .alice_on_receive_ciphertext(tx_params)
+            .alice_on_receive_ciphertext(tx_params, alice_psk)
             .unwrap();
 
         let alice_ss = alice_container.get_shared_secret().unwrap();
@@ -163,8 +191,13 @@ mod tests {
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
 
-        let (alice_container, bob_container) =
-            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         for x in 0..256 {
             run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
@@ -180,8 +213,13 @@ mod tests {
         let encryption_algorithm = EncryptionAlgorithm::Kyber;
         let signature_algorithm = SigAlgorithm::Falcon1024;
 
-        let (alice_container, bob_container) =
-            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         for x in 0..256 {
             run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
@@ -234,8 +272,13 @@ mod tests {
         let signature_algorithm = SigAlgorithm::None;
 
         let nonce_len = encryption_algorithm.nonce_len() as u8;
-        let (alice_container, bob_container) =
-            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
         let mut zeroth = Vec::<u8>::default();
         let mut zeroth_nonce = Vec::<u8>::from_iter(0..nonce_len);
         for y in 0..(HISTORY_LEN + 10) {
@@ -308,8 +351,13 @@ mod tests {
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
         let nonce_len = encryption_algorithm.nonce_len();
-        let (alice_container, bob_container) =
-            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         let mut packet0 = (0..TOTAL_LEN as u8).collect::<Vec<u8>>();
         let nonce = Vec::from_iter(0..nonce_len as u8);
@@ -344,18 +392,24 @@ mod tests {
                 algorithm.as_u8(),
                 EncryptionAlgorithm::AES_GCM_256,
                 SigAlgorithm::None,
+                &PRE_SHARED_KEYS,
+                &PRE_SHARED_KEYS,
             )
             .unwrap();
             run(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::ChaCha20Poly_1305,
                 SigAlgorithm::None,
+                &PRE_SHARED_KEYS,
+                &PRE_SHARED_KEYS,
             )
             .unwrap();
             run(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::Ascon80pq,
                 SigAlgorithm::None,
+                &PRE_SHARED_KEYS,
+                &PRE_SHARED_KEYS,
             )
             .unwrap();
             if algorithm == KemAlgorithm::Kyber {
@@ -363,6 +417,8 @@ mod tests {
                     algorithm.as_u8(),
                     EncryptionAlgorithm::Kyber,
                     SigAlgorithm::Falcon1024,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
                 )
                 .unwrap();
             }
@@ -376,6 +432,22 @@ mod tests {
             KemAlgorithm::Kyber.as_u8(),
             EncryptionAlgorithm::Kyber,
             SigAlgorithm::Falcon1024,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        )
+        .unwrap()
+    }
+
+    #[should_panic]
+    #[test]
+    fn test_kyber_bad_psks() {
+        citadel_logging::setup_log_no_panic_hook();
+        run(
+            KemAlgorithm::Kyber.as_u8(),
+            EncryptionAlgorithm::AES_GCM_256,
+            SigAlgorithm::Falcon1024,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS2,
         )
         .unwrap()
     }
@@ -401,8 +473,13 @@ mod tests {
         let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
-        let (alice_container, bob_container) =
-            gen(kem_algorithm, encryption_algorithm, signature_algorithm);
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         let nonce = &mut [0u8; 12];
         ThreadRng::default().fill_bytes(nonce);

@@ -127,11 +127,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -197,11 +198,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -269,11 +271,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -345,12 +348,13 @@ mod tests {
 
         // TODO: SinglePeerConnectionKernel
         // to not hold up all conns
-        let client_kernel0 = PeerConnectionKernel::new_passwordless(
+        let client_kernel0 = PeerConnectionKernel::new_authless(
             uuid0,
             server_addr,
             vec![uuid1.into()],
             UdpMode::Disabled,
             session_security,
+            None,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
@@ -388,12 +392,13 @@ mod tests {
         )
         .unwrap();
 
-        let client_kernel1 = PeerConnectionKernel::new_passwordless(
+        let client_kernel1 = PeerConnectionKernel::new_authless(
             uuid1,
             server_addr,
             vec![uuid0.into()],
             UdpMode::Disabled,
             session_security,
+            None,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let connection = connection.recv().await.unwrap()?;

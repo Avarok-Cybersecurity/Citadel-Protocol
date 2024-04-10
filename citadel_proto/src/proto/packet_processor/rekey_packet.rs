@@ -56,6 +56,7 @@ pub fn process_rekey(
                     let resp_target_cid = get_resp_target_cid_from_header(&header);
                     let status = return_if_none!(
                         attempt_kem_as_bob(
+                            session,
                             resp_target_cid,
                             &header,
                             Some(AliceToBobTransferType::Default(transfer)),
@@ -112,6 +113,7 @@ pub fn process_rekey(
 
                     let latest_hr = return_if_none!(return_if_none!(
                         attempt_kem_as_alice_finish(
+                            session,
                             secrecy_mode,
                             peer_cid,
                             target_cid,

@@ -59,6 +59,7 @@ pqcrypto-traits-wasi = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }
+lazy_static = { workspace = true }
 
 [lib]
 doctest = false
