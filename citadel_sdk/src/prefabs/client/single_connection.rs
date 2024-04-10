@@ -393,23 +393,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case(false, UdpMode::Enabled, None)]
-    #[case(false, UdpMode::Enabled, Some("test-password"))]
+    #[case(UdpMode::Enabled, None)]
+    #[case(UdpMode::Enabled, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless(
-        #[case] debug_force_nat_timeout: bool,
         #[case] udp_mode: UdpMode,
         #[case] server_password: Option<&'static str>,
     ) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
-
-        if debug_force_nat_timeout {
-            std::env::set_var("debug_cause_timeout", "ON");
-        } else {
-            std::env::remove_var("debug_cause_timeout");
-        }
 
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
@@ -455,22 +448,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case(false, UdpMode::Enabled, Some("test-password"))]
+    #[case(UdpMode::Enabled, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless_wrong_password(
-        #[case] debug_force_nat_timeout: bool,
         #[case] udp_mode: UdpMode,
         #[case] server_password: Option<&'static str>,
     ) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
-
-        if debug_force_nat_timeout {
-            std::env::set_var("debug_cause_timeout", "ON");
-        } else {
-            std::env::remove_var("debug_cause_timeout");
-        }
 
         let (server, server_addr) = server_info_reactive(
             |_conn, _remote| async move { panic!("Server should not have connected") },

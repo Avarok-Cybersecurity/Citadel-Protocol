@@ -442,24 +442,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(2, false, UdpMode::Enabled)]
-    #[case(3, true, UdpMode::Disabled)]
+    #[case(2, UdpMode::Enabled)]
+    #[case(3, UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn peer_to_peer_connect(
-        #[case] peer_count: usize,
-        #[case] debug_force_nat_timeout: bool,
-        #[case] udp_mode: UdpMode,
-    ) {
+    async fn peer_to_peer_connect(#[case] peer_count: usize, #[case] udp_mode: UdpMode) {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
-
-        if debug_force_nat_timeout {
-            std::env::set_var("debug_cause_timeout", "ON");
-        } else {
-            std::env::remove_var("debug_cause_timeout");
-        }
 
         let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();

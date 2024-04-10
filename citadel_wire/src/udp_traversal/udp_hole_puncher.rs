@@ -33,13 +33,7 @@ impl<'a> UdpHolePuncher<'a> {
     ) -> Self {
         Self {
             driver: Box::pin(async move {
-                // for debugging purposes
-                if std::env::var("debug_cause_timeout").unwrap_or_default() != "ON" {
-                    tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
-                } else {
-                    log::warn!(target: "citadel", "DEBUG_CAUSE_TIMEOUT enabled");
-                    Err(anyhow::Error::msg("DEBUG_CAUSE_TIMEOUT invoked"))
-                }
+                tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
             }),
         }
     }
