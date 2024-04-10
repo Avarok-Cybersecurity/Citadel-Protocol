@@ -150,8 +150,6 @@ pub async fn process_peer_cmd(
                                 };
 
                                 spawn!(task);
-                            } else {
-                                log::warn!(target: "citadel", "Vconn already removed");
                             }
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
