@@ -24,7 +24,7 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
+use crate::prelude::{InternalServerError, PreSharedKey, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::ordered_channel::OrderedChannel;
@@ -127,6 +127,7 @@ pub struct StateContainerInner {
     pub(super) group_channels: HashMap<MessageGroupKey, UnboundedSender<GroupBroadcastPayload>>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
+    pub(super) session_passwords: HashMap<u64, PreSharedKey>,
     is_server: bool,
 }
 
@@ -586,8 +587,24 @@ impl StateContainerInner {
             peer_kem_states: HashMap::new(),
             inbound_files: HashMap::new(),
             outbound_files: HashMap::new(),
+            session_passwords: HashMap::new(),
         };
         inner.into()
+    }
+
+    // Note: c2s connections should not be stored here. They are stored in the session.rs file
+    pub fn store_session_password(&mut self, peer_cid: u64, session_password: PreSharedKey) {
+        self.session_passwords.insert(peer_cid, session_password);
+    }
+
+    pub fn get_session_password(&self, peer_cid: u64) -> Option<&PreSharedKey> {
+        self.session_passwords.get(&peer_cid)
+    }
+
+    // TODO: use this
+    #[allow(dead_code)]
+    pub fn remove_session_password(&mut self, peer_cid: u64) {
+        self.session_passwords.remove(&peer_cid);
     }
 
     /// Attempts to find the direct p2p stream. If not found, will use the default
@@ -1340,6 +1357,7 @@ impl StateContainerInner {
     #[allow(clippy::too_many_arguments)]
     pub fn on_group_header_ack_received(
         &mut self,
+        session: &HdpSession,
         base_session_secrecy_mode: SecrecyMode,
         peer_cid: u64,
         target_cid: u64,
@@ -1363,6 +1381,7 @@ impl StateContainerInner {
         };
 
         if attempt_kem_as_alice_finish(
+            session,
             base_session_secrecy_mode,
             peer_cid,
             target_cid,

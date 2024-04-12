@@ -434,11 +434,14 @@ pub mod constructor {
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
+        pub fn stage1_alice(
+            &mut self,
+            transfer: BobToAliceTransferType,
+            psks: &[Vec<u8>],
+        ) -> Result<(), CryptError> {
             match self {
-                ConstructorType::Default(con) => con.stage1_alice(transfer),
-
-                ConstructorType::Fcm(con) => con.stage1_alice(transfer),
+                ConstructorType::Default(con) => con.stage1_alice(transfer, psks),
+                ConstructorType::Fcm(con) => con.stage1_alice(transfer, psks),
             }
         }
 
@@ -510,10 +513,11 @@ pub mod constructor {
             new_drill_vers: u32,
             opts: Vec<ConstructorOpts>,
             transfer: AliceToBobTransferType,
+            psks: &[Vec<u8>],
         ) -> Option<Self> {
             match transfer {
                 AliceToBobTransferType::Default(transfer) => {
-                    StackedRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer)
+                    StackedRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer, psks)
                 }
 
                 _ => {
@@ -531,8 +535,12 @@ pub mod constructor {
             Some(BobToAliceTransferType::Default(self.stage0_bob()?))
         }
 
-        fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
-            self.stage1_alice(transfer)
+        fn stage1_alice(
+            &mut self,
+            transfer: BobToAliceTransferType,
+            psks: &[Vec<u8>],
+        ) -> Result<(), CryptError> {
+            self.stage1_alice(transfer, psks)
         }
 
         fn update_version(&mut self, version: u32) -> Option<()> {
@@ -665,6 +673,7 @@ pub mod constructor {
             new_drill_vers: u32,
             opts: Vec<ConstructorOpts>,
             transfer: AliceToBobTransfer,
+            psks: &[Vec<u8>],
         ) -> Option<Self> {
             log::trace!(target: "citadel", "[BOB] creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
@@ -679,7 +688,7 @@ pub mod constructor {
                             EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm)
                                 .ok()?,
                         ),
-                        pqc: PostQuantumContainer::new_bob(opts, params_tx).ok()?,
+                        pqc: PostQuantumContainer::new_bob(opts, params_tx, psks).ok()?,
                     })
                 })
                 .collect();
@@ -699,6 +708,7 @@ pub mod constructor {
                     pqc: PostQuantumContainer::new_bob(
                         ConstructorOpts::new_init(Some(params)),
                         transfer.scramble_alice_params,
+                        psks,
                     )
                     .ok()?,
                 },
@@ -798,7 +808,11 @@ pub mod constructor {
         }
 
         /// Returns Some(()) if process succeeded
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
+        pub fn stage1_alice(
+            &mut self,
+            transfer: BobToAliceTransferType,
+            psks: &[Vec<u8>],
+        ) -> Result<(), CryptError> {
             if let BobToAliceTransferType::Default(transfer) = transfer {
                 let nonce_msg = &self.nonce_message;
 
@@ -810,7 +824,7 @@ pub mod constructor {
                 {
                     container
                         .pqc
-                        .alice_on_receive_ciphertext(bob_param_tx)
+                        .alice_on_receive_ciphertext(bob_param_tx, psks)
                         .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                 }
 
@@ -834,7 +848,7 @@ pub mod constructor {
                 let nonce_scramble = &self.nonce_scramble;
                 self.scramble
                     .pqc
-                    .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx)
+                    .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
                     .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
                 // do the same as above
                 let decrypted_scramble_drill = self

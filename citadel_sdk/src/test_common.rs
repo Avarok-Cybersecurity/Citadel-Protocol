@@ -155,7 +155,7 @@ lazy_static::lazy_static! {
                 std::thread::sleep(Duration::from_secs(5));
                 let deadlocks = deadlock::check_deadlock();
                 if deadlocks.is_empty() {
-                    log::error!(target: "citadel", "No deadlocks detected");
+                    log::trace!(target: "citadel", "No deadlocks detected");
                     continue;
                 }
 
@@ -163,7 +163,7 @@ lazy_static::lazy_static! {
                 for (i, threads) in deadlocks.iter().enumerate() {
                     log::error!(target: "citadel", "Deadlock #{}", i);
                     for t in threads {
-                        log::info!(target: "citadel", "Thread Id {:#?}", t.thread_id());
+                        log::error!(target: "citadel", "Thread Id {:#?}", t.thread_id());
                         log::error!(target: "citadel", "{:#?}", t.backtrace());
                     }
                 }

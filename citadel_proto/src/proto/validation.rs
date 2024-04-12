@@ -214,6 +214,7 @@ pub(crate) mod pre_connect {
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::error::NetworkError;
+    use crate::prelude::PreSharedKey;
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
@@ -244,6 +245,7 @@ pub(crate) mod pre_connect {
         cnac: &ClientNetworkAccount,
         packet: HdpPacket,
         session_manager: &HdpSessionManager,
+        session_password: &PreSharedKey,
     ) -> Result<SynValidationResult, NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
@@ -289,6 +291,7 @@ pub(crate) mod pre_connect {
             0,
             opts,
             transfer.transfer,
+            session_password.as_ref(),
         )
         .ok_or(NetworkError::InternalError(
             "Unable to create bob container",
@@ -321,6 +324,7 @@ pub(crate) mod pre_connect {
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)
     /// This returns Ok(true) if the system was already synchronized, or Ok(false) if the system needed to synchronize toolsets
     pub fn validate_syn_ack(
+        session_password: &PreSharedKey,
         cnac: &ClientNetworkAccount,
         mut alice_constructor: StackedRatchetConstructor,
         packet: HdpPacket,
@@ -333,9 +337,10 @@ pub(crate) mod pre_connect {
 
         let lvl = packet.transfer.security_level;
         log::trace!(target: "citadel", "Session security level based-on returned transfer: {:?}", lvl);
-        if let Err(err) =
-            alice_constructor.stage1_alice(BobToAliceTransferType::Default(packet.transfer))
-        {
+        if let Err(err) = alice_constructor.stage1_alice(
+            BobToAliceTransferType::Default(packet.transfer),
+            session_password.as_ref(),
+        ) {
             log::error!(target: "citadel", "Error on stage1_alice: {:?}", err);
             return None;
         }

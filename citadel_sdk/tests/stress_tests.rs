@@ -234,11 +234,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Enabled,
             session_security,
+            None,
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -262,13 +263,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(100, SecrecyMode::Perfect)]
-    #[case(100, SecrecyMode::BestEffort)]
+    #[case(100, SecrecyMode::Perfect, None)]
+    #[case(100, SecrecyMode::BestEffort, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
+        #[case] server_password: Option<&'static str>,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
@@ -289,7 +291,11 @@ mod tests {
                 SERVER_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-            |_| {},
+            |node| {
+                if let Some(password) = server_password {
+                    node.with_server_password(password);
+                }
+            },
         );
 
         let uuid = Uuid::new_v4();
@@ -299,11 +305,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Enabled,
             session_security,
+            server_password.map(|p| p.into()),
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -327,13 +334,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(500, SecrecyMode::Perfect)]
-    #[case(500, SecrecyMode::BestEffort)]
+    #[case(500, SecrecyMode::Perfect, None)]
+    #[case(500, SecrecyMode::BestEffort, Some("test-p2p-password"))]
     #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
+        #[case] p2p_password: Option<&'static str>,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
@@ -357,14 +365,33 @@ mod tests {
             .build()
             .unwrap();
 
-        // TODO: SinglePeerConnectionKernel
-        // to not hold up all conns
-        let client_kernel0 = PeerConnectionKernel::new_passwordless(
+        let mut peer0_agg = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid1)
+            .with_session_security_settings(session_security);
+
+        if let Some(password) = p2p_password {
+            peer0_agg = peer0_agg.with_session_password(password);
+        }
+
+        let peer0_connection = peer0_agg.add();
+
+        let mut peer1_agg = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid0)
+            .with_session_security_settings(session_security);
+
+        if let Some(password) = p2p_password {
+            peer1_agg = peer1_agg.with_session_password(password);
+        }
+
+        let peer1_connection = peer1_agg.add();
+
+        let client_kernel0 = PeerConnectionKernel::new_authless(
             uuid0,
             server_addr,
-            vec![uuid1.into()],
+            peer0_connection,
             UdpMode::Enabled,
             session_security,
+            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -379,12 +406,13 @@ mod tests {
         )
         .unwrap();
 
-        let client_kernel1 = PeerConnectionKernel::new_passwordless(
+        let client_kernel1 = PeerConnectionKernel::new_authless(
             uuid1,
             server_addr,
-            vec![uuid0.into()],
+            peer1_connection,
             UdpMode::Enabled,
             session_security,
+            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -457,7 +485,7 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_passwordless_defaults(
+            let client_kernel = BroadcastKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 request,

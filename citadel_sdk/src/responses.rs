@@ -68,6 +68,7 @@ pub async fn peer_connect(
     input_signal: PeerSignal,
     accept: bool,
     remote: &impl Remote,
+    peer_session_password: Option<PreSharedKey>,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostConnect {
         peer_conn_type: v_conn,
@@ -75,6 +76,7 @@ pub async fn peer_connect(
         invitee_response: None,
         session_security_settings: sess_sec,
         udp_mode,
+        session_password: None,
     } = input_signal
     {
         let this_cid = v_conn.get_original_target_cid();
@@ -94,6 +96,7 @@ pub async fn peer_connect(
                 invitee_response: Some(resp),
                 session_security_settings: sess_sec,
                 udp_mode,
+                session_password: peer_session_password,
             },
         });
         remote

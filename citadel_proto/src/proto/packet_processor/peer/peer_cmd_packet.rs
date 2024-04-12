@@ -18,7 +18,7 @@ use crate::error::NetworkError;
 use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet_processor::includes::*;
-use crate::proto::packet_processor::peer::group_broadcast;
+use crate::proto::packet_processor::peer::{group_broadcast, send_dc_signal_peer};
 use crate::proto::packet_processor::preconnect_packet::{
     calculate_sync_time, generate_hole_punch_crypt_container,
 };
@@ -29,7 +29,7 @@ use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStre
 use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
-    HyperNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
+    NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::HdpSessionManager;
@@ -74,7 +74,7 @@ pub async fn process_peer_cmd(
     let task = async move {
         let session = &session;
         // we can unwrap below safely since the header layout has already been verified
-        let header = Ref::new(&*header).unwrap() as Ref<&[u8], HdpHeader>;
+        let header = Ref::new(&*header).unwrap();
 
         match aux_cmd {
             packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
@@ -150,8 +150,6 @@ pub async fn process_peer_cmd(
                                 };
 
                                 spawn!(task);
-                            } else {
-                                log::warn!(target: "citadel", "Vconn already removed");
                             }
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
@@ -240,6 +238,7 @@ pub async fn process_peer_cmd(
                                         event: PeerSignal::SignalError {
                                             ticket,
                                             error: err.into_string(),
+                                            peer_connection_type: vconn.reverse(),
                                         },
                                         ticket,
                                         implicated_cid,
@@ -256,9 +255,10 @@ pub async fn process_peer_cmd(
                             invitee_response: Some(resp),
                             session_security_settings: endpoint_security_settings,
                             udp_mode: udp_enabled,
+                            session_password: _,
                         } => {
+                            log::trace!(target: "citadel", "Handling peer connect");
                             let accepted = matches!(resp, PeerResponse::Accept(_));
-                            // TODO: handle non-accept case
                             // the connection was mutually accepted. Now, we must begin the KEM subroutine
                             if accepted {
                                 return match conn {
@@ -272,11 +272,6 @@ pub async fn process_peer_cmd(
                                         // unique to the session.
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_implicated_cid();
-                                        let mut peer_kem_state_container =
-                                            PeerKemStateContainer::new(
-                                                *endpoint_security_settings,
-                                                *udp_enabled == UdpMode::Enabled,
-                                            );
 
                                         let alice_constructor =
                                             return_if_none!(StackedRatchetConstructor::new_alice(
@@ -299,14 +294,36 @@ pub async fn process_peer_cmd(
                                         //log::trace!(target: "citadel", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
                                         let msg_bytes =
                                             return_if_none!(transfer.serialize_to_vec());
+
+                                        let mut state_container =
+                                            inner_mut_state!(session.state_container);
+
+                                        let session_password = state_container
+                                            .get_session_password(
+                                                conn.get_original_implicated_cid(),
+                                            )
+                                            .cloned();
+                                        if session_password.is_none() {
+                                            log::error!(target: "citadel", "The session password locally is set to None. This is a development issue, please report");
+                                        }
+
+                                        let session_password = session_password.unwrap_or_default();
+                                        let mut peer_kem_state_container =
+                                            PeerKemStateContainer::new(
+                                                *endpoint_security_settings,
+                                                *udp_enabled == UdpMode::Enabled,
+                                                session_password.clone(),
+                                            );
+
                                         peer_kem_state_container.constructor =
                                             Some(alice_constructor);
-                                        inner_mut_state!(session.state_container)
-                                            .peer_kem_states
-                                            .insert(
-                                                *original_implicated_cid,
-                                                peer_kem_state_container,
-                                            );
+
+                                        state_container.peer_kem_states.insert(
+                                            *original_implicated_cid,
+                                            peer_kem_state_container,
+                                        );
+
+                                        drop(state_container);
                                         // finally, prepare the signal and send outbound
                                         // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &EntropyBank, ticket: Ticket, timestamp: i64
                                         let signal = PeerSignal::Kex {
@@ -339,6 +356,17 @@ pub async fn process_peer_cmd(
                                         Ok(PrimaryProcessorResult::Void)
                                     }
                                 };
+                            } else {
+                                // Send error to kernel for peer connect fail. Reason: did not accept
+                                session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                                    event: PeerSignal::SignalError {
+                                        ticket,
+                                        error: "Peer did not accept connection".to_string(),
+                                        peer_connection_type: conn.reverse(),
+                                    },
+                                    ticket,
+                                    implicated_cid,
+                                }))?;
                             }
                         }
 
@@ -360,6 +388,18 @@ pub async fn process_peer_cmd(
                                     let transfer_deser = return_if_none!(
                                         AliceToBobTransfer::deserialize_from(transfer)
                                     );
+
+                                    let mut state_container =
+                                        inner_mut_state!(session.state_container);
+
+                                    let session_password =
+                                        state_container.get_session_password(peer_cid).cloned();
+                                    if session_password.is_none() {
+                                        log::error!(target: "citadel", "The session password locally is set to None. This is a development issue, please report");
+                                    }
+
+                                    let session_password = session_password.unwrap_or_default();
+
                                     let bob_constructor =
                                         return_if_none!(StackedRatchetConstructor::new_bob(
                                             conn.get_original_target_cid(),
@@ -370,10 +410,10 @@ pub async fn process_peer_cmd(
                                                     + 1)
                                                     as usize
                                             ),
-                                            transfer_deser
+                                            transfer_deser,
+                                            session_password.as_ref(),
                                         ));
                                     let transfer = return_if_none!(bob_constructor.stage0_bob());
-
                                     let bob_transfer =
                                         return_if_none!(transfer.serialize_to_vector().ok());
 
@@ -394,12 +434,14 @@ pub async fn process_peer_cmd(
                                     let mut state_container_kem = PeerKemStateContainer::new(
                                         *session_security_settings,
                                         *udp_enabled == UdpMode::Enabled,
+                                        session_password,
                                     );
                                     state_container_kem.constructor = Some(bob_constructor);
-                                    inner_mut_state!(session.state_container)
+                                    state_container
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
 
+                                    drop(state_container);
                                     let stage1_kem = packet_crafter::peer_cmd::craft_peer_signal(
                                         &sess_hyper_ratchet,
                                         signal,
@@ -449,11 +491,35 @@ pub async fn process_peer_cmd(
                                             BobToAliceTransfer::deserialize_from(transfer),
                                             "bad deser"
                                         );
-                                        alice_constructor
-                                            .stage1_alice(BobToAliceTransferType::Default(deser))
-                                            .map_err(|err| {
-                                                NetworkError::Generic(err.to_string())
-                                            })?;
+
+                                        if let Err(err) = alice_constructor.stage1_alice(
+                                            BobToAliceTransferType::Default(deser),
+                                            kem_state.session_password.as_ref(),
+                                        ) {
+                                            log::warn!(target: "citadel", "Failed to complete key exchange for {implicated_cid} | Wrong session passwords? Err: {err:?}");
+                                            send_dc_signal_peer(
+                                                session,
+                                                ticket,
+                                                format!("{err:?}"),
+                                            )?;
+                                            // Send the error signal to the peer
+                                            let error_signal = PeerSignal::SignalError {
+                                                ticket,
+                                                error: err.into_string(),
+                                                peer_connection_type: conn.reverse(),
+                                            };
+                                            let error_packet =
+                                                packet_crafter::peer_cmd::craft_peer_signal(
+                                                    &sess_hyper_ratchet,
+                                                    error_signal,
+                                                    ticket,
+                                                    timestamp,
+                                                    security_level,
+                                                );
+                                            return Ok(PrimaryProcessorResult::ReplyToSender(
+                                                error_packet,
+                                            ));
+                                        }
                                         let hyper_ratchet = return_if_none!(
                                             alice_constructor.finish_with_custom_cid(this_cid)
                                         );
@@ -524,7 +590,7 @@ pub async fn process_peer_cmd(
                                         let ticket_for_chan = state_container
                                             .outgoing_peer_connect_attempts
                                             .remove(&peer_cid);
-                                        std::mem::drop(state_container);
+                                        drop(state_container);
                                         let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
@@ -767,7 +833,6 @@ pub async fn process_peer_cmd(
                         _ => {}
                     }
 
-                    log::trace!(target: "citadel", "Forwarding PEER signal to kernel ...");
                     session
                         .kernel_tx
                         .unbounded_send(NodeResult::PeerEvent(PeerEvent {
@@ -857,21 +922,27 @@ async fn process_signal_command_as_server(
                 return Ok(PrimaryProcessorResult::Void);
             }
 
-            let res = sess_mgr.send_signal_to_peer_direct(
-                conn.get_original_target_cid(),
-                move |peer_hyper_ratchet| {
-                    packet_crafter::peer_cmd::craft_peer_signal(
-                        peer_hyper_ratchet,
-                        signal_to,
-                        ticket,
-                        timestamp,
-                        security_level,
-                    )
-                },
-            );
+            let peer_cid = conn.get_original_target_cid();
+
+            let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_hyper_ratchet| {
+                packet_crafter::peer_cmd::craft_peer_signal(
+                    peer_hyper_ratchet,
+                    signal_to,
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
+            });
 
             if let Err(err) = res {
-                reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level)
+                reply_to_sender_err(
+                    err,
+                    &sess_hyper_ratchet,
+                    ticket,
+                    timestamp,
+                    security_level,
+                    peer_cid,
+                )
             } else {
                 Ok(PrimaryProcessorResult::Void)
             }
@@ -896,7 +967,6 @@ async fn process_signal_command_as_server(
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
                         super::server::post_register::handle_response_phase_post_register(
-                            &mut *session.hypernode_peer_layer.inner.write().await,
                             peer_conn_type,
                             username,
                             peer_response,
@@ -936,10 +1006,11 @@ async fn process_signal_command_as_server(
                             peer_layer.check_simultaneous_register(implicated_cid, target_cid)
                         {
                             log::trace!(target: "citadel", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
+                            peer_layer.insert_mapped_ticket(implicated_cid, ticket_new, ticket);
                             // route signal to peer
+                            drop(peer_layer);
                             let _ =
                                 super::server::post_register::handle_response_phase_post_register(
-                                    &mut peer_layer,
                                     peer_conn_type,
                                     username.clone(),
                                     PeerResponse::Accept(Some(username)),
@@ -984,8 +1055,8 @@ async fn process_signal_command_as_server(
                             let to_primary_stream =
                                 return_if_none!(session.to_primary_stream.clone());
                             let sess_mgr = session.session_manager.clone();
+                            drop(peer_layer);
                             route_signal_and_register_ticket_forwards(
-                                &peer_layer,
                                 PeerSignal::PostRegister {
                                     peer_conn_type,
                                     inviter_username: username,
@@ -1093,6 +1164,10 @@ async fn process_signal_command_as_server(
                             let error_signal = PeerSignal::SignalError {
                                 ticket,
                                 error: err.into_string(),
+                                peer_connection_type: PeerConnectionType::LocalGroupPeer {
+                                    implicated_cid,
+                                    peer_cid: target_cid,
+                                },
                             };
                             let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
                                 &sess_hyper_ratchet,
@@ -1123,6 +1198,7 @@ async fn process_signal_command_as_server(
             invitee_response: peer_response,
             session_security_settings: endpoint_security_level,
             udp_mode: udp_enabled,
+            session_password,
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1131,10 +1207,8 @@ async fn process_signal_command_as_server(
                 } => {
                     // TODO: Change timeouts. Create a better timeout system, in general
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60);
-                    let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
                     if let Some(peer_response) = peer_response {
                         super::server::post_connect::handle_response_phase_post_connect(
-                            &mut peer_layer,
                             peer_conn_type,
                             ticket,
                             peer_response,
@@ -1152,16 +1226,18 @@ async fn process_signal_command_as_server(
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
+                        let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_connect(implicated_cid, target_cid)
                         {
                             log::trace!(target: "citadel", "Simultaneous connect detected! Simulating implicated_cid={} sent an accept_connect to target={}", implicated_cid, target_cid);
                             log::trace!(target: "citadel", "Simultaneous connect: first_ticket: {} | sender expected ticket: {}", ticket_new, ticket);
+                            peer_layer.insert_mapped_ticket(implicated_cid, ticket_new, ticket);
                             // NOTE: Packet will rebound to sender, then, sender will locally send
                             // packet to the peer who first attempted a connect request
+                            drop(peer_layer);
                             let _ =
                                 super::server::post_connect::handle_response_phase_post_connect(
-                                    &mut peer_layer,
                                     peer_conn_type,
                                     ticket_new,
                                     PeerResponse::Accept(None),
@@ -1177,14 +1253,15 @@ async fn process_signal_command_as_server(
                                 .await?;
                             Ok(PrimaryProcessorResult::Void)
                         } else {
+                            drop(peer_layer);
                             route_signal_and_register_ticket_forwards(
-                                &peer_layer,
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
                                     invitee_response: None,
                                     session_security_settings: endpoint_security_level,
                                     udp_mode: udp_enabled,
+                                    session_password,
                                 },
                                 TIMEOUT,
                                 implicated_cid,
@@ -1421,16 +1498,58 @@ async fn process_signal_command_as_server(
             ticket: _ticket,
         } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::SignalError { ticket, error: err } => {
+        PeerSignal::SignalError {
+            ticket,
+            error,
+            peer_connection_type,
+        } => {
             // in this case, we delegate the error to the higher-level kernel to determine what to do
+            let signal = PeerSignal::SignalError {
+                ticket,
+                error,
+                peer_connection_type,
+            };
             session
                 .kernel_tx
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::SignalError { ticket, error: err },
+                    event: signal.clone(),
                     ticket,
                     implicated_cid: sess_hyper_ratchet.get_cid(),
                 }))?;
-            Ok(PrimaryProcessorResult::Void)
+
+            let peer_cid = peer_connection_type.get_original_target_cid();
+            // If this was a simultaneous connect, we need to remap the ticket
+            let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
+            let ticket = peer_layer
+                .take_mapped_ticket(peer_cid, ticket)
+                .unwrap_or(ticket);
+            drop(peer_layer);
+
+            let res = inner!(session.session_manager).send_signal_to_peer_direct(
+                peer_cid,
+                move |peer_hyper_ratchet| {
+                    packet_crafter::peer_cmd::craft_peer_signal(
+                        peer_hyper_ratchet,
+                        signal,
+                        ticket,
+                        timestamp,
+                        security_level,
+                    )
+                },
+            );
+
+            if let Err(err) = res {
+                reply_to_sender_err(
+                    err,
+                    &sess_hyper_ratchet,
+                    ticket,
+                    timestamp,
+                    security_level,
+                    peer_cid,
+                )
+            } else {
+                Ok(PrimaryProcessorResult::Void)
+            }
         }
 
         PeerSignal::SignalReceived { ticket } => {
@@ -1480,9 +1599,17 @@ fn reply_to_sender_err<E: ToString>(
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
+    peer_cid: u64,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     Ok(PrimaryProcessorResult::ReplyToSender(
-        construct_error_signal(err, hyper_ratchet, ticket, timestamp, security_level),
+        construct_error_signal(
+            err,
+            hyper_ratchet,
+            ticket,
+            timestamp,
+            security_level,
+            peer_cid,
+        ),
     ))
 }
 
@@ -1492,10 +1619,15 @@ fn construct_error_signal<E: ToString>(
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
+    peer_cid: u64,
 ) -> BytesMut {
     let err_signal = PeerSignal::SignalError {
         ticket,
         error: err.to_string(),
+        peer_connection_type: PeerConnectionType::LocalGroupPeer {
+            implicated_cid: hyper_ratchet.get_cid(),
+            peer_cid,
+        },
     };
     packet_crafter::peer_cmd::craft_peer_signal(
         hyper_ratchet,
@@ -1508,7 +1640,6 @@ fn construct_error_signal<E: ToString>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn route_signal_and_register_ticket_forwards(
-    peer_layer: &HyperNodePeerLayerInner,
     signal: PeerSignal,
     timeout: Duration,
     implicated_cid: u64,
@@ -1524,7 +1655,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
     let to_primary_stream = to_primary_stream.clone();
 
     // Give the target_cid 10 seconds to respond
-    let res = sess_mgr.route_signal_primary(peer_layer, implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
+    let res = sess_mgr.route_signal_primary(implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
         packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
@@ -1536,7 +1667,14 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
 
     // Then, we tell the implicated_cid's node that we have handled the message. However, the peer has yet to respond
     if let Err(err) = res {
-        reply_to_sender_err(err, sess_hyper_ratchet, ticket, timestamp, security_level)
+        reply_to_sender_err(
+            err,
+            sess_hyper_ratchet,
+            ticket,
+            timestamp,
+            security_level,
+            target_cid,
+        )
     } else {
         let received_signal = PeerSignal::SignalReceived { ticket };
         reply_to_sender(
@@ -1557,13 +1695,12 @@ pub(crate) async fn route_signal_response(
     target_cid: u64,
     timestamp: i64,
     ticket: Ticket,
-    peer_layer: &mut HyperNodePeerLayerInner,
     session: HdpSession,
     sess_hyper_ratchet: &StackedRatchet,
     on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal),
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    log::trace!(target: "citadel", "Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);
+    trace!(target: "citadel", "Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);
     let sess_ref = &session;
 
     let res = session
@@ -1572,7 +1709,7 @@ pub(crate) async fn route_signal_response(
             implicated_cid,
             target_cid,
             ticket,
-            peer_layer,
+            sess_ref,
             move |peer_hyper_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(
                     peer_hyper_ratchet,
@@ -1605,7 +1742,14 @@ pub(crate) async fn route_signal_response(
 
         Err(err) => {
             log::warn!(target: "citadel", "Unable to route signal! {:?}", err);
-            reply_to_sender_err(err, sess_hyper_ratchet, ticket, timestamp, security_level)
+            reply_to_sender_err(
+                err,
+                sess_hyper_ratchet,
+                ticket,
+                timestamp,
+                security_level,
+                target_cid,
+            )
         }
     }
 }
