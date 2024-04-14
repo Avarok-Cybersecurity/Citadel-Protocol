@@ -4,20 +4,24 @@ use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::kernel::kernel_executor::LocalSet;
-use citadel_io::tokio::io::AsyncRead;
 use futures::StreamExt;
 
+use citadel_io::tokio::io::AsyncRead;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
+use citadel_wire::exports::Endpoint;
+use citadel_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
+use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
+use citadel_wire::tls::client_config_to_tls_connector;
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
+use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
 use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
@@ -26,19 +30,15 @@ use crate::proto::misc::net::{
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
 use crate::proto::node_request::{
     ConnectToHypernode, DeregisterFromHypernode, DisconnectFromHypernode, GroupBroadcastCommand,
-    NodeRequest, PeerCommand, ReKey, RegisterToHypernode, SendObject,
+    NodeRequest, PeerCommand, RegisterToHypernode, ReKey, SendObject,
 };
 use crate::proto::node_result::{InternalServerError, NodeResult, SessionList};
-use crate::proto::outbound_sender::{unbounded, BoundedReceiver, BoundedSender, UnboundedSender};
+use crate::proto::outbound_sender::{BoundedReceiver, BoundedSender, unbounded, UnboundedSender};
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{HdpSession, HdpSessionInitMode};
 use crate::proto::session_manager::HdpSessionManager;
-use citadel_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
-use citadel_wire::exports::Endpoint;
-use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
-use citadel_wire::tls::client_config_to_tls_connector;
 
 pub type TlsDomain = Option<String>;
 
@@ -280,7 +280,6 @@ impl Node {
         };
 
         //handle.load_server_future(server_future);
-
         (
             remote,
             Box::pin(server_future),

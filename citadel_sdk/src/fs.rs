@@ -109,7 +109,7 @@ mod tests {
         SigAlgorithm::Falcon1024
     )]
     #[citadel_io::tokio::test]
-    async fn test_c2s_file_transfer_revfsq(
+    async fn test_c2s_file_transfer_revfs(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,

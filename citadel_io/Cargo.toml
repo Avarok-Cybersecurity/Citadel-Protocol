@@ -19,6 +19,8 @@ std = []
 wasm = []
 deadlock-detection = ["parking_lot/deadlock_detection"]
 
+
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = ["net", "rt", "macros", "io-util", "time", "fs", "sync", "parking_lot"] }
 tokio-util = { workspace = true, features = ["codec", "net", "time", "io"] }
