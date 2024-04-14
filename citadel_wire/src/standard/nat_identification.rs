@@ -571,7 +571,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
         Box::pin(async move {
             match citadel_io::tokio::time::timeout(
                 Duration::from_millis(1500),
-                async_ip::get_all_multi_concurrent(None),
+                async_ip::get_all_multi_concurrent::<()>(None),
             )
             .await
             {

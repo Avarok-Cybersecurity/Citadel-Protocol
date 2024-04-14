@@ -229,6 +229,21 @@ args = ["fmt", "--package", "citadel_proto"]
 [tasks.publish-install-deps]
 install_crate = { crate_name = "cargo-workspaces", binary = "cargo", test_arg = ["workspaces", "--help"] }
 
+[tasks.publish-bump-version-patch]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+command = "cargo"
+args = ["workspaces", "version", "minor"]
+
+[tasks.publish-bump-version-minor]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+command = "cargo"
+args = ["workspaces", "version", "minor"]
+
+[tasks.publish-bump-version-major]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+command = "cargo"
+args = ["workspaces", "version", "major"]
+
 [tasks.publish-patch]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
