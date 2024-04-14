@@ -47,6 +47,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             client_config,
             kernel_executor_settings,
             stun_servers,
+            server_only_session_password,
         } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
@@ -60,6 +61,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             underlying_proto,
             client_config,
             stun_servers,
+            server_only_session_password,
         )
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;

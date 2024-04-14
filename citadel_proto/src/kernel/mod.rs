@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use crate::prelude::ServerUnderlyingProtocol;
+use crate::prelude::{PreSharedKey, ServerUnderlyingProtocol};
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;
@@ -44,4 +44,5 @@ pub struct KernelExecutorArguments<K> {
     pub client_config: Option<Arc<ClientConfig>>,
     pub kernel_executor_settings: KernelExecutorSettings,
     pub stun_servers: Option<Vec<String>>,
+    pub server_only_session_password: Option<PreSharedKey>,
 }

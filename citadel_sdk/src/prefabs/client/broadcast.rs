@@ -421,7 +421,7 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_passwordless_defaults(
+            let client_kernel = BroadcastKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 request,
@@ -499,7 +499,7 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+            let client_kernel = PeerConnectionKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 peers,

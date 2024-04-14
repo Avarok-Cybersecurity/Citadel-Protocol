@@ -81,6 +81,7 @@ pub async fn process_preconnect(
                         &cnac,
                         packet,
                         &session.session_manager,
+                        &session.session_password,
                     ) {
                         Ok((
                             static_aux_ratchet,
@@ -163,6 +164,7 @@ pub async fn process_preconnect(
                         let implicated_cid = header.session_cid.get();
                         if let Some((new_hyper_ratchet, nat_type)) =
                             validation::pre_connect::validate_syn_ack(
+                                &session.session_password,
                                 cnac,
                                 alice_constructor,
                                 packet,

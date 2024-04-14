@@ -3,7 +3,7 @@ use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
-use crate::prelude::InternalServerError;
+use crate::prelude::{InternalServerError, PreSharedKey};
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::session_queue_handler::QueueWorkerResult;
@@ -144,6 +144,7 @@ pub fn process_primary_packet(
                                 // now, update the keys (if applicable)
                                 let transfer = return_if_none!(
                                     attempt_kem_as_bob(
+                                        session,
                                         resp_target_cid,
                                         &header,
                                         transfer.map(AliceToBobTransferType::Default),
@@ -330,6 +331,7 @@ pub fn process_primary_packet(
 
                                     // TODO: make the below function return a result, not bools
                                     if state_container.on_group_header_ack_received(
+                                        session,
                                         secrecy_mode,
                                         peer_cid,
                                         target_cid,
@@ -675,6 +677,7 @@ impl ToolsetUpdate<'_> {
 ///
 /// Returns: Ok(latest_hyper_ratchet)
 pub(crate) fn attempt_kem_as_alice_finish(
+    session: &HdpSession,
     base_session_secrecy_mode: SecrecyMode,
     peer_cid: u64,
     target_cid: u64,
@@ -682,7 +685,10 @@ pub(crate) fn attempt_kem_as_alice_finish(
     state_container: &mut StateContainerInner,
     constructor: Option<ConstructorType<StackedRatchet, ThinRatchet>>,
 ) -> Result<Option<RatchetType<StackedRatchet, ThinRatchet>>, ()> {
-    let (mut toolset_update_method, secrecy_mode) = if target_cid != C2S_ENCRYPTION_ONLY {
+    let (mut toolset_update_method, secrecy_mode, session_password) = if target_cid
+        != C2S_ENCRYPTION_ONLY
+    {
+        let session_password = state_container.get_session_password(peer_cid).cloned();
         let endpoint_container = state_container
             .active_virtual_connections
             .get_mut(&peer_cid)
@@ -691,12 +697,17 @@ pub(crate) fn attempt_kem_as_alice_finish(
             .as_mut()
             .ok_or(())?;
         let crypt = &mut endpoint_container.endpoint_crypto;
+        if session_password.is_none() {
+            log::error!(target: "citadel", "Session password not found for peer_cid {}", peer_cid);
+            return Err(());
+        }
         (
             ToolsetUpdate::E2E {
                 crypt,
                 local_cid: target_cid,
             },
             endpoint_container.default_security_settings.secrecy_mode,
+            session_password.unwrap(),
         )
     } else {
         let crypt = &mut state_container
@@ -710,6 +721,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
                 local_cid: peer_cid,
             },
             base_session_secrecy_mode,
+            session.session_password.clone(),
         )
     };
 
@@ -719,7 +731,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
     match transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(mut constructor) = constructor {
-                if let Err(err) = constructor.stage1_alice(transfer) {
+                if let Err(err) = constructor.stage1_alice(transfer, session_password.as_ref()) {
                     log::error!(target: "citadel", "Unable to construct hyper ratchet {:?}", err);
                     return Err(()); // return true, otherwise, the session ends
                 }
@@ -776,6 +788,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
 
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
 pub(crate) fn attempt_kem_as_bob(
+    session: &HdpSession,
     resp_target_cid: u64,
     header: &Ref<&[u8], HdpHeader>,
     transfer: Option<AliceToBobTransferType>,
@@ -783,30 +796,44 @@ pub(crate) fn attempt_kem_as_bob(
     hr: &StackedRatchet,
 ) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
-        let update = if resp_target_cid != C2S_ENCRYPTION_ONLY {
+        let (update, session_password) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
+            let session_password = state_container
+                .get_session_password(resp_target_cid)
+                .cloned();
+            if session_password.is_none() {
+                log::error!(target: "citadel", "Session password not found for peer_cid {}", resp_target_cid);
+                return None;
+            }
+
             let crypt = &mut state_container
                 .active_virtual_connections
                 .get_mut(&resp_target_cid)?
                 .endpoint_container
                 .as_mut()?
                 .endpoint_crypto;
-            ToolsetUpdate::E2E {
-                crypt,
-                local_cid: header.target_cid.get(),
-            }
+            (
+                ToolsetUpdate::E2E {
+                    crypt,
+                    local_cid: header.target_cid.get(),
+                },
+                session_password.unwrap(),
+            )
         } else {
             let crypt = &mut state_container
                 .c2s_channel_container
                 .as_mut()
                 .unwrap()
                 .peer_session_crypto;
-            ToolsetUpdate::E2E {
-                crypt,
-                local_cid: header.session_cid.get(),
-            }
+            (
+                ToolsetUpdate::E2E {
+                    crypt,
+                    local_cid: header.session_cid.get(),
+                },
+                session.session_password.clone(),
+            )
         };
 
-        update_toolset_as_bob(update, transfer, hr)
+        update_toolset_as_bob(update, transfer, hr, session_password)
     } else {
         Some(KemTransferStatus::Empty)
     }
@@ -816,6 +843,7 @@ pub(crate) fn update_toolset_as_bob(
     mut update_method: ToolsetUpdate<'_>,
     transfer: AliceToBobTransferType,
     hr: &StackedRatchet,
+    session_password: PreSharedKey,
 ) -> Option<KemTransferStatus> {
     let cid = update_method.get_local_cid();
     let new_version = transfer.get_declared_new_version();
@@ -823,8 +851,13 @@ pub(crate) fn update_toolset_as_bob(
     //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
     let opts = hr.get_next_constructor_opts();
     if matches!(transfer, AliceToBobTransferType::Fcm(..)) {
-        let constructor =
-            EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
+        let constructor = EndpointRatchetConstructor::<ThinRatchet>::new_bob(
+            cid,
+            new_version,
+            opts,
+            transfer,
+            session_password.as_ref(),
+        )?;
         Some(
             update_method
                 .update(ConstructorType::Fcm(constructor), false)
@@ -836,6 +869,7 @@ pub(crate) fn update_toolset_as_bob(
             new_version,
             opts,
             transfer,
+            session_password.as_ref(),
         )?;
         Some(
             update_method

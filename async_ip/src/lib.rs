@@ -10,16 +10,16 @@
     warnings
 )]
 
-use std::fmt::Display;
+use async_trait::async_trait;
+use auto_impl::auto_impl;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::net::IpAddr;
 #[cfg(not(target_family = "wasm"))]
 use std::net::SocketAddr;
 use std::str::FromStr;
-use async_trait::async_trait;
-use auto_impl::auto_impl;
 
 // use http since it's 2-3x faster
 const URL_V6: &str = "http://api64.ipify.org";
@@ -85,7 +85,9 @@ pub async fn get_all_multi_concurrent_from<T: AsyncHttpGetClient>(
 }
 
 /// Returns all possible IPs for this node
-pub async fn get_all<T: AsyncHttpGetClient>(client: Option<T>) -> Result<IpAddressInfo, IpRetrieveError> {
+pub async fn get_all<T: AsyncHttpGetClient>(
+    client: Option<T>,
+) -> Result<IpAddressInfo, IpRetrieveError> {
     get_all_from(client, URL_V6).await
 }
 
@@ -94,7 +96,9 @@ pub async fn get_all_from<T: AsyncHttpGetClient>(
     client: Option<T>,
     v6_addr: &str,
 ) -> Result<IpAddressInfo, IpRetrieveError> {
-    let client = client.map(|client| Box::new(client) as Box<dyn AsyncHttpGetClient>).unwrap_or_else(|| Box::new(get_default_client()));
+    let client = client
+        .map(|client| Box::new(client) as Box<dyn AsyncHttpGetClient>)
+        .unwrap_or_else(|| Box::new(get_default_client()));
     let internal_ipv4_future = get_internal_ip(false);
     let external_ipv6_future = get_ip_from(Some(client), v6_addr);
     let (res0, res2) = citadel_io::tokio::join!(internal_ipv4_future, external_ipv6_future);
@@ -113,8 +117,13 @@ pub async fn get_all_from<T: AsyncHttpGetClient>(
 /// instead.
 ///
 /// If a reqwest client is supplied, this function will use that client to get the information. None by default.
-pub async fn get_ip_from<T: AsyncHttpGetClient>(client: Option<T>, addr: &str) -> Result<IpAddr, IpRetrieveError> {
-    let client = client.map(|client| Box::new(client) as Box<dyn AsyncHttpGetClient>).unwrap_or_else(|| Box::new(get_default_client()));
+pub async fn get_ip_from<T: AsyncHttpGetClient>(
+    client: Option<T>,
+    addr: &str,
+) -> Result<IpAddr, IpRetrieveError> {
+    let client = client
+        .map(|client| Box::new(client) as Box<dyn AsyncHttpGetClient>)
+        .unwrap_or_else(|| Box::new(get_default_client()));
 
     let text = client.get(addr).await?;
     IpAddr::from_str(text.as_str())
@@ -194,9 +203,13 @@ pub enum IpRetrieveError {
 
 impl Display for IpRetrieveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            IpRetrieveError::Error(err) => err.to_string(),
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                IpRetrieveError::Error(err) => err.to_string(),
+            }
+        )
     }
 }
 
@@ -218,8 +231,7 @@ impl AsyncHttpGetClient for Client {
             .await
             .map_err(|err| IpRetrieveError::Error(err.to_string()))?;
 
-        resp
-            .text()
+        resp.text()
             .await
             .map_err(|err| IpRetrieveError::Error(err.to_string()))
     }
@@ -247,6 +259,8 @@ impl AsyncHttpGetClient for UreqClient {
                 .map_err(|err| IpRetrieveError::Error(err.to_string()))?
                 .into_string()
                 .map_err(|err| IpRetrieveError::Error(err.to_string()))
-        }).await.map_err(|err| IpRetrieveError::Error(err.to_string()))?
+        })
+        .await
+        .map_err(|err| IpRetrieveError::Error(err.to_string()))?
     }
 }

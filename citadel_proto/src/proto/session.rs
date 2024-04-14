@@ -43,7 +43,7 @@ use citadel_types::proto::SessionSecuritySettings;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::kernel::RuntimeFuture;
-use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, SecureProtocolPacket};
+use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, PreSharedKey, SecureProtocolPacket};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
@@ -209,6 +209,7 @@ pub struct HdpSessionInner {
     pub(super) stun_servers: Option<Vec<String>>,
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
+    pub(super) session_password: PreSharedKey,
     on_drop: UnboundedSender<()>,
 }
 
@@ -258,6 +259,7 @@ pub(crate) struct SessionInitParams {
     pub client_only_settings: Option<ClientOnlySessionInitSettings>,
     pub stun_servers: Option<Vec<String>>,
     pub init_time: Instant,
+    pub session_password: PreSharedKey,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings {
@@ -352,6 +354,7 @@ impl HdpSession {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let init_time = session_init_params.init_time;
+        let session_password = session_init_params.session_password;
 
         let mut inner = HdpSessionInner {
             hypernode_peer_layer,
@@ -394,6 +397,7 @@ impl HdpSession {
             stun_servers,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
+            session_password,
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -919,7 +923,7 @@ impl HdpSession {
             ref implicated_cid,
             ref kernel_tx,
             ref primary_stream,
-            p2p,
+            peer_cid,
             is_server,
         ) = if let Some(p2p) = p2p_handle {
             (
@@ -928,7 +932,7 @@ impl HdpSession {
                 p2p.implicated_cid,
                 p2p.kernel_tx,
                 p2p.to_primary_stream,
-                true,
+                Some(p2p.peer_cid),
                 false,
             )
         } else {
@@ -945,7 +949,7 @@ impl HdpSession {
                 implicated_cid,
                 kernel_tx,
                 primary_stream,
-                false,
+                None,
                 is_server,
             )
         };
@@ -995,9 +999,10 @@ impl HdpSession {
         }
 
         fn handle_session_terminating_error(
+            session: &HdpSession,
             err: std::io::Error,
             is_server: bool,
-            p2p: bool,
+            peer_cid: Option<u64>,
         ) -> SessionShutdownReason {
             const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
             const _RST: i32 = 104;
@@ -1006,7 +1011,7 @@ impl HdpSession {
             let error = err.raw_os_error().unwrap_or(-1);
             // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
             if error != -1 {
-                log::error!(target: "citadel", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
+                log::error!(target: "citadel", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, peer_cid.is_some());
             }
 
             let err_string = err.to_string();
@@ -1014,6 +1019,35 @@ impl HdpSession {
             if err_string.contains(SUCCESS_DISCONNECT) {
                 SessionShutdownReason::ProperShutdown
             } else {
+                let implicated_cid = session.implicated_cid.get().unwrap_or_default();
+                let v_conn_type = if let Some(peer_cid) = peer_cid {
+                    VirtualConnectionType::LocalGroupPeer {
+                        implicated_cid,
+                        peer_cid,
+                    }
+                } else {
+                    VirtualConnectionType::LocalGroupServer { implicated_cid }
+                };
+
+                if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
+                    ticket: session.kernel_ticket.get(),
+                    cid_opt: session.implicated_cid.get(),
+                    success: false,
+                    v_conn_type: Some(v_conn_type),
+                    message: err_string.clone(),
+                })) {
+                    log::error!(target: "citadel", "Error sending disconnect signal to kernel: {err:?}");
+                }
+
+                if peer_cid.is_none() {
+                    // If this is a c2s connection, close the session
+                    session.send_session_dc_signal(
+                        Some(session.kernel_ticket.get()),
+                        false,
+                        err_string.as_str(),
+                    );
+                }
+
                 SessionShutdownReason::Error(NetworkError::Generic(err_string))
             }
         }
@@ -1037,7 +1071,7 @@ impl HdpSession {
                 .await;
                 evaluate_result(result, primary_stream, kernel_tx, this_main, implicated_cid)
             })
-            .map_err(|err| handle_session_terminating_error(err, is_server, p2p))
+            .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
             .await;
 
         match res {
@@ -1970,16 +2004,21 @@ impl HdpSession {
                 PeerSignal::PostConnect {
                     peer_conn_type: a,
                     ticket_opt: b,
-                    invitee_response: None,
+                    invitee_response,
                     session_security_settings: d,
                     udp_mode: e,
+                    session_password,
                 } => {
+                    let session_password = session_password.unwrap_or_default();
                     if state_container
                         .outgoing_peer_connect_attempts
                         .contains_key(&a.get_original_target_cid())
                     {
                         log::warn!(target: "citadel", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
                     }
+
+                    state_container
+                        .store_session_password(a.get_original_target_cid(), session_password);
 
                     // in case the ticket gets mapped during simultaneous_connect, store locally
                     let _ = state_container
@@ -1988,9 +2027,10 @@ impl HdpSession {
                     PeerSignal::PostConnect {
                         peer_conn_type: a,
                         ticket_opt: b,
-                        invitee_response: None,
+                        invitee_response,
                         session_security_settings: d,
                         udp_mode: e,
+                        session_password: None,
                     }
                 }
 

@@ -163,6 +163,7 @@ struct PeerConnectionSettings {
     session_security_settings: SessionSecuritySettings,
     udp_mode: UdpMode,
     ensure_registered: bool,
+    peer_session_password: Option<PreSharedKey>,
 }
 
 pub struct AddedPeer {
@@ -171,6 +172,7 @@ pub struct AddedPeer {
     session_security_settings: Option<SessionSecuritySettings>,
     ensure_registered: bool,
     udp_mode: Option<UdpMode>,
+    peer_session_password: Option<PreSharedKey>,
 }
 
 impl AddedPeer {
@@ -181,6 +183,7 @@ impl AddedPeer {
             session_security_settings: self.session_security_settings.unwrap_or_default(),
             udp_mode: self.udp_mode.unwrap_or_default(),
             ensure_registered: self.ensure_registered,
+            peer_session_password: self.peer_session_password,
         };
 
         self.list.inner.push(new);
@@ -205,6 +208,13 @@ impl AddedPeer {
     /// Ensures that the target user is registered before attempting to connect
     pub fn ensure_registered(mut self) -> Self {
         self.ensure_registered = true;
+        self
+    }
+
+    /// Adds a pre-shared key to the peer session password list. Both connecting nodes
+    /// must have matching passwords in order to establish a connection. Default is None.
+    pub fn with_session_password<T: Into<PreSharedKey>>(mut self, password: T) -> Self {
+        self.peer_session_password = Some(password.into());
         self
     }
 }
@@ -244,6 +254,7 @@ impl PeerConnectionSetupAggregator {
             ensure_registered: false,
             session_security_settings: None,
             udp_mode: None,
+            peer_session_password: None,
         }
     }
 }
@@ -330,6 +341,7 @@ where
                 session_security_settings,
                 udp_mode,
                 ensure_registered,
+                peer_session_password,
             } = peer_to_connect;
 
             let task = async move {
@@ -361,7 +373,11 @@ where
                     };
 
                     handle
-                        .connect_to_peer_custom(session_security_settings, udp_mode)
+                        .connect_to_peer_custom(
+                            session_security_settings,
+                            udp_mode,
+                            peer_session_password,
+                        )
                         .await
                         .map(|mut success| {
                             let peer_conn = success.channel.get_peer_conn_type().unwrap();
@@ -419,6 +435,7 @@ mod tests {
     use rstest::rstest;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
     use uuid::Uuid;
 
     lazy_static::lazy_static! {
@@ -430,24 +447,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(2, false, UdpMode::Enabled)]
-    #[case(3, true, UdpMode::Disabled)]
+    #[case(2, UdpMode::Enabled)]
+    #[case(3, UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn peer_to_peer_connect(
-        #[case] peer_count: usize,
-        #[case] debug_force_nat_timeout: bool,
-        #[case] udp_mode: UdpMode,
-    ) {
+    async fn peer_to_peer_connect(#[case] peer_count: usize, #[case] udp_mode: UdpMode) {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
-
-        if debug_force_nat_timeout {
-            std::env::set_var("debug_cause_timeout", "ON");
-        } else {
-            std::env::remove_var("debug_cause_timeout");
-        }
 
         let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
@@ -568,7 +575,7 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+            let client_kernel = PeerConnectionKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 peers,
@@ -661,7 +668,7 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+            let client_kernel = PeerConnectionKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 peers,
@@ -789,7 +796,7 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+            let client_kernel = PeerConnectionKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 peers,
@@ -866,7 +873,7 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(
+            let client_kernel = PeerConnectionKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 peers,
@@ -907,5 +914,109 @@ mod tests {
 
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
         Ok(())
+    }
+
+    #[rstest]
+    #[case(SecrecyMode::BestEffort, Some("test-p2p-password"))]
+    #[timeout(std::time::Duration::from_secs(240))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_p2p_wrong_session_password(
+        #[case] secrecy_mode: SecrecyMode,
+        #[case] p2p_password: Option<&'static str>,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
+        #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
+    ) {
+        citadel_logging::setup_log_no_panic_hook();
+        crate::test_common::TestBarrier::setup(2);
+        let (server, server_addr) = server_info();
+        let peer_0_error_received = &AtomicBool::new(false);
+        let peer_1_error_received = &AtomicBool::new(false);
+
+        let uuid0 = Uuid::new_v4();
+        let uuid1 = Uuid::new_v4();
+        let session_security = SessionSecuritySettingsBuilder::default()
+            .with_secrecy_mode(secrecy_mode)
+            .with_crypto_params(kem + enx)
+            .build()
+            .unwrap();
+
+        let mut peer0_agg = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid1)
+            .with_session_security_settings(session_security);
+
+        if let Some(password) = p2p_password {
+            peer0_agg = peer0_agg.with_session_password(password);
+        }
+
+        let peer0_connection = peer0_agg.add();
+
+        let mut peer1_agg = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid0)
+            .with_session_security_settings(session_security);
+
+        if let Some(_password) = p2p_password {
+            peer1_agg = peer1_agg.with_session_password("wrong password");
+        }
+
+        let peer1_connection = peer1_agg.add();
+
+        let client_kernel0 = PeerConnectionKernel::new_authless(
+            uuid0,
+            server_addr,
+            peer0_connection,
+            UdpMode::Enabled,
+            session_security,
+            None,
+            move |mut connection, remote| async move {
+                wait_for_peers().await;
+                let conn = connection.recv().await.unwrap();
+                log::trace!(target: "citadel", "Peer 0 {} received: {:?}", remote.conn_type.get_implicated_cid(), conn);
+                if conn.is_ok() {
+                    peer_0_error_received.store(true, Ordering::SeqCst);
+                }
+                wait_for_peers().await;
+                remote.shutdown_kernel().await
+            },
+        )
+            .unwrap();
+
+        let client_kernel1 = PeerConnectionKernel::new_authless(
+            uuid1,
+            server_addr,
+            peer1_connection,
+            UdpMode::Enabled,
+            session_security,
+            None,
+            move |mut connection, remote| async move {
+                wait_for_peers().await;
+                let conn = connection.recv().await.unwrap();
+                log::trace!(target: "citadel", "Peer 1 {} received: {:?}", remote.conn_type.get_implicated_cid(), conn);
+                if conn.is_ok() {
+                    peer_1_error_received.store(true, Ordering::SeqCst);
+                }
+                wait_for_peers().await;
+                remote.shutdown_kernel().await
+            },
+        )
+            .unwrap();
+
+        let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
+        let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
+        let clients = futures::future::try_join(client0, client1);
+
+        let task = async move {
+            tokio::select! {
+                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
+                client_res = clients => client_res.map(|_| ())
+            }
+        };
+
+        tokio::time::timeout(Duration::from_secs(120), task)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!peer_0_error_received.load(Ordering::SeqCst));
+        assert!(!peer_1_error_received.load(Ordering::SeqCst));
     }
 }

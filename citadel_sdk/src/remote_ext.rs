@@ -139,6 +139,7 @@ pub trait ProtocolRemoteExt: Remote {
         username: V,
         proposed_password: K,
         default_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
     ) -> Result<RegisterSuccess, NetworkError> {
         let creds =
             ProposedCredentials::new_register(full_name, username, proposed_password.into())
@@ -150,6 +151,7 @@ pub trait ProtocolRemoteExt: Remote {
                 .ok_or(NetworkError::InternalError("Invalid socket addr"))?,
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
+            session_password: server_password.unwrap_or_default(),
         });
 
         let mut subscription = self.send_callback_subscription(register_request).await?;
@@ -192,6 +194,7 @@ pub trait ProtocolRemoteExt: Remote {
             username,
             proposed_password,
             Default::default(),
+            Default::default(),
         )
         .await
     }
@@ -205,6 +208,7 @@ pub trait ProtocolRemoteExt: Remote {
         udp_mode: UdpMode,
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
     ) -> Result<ConnectionSuccess, NetworkError> {
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
@@ -212,6 +216,7 @@ pub trait ProtocolRemoteExt: Remote {
             udp_mode,
             keep_alive_timeout: keep_alive_timeout.map(|r| r.as_secs()),
             session_security_settings,
+            session_password: server_password.unwrap_or_default(),
         });
 
         let mut subscription = self.send_callback_subscription(connect_request).await?;
@@ -264,6 +269,7 @@ pub trait ProtocolRemoteExt: Remote {
             Default::default(),
             Default::default(),
             None,
+            Default::default(),
             Default::default(),
         )
         .await
@@ -451,6 +457,15 @@ pub trait ProtocolRemoteExt: Remote {
 
 pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
     match result {
+        NodeResult::ConnectFail(ConnectFail {
+            ticket: _,
+            cid_opt: _,
+            error_message: err,
+        }) => Err(NetworkError::Generic(err)),
+        NodeResult::RegisterFailure(RegisterFailure {
+            ticket: _,
+            error_message: err,
+        }) => Err(NetworkError::Generic(err)),
         NodeResult::InternalServerError(InternalServerError {
             ticket_opt: _,
             cid_opt: _,
@@ -461,6 +476,7 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
                 PeerSignal::SignalError {
                     ticket: _,
                     error: err,
+                    peer_connection_type: _,
                 },
             ticket: _,
             ..
@@ -697,6 +713,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         &self,
         session_security_settings: SessionSecuritySettings,
         udp_mode: UdpMode,
+        peer_session_password: Option<PreSharedKey>,
     ) -> Result<PeerConnectSuccess, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection().await?;
@@ -711,6 +728,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     invitee_response: None,
                     session_security_settings,
                     udp_mode,
+                    session_password: peer_session_password,
                 },
             }))
             .await?;
@@ -765,7 +783,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
     /// Connects to the target peer with default settings
     async fn connect_to_peer(&self) -> Result<PeerConnectSuccess, NetworkError> {
-        self.connect_to_peer_custom(Default::default(), Default::default())
+        self.connect_to_peer_custom(Default::default(), Default::default(), Default::default())
             .await
     }
 
@@ -1323,11 +1341,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote

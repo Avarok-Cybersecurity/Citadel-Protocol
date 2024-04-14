@@ -247,20 +247,20 @@ args = ["workspaces", "version", "major"]
 [tasks.publish-patch]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
-args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "patch", "--from-git", "${@}"]
-dependencies = ["publish-install-deps"]
+args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "patch", "--from-git", "--allow-dirty", "${@}"]
+dependencies = ["publish-install-deps", "publish-bump-version-patch"]
 
 [tasks.publish-minor]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
-args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "minor", "--from-git", "${@}"]
-dependencies = ["publish-install-deps"]
+args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "minor", "--from-git", "--allow-dirty", "${@}"]
+dependencies = ["publish-install-deps", "publish-bump-version-minor"]
 
 [tasks.publish-major]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
-args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "major", "--from-git", "${@}"]
-dependencies = ["publish-install-deps"]
+args = ["workspaces", "publish", "--token", "${CARGO_REGISTRY_TOKEN}", "major", "--from-git", "--allow-dirty", "${@}"]
+dependencies = ["publish-install-deps", "publish-bump-version-major"]
 
 [tasks.check-docs]
 command = "cargo"

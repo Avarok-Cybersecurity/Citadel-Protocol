@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::ops::Deref;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
@@ -318,6 +317,7 @@ impl PostQuantumContainer {
     pub fn new_bob(
         opts: ConstructorOpts,
         tx_params: AliceToBobTransferParameters,
+        psks: &[Vec<u8>],
     ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
         let params = opts.cryptography.unwrap_or_default();
@@ -332,7 +332,7 @@ impl PostQuantumContainer {
         let sig = data.sig().cloned();
 
         let (chain, keys) =
-            Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex)
+            Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex, psks)
                 .map_err(|err| {
                     Error::Other(format!("Error while calculating recursive keystore: {err}",))
                 })?;
@@ -350,6 +350,7 @@ impl PostQuantumContainer {
         })
     }
 
+    /// `psks`: Pre-shared keys
     fn generate_recursive_keystore(
         pq_node: PQNode,
         params: CryptoParameters,
@@ -357,10 +358,11 @@ impl PostQuantumContainer {
         ss: Arc<Zeroizing<Vec<u8>>>,
         previous_chain: Option<&RecursiveChain>,
         kex: PostQuantumMetaKex,
+        psks: &[Vec<u8>],
     ) -> Result<(RecursiveChain, KeyStore), Error> {
         let (chain, alice_key, bob_key) = if let Some(prev) = previous_chain {
             // prev = C_n
-            // If a previous key, S_n, existed, we calculate S_(n+1)' = KDF(C_n || S_n))
+            // If a previous key, S_n, existed, we calculate S_(n+1)' = KDF(C_n || S_n || psks))
             let mut hasher_temp = sha3::Sha3_512::new();
             let mut hasher_alice = sha3::Sha3_256::new();
             let mut hasher_bob = sha3::Sha3_256::new();
@@ -369,7 +371,8 @@ impl PostQuantumContainer {
                     .chain
                     .iter()
                     .chain(ss.iter())
-                    .cloned()
+                    .chain(psks.iter().flatten())
+                    .copied()
                     .collect::<Vec<u8>>()[..],
             );
 
@@ -429,7 +432,12 @@ impl PostQuantumContainer {
         } else {
             // The first key, S_0', = KDF(S_0)
             let mut hasher_temp = sha3::Sha3_512::new();
-            hasher_temp.update(ss.deref());
+            hasher_temp.update(
+                ss.iter()
+                    .chain(psks.iter().flatten())
+                    .copied()
+                    .collect::<Vec<u8>>(),
+            );
             let temp_key = hasher_temp.finalize();
             let (alice_key, bob_key) = temp_key.as_slice().split_at(32);
 
@@ -503,7 +511,7 @@ impl PostQuantumContainer {
     }
 
     /// This should always be called after deserialization
-    fn load_symmetric_keys(&mut self) -> Result<(), Error> {
+    fn load_symmetric_keys(&mut self, psks: &[Vec<u8>]) -> Result<(), Error> {
         let pq_node = self.node;
         let params = self.params;
         let sig = self.data.sig().cloned();
@@ -511,8 +519,15 @@ impl PostQuantumContainer {
         let kex = self.data.kex().clone();
         let prev_symmetric_key = self.chain.as_ref();
 
-        let (chain, key) =
-            Self::generate_recursive_keystore(pq_node, params, sig, ss, prev_symmetric_key, kex)?;
+        let (chain, key) = Self::generate_recursive_keystore(
+            pq_node,
+            params,
+            sig,
+            ss,
+            prev_symmetric_key,
+            kex,
+            psks,
+        )?;
 
         self.key_store = Some(key);
         self.chain = Some(chain);
@@ -524,10 +539,11 @@ impl PostQuantumContainer {
     pub fn alice_on_receive_ciphertext(
         &mut self,
         params: BobToAliceTransferParameters,
+        psks: &[Vec<u8>],
     ) -> Result<(), Error> {
         self.data.alice_on_receive_ciphertext(params)?;
         let _ss = self.data.get_shared_secret()?; // call once to load internally
-        self.load_symmetric_keys()
+        self.load_symmetric_keys(psks)
     }
 
     /// Returns true if either Tx/Rx Anti-replay attack counters have been engaged (useful for determining

@@ -1,5 +1,6 @@
 use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
+use crate::prelude::PreSharedKey;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
@@ -34,6 +35,7 @@ pub struct HyperNodePeerLayerInner {
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
     pub(crate) persistence_handler: PersistenceHandler,
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
+    pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
 }
@@ -83,15 +85,17 @@ impl TrackedPosting {
 }
 
 impl HyperNodePeerLayer {
+    #[allow(clippy::arc_with_non_send_sync)]
     pub fn new(persistence_handler: PersistenceHandler) -> HyperNodePeerLayer {
-        let waker = std::sync::Arc::new(AtomicWaker::new());
+        let waker = Arc::new(AtomicWaker::new());
         let inner = HyperNodePeerLayerInner {
             waker: waker.clone(),
             inner: Arc::new(citadel_io::RwLock::new(Default::default())),
+            simultaneous_ticket_mappings: Default::default(),
             persistence_handler,
             message_groups: HashMap::new(),
         };
-        let inner = std::sync::Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
+        let inner = Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 
         Self { inner, waker }
     }
@@ -386,6 +390,18 @@ impl HyperNodePeerLayerExecutor {
 }
 
 impl HyperNodePeerLayerInner {
+    pub fn insert_mapped_ticket(&mut self, cid: u64, ticket: Ticket, mapped_ticket: Ticket) {
+        self.simultaneous_ticket_mappings
+            .entry(cid)
+            .or_default()
+            .insert(ticket, mapped_ticket);
+    }
+
+    pub fn take_mapped_ticket(&mut self, cid: u64, ticket: Ticket) -> Option<Ticket> {
+        self.simultaneous_ticket_mappings
+            .get_mut(&cid)?
+            .remove(&ticket)
+    }
     /// Determines if `peer_cid` is already attempting to register to `implicated_cid`
     /// Returns the target's ticket for their corresponding request
     pub fn check_simultaneous_register(
@@ -395,7 +411,7 @@ impl HyperNodePeerLayerInner {
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
 
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister { peer_conn_type: conn, inviter_username: _, invitee_username: _, ticket_opt: _, invitee_response: None } = &posting.signal {
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister { peer_conn_type: conn, inviter_username: _, invitee_username: _, ticket_opt: _, invitee_response: None, .. } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
             if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
                 *b == implicated_cid
@@ -416,7 +432,7 @@ impl HyperNodePeerLayerInner {
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
 
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, ticket_opt: _, invitee_response: _, session_security_settings: _, udp_mode: _ } = &posting.signal {
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, ticket_opt: _, invitee_response: _, session_security_settings: _, udp_mode: _, .. } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
             if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
                 *b == implicated_cid
@@ -556,6 +572,9 @@ pub enum PeerSignal {
         invitee_response: Option<PeerResponse>,
         session_security_settings: SessionSecuritySettings,
         udp_mode: UdpMode,
+        // On the wire, this should be set to None. Should always be set to some value when submitting.
+        #[serde(skip)]
+        session_password: Option<PreSharedKey>,
     },
     Disconnect {
         peer_conn_type: PeerConnectionType,
@@ -590,6 +609,7 @@ pub enum PeerSignal {
     SignalError {
         ticket: Ticket,
         error: String,
+        peer_connection_type: PeerConnectionType,
     },
     DeregistrationSuccess {
         peer_conn_type: PeerConnectionType,
