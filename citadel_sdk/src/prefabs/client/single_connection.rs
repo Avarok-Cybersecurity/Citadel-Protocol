@@ -1,11 +1,12 @@
-use crate::prefabs::{get_socket_addr, ClientServerRemote};
+use crate::prefabs::client::ServerConnectionSettings;
+use crate::prefabs::ClientServerRemote;
 use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
 use citadel_io::Mutex;
 use citadel_proto::prelude::*;
 use futures::Future;
 use std::marker::PhantomData;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -49,137 +50,51 @@ where
     F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
-    /// Creates a new connection with a central server entailed by the user information
-    pub fn new_connect<T: Into<String>, P: Into<SecBuffer>>(
-        username: T,
-        password: P,
-        udp_mode: UdpMode,
-        session_security_settings: SessionSecuritySettings,
-        server_password: Option<PreSharedKey>,
-        on_channel_received: F,
-    ) -> Self {
+    /// Creates a new [`SingleClientServerConnectionKernel`] with the given settings.
+    /// The [`ServerConnectionSettings`] must be provided, and the [`on_channel_received`] function will be called when the connection is established.
+    pub fn new(settings: ServerConnectionSettings, on_channel_received: F) -> Self {
+        let (udp_mode, session_security_settings) =
+            (settings.udp_mode(), settings.session_security_settings());
+        let server_password = settings.pre_shared_key().cloned();
+
+        let connection_type = match settings {
+            ServerConnectionSettings::CredentialedConnect {
+                username, password, ..
+            } => ConnectionType::Connect { username, password },
+
+            ServerConnectionSettings::NoCredentials {
+                server_addr: address,
+                uuid,
+                ..
+            } => ConnectionType::Passwordless {
+                uuid,
+                server_addr: address,
+            },
+
+            ServerConnectionSettings::CredentialedRegister {
+                alias,
+                username,
+                password,
+                address,
+                ..
+            } => ConnectionType::Register {
+                full_name: alias,
+                server_addr: address,
+                username,
+                password,
+            },
+        };
+
         Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
-            auth_info: Mutex::new(Some(ConnectionType::Connect {
-                username: username.into(),
-                password: password.into(),
-            })),
+            auth_info: Mutex::new(Some(connection_type)),
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
             remote: None,
             server_password,
             _pd: Default::default(),
         }
-    }
-
-    /// Crates a new connection with a central server entailed by the user information and default configuration
-    pub fn new_connect_defaults<T: Into<String>, P: Into<SecBuffer>>(
-        username: T,
-        password: P,
-        on_channel_received: F,
-    ) -> Self {
-        Self::new_connect(
-            username,
-            password,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            on_channel_received,
-        )
-    }
-
-    /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>, V: ToSocketAddrs>(
-        full_name: T,
-        username: R,
-        password: P,
-        server_addr: V,
-        udp_mode: UdpMode,
-        session_security_settings: SessionSecuritySettings,
-        server_password: Option<PreSharedKey>,
-        on_channel_received: F,
-    ) -> Result<Self, NetworkError> {
-        let server_addr = get_socket_addr(server_addr)?;
-        Ok(Self {
-            handler: Mutex::new(Some(on_channel_received)),
-            udp_mode,
-            auth_info: Mutex::new(Some(ConnectionType::Register {
-                full_name: full_name.into(),
-                server_addr,
-                username: username.into(),
-                password: password.into(),
-            })),
-            session_security_settings,
-            unprocessed_signal_filter_tx: Default::default(),
-            remote: None,
-            server_password,
-            _pd: Default::default(),
-        })
-    }
-
-    /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with default parameters
-    pub fn new_register_defaults<
-        T: Into<String>,
-        R: Into<String>,
-        P: Into<SecBuffer>,
-        V: ToSocketAddrs,
-    >(
-        full_name: T,
-        username: R,
-        password: P,
-        server_addr: V,
-        on_channel_received: F,
-    ) -> Result<Self, NetworkError> {
-        Self::new_register(
-            full_name,
-            username,
-            password,
-            server_addr,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            on_channel_received,
-        )
-    }
-
-    /// Creates a new authless connection with custom arguments
-    pub fn new_authless<V: ToSocketAddrs>(
-        uuid: Uuid,
-        server_addr: V,
-        udp_mode: UdpMode,
-        session_security_settings: SessionSecuritySettings,
-        server_password: Option<PreSharedKey>,
-        on_channel_received: F,
-    ) -> Result<Self, NetworkError> {
-        let server_addr = get_socket_addr(server_addr)?;
-        Ok(Self {
-            handler: Mutex::new(Some(on_channel_received)),
-            udp_mode,
-            auth_info: Mutex::new(Some(ConnectionType::Passwordless { uuid, server_addr })),
-            session_security_settings,
-            unprocessed_signal_filter_tx: Default::default(),
-            server_password,
-            remote: None,
-            _pd: Default::default(),
-        })
-    }
-
-    /// Creates a new authless connection with default arguments
-    pub fn new_passwordless_defaults<V: ToSocketAddrs>(
-        uuid: Uuid,
-        server_addr: V,
-        on_channel_received: F,
-    ) -> Result<Self, NetworkError> {
-        Self::new_authless(
-            uuid,
-            server_addr,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            on_channel_received,
-        )
     }
 }
 
@@ -299,6 +214,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prefabs::ClientServerRemote;
     use crate::prelude::*;
     use crate::test_common::{server_info_reactive, wait_for_peers, TestBarrier};
@@ -366,14 +282,18 @@ mod tests {
             },
         );
 
-        let client_kernel = SingleClientServerConnectionKernel::new_register(
-            "Thomas P Braun",
-            "nologik",
-            "password",
+        let client_settings = ServerConnectionSettingsBuilder::credentialed_registration(
             server_addr,
-            udp_mode,
-            Default::default(),
-            None,
+            "nologik",
+            "Some Alias",
+            "password",
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            client_settings,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -382,8 +302,7 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -422,12 +341,19 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            udp_mode,
-            Default::default(),
-            server_password.map(|x| x.into()),
+        let mut server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(udp_mode);
+
+        if let Some(server_password) = server_password {
+            server_connection_settings =
+                server_connection_settings.with_session_password(server_password);
+        }
+
+        let server_connection_settings = server_connection_settings.build().unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -437,8 +363,7 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -472,15 +397,17 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            udp_mode,
-            Default::default(),
-            Some("wrong-password".into()),
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(udp_mode)
+                .with_session_password("wrong-password")
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, _remote| async move { panic!("Client should not have connected") },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -519,12 +446,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            udp_mode,
-            Default::default(),
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(udp_mode)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -534,8 +463,7 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -567,12 +495,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            udp_mode,
-            Default::default(),
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(udp_mode)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -611,8 +541,7 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -644,12 +573,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            udp_mode,
-            Default::default(),
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(udp_mode)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -663,8 +594,7 @@ mod tests {
 
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 

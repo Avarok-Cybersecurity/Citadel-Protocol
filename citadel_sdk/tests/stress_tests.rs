@@ -6,6 +6,7 @@ mod tests {
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::{server_info, wait_for_peers};
     use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm};
@@ -241,12 +242,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Enabled,
-            session_security,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -254,8 +258,7 @@ mod tests {
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
@@ -312,12 +315,19 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Enabled,
-            session_security,
-            server_password.map(|p| p.into()),
+        let mut connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security);
+
+        if let Some(password) = server_password {
+            connection_settings = connection_settings.with_session_password(password);
+        }
+
+        let connection_settings = connection_settings.build().unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            connection_settings,
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -325,8 +335,7 @@ mod tests {
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
@@ -392,13 +401,16 @@ mod tests {
 
         let peer1_connection = peer1_agg.add();
 
-        let client_kernel0 = PeerConnectionKernel::new_authless(
-            uuid0,
-            server_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel0 = PeerConnectionKernel::new(
+            server_connection_settings,
             peer0_connection,
-            UdpMode::Enabled,
-            session_security,
-            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -410,16 +422,18 @@ mod tests {
                 client0_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
-        let client_kernel1 = PeerConnectionKernel::new_authless(
-            uuid1,
-            server_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel1 = PeerConnectionKernel::new(
+            server_connection_settings,
             peer1_connection,
-            UdpMode::Enabled,
-            session_security,
-            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -431,8 +445,7 @@ mod tests {
                 client1_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
@@ -492,9 +505,13 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = BroadcastKernel::new(
+                server_connection_settings,
                 request,
                 move |channel, remote| async move {
                     log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
@@ -506,7 +523,7 @@ mod tests {
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             let task = async move { client.await.map(|_| ()) };

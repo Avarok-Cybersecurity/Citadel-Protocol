@@ -20,7 +20,7 @@ async fn main() {
         .add();
 
     let finished = &AtomicBool::new(false);
-    let peer = citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel::new_register(
+    let peer = citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel::new(
         "dummy name",
         my_peer_id,
         "password",

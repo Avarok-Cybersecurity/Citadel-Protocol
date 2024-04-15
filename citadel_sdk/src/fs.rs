@@ -81,6 +81,7 @@ mod tests {
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
     use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
@@ -128,12 +129,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .disable_udp()
+                .with_session_security_settings(session_security_settings)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -157,8 +161,7 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -199,12 +202,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .disable_udp()
+                .with_session_security_settings(session_security_settings)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -230,8 +236,7 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -272,12 +277,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .disable_udp()
+                .with_session_security_settings(session_security_settings)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -304,8 +312,7 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -347,15 +354,17 @@ mod tests {
 
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+                .disable_udp()
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
         // TODO: SinglePeerConnectionKernel
-        // to not hold up all conns
-        let client_kernel0 = PeerConnectionKernel::new_authless(
-            uuid0,
-            server_addr,
-            vec![uuid1.into()],
-            UdpMode::Disabled,
-            session_security,
-            None,
+        let client_kernel0 = PeerConnectionKernel::new(
+            server_connection_settings,
+            uuid1,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
@@ -365,41 +374,21 @@ mod tests {
                 let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
                 accept_all(handle_orig);
                 wait_for_peers().await;
-
-                /*
-                let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
-                // write the file to the RE-VFS
-                crate::fs::write_with_security_level(
-                    &remote,
-                    source_dir.clone(),
-                    security_level,
-                    &virtual_path,
-                )
-                .await?;
-                log::error!(target: "citadel", "X01");
-                log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
-                // now, pull it
-                let save_dir = crate::fs::read(&remote, virtual_path).await?;
-                // now, compare bytes
-                log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
-                let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
-                let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
-                assert_eq!(original_bytes, revfs_pulled_bytes);
-                log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
-                wait_for_peers().await;*/
                 client0_success.store(true, Ordering::Relaxed);
                 remote_outer.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
-        let client_kernel1 = PeerConnectionKernel::new_authless(
-            uuid1,
-            server_addr,
-            vec![uuid0.into()],
-            UdpMode::Disabled,
-            session_security,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+                .disable_udp()
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel1 = PeerConnectionKernel::new(
+            server_connection_settings,
+            uuid0,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let connection = connection.recv().await.unwrap()?;
@@ -425,17 +414,10 @@ mod tests {
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 wait_for_peers().await;
-                /*
-                // Now, accept the peer's incoming handle
-                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
-                accept_all(handle_orig);
-
-                wait_for_peers().await;*/
                 client1_success.store(true, Ordering::Relaxed);
                 remote_outer.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();

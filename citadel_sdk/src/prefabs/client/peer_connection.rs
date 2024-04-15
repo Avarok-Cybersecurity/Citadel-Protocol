@@ -11,6 +11,7 @@ use futures::{Future, TryStreamExt};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -282,6 +283,34 @@ impl From<UserIdentifier> for PeerConnectionSetupAggregator {
     }
 }
 
+impl From<Uuid> for PeerConnectionSetupAggregator {
+    fn from(user: Uuid) -> Self {
+        let user_identifier: UserIdentifier = user.into();
+        user_identifier.into()
+    }
+}
+
+impl From<String> for PeerConnectionSetupAggregator {
+    fn from(this: String) -> Self {
+        let user_identifier: UserIdentifier = this.into();
+        user_identifier.into()
+    }
+}
+
+impl From<&str> for PeerConnectionSetupAggregator {
+    fn from(this: &str) -> Self {
+        let user_identifier: UserIdentifier = this.into();
+        user_identifier.into()
+    }
+}
+
+impl From<u64> for PeerConnectionSetupAggregator {
+    fn from(this: u64) -> Self {
+        let user_identifier: UserIdentifier = this.into();
+        user_identifier.into()
+    }
+}
+
 #[async_trait]
 impl<'a, F, Fut, T: Into<PeerConnectionSetupAggregator> + Send + 'a> PrefabFunctions<'a, T>
     for PeerConnectionKernel<'a, F, Fut>
@@ -426,6 +455,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_io::tokio;
@@ -449,8 +479,8 @@ mod tests {
     #[rstest]
     #[case(2, UdpMode::Enabled)]
     #[case(3, UdpMode::Disabled)]
-    #[timeout(std::time::Duration::from_secs(90))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[timeout(Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
     async fn peer_to_peer_connect(#[case] peer_count: usize, #[case] udp_mode: UdpMode) {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
@@ -483,14 +513,19 @@ mod tests {
                     .add();
             }
 
-            let username = username.clone();
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::credentialed_registration(
+                    server_addr,
+                    username,
+                    full_name,
+                    password.as_str(),
+                )
+                .build()
+                .unwrap();
 
-            let client_kernel = PeerConnectionKernel::new_register_defaults(
-                full_name.as_str(),
-                username.clone().as_str(),
-                password.as_str(),
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 agg.clone(),
-                server_addr,
                 move |mut results, mut remote| async move {
                     let mut success = 0;
                     let mut p2p_remotes = HashMap::new();
@@ -498,9 +533,14 @@ mod tests {
                     while let Some(conn) = results.recv().await {
                         log::trace!(target: "citadel", "User {} received {:?}", username, conn);
                         let mut conn = conn?;
-                        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx.take()).await;
+                        crate::test_common::udp_mode_assertions(
+                            udp_mode,
+                            conn.udp_channel_rx.take(),
+                        )
+                        .await;
                         success += 1;
-                        let _ = p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote.clone());
+                        let _ =
+                            p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote.clone());
                         if success == peer_count - 1 {
                             break;
                         }
@@ -531,7 +571,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -547,8 +587,8 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[case(3)]
-    #[timeout(std::time::Duration::from_secs(90))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[timeout(Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
     async fn peer_to_peer_connect_passwordless(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -575,9 +615,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
                     let mut success = 0;
@@ -619,7 +663,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -668,9 +712,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
                     let mut success = 0;
@@ -690,7 +738,7 @@ mod tests {
                                 .send_file_with_custom_opts(
                                     "../resources/TheBridge.pdf",
                                     32 * 1024,
-                                    TransferType::FileTransfer
+                                    TransferType::FileTransfer,
                                 )
                                 .await?;
 
@@ -706,8 +754,8 @@ mod tests {
                                 .unwrap();
                             handle.accept().unwrap();
 
-                            use futures::StreamExt;
                             use citadel_types::proto::ObjectTransferStatus;
+                            use futures::StreamExt;
                             let mut path = None;
                             while let Some(status) = handle.next().await {
                                 match status {
@@ -716,7 +764,9 @@ mod tests {
                                         let cmp =
                                             include_bytes!("../../../../resources/TheBridge.pdf");
                                         let streamed_data =
-                                            citadel_io::tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                                            citadel_io::tokio::fs::read(path.clone().unwrap())
+                                                .await
+                                                .unwrap();
                                         assert_eq!(
                                             cmp,
                                             streamed_data.as_slice(),
@@ -748,7 +798,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -796,9 +846,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
                     let mut success = 0;
@@ -826,7 +880,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -873,9 +927,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
                     let mut success = 0;
@@ -897,7 +955,7 @@ mod tests {
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -927,7 +985,7 @@ mod tests {
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log_no_panic_hook();
-        crate::test_common::TestBarrier::setup(2);
+        TestBarrier::setup(2);
         let (server, server_addr) = server_info();
         let peer_0_error_received = &AtomicBool::new(false);
         let peer_1_error_received = &AtomicBool::new(false);
@@ -960,13 +1018,23 @@ mod tests {
 
         let peer1_connection = peer1_agg.add();
 
-        let client_kernel0 = PeerConnectionKernel::new_authless(
-            uuid0,
-            server_addr,
+        let server_connection_settings0 =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let server_connection_settings1 =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel0 = PeerConnectionKernel::new(
+            server_connection_settings0,
             peer0_connection,
-            UdpMode::Enabled,
-            session_security,
-            None,
             move |mut connection, remote| async move {
                 wait_for_peers().await;
                 let conn = connection.recv().await.unwrap();
@@ -977,16 +1045,11 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        )
-            .unwrap();
+        );
 
-        let client_kernel1 = PeerConnectionKernel::new_authless(
-            uuid1,
-            server_addr,
+        let client_kernel1 = PeerConnectionKernel::new(
+            server_connection_settings1,
             peer1_connection,
-            UdpMode::Enabled,
-            session_security,
-            None,
             move |mut connection, remote| async move {
                 wait_for_peers().await;
                 let conn = connection.recv().await.unwrap();
@@ -997,8 +1060,7 @@ mod tests {
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             },
-        )
-            .unwrap();
+        );
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();

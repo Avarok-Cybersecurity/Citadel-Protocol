@@ -54,6 +54,7 @@ impl<'a, F, Fut> NetKernel for InternalServiceKernel<'a, F, Fut> {
 #[cfg(test)]
 mod test {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prefabs::server::internal_service::InternalServiceKernel;
     use crate::prefabs::shared::internal_service::InternalServerCommunicator;
     use crate::prelude::*;
@@ -111,7 +112,9 @@ mod test {
         setup_log();
         let barrier = &TestBarrier::new(2);
         let success_count = &AtomicUsize::new(0);
-        let message = &(0..4096).map(|r| (r % 256) as u8).collect::<Vec<u8>>();
+        let message = &(0..4096usize)
+            .map(|r| (r % u8::MAX as usize) as u8)
+            .collect::<Vec<u8>>();
         let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let server_bind_addr = server_listener.local_addr().unwrap();
         let server_kernel =
@@ -125,9 +128,13 @@ mod test {
                 .await
             });
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
-            Uuid::new_v4(),
-            server_bind_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_bind_addr, Uuid::new_v4())
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |connect_success, remote| async move {
                 crate::prefabs::shared::internal_service::internal_service(
                     remote,
@@ -148,7 +155,7 @@ mod test {
 
         let client = NodeBuilder::default()
             .with_node_type(NodeType::Peer)
-            .build(client_kernel.unwrap())
+            .build(client_kernel)
             .unwrap();
 
         let server = NodeBuilder::default()
@@ -199,9 +206,13 @@ mod test {
             Ok(())
         });
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
-            Uuid::new_v4(),
-            server_bind_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_bind_addr, Uuid::new_v4())
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |connect_success, remote| async move {
                 crate::prefabs::shared::internal_service::internal_service(
                     remote,
@@ -250,7 +261,7 @@ mod test {
 
         let client = NodeBuilder::default()
             .with_node_type(NodeType::Peer)
-            .build(client_kernel.unwrap())
+            .build(client_kernel)
             .unwrap();
 
         let server = NodeBuilder::default()

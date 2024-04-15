@@ -279,7 +279,10 @@ pub trait ProtocolRemoteExt: Remote {
     /// ```
     /// use citadel_sdk::prelude::*;
     /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    /// # SingleClientServerConnectionKernel::new_connect_defaults("", "", |_, mut remote| async move {
+    ///
+    /// let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
+    ///
+    /// # SingleClientServerConnectionKernel::new(server_connection_settings, |_, mut remote| async move {
     /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
     /// // or: remote.find_target(1234, "my_peer").await? [...]
     /// # });
@@ -1236,6 +1239,7 @@ pub mod remote_specialization {
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use citadel_io::tokio;
     use rstest::rstest;
@@ -1341,12 +1345,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_session_security_settings(session_security_settings)
+                .disable_udp()
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote
@@ -1361,8 +1368,7 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 

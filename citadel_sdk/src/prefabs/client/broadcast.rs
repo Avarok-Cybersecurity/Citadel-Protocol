@@ -376,6 +376,7 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 mod tests {
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_io::tokio;
@@ -421,9 +422,13 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = BroadcastKernel::new(
+                server_connection_settings,
                 request,
                 move |channel, remote| async move {
                     wait_for_peers().await;
@@ -444,7 +449,7 @@ mod tests {
                     drop(channel);
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -499,9 +504,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
                     let _sender = remote.conn_type.get_implicated_cid();
@@ -529,20 +538,21 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation { sender: _, key: _key },
+                                    event:
+                                        GroupBroadcast::Invitation {
+                                            sender: _,
+                                            key: _key,
+                                        },
                                 }) => {
-                                    let _ = crate::responses::group_invite(
-                                        evt,
-                                        true,
-                                        &remote.inner,
-                                    )
-                                    .await?;
+                                    let _ =
+                                        crate::responses::group_invite(evt, true, &remote.inner)
+                                            .await?;
                                 }
 
                                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                                     ticket: _,
                                     channel: _chan,
-                                    implicated_cid: _
+                                    implicated_cid: _,
                                 }) => {
                                     receiver_success.store(true, Ordering::Relaxed);
                                     log::trace!(target: "citadel", "***PEER {} CONNECT***", uuid);
@@ -561,7 +571,7 @@ mod tests {
                         "signals_recv ended unexpectedly",
                     ))
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
