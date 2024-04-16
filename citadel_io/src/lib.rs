@@ -15,6 +15,11 @@ pub use parking_lot::deadlock;
 #[cfg(not(target_family = "wasm"))]
 pub use parking_lot::{const_mutex, const_rwlock};
 
+#[cfg(not(target_family = "wasm"))]
+pub use rand::prelude::*;
+#[cfg(target_family = "wasm")]
+pub use wasm::rng::{WasmRng as ThreadRng, *};
+
 #[derive(Debug)]
 pub enum Error {
     IoError(std::io::Error),

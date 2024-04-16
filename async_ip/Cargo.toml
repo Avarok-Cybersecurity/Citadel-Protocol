@@ -15,6 +15,7 @@ license = "MIT OR Apache-2.0"
 default = ["std"]
 std = [
     "futures/std",
+    "serde",
 ]
 wasm = [
 ]
@@ -27,7 +28,7 @@ ureq = { version = "2.9.6", default-features = false }
 
 [dependencies]
 citadel_io = { workspace = true}
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"], optional = true }
 futures = { workspace = true, features = ["alloc"] }
 async-trait = { workspace = true }
 auto_impl = { workspace = true }

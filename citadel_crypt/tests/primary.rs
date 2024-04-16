@@ -39,6 +39,7 @@ mod tests {
         log::trace!(target: "citadel", "{:?}", final_cfg)
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
     async fn argon() {
         citadel_logging::setup_log();

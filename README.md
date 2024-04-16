@@ -65,11 +65,19 @@ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-12/wasi-
 tar -xvzf wasi-sysroot-12.0.tar.gz
 rm wasi-sysroot-12.0.tar.gz
 
-# Set environment variables
+# Set environment variables. Must use custom version of clang and ar
 export WASI_SDK_DIR="$(pwd)/wasi-sysroot"
+export PATH="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/:$PATH"
+export AR="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/llvm-ar"
+export CC="/opt/homebrew/Cellar/llvm/<LATEST_VERSION>/bin/clang"
 ```
 
-Additionally, the feature `wasm` should be enabled when checking/compiling.
+Then, to test on wasix, run:
+```bash
+cargo wasix test --package=citadel_pqcrypto --profile=wasix
+```
+
+The profile `wasix` is provided such that the highest level of optimization is used. This is necessary for the wasm target.
 
 # Disclaimer
 This project has not (yet) been audited by a third party. While some of the underlying cryptographic primitives come from the verified

@@ -34,6 +34,7 @@ std = [
 wasm = []
 
 [dependencies]
+citadel_io = { workspace = true }
 generic-array = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 bincode2 = { workspace = true }

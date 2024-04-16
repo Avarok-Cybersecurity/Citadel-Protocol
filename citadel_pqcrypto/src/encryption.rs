@@ -221,7 +221,8 @@ pub(crate) mod kyber_module {
         match kem_alg {
             KemAlgorithm::Kyber => kyber_pke::encrypt(local_pk, plaintext, nonce)
                 .map_err(|err| Error::Other(format!("{err:?}"))),
-            KemAlgorithm::Ntru => Err(Error::Other(format!(
+
+            _ => Err(Error::Other(format!(
                 "Kem ALG {kem_alg:?} does not support PKE"
             ))),
         }
@@ -235,7 +236,8 @@ pub(crate) mod kyber_module {
         match kem_alg {
             KemAlgorithm::Kyber => kyber_pke::decrypt(local_sk, ciphertext)
                 .map_err(|err| Error::Other(format!("{err:?}"))),
-            KemAlgorithm::Ntru => Err(Error::Other(format!(
+
+            _ => Err(Error::Other(format!(
                 "Kem ALG {kem_alg:?} does not support PKE"
             ))),
         }

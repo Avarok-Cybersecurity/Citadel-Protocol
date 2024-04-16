@@ -12,7 +12,7 @@ use citadel_types::crypto::{
 };
 use citadel_types::errors::Error;
 use generic_array::GenericArray;
-use rand::rngs::ThreadRng;
+use citadel_io::ThreadRng;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 use std::fmt::Debug;
@@ -116,42 +116,46 @@ pub(crate) mod functions {
         oqs::sig::Sig::new(ALG).map_err(|err| Error::Other(err.to_string()))
     }
 
-    pub fn ntru_prime_alice_keypair() -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let (pk_alice, sk_alice) = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
-            .map_err(|err| Error::Other(err.to_string()))?
-            .keypair()
-            .map_err(|err| Error::Other(err.to_string()))?;
-        Ok((pk_alice.into_vec(), sk_alice.into_vec()))
-    }
+    pub mod ntru {
+        use citadel_types::errors::Error;
 
-    pub fn ntru_prime_bob_receive_pk(pk_alice: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let kem = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        let wrapper = kem
-            .public_key_from_bytes(pk_alice)
-            .ok_or_else(|| Error::Other("Bad public key input".to_string()))?;
+        pub fn ntru_prime_alice_keypair() -> Result<(Vec<u8>, Vec<u8>), Error> {
+            let (pk_alice, sk_alice) = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                .map_err(|err| Error::Other(err.to_string()))?
+                .keypair()
+                .map_err(|err| Error::Other(err.to_string()))?;
+            Ok((pk_alice.into_vec(), sk_alice.into_vec()))
+        }
 
-        let (ciphertext, shared_secret) = kem
-            .encapsulate(wrapper)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        Ok((ciphertext.into_vec(), shared_secret.into_vec()))
-    }
+        pub fn ntru_prime_bob_receive_pk(pk_alice: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+            let kem = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                .map_err(|err| Error::Other(err.to_string()))?;
+            let wrapper = kem
+                .public_key_from_bytes(pk_alice)
+                .ok_or_else(|| Error::Other("Bad public key input".to_string()))?;
 
-    pub fn ntru_prime_alice_receive_ct(alice_sk: &[u8], bob_ct: &[u8]) -> Result<Vec<u8>, Error> {
-        let kem = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
-            .map_err(|err| Error::Other(err.to_string()))?;
+            let (ciphertext, shared_secret) = kem
+                .encapsulate(wrapper)
+                .map_err(|err| Error::Other(err.to_string()))?;
+            Ok((ciphertext.into_vec(), shared_secret.into_vec()))
+        }
 
-        let wrapper_sk = kem
-            .secret_key_from_bytes(alice_sk)
-            .ok_or_else(|| Error::Other("Bad secret key input".to_string()))?;
-        let wrapper_ct = kem
-            .ciphertext_from_bytes(bob_ct)
-            .ok_or_else(|| Error::Other("Bad ciphertext input".to_string()))?;
+        pub fn ntru_prime_alice_receive_ct(alice_sk: &[u8], bob_ct: &[u8]) -> Result<Vec<u8>, Error> {
+            let kem = oqs::kem::Kem::new(oqs::kem::Algorithm::NtruPrimeSntrup761)
+                .map_err(|err| Error::Other(err.to_string()))?;
 
-        Ok(kem
-            .decapsulate(wrapper_sk, wrapper_ct)
-            .map_err(|err| Error::Other(err.to_string()))?
-            .into_vec())
+            let wrapper_sk = kem
+                .secret_key_from_bytes(alice_sk)
+                .ok_or_else(|| Error::Other("Bad secret key input".to_string()))?;
+            let wrapper_ct = kem
+                .ciphertext_from_bytes(bob_ct)
+                .ok_or_else(|| Error::Other("Bad ciphertext input".to_string()))?;
+
+            Ok(kem
+                .decapsulate(wrapper_sk, wrapper_ct)
+                .map_err(|err| Error::Other(err.to_string()))?
+                .into_vec())
+        }
     }
 }
 
@@ -224,23 +228,27 @@ pub(crate) mod functions {
         T::from_bytes(bytes).map_err(|err| Error::Other(err.to_string()))
     }
 
-    pub fn ntru_prime_alice_keypair() -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let (pk, sk) = streamlined_ntru_prime::generate_key();
-        Ok((pk.into(), sk.into()))
-    }
+    pub mod ntru {
+        use citadel_types::errors::Error;
 
-    pub fn ntru_prime_bob_receive_pk(alice_pk: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let alice_pk = alice_pk.try_into().map_err(|_| Error::InvalidLength)?;
-        let (ct, ss) = streamlined_ntru_prime::encapsulate(alice_pk);
-        Ok((ct.into(), ss.into()))
-    }
+        pub fn ntru_prime_alice_keypair() -> Result<(Vec<u8>, Vec<u8>), Error> {
+            let (pk, sk) = streamlined_ntru_prime::generate_key();
+            Ok((pk.into(), sk.into()))
+        }
 
-    pub fn ntru_prime_alice_receive_ct(alice_sk: &[u8], bob_ct: &[u8]) -> Result<Vec<u8>, Error> {
-        let alice_sk = alice_sk.try_into().map_err(|_| Error::InvalidLength)?;
-        let bob_ct = bob_ct.try_into().map_err(|_| Error::InvalidLength)?;
-        let ss = streamlined_ntru_prime::decapsulate(alice_sk, bob_ct)
-            .map_err(|err| Error::Other(format!("Error while decapsulating: {err}",)))?;
-        Ok(ss.into())
+        pub fn ntru_prime_bob_receive_pk(alice_pk: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+            let alice_pk = alice_pk.try_into().map_err(|_| Error::InvalidLength)?;
+            let (ct, ss) = streamlined_ntru_prime::encapsulate(alice_pk);
+            Ok((ct.into(), ss.into()))
+        }
+
+        pub fn ntru_prime_alice_receive_ct(alice_sk: &[u8], bob_ct: &[u8]) -> Result<Vec<u8>, Error> {
+            let alice_sk = alice_sk.try_into().map_err(|_| Error::InvalidLength)?;
+            let bob_ct = bob_ct.try_into().map_err(|_| Error::InvalidLength)?;
+            let ss = streamlined_ntru_prime::decapsulate(alice_sk, bob_ct)
+                .map_err(|err| Error::Other(format!("Error while decapsulating: {err}",)))?;
+            Ok(ss.into())
+        }
     }
 }
 
@@ -818,7 +826,8 @@ impl PostQuantumMeta {
                     kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
                 (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
             }
-            KemAlgorithm::Ntru => functions::ntru_prime_alice_keypair()?,
+
+            KemAlgorithm::Ntru => functions::ntru::ntru_prime_alice_keypair()?,
         };
 
         let ciphertext = None;
@@ -872,7 +881,8 @@ impl PostQuantumMeta {
                     kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
                 (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
             }
-            KemAlgorithm::Ntru => functions::ntru_prime_alice_keypair()?,
+
+            KemAlgorithm::Ntru => functions::ntru::ntru_prime_alice_keypair()?,
         };
 
         let (ciphertext, shared_secret) = match kem_scheme {
@@ -883,7 +893,7 @@ impl PostQuantumMeta {
                 (ciphertext.to_vec(), shared_secret.to_vec())
             }
 
-            KemAlgorithm::Ntru => functions::ntru_prime_bob_receive_pk(pk_alice.as_slice())?,
+            KemAlgorithm::Ntru => functions::ntru::ntru_prime_bob_receive_pk(pk_alice.as_slice())?,
         };
 
         let public_key = Arc::new(kem_pk_bob.into());
@@ -977,7 +987,8 @@ impl PostQuantumMeta {
             KemAlgorithm::Kyber => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
                 .map_err(|err| Error::Other(err.to_string()))?
                 .to_vec(),
-            KemAlgorithm::Ntru => functions::ntru_prime_alice_receive_ct(
+
+            KemAlgorithm::Ntru => functions::ntru::ntru_prime_alice_receive_ct(
                 secret_key.as_slice(),
                 bob_ciphertext.as_slice(),
             )?,

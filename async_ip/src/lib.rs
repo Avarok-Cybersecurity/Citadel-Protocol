@@ -14,7 +14,6 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::net::IpAddr;
 #[cfg(not(target_family = "wasm"))]
@@ -31,7 +30,8 @@ const URL_V6_1: &str = "http://ident.me";
 const URL_V6_2: &str = "http://v4v6.ipv6-test.com/api/myip.php";
 //const URL_V4_2: &str = "http://v4.ipv6-test.com/api/myip.php";
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 /// All the ip addr info for this node
 pub struct IpAddressInfo {
     /// internal addr

@@ -28,7 +28,7 @@ std = [
 ]
 wasm = [
     "citadel_pqcrypto/wasm",
-    "citadel_io/wasm"
+    "citadel_io/wasm",
 ]
 
 [dependencies]

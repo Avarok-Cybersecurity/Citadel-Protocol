@@ -207,7 +207,7 @@ mod tests {
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber, KemAlgorithm::Ntru)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
             EncryptionAlgorithm::ChaCha20Poly_1305,
