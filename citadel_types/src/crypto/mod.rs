@@ -333,7 +333,6 @@ pub enum KemAlgorithm {
     #[strum(ascii_case_insensitive)]
     #[default]
     Kyber = 0,
-    Ntru = 1,
 }
 
 #[derive(
