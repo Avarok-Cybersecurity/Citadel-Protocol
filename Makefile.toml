@@ -265,3 +265,7 @@ dependencies = ["publish-install-deps", "publish-bump-version-major"]
 [tasks.check-docs]
 command = "cargo"
 args = ["test", "--package", "citadel_sdk", "--doc"]
+
+[tasks.wasix]
+command = "cargo"
+args = ["--config=Cargo.wasix.toml", "wasix", "${@}", "--profile=wasix"]

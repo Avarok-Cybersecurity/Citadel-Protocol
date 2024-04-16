@@ -79,6 +79,18 @@ cargo wasix test --package=citadel_pqcrypto --profile=wasix
 
 The profile `wasix` is provided such that the highest level of optimization is used. This is necessary for the wasm target.
 
+In general, if you wish to avoid all these additional cargo profiles and related flags, you can simply run:
+
+```bash
+cargo make wasix <command>
+```
+
+For example:
+
+```bash
+cargo make wasix test --package=citadel_pqcrypto
+```
+
 # Disclaimer
 This project has not (yet) been audited by a third party. While some of the underlying cryptographic primitives come from the verified
 Open Quantum Safe (OQS) project and/or the PQClean project, the Kyber library has not yet received an audit (the known answer tests pass, however).

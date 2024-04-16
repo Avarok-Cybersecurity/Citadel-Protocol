@@ -117,3 +117,12 @@ once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.8.0" }
 embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
+
+[patch.crates-io]
+socket2 = { git = "https://github.com/wasix-org/socket2.git", branch = "v0.4.9" }
+libc = { git = "https://github.com/wasix-org/libc.git" }
+tokio = { git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.24.2" }
+wasm-bindgen = {  git = "https://github.com/wasix-org/wasm-bindgen/", branch = "wasi" }
+
+[profile.dev]
+opt-level = 3
