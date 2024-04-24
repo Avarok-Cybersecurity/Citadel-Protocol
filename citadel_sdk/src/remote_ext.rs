@@ -163,6 +163,9 @@ pub trait ProtocolRemoteExt: Remote {
                 NodeResult::RegisterFailure(err) => {
                     return Err(NetworkError::Generic(err.error_message));
                 }
+                NodeResult::Disconnect(err) => {
+                    return Err(NetworkError::Generic(err.message));
+                }
                 evt => {
                     log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
                 }
@@ -251,7 +254,9 @@ pub trait ProtocolRemoteExt: Remote {
                 cid_opt: _,
                 error_message: err,
             }) => Err(NetworkError::Generic(err)),
-
+            NodeResult::Disconnect(err) => {
+                return Err(NetworkError::Generic(err.message));
+            }
             res => Err(NetworkError::msg(format!(
                 "[connect] An unexpected response occurred: {res:?}"
             ))),
