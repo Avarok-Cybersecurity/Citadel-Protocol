@@ -120,7 +120,7 @@ pub(crate) mod packet_flags {
                 pub(crate) const HOLE_PUNCH: u8 = 2;
             }
 
-            pub (crate) mod fido2 {
+            pub(crate) mod fido2 {
                 pub(crate) const REGISTER: u8 = 0;
                 pub(crate) const CHALLENGE: u8 = 1;
                 pub(crate) const ATTESTATION: u8 = 2;

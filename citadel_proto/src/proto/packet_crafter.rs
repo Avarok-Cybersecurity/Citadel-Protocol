@@ -928,6 +928,7 @@ pub mod fido2 {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::prelude::{Ticket, VirtualTargetType};
     use crate::proto::packet::{packet_flags, HdpHeader};
     use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use citadel_crypt::stacked_ratchet::StackedRatchet;
@@ -935,7 +936,6 @@ pub mod fido2 {
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
-    use crate::prelude::{Ticket, VirtualTargetType};
 
     #[derive(Serialize, Deserialize)]
     pub(crate) struct Fido2RegisterPacket {
