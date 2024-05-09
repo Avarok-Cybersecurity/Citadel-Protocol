@@ -920,6 +920,288 @@ pub mod do_disconnect {
     }
 }
 
+/// For creating FIDO2 packets
+pub mod fido2 {
+    use bytes::{BufMut, BytesMut};
+    use ctap_hid_fido2::fidokey::get_assertion::get_assertion_params::Assertion;
+    use ctap_hid_fido2::fidokey::make_credential::Attestation;
+    use zerocopy::{I64, U128, U32, U64};
+
+    use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::proto::packet::{packet_flags, HdpHeader};
+    use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
+    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::crypto::SecurityLevel;
+    use citadel_user::auth::proposed_credentials::ProposedCredentials;
+    use citadel_user::serialization::SyncIO;
+    use serde::{Deserialize, Serialize};
+    use crate::prelude::{Ticket, VirtualTargetType};
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct Fido2RegisterPacket {
+        pub(crate) rpid: String,
+        pub(crate) require_password: bool,
+    }
+
+    /// Crafts a packet used to initiate the FIDO2 registration process
+    pub(crate) fn craft_register_packet(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        security_level: SecurityLevel,
+        virtual_target: VirtualTargetType,
+        timestamp: i64,
+        rpid: String,
+        require_password: bool,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FIDO2,
+            cmd_aux: packet_flags::cmd::aux::fido2::REGISTER,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+        let payload = Fido2RegisterPacket {
+            rpid,
+            require_password,
+        };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct Fido2ChallengePacket {
+        pub(crate) challenge: [u8; 32],
+        pub(crate) rpid: String,
+        pub(crate) require_password: bool,
+    }
+
+    /// Creates a packet with FIDO2 challenge to be used in authentication
+    pub(crate) fn craft_challenge_packet(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        security_level: SecurityLevel,
+        virtual_target: VirtualTargetType,
+        timestamp: i64,
+        challenge: [u8; 32],
+        rpid: String,
+        require_password: bool,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FIDO2,
+            cmd_aux: packet_flags::cmd::aux::fido2::CHALLENGE,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+        let payload = Fido2ChallengePacket {
+            challenge,
+            rpid,
+            require_password,
+        };
+
+        payload.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct Fido2AttestationPacket {
+        pub(crate) attestation: Attestation,
+        pub(crate) proposed_credentials: Option<ProposedCredentials>,
+    }
+
+    /// Crafts a packet with an attestation in response to a FIDO2 registration challenge
+    #[allow(unused_results)]
+    pub(crate) fn craft_attestation_packet(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        timestamp: i64,
+        credentials: Option<ProposedCredentials>,
+        attestation: Attestation,
+        security_level: SecurityLevel,
+        virtual_target: VirtualTargetType,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FIDO2,
+            cmd_aux: packet_flags::cmd::aux::fido2::ATTESTATION,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let total_len = HDP_HEADER_BYTE_LEN;
+        let mut packet = BytesMut::with_capacity(total_len);
+        let payload = Fido2AttestationPacket {
+            attestation,
+            proposed_credentials: credentials,
+        };
+        header.inscribe_into(&mut packet);
+        payload.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct Fido2AssertionPacket {
+        pub(crate) assertion: Assertion,
+        pub(crate) proposed_credentials: Option<ProposedCredentials>,
+    }
+
+    /// Crafts a packet with an assertion in response to a FIDO2 authentication challenge
+    #[allow(unused_results)]
+    pub(crate) fn craft_assertion_packet(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        timestamp: i64,
+        credentials: Option<ProposedCredentials>,
+        assertion: Assertion,
+        security_level: SecurityLevel,
+        virtual_target: VirtualTargetType,
+    ) -> BytesMut {
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FIDO2,
+            cmd_aux: packet_flags::cmd::aux::fido2::ATTESTATION,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let total_len = HDP_HEADER_BYTE_LEN;
+        let mut packet = BytesMut::with_capacity(total_len);
+        let payload = Fido2AssertionPacket {
+            assertion,
+            proposed_credentials: credentials,
+        };
+        header.inscribe_into(&mut packet);
+        payload.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    pub(crate) fn craft_success_packet<T: AsRef<[u8]>>(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        virtual_target: VirtualTargetType,
+        timestamp: i64,
+        success_message: T,
+        security_level: SecurityLevel,
+    ) -> BytesMut {
+        let success_message = success_message.as_ref();
+        let success_message_len = success_message.len();
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FIDO2,
+            cmd_aux: packet_flags::cmd::aux::fido2::SUCCESS,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + success_message_len);
+        header.inscribe_into(&mut packet);
+        packet.put(success_message);
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+
+    pub(crate) fn craft_failure_packet<T: AsRef<[u8]>>(
+        hyper_ratchet: &StackedRatchet,
+        ticket: Ticket,
+        virtual_target: VirtualTargetType,
+        timestamp: i64,
+        error_message: T,
+        security_level: SecurityLevel,
+    ) -> BytesMut {
+        let error_message = error_message.as_ref();
+        let header = HdpHeader {
+            protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
+            cmd_primary: packet_flags::cmd::primary::FIDO2,
+            cmd_aux: packet_flags::cmd::aux::fido2::FAILURE,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(virtual_target.get_target_cid()),
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + error_message.len());
+        header.inscribe_into(&mut packet);
+        packet.put(error_message);
+
+        hyper_ratchet
+            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
+            .unwrap();
+
+        packet
+    }
+}
+
 pub(crate) mod do_drill_update {
     use bytes::BytesMut;
     use zerocopy::{I64, U128, U32, U64};

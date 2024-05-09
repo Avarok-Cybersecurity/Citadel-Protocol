@@ -21,6 +21,7 @@ pub(crate) mod packet_flags {
             pub(crate) const FILE: u8 = 9;
             pub(crate) const UDP: u8 = 10;
             pub(crate) const HOLE_PUNCH: u8 = 11;
+            pub(crate) const FIDO2: u8 = 12;
         }
 
         pub(crate) mod aux {
@@ -117,6 +118,14 @@ pub(crate) mod packet_flags {
                 pub(crate) const STREAM: u8 = 0;
                 pub(crate) const KEEP_ALIVE: u8 = 1;
                 pub(crate) const HOLE_PUNCH: u8 = 2;
+            }
+
+            pub (crate) mod fido2 {
+                pub(crate) const REGISTER: u8 = 0;
+                pub(crate) const CHALLENGE: u8 = 1;
+                pub(crate) const ATTESTATION: u8 = 2;
+                pub(crate) const SUCCESS: u8 = 3;
+                pub(crate) const FAILURE: u8 = 4;
             }
         }
     }
