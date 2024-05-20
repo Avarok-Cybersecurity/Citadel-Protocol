@@ -14,6 +14,7 @@ use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMeta
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::StreamExt;
 
@@ -380,15 +381,46 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
                 .map_err(|err| AccountError::IoError(err.to_string()))?
         }
 
-        if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
-            log::error!(target: "citadel", "Error while copying from reader to writer: {}", err);
+        match tokio::io::copy(&mut reader, &mut writer).await {
+            Ok(bytes_written) => {
+                log::info!(target: "citadel", "Successfully wrote {bytes_written} bytes to {file_path:?}");
+            }
+
+            Err(err) => {
+                log::error!(target: "citadel", "Error while copying from reader to writer: {err}");
+                status_tx
+                    .send(ObjectTransferStatus::Fail(err.to_string()))
+                    .map_err(|err| AccountError::IoError(err.to_string()))?;
+                return Err(AccountError::IoError(err.to_string()));
+            }
         }
+
+        writer
+            .flush()
+            .await
+            .map_err(|err| AccountError::IoError(err.to_string()))?;
 
         writer
             .into_inner()
             .sync_all()
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::IoError(err.to_string()))?;
+
+        /*
+        let plaintext_length = metadata.plaintext_length;
+        loop {
+            // Loop until the file's size is equal to the plaintext length
+            let file = tokio::fs::File::open(&file_path).await
+                .map_err(|err| AccountError::IoError(err.to_string()))?;
+            let metadata = file.metadata().await
+                .map_err(|err| AccountError::IoError(err.to_string()))?;
+            if metadata.len() >= plaintext_length as u64 {
+                return Ok(())
+            }
+            log::error!(target: "citadel", "File len: {} | Plaintext len: {}", metadata.len(), plaintext_length);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }*/
+        Ok(())
     }
 
     async fn revfs_get_file_info(

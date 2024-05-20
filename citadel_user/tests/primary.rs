@@ -728,7 +728,7 @@ mod tests {
     async fn test_register_p2p() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
-            let peer = PEERS.get(0).unwrap();
+            let peer = PEERS.first().unwrap();
             let (peer_cnac, peer_container) = container
                 .create_peer_cnac(
                     peer.0.as_str(),
@@ -913,7 +913,7 @@ mod tests {
     async fn test_deregister_p2p() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
-            let peer = PEERS.get(0).unwrap();
+            let peer = PEERS.first().unwrap();
             let (peer_cnac, peer_container) = container
                 .create_peer_cnac(
                     peer.0.as_str(),
@@ -1035,7 +1035,7 @@ mod tests {
     async fn test_deregister_client_from_server() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
-            let peer = PEERS.get(0).unwrap();
+            let peer = PEERS.first().unwrap();
             let (peer_cnac, peer_container) = container
                 .create_peer_cnac(
                     peer.0.as_str(),
@@ -1450,11 +1450,19 @@ mod tests {
         );
         let mut alice =
             StackedRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
-        let bob =
-            StackedRatchetConstructor::new_bob(cid, version, opts, alice.stage0_alice().unwrap())
-                .unwrap();
+        let bob = StackedRatchetConstructor::new_bob(
+            cid,
+            version,
+            opts,
+            alice.stage0_alice().unwrap(),
+            &[],
+        )
+        .unwrap();
         alice
-            .stage1_alice(BobToAliceTransferType::Default(bob.stage0_bob().unwrap()))
+            .stage1_alice(
+                BobToAliceTransferType::Default(bob.stage0_bob().unwrap()),
+                &[],
+            )
             .unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid {
             bob.finish_with_custom_cid(cid).unwrap()

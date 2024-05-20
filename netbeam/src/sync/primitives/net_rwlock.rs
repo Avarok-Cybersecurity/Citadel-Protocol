@@ -14,6 +14,7 @@ use crate::sync::primitives::net_rwlock::write::{acquire_write, RwLockWriteAcqui
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
 use crate::sync::subscription::SubscriptionBiStream;
+use crate::sync::RelativeNodeType;
 use crate::time_tracker::TimeTracker;
 use crate::ScopedFutureResult;
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,10 @@ pub struct NetRwLock<T: NetObject, S: Subscribable + 'static> {
 }
 
 impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
+    pub fn node_type(&self) -> RelativeNodeType {
+        self.channel.node_type()
+    }
+
     pub async fn new_internal(
         channel: InnerChannel<S>,
         initial_value: T,
@@ -757,10 +762,16 @@ where
                             Some(owned_local_lock.assert_read().clone())
                     }
 
-                    return Ok((fx)(owned_local_lock));
+                    return Ok(fx(owned_local_lock));
                 }
 
-                if remote_request_time <= local_request_time {
+                let local_wins = if remote_request_time == local_request_time {
+                    rwlock.node_type() == RelativeNodeType::Initiator
+                } else {
+                    remote_request_time < local_request_time
+                };
+
+                if local_wins {
                     // remote gets the lock. We send the local value first. Then, we must continue looping
                     // yield the lock
 

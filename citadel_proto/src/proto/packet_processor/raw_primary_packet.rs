@@ -4,20 +4,9 @@ use crate::proto::packet_processor::peer::peer_cmd_packet;
 
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::macros::ContextRequirements;
-use futures::Future;
-
-pub trait ProcessorFuture:
-    Future<Output = Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements
-{
-}
-impl<T: Future<Output = Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements>
-    ProcessorFuture for T
-{
-}
 
 /// For primary-port packet types. NOT for wave ports
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(implicated_cid=this_implicated_cid, is_server=session.is_server, packet_len=packet.len())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=this_implicated_cid, is_server=session.is_server, packet_len=packet.len())))]
 pub async fn process_raw_packet(
     this_implicated_cid: Option<u64>,
     session: &HdpSession,

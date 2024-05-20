@@ -7,13 +7,14 @@ use bitvec::vec::BitVec;
 use bytes::{BufMut, BytesMut};
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
+use rand::Rng;
 
 use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::stacked_ratchet::Ratchet;
 #[cfg(not(target_family = "wasm"))]
-use rayon::{iter::IndexedParallelIterator, prelude::*};
+use rayon::prelude::*;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -65,6 +66,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     enx: EncryptionAlgorithm,
     sig_alg: SigAlgorithm,
     transfer_type: &TransferType,
+    empty_transfer: bool,
 ) -> Result<GroupReceiverConfig, CryptError<String>> {
     let plain_text = plain_text.as_ref();
 
@@ -126,11 +128,13 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
         max_packets_per_wave as u32,
         ciphertext_len_last_wave as u32,
         transfer_type,
+        empty_transfer,
     );
 
     Ok(cfg)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn get_scramble_encrypt_config<'a, R: Ratchet>(
     hyper_ratchet: &'a R,
     plain_text: &'a [u8],
@@ -139,6 +143,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     group_id: u64,
     object_id: u64,
     transfer_type: &TransferType,
+    empty_transfer: bool,
 ) -> Result<
     (
         GroupReceiverConfig,
@@ -160,6 +165,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         msg_pqc.params.encryption_algorithm,
         msg_pqc.params.sig_algorithm,
         transfer_type,
+        empty_transfer,
     )?;
     Ok((cfg, msg_drill, msg_pqc, scramble_drill))
 }
@@ -193,11 +199,21 @@ where
     F: Fn(&PacketVector, &EntropyBank, u64, u64, &mut BytesMut) + Send + Sync,
 {
     let mut plain_text = Cow::Borrowed(plain_text.as_ref());
+
+    let empty_transfer = plain_text.is_empty();
+    if empty_transfer {
+        // In the case the plaintext is empty, we need to generate some random data to not give away the information
+        // that the file is empty
+        let random_length = rand::random::<u8>();
+        let mut entropy = vec![0u8; random_length as usize];
+        rand::thread_rng().fill(&mut entropy[..]);
+        plain_text = Cow::Owned(entropy);
+    }
+
     if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
+        log::trace!(target: "citadel", "Detected REVFS. Locally encrypting w/level {security_level:?} | Ratchet used: {} w/version {}", static_aux_ratchet.get_cid(), static_aux_ratchet.version());
         // pre-encrypt
-        let local_encrypted = static_aux_ratchet
-            .local_encrypt(plain_text, *security_level)
-            .unwrap();
+        let local_encrypted = static_aux_ratchet.local_encrypt(plain_text, *security_level)?;
 
         plain_text = Cow::Owned(local_encrypted);
     }
@@ -210,7 +226,10 @@ where
         group_id,
         object_id,
         &transfer_type,
+        empty_transfer,
     )?;
+
+    log::trace!(target: "citadel", "[crypt_splitter]: Plaintext len for group {}: {}", cfg.group_id, cfg.plaintext_length);
 
     #[cfg(not(target_family = "wasm"))]
     let chunks = plain_text.par_chunks(cfg.max_plaintext_wave_length as usize);
@@ -268,6 +287,7 @@ where
             cfg.max_packets_per_wave,
             ciphertext_len as u32,
             &transfer_type,
+            empty_transfer,
         );
     }
 
@@ -317,6 +337,7 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
     header_size_bytes: usize,
     group_id: u64,
     object_id: u64,
+    empty_transfer: bool,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>> {
     let len = plain_text.message_len() as u64;
     let group_receiver_config = GroupReceiverConfig {
@@ -335,6 +356,7 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
         max_packets_per_wave: 1,
         packets_in_last_wave: 1,
         transfer_type: None,
+        empty_transfer,
     };
 
     Ok(GroupSenderDevice::<N>::new_oneshot(
@@ -385,6 +407,7 @@ pub struct GroupReceiver {
     last_complete_wave: isize,
     group_timeout: Duration,
     wave_timeout: Duration,
+    empty_transfer: bool,
 }
 
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
@@ -417,6 +440,7 @@ pub struct GroupReceiverConfig {
     // the receiving endpoint won't decrypt the first level of encryption since the goal
     // is to keep the file remotely encrypted
     pub transfer_type: Option<TransferType>,
+    pub empty_transfer: bool,
 }
 
 /// Used in citadel_proto
@@ -437,6 +461,7 @@ impl GroupReceiverConfig {
         max_packets_per_wave: u32,
         ciphertext_len_last_wave: u32,
         transfer_type: &TransferType,
+        empty_transfer: bool,
     ) -> Self {
         let number_of_waves = number_of_full_waves + number_of_partial_waves;
         let packets_in_last_wave =
@@ -469,6 +494,7 @@ impl GroupReceiverConfig {
             max_packets_per_wave,
             packets_in_last_wave,
             transfer_type: Some(transfer_type.clone()),
+            empty_transfer,
         }
     }
 
@@ -570,6 +596,7 @@ impl GroupReceiver {
             wave_count: cfg.wave_count as usize,
             max_plaintext_wave_length: cfg.max_plaintext_wave_length as usize,
             last_plaintext_wave_length: cfg.last_plaintext_wave_length as usize,
+            empty_transfer: cfg.empty_transfer,
         }
     }
 
@@ -743,7 +770,11 @@ impl GroupReceiver {
 
     /// Consumes self. Do not call this unless you received a valid status from on_receive_packet
     pub fn finalize(self) -> Vec<u8> {
-        self.unified_plaintext_slab
+        if self.empty_transfer {
+            vec![]
+        } else {
+            self.unified_plaintext_slab
+        }
     }
 
     fn get_ciphertext_insertion_range(

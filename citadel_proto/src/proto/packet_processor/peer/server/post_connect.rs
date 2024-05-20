@@ -3,17 +3,15 @@ use crate::prelude::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::packet_processor::includes::VirtualConnectionType;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
-use crate::proto::peer::peer_layer::HyperNodePeerLayerInner;
 use crate::proto::remote::Ticket;
 use crate::proto::session::HdpSession;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_response_phase_post_connect(
-    peer_layer: &mut HyperNodePeerLayerInner,
     peer_conn_type: PeerConnectionType,
     ticket: Ticket,
     peer_response: PeerResponse,
@@ -32,8 +30,9 @@ pub(crate) async fn handle_response_phase_post_connect(
         ticket_opt: Some(ticket),
         invitee_response: Some(peer_response),
         session_security_settings: endpoint_security_level,
-        udp_mode: udp_enabled
-    }, implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), sess_hyper_ratchet,
+        udp_mode: udp_enabled,
+        session_password: None,
+    }, implicated_cid, target_cid, timestamp, ticket,session.clone(), sess_hyper_ratchet,
                           |this_sess, peer_sess, _original_tracked_posting| {
                               // when the route finishes, we need to update both sessions to allow high-level message-passing
                               // In other words, forge a virtual connection

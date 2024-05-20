@@ -57,9 +57,7 @@ impl<
 pub trait ObjectSource: Send + Sync + 'static {
     fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError>;
     fn get_source_name(&self) -> Result<String, CryptError>;
-    fn delete_path(&self) -> Option<PathBuf> {
-        None
-    }
+    fn path(&self) -> Option<PathBuf>;
 }
 
 macro_rules! impl_file_src {
@@ -81,7 +79,7 @@ macro_rules! impl_file_src {
                     .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
             }
 
-            fn delete_path(&self) -> Option<PathBuf> {
+            fn path(&self) -> Option<PathBuf> {
                 let path = std::path::PathBuf::from(self);
                 Some(path)
             }
@@ -89,7 +87,7 @@ macro_rules! impl_file_src {
     };
 }
 
-impl_file_src!(std::path::PathBuf);
+impl_file_src!(PathBuf);
 impl_file_src!(&'static str);
 impl_file_src!(String);
 
@@ -138,6 +136,10 @@ impl ObjectSource for BytesSource {
         let rand_id = rand::random::<u128>();
         Ok(format!("{rand_id}.bin"))
     }
+
+    fn path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 impl<T: Into<Vec<u8>>> From<T> for BytesSource {
@@ -172,10 +174,12 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     transfer_type: TransferType,
     header_inscriber: F,
 ) -> Result<(usize, usize, usize), CryptError> {
+    let path = source.path();
     let source = source.try_get_stream()?;
     let object_len = source
         .length()
         .map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
+    log::trace!(target: "citadel", "Object length: {} | Path: {:?}", object_len, path);
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
@@ -229,7 +233,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
     });
 
     // drop the handle, we will not be using it
-    std::mem::drop(handle);
+    drop(handle);
 
     Ok((object_len, total_groups, max_bytes_per_group))
 }
@@ -336,7 +340,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             let bytes = &mut lock[..poll_len];
             if reader.read_exact(bytes).is_ok() {
                 let group_id_input = *group_id + (*groups_rendered as u64);
-                std::mem::drop(lock);
+                drop(lock);
                 let header_inscriber = header_inscriber.clone();
                 let buffer = buffer.clone();
                 let security_level = *security_level;

@@ -180,6 +180,7 @@ fn handle_p2p_stream(
     let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);
     let p2p_primary_stream_rx = OutboundPrimaryStreamReceiver::from(p2p_primary_stream_rx);
     //let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
+    let peer_cid = v_conn.get_target_cid();
 
     let (stopper_tx, stopper_rx) = channel();
     let p2p_handle = P2PInboundHandle::new(
@@ -188,6 +189,7 @@ fn handle_p2p_stream(
         implicated_cid,
         kernel_tx,
         p2p_primary_stream_tx.clone(),
+        peer_cid,
     );
     let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink);
     let reader_future =
@@ -222,8 +224,17 @@ fn handle_p2p_stream(
         };
 
         if let Err(err) = &res {
-            log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+            // TODO: better error code handling
+            if !err.to_string().contains("p2p stopper triggered") {
+                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+            }
         }
+
+        let mut state_container = inner_mut_state!(sess.state_container);
+        state_container.active_virtual_connections.remove(&peer_cid);
+        state_container
+            .outgoing_peer_connect_attempts
+            .remove(&peer_cid);
 
         log::trace!(target: "citadel", "[P2P-stream] Dropping tri-joined future");
         res
@@ -241,6 +252,7 @@ pub struct P2PInboundHandle {
     pub implicated_cid: DualRwLock<Option<u64>>,
     pub kernel_tx: UnboundedSender<NodeResult>,
     pub to_primary_stream: OutboundPrimaryStreamSender,
+    pub peer_cid: u64,
 }
 
 impl P2PInboundHandle {
@@ -250,6 +262,7 @@ impl P2PInboundHandle {
         implicated_cid: DualRwLock<Option<u64>>,
         kernel_tx: UnboundedSender<NodeResult>,
         to_primary_stream: OutboundPrimaryStreamSender,
+        peer_cid: u64,
     ) -> Self {
         Self {
             remote_peer,
@@ -257,6 +270,7 @@ impl P2PInboundHandle {
             implicated_cid,
             kernel_tx,
             to_primary_stream,
+            peer_cid,
         }
     }
 }
@@ -269,7 +283,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 }
 
 /// Both sides need to begin this process at `sync_time`
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid())))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn attempt_simultaneous_hole_punch(
     peer_connection_type: PeerConnectionType,
@@ -332,7 +346,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             )
         } else {
             log::trace!(target: "citadel", "Non-initiator will begin listening immediately");
-            std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
+            drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket)
                 .await
                 .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))

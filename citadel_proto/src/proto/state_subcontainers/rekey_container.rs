@@ -30,7 +30,11 @@ impl RatchetUpdateState {
     ) -> Result<(), NetworkError> {
         if let Some(ticket) = self.current_local_requests.remove(&v_conn_type) {
             to_kernel_tx
-                .unbounded_send(NodeResult::ReKeyResult(ReKeyResult { ticket, status }))
+                .unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
+                    ticket,
+                    status,
+                    implicated_cid: v_conn_type.get_implicated_cid(),
+                }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))
         } else {
             Ok(())

@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 // Note: these values can each be up to 1024 in size, but, to be safe, we fix the upper
 // bound to 255 (u8::MAX) to ensure that the values fit inside the u32 bit packer
 pub const MAJOR_VERSION: u8 = 0;
-pub const MINOR_VERSION: u8 = 4;
+pub const MINOR_VERSION: u8 = 5;
 pub const PATCH_VERSION: u8 = 0;
 
 lazy_static! {

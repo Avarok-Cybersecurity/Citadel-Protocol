@@ -77,15 +77,18 @@ pub async fn delete<R: Into<PathBuf> + Send>(
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::node_builder::{NodeBuilder, NodeFuture};
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
+    use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
     use crate::prelude::*;
+    use crate::test_common::wait_for_peers;
+    use futures::StreamExt;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
     use uuid::Uuid;
 
     pub fn server_info<'a>() -> (NodeFuture<'a, AcceptFileTransferKernel>, SocketAddr) {
@@ -105,7 +108,7 @@ mod tests {
         SigAlgorithm::Falcon1024
     )]
     #[tokio::test]
-    async fn test_c2s_file_transfer_revfs(
+    async fn test_c2s_file_transfer_revfsq(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
@@ -124,11 +127,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -194,11 +198,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -266,11 +271,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Disabled,
             session_security_settings,
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -310,5 +316,163 @@ mod tests {
         result.unwrap();
 
         assert!(client_success.load(Ordering::Relaxed));
+    }
+
+    #[rstest]
+    #[case(SecrecyMode::BestEffort)]
+    #[timeout(std::time::Duration::from_secs(240))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_p2p_file_transfer_revfs(
+        #[case] secrecy_mode: SecrecyMode,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
+        #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
+    ) {
+        citadel_logging::setup_log();
+        crate::test_common::TestBarrier::setup(2);
+        let client0_success = &AtomicBool::new(false);
+        let client1_success = &AtomicBool::new(false);
+
+        let (server, server_addr) = crate::test_common::server_info();
+
+        let uuid0 = Uuid::new_v4();
+        let uuid1 = Uuid::new_v4();
+        let session_security = SessionSecuritySettingsBuilder::default()
+            .with_secrecy_mode(secrecy_mode)
+            .with_crypto_params(kem + enx)
+            .build()
+            .unwrap();
+
+        let security_level = SecurityLevel::Standard;
+
+        let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
+
+        // TODO: SinglePeerConnectionKernel
+        // to not hold up all conns
+        let client_kernel0 = PeerConnectionKernel::new_authless(
+            uuid0,
+            server_addr,
+            vec![uuid1.into()],
+            UdpMode::Disabled,
+            session_security,
+            None,
+            move |mut connection, remote_outer| async move {
+                wait_for_peers().await;
+                let mut connection = connection.recv().await.unwrap()?;
+                wait_for_peers().await;
+                // The other peer will send the file first
+                log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
+                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
+                accept_all(handle_orig);
+                wait_for_peers().await;
+
+                /*
+                let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
+                // write the file to the RE-VFS
+                crate::fs::write_with_security_level(
+                    &remote,
+                    source_dir.clone(),
+                    security_level,
+                    &virtual_path,
+                )
+                .await?;
+                log::error!(target: "citadel", "X01");
+                log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
+                // now, pull it
+                let save_dir = crate::fs::read(&remote, virtual_path).await?;
+                // now, compare bytes
+                log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
+                let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
+                let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
+                assert_eq!(original_bytes, revfs_pulled_bytes);
+                log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
+                wait_for_peers().await;*/
+                client0_success.store(true, Ordering::Relaxed);
+                remote_outer.shutdown_kernel().await
+            },
+        )
+        .unwrap();
+
+        let client_kernel1 = PeerConnectionKernel::new_authless(
+            uuid1,
+            server_addr,
+            vec![uuid0.into()],
+            UdpMode::Disabled,
+            session_security,
+            None,
+            move |mut connection, remote_outer| async move {
+                wait_for_peers().await;
+                let connection = connection.recv().await.unwrap()?;
+                wait_for_peers().await;
+                let remote = connection.remote.clone();
+                log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
+                let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
+                // write the file to the RE-VFS
+                crate::fs::write_with_security_level(
+                    &remote,
+                    source_dir.clone(),
+                    security_level,
+                    &virtual_path,
+                )
+                .await?;
+                log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
+                // now, pull it
+                let save_dir = crate::fs::read(&remote, virtual_path).await?;
+                // now, compare bytes
+                log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
+                let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
+                let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
+                assert_eq!(original_bytes, revfs_pulled_bytes);
+                log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
+                wait_for_peers().await;
+                /*
+                // Now, accept the peer's incoming handle
+                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
+                accept_all(handle_orig);
+
+                wait_for_peers().await;*/
+                client1_success.store(true, Ordering::Relaxed);
+                remote_outer.shutdown_kernel().await
+            },
+        )
+        .unwrap();
+
+        let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
+        let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
+        let clients = futures::future::try_join(client0, client1);
+
+        let task = async move {
+            tokio::select! {
+                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
+                client_res = clients => client_res.map(|_| ())
+            }
+        };
+
+        let _ = tokio::time::timeout(Duration::from_secs(120), task)
+            .await
+            .unwrap();
+
+        assert!(client0_success.load(Ordering::Relaxed));
+        assert!(client1_success.load(Ordering::Relaxed));
+    }
+
+    fn accept_all(mut rx: FileTransferHandleRx) {
+        let handle = tokio::task::spawn(async move {
+            while let Some(mut handle) = rx.recv().await {
+                let _ = handle.accept();
+                // Exhaust the stream
+                let handle = tokio::task::spawn(async move {
+                    while let Some(evt) = handle.next().await {
+                        if let ObjectTransferStatus::Fail(err) = evt {
+                            log::error!(target: "citadel", "File Transfer Failed: {err:?}");
+                            std::process::exit(1);
+                        }
+                    }
+                });
+
+                drop(handle);
+            }
+        });
+
+        drop(handle);
     }
 }

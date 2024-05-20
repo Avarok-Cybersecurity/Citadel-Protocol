@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use citadel_proto::prelude::NetKernel;
 
 #[derive(Default)]
 pub struct AcceptFileTransferKernel;

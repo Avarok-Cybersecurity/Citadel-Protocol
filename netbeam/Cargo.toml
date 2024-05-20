@@ -1,6 +1,6 @@
 [package]
 name = "netbeam"
-version = "0.7.0"
+version = "0.8.0"
 description = "a pure-rust asynchronous network synchronization crate (using tokio) that recreates familiar asynchronous paradigms but in a network context"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
@@ -26,7 +26,7 @@ wasm = [
 ]
 
 [dependencies]
-tokio = { workspace = true, features = ["macros", "rt", "time", "io-util"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "io-util", "sync"] }
 citadel_io = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 bytes = { workspace = true }

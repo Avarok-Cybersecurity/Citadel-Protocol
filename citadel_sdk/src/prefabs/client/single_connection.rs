@@ -2,7 +2,6 @@ use crate::prefabs::{get_socket_addr, ClientServerRemote};
 use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
 use citadel_io::Mutex;
-use citadel_proto::auth::AuthenticationRequest;
 use citadel_proto::prelude::*;
 use futures::Future;
 use std::marker::PhantomData;
@@ -21,6 +20,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
     session_security_settings: SessionSecuritySettings,
     unprocessed_signal_filter_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
     remote: Option<NodeRemote>,
+    server_password: Option<PreSharedKey>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
 }
@@ -54,6 +54,7 @@ where
         password: P,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
         on_channel_received: F,
     ) -> Self {
         Self {
@@ -66,6 +67,7 @@ where
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
             remote: None,
+            server_password,
             _pd: Default::default(),
         }
     }
@@ -81,11 +83,13 @@ where
             password,
             Default::default(),
             Default::default(),
+            Default::default(),
             on_channel_received,
         )
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
+    #[allow(clippy::too_many_arguments)]
     pub fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>, V: ToSocketAddrs>(
         full_name: T,
         username: R,
@@ -93,6 +97,7 @@ where
         server_addr: V,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
         on_channel_received: F,
     ) -> Result<Self, NetworkError> {
         let server_addr = get_socket_addr(server_addr)?;
@@ -108,6 +113,7 @@ where
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
             remote: None,
+            server_password,
             _pd: Default::default(),
         })
     }
@@ -132,16 +138,18 @@ where
             server_addr,
             Default::default(),
             Default::default(),
+            Default::default(),
             on_channel_received,
         )
     }
 
     /// Creates a new authless connection with custom arguments
-    pub fn new_passwordless<V: ToSocketAddrs>(
+    pub fn new_authless<V: ToSocketAddrs>(
         uuid: Uuid,
         server_addr: V,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
         on_channel_received: F,
     ) -> Result<Self, NetworkError> {
         let server_addr = get_socket_addr(server_addr)?;
@@ -151,6 +159,7 @@ where
             auth_info: Mutex::new(Some(ConnectionType::Passwordless { uuid, server_addr })),
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
+            server_password,
             remote: None,
             _pd: Default::default(),
         })
@@ -162,9 +171,10 @@ where
         server_addr: V,
         on_channel_received: F,
     ) -> Result<Self, NetworkError> {
-        Self::new_passwordless(
+        Self::new_authless(
             uuid,
             server_addr,
+            Default::default(),
             Default::default(),
             Default::default(),
             on_channel_received,
@@ -185,7 +195,7 @@ where
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     async fn on_start(&self) -> Result<(), NetworkError> {
         let session_security_settings = self.session_security_settings;
@@ -217,6 +227,7 @@ where
                             username.as_str(),
                             password.clone(),
                             self.session_security_settings,
+                            self.server_password.clone(),
                         )
                         .await?;
                 }
@@ -240,6 +251,7 @@ where
                 self.udp_mode,
                 None,
                 self.session_security_settings,
+                self.server_password.clone(),
             )
             .await?;
         let conn_type = VirtualTargetType::LocalGroupServer {
@@ -294,7 +306,7 @@ mod tests {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     async fn on_server_received_conn(
         udp_mode: UdpMode,
@@ -307,7 +319,7 @@ mod tests {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
     async fn default_server_harness(
         udp_mode: UdpMode,
@@ -358,6 +370,7 @@ mod tests {
             server_addr,
             udp_mode,
             Default::default(),
+            None,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -380,21 +393,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case(false, UdpMode::Enabled)]
+    #[case(UdpMode::Enabled, None)]
+    #[case(UdpMode::Enabled, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_passwordless(
-        #[case] debug_force_nat_timeout: bool,
         #[case] udp_mode: UdpMode,
+        #[case] server_password: Option<&'static str>,
     ) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
-
-        if debug_force_nat_timeout {
-            std::env::set_var("debug_cause_timeout", "ON");
-        } else {
-            std::env::remove_var("debug_cause_timeout");
-        }
 
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
@@ -402,16 +410,21 @@ mod tests {
             |conn, remote| async move {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
-            |_| (),
+            |opts| {
+                if let Some(password) = server_password {
+                    let _ = opts.with_server_password(password);
+                }
+            },
         );
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             udp_mode,
             Default::default(),
+            server_password.map(|x| x.into()),
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -435,6 +448,55 @@ mod tests {
     }
 
     #[rstest]
+    #[case(UdpMode::Enabled, Some("test-password"))]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_single_connection_passwordless_wrong_password(
+        #[case] udp_mode: UdpMode,
+        #[case] server_password: Option<&'static str>,
+    ) {
+        citadel_logging::setup_log();
+        TestBarrier::setup(2);
+
+        let (server, server_addr) = server_info_reactive(
+            |_conn, _remote| async move { panic!("Server should not have connected") },
+            |opts| {
+                if let Some(password) = server_password {
+                    let _ = opts.with_server_password(password);
+                }
+            },
+        );
+
+        let uuid = Uuid::new_v4();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
+            uuid,
+            server_addr,
+            udp_mode,
+            Default::default(),
+            Some("wrong-password".into()),
+            |_channel, _remote| async move { panic!("Client should not have connected") },
+        )
+        .unwrap();
+
+        let client = NodeBuilder::default().build(client_kernel).unwrap();
+
+        tokio::select! {
+            _res0 = server => {
+                panic!("Server should never finish")
+            },
+
+            result = client => {
+                if let Err(error) = result {
+                    assert!(error.into_string().contains("EncryptionFailure"));
+                } else {
+                    panic!("Client should not have connected")
+                }
+            }
+        }
+    }
+
+    #[rstest]
     #[case(UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
@@ -454,11 +516,12 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             udp_mode,
             Default::default(),
+            None,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -501,11 +564,12 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             udp_mode,
             Default::default(),
+            None,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
@@ -577,11 +641,12 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             udp_mode,
             Default::default(),
+            None,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;

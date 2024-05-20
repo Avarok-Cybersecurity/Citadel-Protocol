@@ -37,6 +37,12 @@ pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
 }
 
 #[allow(dead_code)]
+#[cfg(not(feature = "localhost-testing"))]
+pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
+    panic!("Function server_info is not available without the localhost-testing feature");
+}
+
+#[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
 pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
     f: F,
@@ -52,21 +58,25 @@ where
     )
 }
 
-#[cfg(feature = "localhost-testing")]
-lazy_static::lazy_static! {
-    pub static ref PEERS: Vec<(String, String, String)> = {
-        ["alpha", "beta", "charlie", "echo", "delta", "epsilon", "foxtrot"]
-        .iter().map(|base| (format!("{base}.username"), format!("{base}.password"), format!("{base}.full_name")))
-        .collect()
-    };
+#[allow(dead_code)]
+#[cfg(not(feature = "localhost-testing"))]
+pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
+    _f: F,
+    _opts: impl FnOnce(&mut NodeBuilder),
+) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
+where
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
+{
+    panic!("Function server_info_reactive is not available without the localhost-testing feature");
 }
 
 #[cfg(feature = "localhost-testing")]
 pub async fn wait_for_peers() {
     let barrier = { TEST_BARRIER.lock().clone() };
-
+    assert!(*DEADLOCK_INIT, "Deadlock detector not initialized");
     if let Some(test_barrier) = barrier {
-        // wait for all peers to reach this point in the code
+        // Wait for all peers to reach this point in the code
         test_barrier.wait().await;
     }
 }
@@ -75,22 +85,43 @@ pub async fn wait_for_peers() {
 pub async fn wait_for_peers() {}
 
 #[cfg(feature = "localhost-testing")]
+pub fn num_local_test_peers() -> usize {
+    let barrier = { TEST_BARRIER.lock().clone() };
+    assert!(*DEADLOCK_INIT, "Deadlock detector not initialized");
+    if let Some(test_barrier) = barrier {
+        // Wait for all peers to reach this point in the code
+        test_barrier.count
+    } else {
+        panic!("Test barrier should be initialized")
+    }
+}
+
+#[cfg(not(feature = "localhost-testing"))]
+pub const fn num_local_test_peers() -> usize {
+    0
+}
+
+#[cfg(feature = "localhost-testing")]
 pub static TEST_BARRIER: citadel_io::Mutex<Option<TestBarrier>> = citadel_io::const_mutex(None);
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct TestBarrier {
     #[allow(dead_code)]
     pub inner: std::sync::Arc<tokio::sync::Barrier>,
+    count: usize,
 }
 
 #[cfg(feature = "localhost-testing")]
 impl TestBarrier {
     pub fn setup(count: usize) {
-        let _ = TEST_BARRIER.lock().replace(Self::new(count));
+        assert!(TEST_BARRIER.lock().replace(Self::new(count)).is_none(), "TestBarrier already set up. Make sure to run tests in separate program spaces to ensure that the barrier is not shared across tests. E.g., run with `cargo nextest run` instead of `cargo test`");
     }
+    #[allow(dead_code)]
     pub(crate) fn new(count: usize) -> Self {
         Self {
             inner: std::sync::Arc::new(tokio::sync::Barrier::new(count)),
+            count,
         }
     }
     pub async fn wait(&self) {
@@ -98,11 +129,25 @@ impl TestBarrier {
     }
 }
 
+#[cfg(not(feature = "localhost-testing"))]
+impl TestBarrier {
+    pub fn setup(_count: usize) {
+        panic!("TestBarrier is not available without the localhost-testing feature");
+    }
+    #[allow(dead_code)]
+    pub(crate) fn new(_count: usize) -> Self {
+        panic!("TestBarrier is not available without the localhost-testing feature");
+    }
+    pub async fn wait(&self) {
+        panic!("TestBarrier is not available without the localhost-testing feature");
+    }
+}
+
 #[cfg(feature = "localhost-testing")]
 lazy_static::lazy_static! {
-    static ref DEADLOCK_INIT: () = {
+    static ref DEADLOCK_INIT: bool = {
         let _ = std::thread::spawn(move || {
-            log::info!(target: "citadel", "Executing deadlock detector ...");
+            log::trace!(target: "citadel", "Executing deadlock detector ...");
             use std::thread;
             use std::time::Duration;
             use citadel_io::deadlock;
@@ -110,6 +155,7 @@ lazy_static::lazy_static! {
                 std::thread::sleep(Duration::from_secs(5));
                 let deadlocks = deadlock::check_deadlock();
                 if deadlocks.is_empty() {
+                    log::trace!(target: "citadel", "No deadlocks detected");
                     continue;
                 }
 
@@ -117,16 +163,21 @@ lazy_static::lazy_static! {
                 for (i, threads) in deadlocks.iter().enumerate() {
                     log::error!(target: "citadel", "Deadlock #{}", i);
                     for t in threads {
-                        log::info!(target: "citadel", "Thread Id {:#?}", t.thread_id());
+                        log::error!(target: "citadel", "Thread Id {:#?}", t.thread_id());
                         log::error!(target: "citadel", "{:#?}", t.backtrace());
                     }
                 }
             }
         });
+
+        true
     };
 }
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel"))]
+#[cfg_attr(
+    feature = "localhost-testing",
+    tracing::instrument(level = "trace", target = "citadel")
+)]
 #[allow(dead_code)]
 pub async fn udp_mode_assertions(
     udp_mode: UdpMode,
@@ -181,3 +232,7 @@ pub async fn p2p_assertions(implicated_cid: u64, conn_success: &PeerConnectSucce
 
     log::info!(target: "citadel", "Done w/ p2p mode assertions");
 }
+
+#[cfg(not(feature = "localhost-testing"))]
+#[allow(dead_code)]
+pub async fn p2p_assertions(_implicated_cid: u64, _conn_success: &PeerConnectSuccess) {}

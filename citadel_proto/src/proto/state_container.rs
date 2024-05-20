@@ -24,7 +24,7 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
+use crate::prelude::{InternalServerError, PreSharedKey, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::ordered_channel::OrderedChannel;
@@ -64,7 +64,7 @@ use citadel_types::crypto::SecrecyMode;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{
     MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
-    UdpMode, VirtualObjectMetadata,
+    TransferType, UdpMode, VirtualObjectMetadata,
 };
 use citadel_user::backend::utils::*;
 use citadel_user::backend::PersistenceHandler;
@@ -127,6 +127,7 @@ pub struct StateContainerInner {
     pub(super) group_channels: HashMap<MessageGroupKey, UnboundedSender<GroupBroadcastPayload>>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
+    pub(super) session_passwords: HashMap<u64, PreSharedKey>,
     is_server: bool,
 }
 
@@ -135,6 +136,7 @@ pub struct StateContainerInner {
 pub(crate) struct GroupKey {
     target_cid: u64,
     group_id: u64,
+    object_id: u64,
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
@@ -174,10 +176,11 @@ pub(crate) struct OutboundFileTransfer {
 }
 
 impl GroupKey {
-    pub fn new(target_cid: u64, group_id: u64) -> Self {
+    pub fn new(target_cid: u64, group_id: u64, object_id: u64) -> Self {
         Self {
             target_cid,
             group_id,
+            object_id,
         }
     }
 }
@@ -223,6 +226,7 @@ pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     #[allow(dead_code)]
     pub(crate) peer_socket_addr: SocketAddr,
+    pub(crate) file_transfer_compatible: bool,
 }
 
 pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
@@ -290,7 +294,7 @@ impl VirtualConnectionType {
             VirtualConnectionType::LocalGroupServer {
                 implicated_cid: _cid,
             } => {
-                // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan serve conn
+                // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan server conn
                 0
             }
 
@@ -431,14 +435,6 @@ impl Display for VirtualConnectionType {
             }
         }
     }
-}
-
-#[derive(Hash, Ord, PartialOrd, Eq, PartialEq)]
-/// Since it is possible for multiple connections to have an equivalent ticket, we include the CID. This will
-/// guarantee uniqueness because each CID keeps track an incrementing ticket
-pub(super) struct VirtualKey {
-    pub(super) cid: u64,
-    pub(super) ticket: Ticket,
 }
 
 #[derive(Default)]
@@ -591,8 +587,24 @@ impl StateContainerInner {
             peer_kem_states: HashMap::new(),
             inbound_files: HashMap::new(),
             outbound_files: HashMap::new(),
+            session_passwords: HashMap::new(),
         };
         inner.into()
+    }
+
+    // Note: c2s connections should not be stored here. They are stored in the session.rs file
+    pub fn store_session_password(&mut self, peer_cid: u64, session_password: PreSharedKey) {
+        self.session_passwords.insert(peer_cid, session_password);
+    }
+
+    pub fn get_session_password(&self, peer_cid: u64) -> Option<&PreSharedKey> {
+        self.session_passwords.get(&peer_cid)
+    }
+
+    // TODO: use this
+    #[allow(dead_code)]
+    pub fn remove_session_password(&mut self, peer_cid: u64) {
+        self.session_passwords.remove(&peer_cid);
     }
 
     /// Attempts to find the direct p2p stream. If not found, will use the default
@@ -794,6 +806,7 @@ impl StateContainerInner {
         connection_type: VirtualConnectionType,
         endpoint_crypto: PeerSessionCrypto,
         sess: &HdpSession,
+        file_transfer_compatible: bool,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -823,6 +836,7 @@ impl StateContainerInner {
             to_default_channel: to_channel,
             to_unordered_channel: None,
             peer_socket_addr,
+            file_transfer_compatible,
         });
 
         let vconn = VirtualConnection {
@@ -1016,7 +1030,7 @@ impl StateContainerInner {
         let group_id = header.group.get();
         let ticket = header.context_info.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
-        let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id);
+        let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id, object_id);
         if let std::collections::hash_map::Entry::Vacant(e) =
             self.inbound_groups.entry(inbound_group_key)
         {
@@ -1052,7 +1066,8 @@ impl StateContainerInner {
                 receiver_container.last_window_size = last_window_size;
                 let waves_in_group = receiver_container.receiver.get_wave_count();
                 // take waves_in_group - 1 because it needs to take into account the max inclusive boundary
-                let max_idx = std::cmp::min(last_window_size, waves_in_group - 1) as u32;
+                let max_idx =
+                    std::cmp::min(last_window_size, waves_in_group.saturating_sub(1)) as u32;
                 let min_idx = 0; // this is a new group; start at zero
                 receiver_container.current_window = min_idx..=max_idx;
                 min_idx..=max_idx
@@ -1127,12 +1142,16 @@ impl StateContainerInner {
                 crate::proto::outbound_sender::UnboundedSender(tx_status.clone()),
             );
             // finally, alert the kernel (receiver)
-            let _ = self
+            if let Err(err) = self
                 .kernel_tx
                 .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                     ticket,
                     handle,
-                }));
+                    implicated_cid: hyper_ratchet.get_cid(),
+                }))
+            {
+                log::error!(target: "citadel", "Failed to send the ObjectTransferHandle to the kernel: {err:?}");
+            }
 
             let task = async move {
                 let res = if is_revfs_pull {
@@ -1140,7 +1159,6 @@ impl StateContainerInner {
                     log::trace!(target: "citadel", "Auto-accepting for REVFS pull request");
                     Ok(true)
                 } else {
-                    log::trace!(target: "citadel", "Will not auto-accept");
                     start_recv_rx.await
                 };
 
@@ -1156,6 +1174,7 @@ impl StateContainerInner {
                     security_level_rebound,
                     v_target_flipped,
                     timestamp,
+                    metadata_orig.transfer_type.clone(),
                 );
 
                 if let Err(err) = preferred_primary_stream.unbounded_send(file_header_ack) {
@@ -1206,7 +1225,9 @@ impl StateContainerInner {
                                         ),
                                     };
 
-                                    let _ = tx_status.send(status);
+                                    if let Err(err) = tx_status.send(status) {
+                                        log::error!(target: "citadel", "Unable to send object transfer status to handle: {err:?}");
+                                    }
                                 }
                                 Err(err) => {
                                     log::error!(target: "citadel", "Unable to sync file to backend: {:?}", err);
@@ -1231,6 +1252,7 @@ impl StateContainerInner {
                             security_level_rebound,
                             virtual_target,
                             timestamp,
+                            metadata_orig.transfer_type.clone(),
                         );
                         let _ = preferred_primary_stream.unbounded_send(err_packet);
                     }
@@ -1252,14 +1274,16 @@ impl StateContainerInner {
         ticket: Ticket,
         object_id: u64,
         v_target: VirtualTargetType,
+        _transfer_type: TransferType,
     ) -> Option<()> {
         let (key, receiver_cid) = match v_target {
             VirtualConnectionType::LocalGroupPeer {
                 implicated_cid,
-                peer_cid: target_cid,
+                peer_cid: _target_cid,
             } => {
+                let receiver_cid = implicated_cid;
                 // since the order hasn't flipped yet, get the implicated cid
-                (FileKey::new(implicated_cid, object_id), target_cid)
+                (FileKey::new(implicated_cid, object_id), receiver_cid)
             }
 
             VirtualConnectionType::LocalGroupServer { implicated_cid } => {
@@ -1294,6 +1318,7 @@ impl StateContainerInner {
                     .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                         ticket,
                         handle,
+                        implicated_cid,
                     }))
                     .ok()?;
             } else {
@@ -1312,6 +1337,7 @@ impl StateContainerInner {
                         message: "The adjacent node did not accept the file transfer request"
                             .into(),
                         ticket_opt: Some(ticket),
+                        cid_opt: Some(implicated_cid),
                     }));
             } else {
                 log::error!(target: "citadel", "Attempted to remove OutboundFileTransfer for {:?}, but it didn't exist", key);
@@ -1331,15 +1357,17 @@ impl StateContainerInner {
     #[allow(clippy::too_many_arguments)]
     pub fn on_group_header_ack_received(
         &mut self,
+        session: &HdpSession,
         base_session_secrecy_mode: SecrecyMode,
         peer_cid: u64,
         target_cid: u64,
         group_id: u64,
+        object_id: u64,
         next_window: Option<RangeInclusive<u32>>,
         transfer: KemTransferStatus,
         fast_msg: bool,
     ) -> bool {
-        let key = GroupKey::new(peer_cid, group_id);
+        let key = GroupKey::new(peer_cid, group_id, object_id);
 
         let constructor = if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key)
         {
@@ -1353,6 +1381,7 @@ impl StateContainerInner {
         };
 
         if attempt_kem_as_alice_finish(
+            session,
             base_session_secrecy_mode,
             peer_cid,
             target_cid,
@@ -1379,26 +1408,24 @@ impl StateContainerInner {
             .transmit_tcp_file_transfer()
     }
 
-    pub fn on_group_payload_received(
+    pub fn notify_object_transfer_handle_failure<T: Into<String>>(
         &mut self,
         header: &HdpHeader,
-        payload: Bytes,
-        hr: &StackedRatchet,
-    ) -> Result<PrimaryProcessorResult, NetworkError> {
+        error_message: T,
+        object_id: u64,
+    ) -> Result<(), NetworkError> {
         let target_cid = header.session_cid.get();
-        let group_id = header.group.get();
-        let group_key = GroupKey::new(target_cid, group_id);
-        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
-            NetworkError::msg(format!(
-                "inbound_groups does not contain key for {group_key:?}"
-            ))
-        })?;
-        let file_key = FileKey::new(target_cid, grc.object_id);
-        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| {
-            NetworkError::msg(format!(
-                "inbound_files does not contain key for {file_key:?}"
-            ))
-        })?;
+        self.notify_object_transfer_handle_failure_with(target_cid, object_id, error_message)
+    }
+
+    pub fn notify_object_transfer_handle_failure_with<T: Into<String>>(
+        &mut self,
+        target_cid: u64,
+        object_id: u64,
+        error_message: T,
+    ) -> Result<(), NetworkError> {
+        // let group_key = GroupKey::new(target_cid, group_id, object_id);
+        let file_key = FileKey::new(target_cid, object_id);
         let file_transfer_handle =
             self.file_transfer_handles
                 .get_mut(&file_key)
@@ -1408,12 +1435,65 @@ impl StateContainerInner {
                     ))
                 })?;
 
-        let src = *payload
-            .first()
-            .ok_or(NetworkError::InvalidRequest("Bad payload packet [0]"))?;
-        let dest = *payload
-            .get(1)
-            .ok_or(NetworkError::InvalidRequest("Bad payload packet [1]"))?;
+        file_transfer_handle
+            .unbounded_send(ObjectTransferStatus::Fail(error_message.into()))
+            .map_err(|err| NetworkError::Generic(err.to_string()))
+    }
+
+    pub fn on_group_payload_received(
+        &mut self,
+        header: &HdpHeader,
+        payload: Bytes,
+        hr: &StackedRatchet,
+    ) -> Result<PrimaryProcessorResult, (NetworkError, Ticket, u64)> {
+        let target_cid = header.session_cid.get();
+        let group_id = header.group.get();
+        let object_id = header.context_info.get() as u64;
+        let group_key = GroupKey::new(target_cid, group_id, object_id);
+        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
+            (
+                NetworkError::msg(format!(
+                    "inbound_groups does not contain key for {group_key:?}"
+                )),
+                Ticket(0),
+                0,
+            )
+        })?;
+
+        let ticket = grc.ticket;
+        let file_key = FileKey::new(target_cid, grc.object_id);
+        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| {
+            (
+                NetworkError::msg(format!(
+                    "inbound_files does not contain key for {file_key:?}"
+                )),
+                ticket,
+                object_id,
+            )
+        })?;
+        let file_transfer_handle =
+            self.file_transfer_handles
+                .get_mut(&file_key)
+                .ok_or_else(|| {
+                    (
+                        NetworkError::msg(format!(
+                            "file_transfer_handle does not contain key for {file_key:?}"
+                        )),
+                        ticket,
+                        object_id,
+                    )
+                })?;
+
+        let src = *payload.first().ok_or((
+            NetworkError::InvalidRequest("Bad payload packet [0]"),
+            ticket,
+            object_id,
+        ))?;
+        let dest = *payload.get(1).ok_or((
+            NetworkError::InvalidRequest("Bad payload packet [1]"),
+            ticket,
+            object_id,
+        ))?;
         let ts = self.time_tracker.get_global_time_ns();
 
         let true_sequence = citadel_crypt::packet_vector::generate_packet_coordinates_inv(
@@ -1422,8 +1502,10 @@ impl StateContainerInner {
             dest as u16,
             hr.get_scramble_drill(),
         )
-        .ok_or(NetworkError::InvalidRequest(
-            "Unable to obtain true_sequence",
+        .ok_or((
+            NetworkError::InvalidRequest("Unable to obtain true_sequence"),
+            ticket,
+            object_id,
         ))?;
 
         let mut send_wave_ack = false;
@@ -1437,13 +1519,9 @@ impl StateContainerInner {
             &payload[2..],
         ) {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
-                log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
-                let mut chunk = self
-                    .inbound_groups
-                    .remove(&group_key)
-                    .unwrap()
-                    .receiver
-                    .finalize();
+                let receiver = self.inbound_groups.remove(&group_key).unwrap().receiver;
+                let mut chunk = receiver.finalize();
+                log::info!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
 
                 if let Some(local_encryption_level) = file_container.local_encryption_level {
                     // which static hr do we need? Since we are receiving this chunk, always our local account's
@@ -1452,28 +1530,36 @@ impl StateContainerInner {
                         .as_ref()
                         .unwrap()
                         .get_static_auxiliary_hyper_ratchet();
+
                     chunk = static_aux_hr
                         .local_decrypt(chunk, local_encryption_level)
-                        .map_err(|err| NetworkError::msg(err.into_string()))?;
+                        .map_err(|err| (NetworkError::msg(err.into_string()), ticket, object_id))?;
                 }
 
                 file_container
                     .stream_to_hd
                     .unbounded_send(chunk)
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    .map_err(|err| (NetworkError::Generic(err.to_string()), ticket, object_id))?;
 
                 send_wave_ack = true;
 
-                if group_id as usize == file_container.total_groups - 1 {
+                if group_id as usize == file_container.total_groups.saturating_sub(1) {
                     complete = true;
                     let file_container = self.inbound_files.remove(&file_key).unwrap();
                     // status of reception complete now located where the streaming to HD completes
                     // we need only take the sender and send a signal to prove that we finished correctly here
                     // TODO: it seems to be sending the file before the backend streamer even gets a chance to finish
+                    // TODO: Do not send the reception complete tx until after the backend streamer has finished
                     file_container
                         .reception_complete_tx
                         .send(header.clone())
-                        .map_err(|_| NetworkError::msg("reception_complete_tx err"))?;
+                        .map_err(|_| {
+                            (
+                                NetworkError::msg("reception_complete_tx err"),
+                                ticket,
+                                object_id,
+                            )
+                        })?;
                 } else {
                     file_container.last_group_finish_time = Instant::now();
                     // TODO: Compute Mb/s
@@ -1483,9 +1569,9 @@ impl StateContainerInner {
                         0 as f32,
                     );
                     // sending the wave ack will complete the group on the initiator side
-                    file_transfer_handle
-                        .unbounded_send(status)
-                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    file_transfer_handle.unbounded_send(status).map_err(|err| {
+                        (NetworkError::Generic(err.to_string()), ticket, object_id)
+                    })?;
                 }
             }
 
@@ -1543,7 +1629,7 @@ impl StateContainerInner {
         let group = header.group.get();
         let wave_id = header.wave_id.get();
         let target_cid = header.session_cid.get();
-        let key = GroupKey::new(target_cid, group);
+        let key = GroupKey::new(target_cid, group, object_id);
         let mut delete_group = false;
 
         // file transfer
@@ -1573,7 +1659,9 @@ impl StateContainerInner {
 
                 if let Some(tx) = self.file_transfer_handles.get(&file_key) {
                     let status = if relative_group_id as usize
-                        != transmitter_container.parent_object_total_groups - 1
+                        != transmitter_container
+                            .parent_object_total_groups
+                            .saturating_sub(1)
                     {
                         ObjectTransferStatus::TransferTick(
                             relative_group_id as usize,
@@ -1988,14 +2076,14 @@ impl StateContainerInner {
             log::trace!(target: "citadel", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, if this.is_server { "Server" } else { "Client" });
             let group_len = transmitter.get_total_plaintext_bytes();
             transmitter.transmit_group_header(virtual_target)?;
-
+            let object_id = transmitter.object_id;
             //this.transfer_stats += TransferStats::new(timestamp, group_len as isize);
 
             let outbound_container =
                 OutboundTransmitterContainer::new(None, transmitter, group_len, 1, 0, ticket);
             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
             // NOTE: Ever since using GroupKeys, we use either the implicated_cid (for client -> server conns) or target_cids (for peer conns)
-            let key = GroupKey::new(target_cid, group_id);
+            let key = GroupKey::new(target_cid, group_id, object_id);
             //inner_mut!(this.state_container).outbound_transmitters.insert(key, outbound_container);
             this.outbound_transmitters.insert(key, outbound_container);
 
@@ -2036,11 +2124,13 @@ impl StateContainerInner {
         fn return_already_in_progress(
             kernel_tx: &UnboundedSender<NodeResult>,
             ticket: Ticket,
+            implicated_cid: u64,
         ) -> Result<(), NetworkError> {
             kernel_tx
                 .unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
                     ticket,
                     status: ReKeyReturnType::AlreadyInProgress,
+                    implicated_cid,
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))
         }
@@ -2064,7 +2154,7 @@ impl StateContainerInner {
             .ok_or(NetworkError::InternalError("Primary stream not loaded"))?);
 
         match virtual_target {
-            VirtualConnectionType::LocalGroupServer { implicated_cid: _ } => {
+            VirtualConnectionType::LocalGroupServer { implicated_cid } => {
                 let crypt_container = &mut self
                     .c2s_channel_container
                     .as_mut()
@@ -2099,13 +2189,18 @@ impl StateContainerInner {
                             kernel_tx,
                             stage0_packet,
                             ticket,
+                            Some(implicated_cid),
                         )
                     }
 
                     None => {
                         log::trace!(target: "citadel", "Won't perform update b/c concurrent c2s update occurring");
                         if let Some(ticket) = ticket {
-                            return_already_in_progress(&self.kernel_tx, ticket)
+                            return_already_in_progress(
+                                &self.kernel_tx,
+                                ticket,
+                                virtual_target.get_implicated_cid(),
+                            )
                         } else {
                             Ok(())
                         }
@@ -2176,7 +2271,11 @@ impl StateContainerInner {
                     None => {
                         log::trace!(target: "citadel", "Won't perform update b/c concurrent update occurring");
                         if let Some(ticket) = ticket {
-                            return_already_in_progress(&self.kernel_tx, ticket)
+                            return_already_in_progress(
+                                &self.kernel_tx,
+                                ticket,
+                                virtual_target.get_implicated_cid(),
+                            )
                         } else {
                             Ok(())
                         }

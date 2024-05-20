@@ -21,6 +21,11 @@ mod tests {
     #[cfg(not(target_family = "wasm"))]
     use std::path::PathBuf;
 
+    lazy_static::lazy_static! {
+        pub static ref PRE_SHARED_KEYS: Vec<Vec<u8>> = vec!["Hello".into(), "World".into()];
+        pub static ref PRE_SHARED_KEYS2: Vec<Vec<u8>> = vec!["World".into(), "Hello".into()];
+    }
+
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
     async fn argon_autotuner() {
@@ -217,11 +222,15 @@ mod tests {
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     false,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
                 );
                 let _ = hyper_ratchet::<StackedRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     false,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
                 );
             }
         }
@@ -236,11 +245,15 @@ mod tests {
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     true,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
                 );
                 let _ = hyper_ratchet::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     true,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
                 );
             }
         }
@@ -254,6 +267,8 @@ mod tests {
                 KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
                 false,
+                &PRE_SHARED_KEYS,
+                &PRE_SHARED_KEYS,
             );
             for x in 0..sec {
                 assert!(ratchet.verify_level(Some(x.into())).is_ok())
@@ -269,6 +284,8 @@ mod tests {
         algorithm: Z,
         security_level: Option<SecurityLevel>,
         is_fcm: bool,
+        bob_psks: &[Vec<u8>],
+        alice_psks: &[Vec<u8>],
     ) -> R {
         let algorithm = algorithm.into();
         log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
@@ -288,11 +305,14 @@ mod tests {
             0,
             ConstructorOpts::new_vec_init(algorithm, count),
             transfer,
+            bob_psks,
         )
         .unwrap();
         let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
 
-        alice_hyper_ratchet.stage1_alice(transfer).unwrap();
+        alice_hyper_ratchet
+            .stage1_alice(transfer, alice_psks)
+            .unwrap();
 
         let alice_hyper_ratchet = alice_hyper_ratchet.finish().unwrap();
         let bob_hyper_ratchet = bob_hyper_ratchet.finish().unwrap();
@@ -362,13 +382,30 @@ mod tests {
         const COUNT: u32 = 100;
         let security_level = SecurityLevel::Standard;
 
-        let (alice, _bob) = gen::<R>(0, 0, security_level, enx + kem + sig);
+        let (alice, _bob) = gen::<R>(
+            0,
+            0,
+            security_level,
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         let mut toolset = Toolset::new(0, alice);
 
         for x in 1..COUNT {
             let res = toolset
-                .update_from(gen::<R>(0, x, security_level, enx + kem + sig).0)
+                .update_from(
+                    gen::<R>(
+                        0,
+                        x,
+                        security_level,
+                        enx + kem + sig,
+                        &PRE_SHARED_KEYS,
+                        &PRE_SHARED_KEYS,
+                    )
+                    .0,
+                )
                 .unwrap();
             match res {
                 UpdateStatus::Committed { .. } => {
@@ -399,7 +436,17 @@ mod tests {
         }
 
         let _res = toolset
-            .update_from(gen::<R>(0, COUNT, security_level, enx + kem + sig).0)
+            .update_from(
+                gen::<R>(
+                    0,
+                    COUNT,
+                    security_level,
+                    enx + kem + sig,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
+                )
+                .0,
+            )
             .unwrap();
         assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY + 1);
         assert_eq!(
@@ -421,6 +468,8 @@ mod tests {
         version: u32,
         sec: SecurityLevel,
         algorithm: CryptoParameters,
+        bob_psks: &[Vec<u8>],
+        alice_psks: &[Vec<u8>],
     ) -> (R, R) {
         let count = sec.value() as usize + 1;
         let mut alice = R::Constructor::new_alice(
@@ -435,10 +484,11 @@ mod tests {
             version,
             ConstructorOpts::new_vec_init(Some(algorithm), count),
             alice.stage0_alice().unwrap(),
+            bob_psks,
         )
         .unwrap();
         let stage0_bob = bob.stage0_bob().unwrap();
-        alice.stage1_alice(stage0_bob).unwrap();
+        alice.stage1_alice(stage0_bob, alice_psks).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
     }
 
@@ -481,7 +531,14 @@ mod tests {
         citadel_logging::setup_log();
         let vers = u32::MAX - 1;
         let cid = 10;
-        let hr = gen::<R>(cid, vers, SecurityLevel::Standard, enx + kem + sig);
+        let hr = gen::<R>(
+            cid,
+            vers,
+            SecurityLevel::Standard,
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
         let mut toolset = Toolset::new_debug(cid, hr.0, vers, vers);
         let r = toolset.get_hyper_ratchet(vers).unwrap();
         assert_eq!(r.version(), vers);
@@ -495,7 +552,17 @@ mod tests {
             }
 
             toolset
-                .update_from(gen::<R>(cid, cur_vers, SecurityLevel::Standard, enx + kem + sig).0)
+                .update_from(
+                    gen::<R>(
+                        cid,
+                        cur_vers,
+                        SecurityLevel::Standard,
+                        enx + kem + sig,
+                        &PRE_SHARED_KEYS,
+                        &PRE_SHARED_KEYS,
+                    )
+                    .0,
+                )
                 .unwrap();
             let ratchet = toolset.get_hyper_ratchet(cur_vers).unwrap();
             assert_eq!(ratchet.version(), cur_vers);
@@ -595,14 +662,19 @@ mod tests {
         };
 
         fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
-            assert_ne!(decrypted, plaintext);
+            if !plaintext.is_empty() {
+                assert_ne!(decrypted, plaintext);
+            }
+
             let decrypted_real = sa_alice
                 .local_decrypt(decrypted, SecurityLevel::Standard)
                 .unwrap();
             assert_eq!(decrypted_real, plaintext);
-            assert!(sa_bob
-                .local_decrypt(decrypted, SecurityLevel::Standard)
-                .is_err());
+            if !plaintext.is_empty() {
+                assert!(sa_bob
+                    .local_decrypt(decrypted, SecurityLevel::Standard)
+                    .is_err());
+            }
         }
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
@@ -625,12 +697,27 @@ mod tests {
         const HEADER_SIZE_BYTES: usize = 44;
 
         let mut data = BytesMut::with_capacity(1500);
-        let (ratchet_alice, ratchet_bob) = gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
-        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) =
-            gen::<R>(10, 0, SECURITY_LEVEL, enx + kem + sig);
+        let (ratchet_alice, ratchet_bob) = gen::<R>(
+            10,
+            0,
+            SECURITY_LEVEL,
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
+        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) = gen::<R>(
+            10,
+            0,
+            SECURITY_LEVEL,
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         for x in 0..1500_usize {
-            data.put_u8((x % 256) as u8);
+            if x != 0 {
+                data.put_u8((x % 256) as u8);
+            }
             let input_data = &data[..];
 
             let mut scramble_transmitter =
@@ -657,7 +744,6 @@ mod tests {
             log::trace!(target: "citadel", "{:?}", &config);
 
             while let Some(mut packet) = scramble_transmitter.get_next_packet() {
-                //log::trace!(target: "citadel", "Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
                 let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
                 let _result = receiver.on_packet_received(
                     0,
@@ -666,7 +752,6 @@ mod tests {
                     &ratchet_bob,
                     packet_payload,
                 );
-                //println!("Wave {} result: {:?}", packet.vector.wave_id, result);
             }
 
             let decrypted_descrambled_plaintext = receiver.finalize();
@@ -787,9 +872,22 @@ mod tests {
 
         use citadel_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
-        let (alice, bob) = gen::<StackedRatchet>(0, 0, security_level, enx + kem + sig);
-        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) =
-            gen::<StackedRatchet>(0, 0, security_level, enx + kem + sig);
+        let (alice, bob) = gen::<StackedRatchet>(
+            0,
+            0,
+            security_level,
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
+        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) = gen::<StackedRatchet>(
+            0,
+            0,
+            security_level,
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
 
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
         let source = PathBuf::from("../resources/TheBridge.pdf");
@@ -896,6 +994,31 @@ mod tests {
         });
     }
 
+    #[should_panic(expected = "EncryptionFailure")]
+    #[rstest]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::Kyber,
+        SigAlgorithm::None
+    )]
+    fn test_drill_encrypt_decrypt_basic_bad_psks(
+        #[case] enx: EncryptionAlgorithm,
+        #[case] kem: KemAlgorithm,
+        #[case] sig: SigAlgorithm,
+    ) {
+        citadel_logging::setup_log_no_panic_hook();
+        test_harness_with_psks(
+            enx + kem + sig,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS2,
+            |alice, bob, _, data| {
+                let encrypted = alice.encrypt(data).unwrap();
+                let decrypted = bob.decrypt(encrypted).unwrap();
+                assert_eq!(decrypted, data);
+            },
+        );
+    }
+
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
@@ -969,13 +1092,23 @@ mod tests {
         params: CryptoParameters,
         fx: impl Fn(&StackedRatchet, &StackedRatchet, SecurityLevel, &[u8]),
     ) {
+        test_harness_with_psks(params, &PRE_SHARED_KEYS, &PRE_SHARED_KEYS, fx);
+    }
+
+    fn test_harness_with_psks(
+        params: CryptoParameters,
+        bob_psks: &[Vec<u8>],
+        alice_psks: &[Vec<u8>],
+        fx: impl Fn(&StackedRatchet, &StackedRatchet, SecurityLevel, &[u8]),
+    ) {
         let data = Vec::from("Hello, world!");
 
         for sec in 0..5 {
             let security_level = SecurityLevel::from(sec);
-            let (hr_alice, hr_bob) = gen::<StackedRatchet>(0, 0, security_level, params);
+            let (hr_alice, hr_bob) =
+                gen::<StackedRatchet>(0, 0, security_level, params, bob_psks, alice_psks);
             for idx in 0..data.len() {
-                (fx)(&hr_alice, &hr_bob, security_level, &data[..idx]);
+                fx(&hr_alice, &hr_bob, security_level, &data[..idx]);
             }
         }
     }

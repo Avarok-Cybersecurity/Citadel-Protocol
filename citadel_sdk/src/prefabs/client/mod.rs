@@ -36,6 +36,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
         arg: Arg,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Self {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -44,6 +45,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
             password,
             udp_mode,
             session_security_settings,
+            server_password,
             |connect_success, remote| {
                 on_channel_received_fn::<_, Self>(
                     connect_success,
@@ -73,6 +75,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
             arg,
             Default::default(),
             Default::default(),
+            Default::default(),
             on_channel_received,
         )
     }
@@ -87,6 +90,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
         server_addr: V,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Result<Self, NetworkError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -97,6 +101,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
             server_addr,
             udp_mode,
             session_security_settings,
+            server_password,
             |connect_success, remote| {
                 on_channel_received_fn::<_, Self>(
                     connect_success,
@@ -135,25 +140,28 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
             server_addr,
             Default::default(),
             Default::default(),
+            Default::default(),
             on_channel_received,
         )
     }
 
     /// Creates a new authless connection with custom arguments
-    fn new_passwordless<V: ToSocketAddrs>(
+    fn new_authless<V: ToSocketAddrs>(
         uuid: Uuid,
         server_addr: V,
         arg: Arg,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Result<Self, NetworkError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let server_conn_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             udp_mode,
             session_security_settings,
+            server_password,
             |connect_success, remote| {
                 on_channel_received_fn::<_, Self>(
                     connect_success,
@@ -171,16 +179,17 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
     }
 
     /// Creates a new authless connection with default arguments
-    fn new_passwordless_defaults<V: ToSocketAddrs>(
+    fn new_authless_defaults<V: ToSocketAddrs>(
         uuid: Uuid,
         server_addr: V,
         arg: Arg,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Result<Self, NetworkError> {
-        Self::new_passwordless(
+        Self::new_authless(
             uuid,
             server_addr,
             arg,
+            Default::default(),
             Default::default(),
             Default::default(),
             on_channel_received,

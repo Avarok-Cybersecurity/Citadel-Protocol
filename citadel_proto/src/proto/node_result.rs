@@ -3,6 +3,7 @@ use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
 
+use crate::kernel::kernel_communicator::CallbackKey;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_user::client_account::ClientNetworkAccount;
@@ -54,6 +55,7 @@ pub struct ConnectFail {
 pub struct ReKeyResult {
     pub ticket: Ticket,
     pub status: ReKeyReturnType,
+    pub implicated_cid: u64,
 }
 
 #[derive(Debug)]
@@ -73,6 +75,7 @@ pub struct OutboundRequestRejected {
 pub struct ObjectTransferHandle {
     pub ticket: Ticket,
     pub handle: ObjectTransferHandler,
+    pub implicated_cid: u64,
 }
 
 #[derive(Debug)]
@@ -86,12 +89,14 @@ pub struct MailboxDelivery {
 pub struct PeerEvent {
     pub event: PeerSignal,
     pub ticket: Ticket,
+    pub implicated_cid: u64,
 }
 
 #[derive(Debug)]
 pub struct GroupChannelCreated {
     pub ticket: Ticket,
     pub channel: GroupChannel,
+    pub implicated_cid: u64,
 }
 
 #[derive(Debug)]
@@ -114,6 +119,7 @@ pub struct Disconnect {
 pub struct InternalServerError {
     pub ticket_opt: Option<Ticket>,
     pub message: String,
+    pub cid_opt: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -134,6 +140,7 @@ pub struct ReVFSResult {
     pub error_message: Option<String>,
     pub data: Option<PathBuf>,
     pub ticket: Ticket,
+    pub implicated_cid: u64,
 }
 
 /// This type is for relaying results between the lower-level protocol and the higher-level kernel
@@ -180,70 +187,100 @@ impl NodeResult {
         matches!(self, NodeResult::ConnectSuccess(ConnectSuccess { .. }))
     }
 
-    pub fn ticket(&self) -> Option<Ticket> {
+    pub fn callback_key(&self) -> Option<CallbackKey> {
         match self {
             NodeResult::RegisterOkay(RegisterOkay {
                 ticket: t,
-                cnac: _,
+                cnac,
                 welcome_message: _,
-            }) => Some(*t),
+            }) => Some(CallbackKey::new(*t, cnac.get_cid())),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: t,
                 error_message: _,
-            }) => Some(*t),
+            }) => Some(CallbackKey::ticket_only(*t)),
             NodeResult::DeRegistration(DeRegistration {
-                implicated_cid: _,
+                implicated_cid,
                 ticket_opt: t,
                 ..
-            }) => *t,
-            NodeResult::ConnectSuccess(ConnectSuccess { ticket: t, .. }) => Some(*t),
+            }) => Some(CallbackKey::new((*t)?, *implicated_cid)),
+            NodeResult::ConnectSuccess(ConnectSuccess {
+                ticket: t,
+                implicated_cid,
+                ..
+            }) => Some(CallbackKey::new(*t, *implicated_cid)),
             NodeResult::ConnectFail(ConnectFail {
                 ticket: t,
-                cid_opt: _,
+                cid_opt,
                 error_message: _,
-            }) => Some(*t),
+            }) => Some(CallbackKey {
+                ticket: *t,
+                implicated_cid: *cid_opt,
+            }),
             NodeResult::OutboundRequestRejected(OutboundRequestRejected {
                 ticket: t,
                 message_opt: _,
-            }) => Some(*t),
-            NodeResult::ObjectTransferHandle(ObjectTransferHandle { ticket: t, .. }) => Some(*t),
+            }) => Some(CallbackKey::ticket_only(*t)),
+            NodeResult::ObjectTransferHandle(ObjectTransferHandle {
+                implicated_cid,
+                ticket,
+                ..
+            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
             NodeResult::MailboxDelivery(MailboxDelivery {
-                implicated_cid: _,
+                implicated_cid,
                 ticket_opt: t,
                 items: _,
-            }) => *t,
+            }) => Some(CallbackKey::new((*t)?, *implicated_cid)),
             NodeResult::PeerEvent(PeerEvent {
                 event: _,
                 ticket: t,
-            }) => Some(*t),
+                implicated_cid,
+            }) => Some(CallbackKey::new(*t, *implicated_cid)),
             NodeResult::GroupEvent(GroupEvent {
-                implicated_cid: _,
+                implicated_cid,
                 ticket: t,
                 event: _,
-            }) => Some(*t),
-            NodeResult::PeerChannelCreated(PeerChannelCreated { ticket: t, .. }) => Some(*t),
+            }) => Some(CallbackKey::new(*t, *implicated_cid)),
+            NodeResult::PeerChannelCreated(PeerChannelCreated {
+                ticket: t, channel, ..
+            }) => Some(CallbackKey::new(*t, channel.get_implicated_cid())),
             NodeResult::GroupChannelCreated(GroupChannelCreated {
                 ticket: t,
                 channel: _,
-            }) => Some(*t),
+                implicated_cid,
+            }) => Some(CallbackKey::new(*t, *implicated_cid)),
             NodeResult::Disconnect(Disconnect {
                 ticket: t,
-                cid_opt: _,
+                cid_opt,
                 success: _,
                 v_conn_type: _,
                 message: _,
-            }) => Some(*t),
+            }) => Some(CallbackKey {
+                ticket: *t,
+                implicated_cid: *cid_opt,
+            }),
             NodeResult::InternalServerError(InternalServerError {
                 ticket_opt: t,
+                cid_opt,
                 message: _,
-            }) => *t,
+            }) => Some(CallbackKey {
+                ticket: (*t)?,
+                implicated_cid: *cid_opt,
+            }),
             NodeResult::SessionList(SessionList {
                 ticket: t,
                 sessions: _,
-            }) => Some(*t),
+            }) => Some(CallbackKey::ticket_only(*t)),
             NodeResult::Shutdown => None,
-            NodeResult::ReKeyResult(ReKeyResult { ticket, .. }) => Some(*ticket),
-            NodeResult::ReVFS(ReVFSResult { ticket, .. }) => Some(*ticket),
+            NodeResult::ReKeyResult(ReKeyResult {
+                ticket,
+                implicated_cid,
+                ..
+            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
+            NodeResult::ReVFS(ReVFSResult {
+                ticket,
+                implicated_cid,
+                ..
+            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
         }
     }
 }

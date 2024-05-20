@@ -1,18 +1,12 @@
 #[cfg(test)]
 mod tests {
-    use citadel_proto::prelude::SyncIO;
-    use citadel_proto::prelude::{
-        NetworkError, SecureProtocolPacket, SessionSecuritySettingsBuilder,
-    };
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use citadel_sdk::prefabs::client::PrefabFunctions;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::server_info;
-    use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecBuffer};
+    use citadel_sdk::test_common::{server_info, wait_for_peers};
+    use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm};
     use citadel_types::prelude::SecrecyMode;
-    use citadel_types::proto::UdpMode;
     use futures::prelude::stream::FuturesUnordered;
     use futures::{StreamExt, TryStreamExt};
     use rand::prelude::ThreadRng;
@@ -111,7 +105,6 @@ mod tests {
         count: usize,
     ) -> Result<(), NetworkError> {
         let (tx, rx) = channel.split();
-
         for idx in 0..count {
             tx.send_message(MessageTransfer::create(idx as u64)).await?;
         }
@@ -184,12 +177,18 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "localhost-testing")]
     fn get_barrier() -> Arc<Barrier> {
         citadel_sdk::test_common::TEST_BARRIER
             .lock()
             .clone()
             .unwrap()
             .inner
+    }
+
+    #[cfg(not(feature = "localhost-testing"))]
+    fn get_barrier() -> Arc<Barrier> {
+        panic!("TestBarrier is not available without the localhost-testing feature");
     }
 
     #[rstest]
@@ -235,11 +234,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Enabled,
             session_security,
+            None,
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -263,13 +263,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(100, SecrecyMode::Perfect)]
-    #[case(100, SecrecyMode::BestEffort)]
+    #[case(100, SecrecyMode::Perfect, None)]
+    #[case(100, SecrecyMode::BestEffort, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
+        #[case] server_password: Option<&'static str>,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
@@ -290,7 +291,11 @@ mod tests {
                 SERVER_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-            |_| {},
+            |node| {
+                if let Some(password) = server_password {
+                    node.with_server_password(password);
+                }
+            },
         );
 
         let uuid = Uuid::new_v4();
@@ -300,11 +305,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless(
+        let client_kernel = SingleClientServerConnectionKernel::new_authless(
             uuid,
             server_addr,
             UdpMode::Enabled,
             session_security,
+            server_password.map(|p| p.into()),
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -328,13 +334,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(500, SecrecyMode::Perfect)]
-    #[case(500, SecrecyMode::BestEffort)]
+    #[case(500, SecrecyMode::Perfect, None)]
+    #[case(500, SecrecyMode::BestEffort, Some("test-p2p-password"))]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
+        #[case] p2p_password: Option<&'static str>,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
@@ -358,14 +365,33 @@ mod tests {
             .build()
             .unwrap();
 
-        // TODO: SinglePeerConnectionKernel
-        // to not hold up all conns
-        let client_kernel0 = PeerConnectionKernel::new_passwordless(
+        let mut peer0_agg = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid1)
+            .with_session_security_settings(session_security);
+
+        if let Some(password) = p2p_password {
+            peer0_agg = peer0_agg.with_session_password(password);
+        }
+
+        let peer0_connection = peer0_agg.add();
+
+        let mut peer1_agg = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid0)
+            .with_session_security_settings(session_security);
+
+        if let Some(password) = p2p_password {
+            peer1_agg = peer1_agg.with_session_password(password);
+        }
+
+        let peer1_connection = peer1_agg.add();
+
+        let client_kernel0 = PeerConnectionKernel::new_authless(
             uuid0,
             server_addr,
-            vec![uuid1.into()],
+            peer0_connection,
             UdpMode::Enabled,
             session_security,
+            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -380,12 +406,13 @@ mod tests {
         )
         .unwrap();
 
-        let client_kernel1 = PeerConnectionKernel::new_passwordless(
+        let client_kernel1 = PeerConnectionKernel::new_authless(
             uuid1,
             server_addr,
-            vec![uuid0.into()],
+            peer1_connection,
             UdpMode::Enabled,
             session_security,
+            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -422,7 +449,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);
@@ -439,7 +466,7 @@ mod tests {
 
         for idx in 0..peer_count {
             let uuid = total_peers.get(idx).cloned().unwrap();
-            let owner = total_peers.get(0).cloned().unwrap().into();
+            let owner = total_peers.first().cloned().unwrap().into();
 
             let request = if idx == 0 {
                 // invite list is empty since we will expect the users to post_register to us before attempting to join
@@ -458,15 +485,17 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_passwordless_defaults(
+            let client_kernel = BroadcastKernel::new_authless_defaults(
                 uuid,
                 server_addr,
                 request,
                 move |channel, remote| async move {
                     log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                    wait_for_peers().await;
                     // wait for every group member to connect to ensure all receive all messages
                     handle_send_receive_group(get_barrier(), channel, message_count, peer_count)
                         .await?;
+                    wait_for_peers().await;
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
                     remote.shutdown_kernel().await
                 },

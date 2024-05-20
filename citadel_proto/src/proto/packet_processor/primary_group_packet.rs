@@ -3,6 +3,7 @@ use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
+use crate::prelude::{InternalServerError, PreSharedKey};
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::session_queue_handler::QueueWorkerResult;
@@ -28,7 +29,7 @@ use std::sync::atomic::Ordering;
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_primary_packet(
     session_ref: &HdpSession,
     cmd_aux: u8,
@@ -82,9 +83,39 @@ pub fn process_primary_packet(
                     Ok(res)
                 }
 
-                Err(err) => {
+                Err((err, ticket, object_id)) => {
                     log::error!(target: "citadel", "on_group_payload_received error: {:?}", err);
-                    Ok(PrimaryProcessorResult::Void)
+                    // Send an error packet back to the source and send a signal to the handle
+                    // TODO: File transfer handle cleanup on failure
+                    if let Err(err) = state_container.notify_object_transfer_handle_failure(
+                        &header,
+                        err.to_string(),
+                        object_id,
+                    ) {
+                        log::error!(target: "citadel", "Unable to notify object transfer handle failure: {err:?}");
+                        // Send error to kernel instead
+                        session.send_to_kernel(NodeResult::InternalServerError(
+                            InternalServerError {
+                                ticket_opt: Some(ticket),
+                                message: err.to_string(),
+                                cid_opt: session.implicated_cid.get(),
+                            },
+                        ))?;
+                    }
+
+                    let v_conn = get_v_conn_from_header(&header);
+
+                    // Finally, alert the adjacent endpoint by crafting an error packet
+                    let error_packet = packet_crafter::file::craft_file_error_packet(
+                        &hyper_ratchet,
+                        ticket,
+                        security_level,
+                        v_conn,
+                        timestamp,
+                        err.into_string(),
+                        object_id,
+                    );
+                    Ok(PrimaryProcessorResult::ReplyToSender(error_packet))
                 }
             }
         }
@@ -93,13 +124,12 @@ pub fn process_primary_packet(
             match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
                 Some((header, mut payload)) => {
                     state_container.meta_expiry_state.on_event_confirmation();
-
                     match cmd_aux {
                         packet_flags::cmd::aux::group::GROUP_HEADER => {
                             log::trace!(target: "citadel", "RECV GROUP HEADER");
                             let is_message = header.algorithm == 1;
                             if is_message {
-                                let (plaintext, transfer) = return_if_none!(
+                                let (plaintext, transfer, object_id) = return_if_none!(
                                     validation::group::validate_message(&mut payload),
                                     "Bad message packet"
                                 );
@@ -114,6 +144,7 @@ pub fn process_primary_packet(
                                 // now, update the keys (if applicable)
                                 let transfer = return_if_none!(
                                     attempt_kem_as_bob(
+                                        session,
                                         resp_target_cid,
                                         &header,
                                         transfer.map(AliceToBobTransferType::Default),
@@ -146,6 +177,7 @@ pub fn process_primary_packet(
                                         &hyper_ratchet,
                                         header.group.get(),
                                         resp_target_cid,
+                                        object_id,
                                         ticket,
                                         None,
                                         true,
@@ -165,7 +197,7 @@ pub fn process_primary_packet(
                                         virtual_target,
                                     ) => {
                                         // First, check to make sure the virtual target can accept
-
+                                        let object_id = group_receiver_config.object_id;
                                         let ticket = header.context_info.get().into();
 
                                         //let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
@@ -191,7 +223,7 @@ pub fn process_primary_packet(
                                             let peer_cid = header.session_cid.get();
 
                                             session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                                                let key = GroupKey::new(peer_cid, group_id);
+                                                let key = GroupKey::new(peer_cid, group_id, object_id);
                                                 if let Some(group) = state_container.inbound_groups.get(&key) {
                                                     if group.has_begun {
                                                         if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
@@ -213,7 +245,7 @@ pub fn process_primary_packet(
 
                                                                 QueueWorkerResult::Complete
                                                             } else {
-                                                                log::trace!(target: "citadel", "[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                                log::trace!(target: "citadel", "Other inbound groups being processed; patiently awaiting group {}", group_id);
                                                                 QueueWorkerResult::Incomplete
                                                             }
                                                         } else {
@@ -236,6 +268,7 @@ pub fn process_primary_packet(
                                                 &hyper_ratchet,
                                                 header.group.get(),
                                                 resp_target_cid,
+                                                object_id,
                                                 ticket,
                                                 initial_wave_window,
                                                 false,
@@ -256,6 +289,7 @@ pub fn process_primary_packet(
                                     initial_window,
                                     transfer,
                                     fast_msg,
+                                    object_id,
                                 }) => {
                                     // we need to begin sending the data
                                     // valid and ready to accept!
@@ -297,10 +331,12 @@ pub fn process_primary_packet(
 
                                     // TODO: make the below function return a result, not bools
                                     if state_container.on_group_header_ack_received(
+                                        session,
                                         secrecy_mode,
                                         peer_cid,
                                         target_cid,
                                         group_id,
+                                        object_id,
                                         initial_wave_window,
                                         transfer,
                                         fast_msg,
@@ -351,12 +387,16 @@ pub fn process_primary_packet(
                                     }
                                 }
 
-                                Some(GroupHeaderAck::NotReady { fast_msg }) => {
+                                Some(GroupHeaderAck::NotReady {
+                                    fast_msg,
+                                    object_id,
+                                }) => {
                                     // valid but not ready to accept.
                                     // Possible reasons: too large, target not valid (e.g., not registered, not connected, etc)
                                     //let mut state_container = session.state_container.borrow_mut();
                                     let group = header.group.get();
-                                    let key = GroupKey::new(header.session_cid.get(), group);
+                                    let key =
+                                        GroupKey::new(header.session_cid.get(), group, object_id);
                                     if state_container.outbound_transmitters.remove(&key).is_none()
                                     {
                                         log::error!(target: "citadel", "Unable to remove outbound transmitter for group {} (non-existent)", group);
@@ -637,6 +677,7 @@ impl ToolsetUpdate<'_> {
 ///
 /// Returns: Ok(latest_hyper_ratchet)
 pub(crate) fn attempt_kem_as_alice_finish(
+    session: &HdpSession,
     base_session_secrecy_mode: SecrecyMode,
     peer_cid: u64,
     target_cid: u64,
@@ -644,7 +685,10 @@ pub(crate) fn attempt_kem_as_alice_finish(
     state_container: &mut StateContainerInner,
     constructor: Option<ConstructorType<StackedRatchet, ThinRatchet>>,
 ) -> Result<Option<RatchetType<StackedRatchet, ThinRatchet>>, ()> {
-    let (mut toolset_update_method, secrecy_mode) = if target_cid != C2S_ENCRYPTION_ONLY {
+    let (mut toolset_update_method, secrecy_mode, session_password) = if target_cid
+        != C2S_ENCRYPTION_ONLY
+    {
+        let session_password = state_container.get_session_password(peer_cid).cloned();
         let endpoint_container = state_container
             .active_virtual_connections
             .get_mut(&peer_cid)
@@ -653,12 +697,17 @@ pub(crate) fn attempt_kem_as_alice_finish(
             .as_mut()
             .ok_or(())?;
         let crypt = &mut endpoint_container.endpoint_crypto;
+        if session_password.is_none() {
+            log::error!(target: "citadel", "Session password not found for peer_cid {}", peer_cid);
+            return Err(());
+        }
         (
             ToolsetUpdate::E2E {
                 crypt,
                 local_cid: target_cid,
             },
             endpoint_container.default_security_settings.secrecy_mode,
+            session_password.unwrap(),
         )
     } else {
         let crypt = &mut state_container
@@ -672,6 +721,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
                 local_cid: peer_cid,
             },
             base_session_secrecy_mode,
+            session.session_password.clone(),
         )
     };
 
@@ -681,7 +731,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
     match transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(mut constructor) = constructor {
-                if let Err(err) = constructor.stage1_alice(transfer) {
+                if let Err(err) = constructor.stage1_alice(transfer, session_password.as_ref()) {
                     log::error!(target: "citadel", "Unable to construct hyper ratchet {:?}", err);
                     return Err(()); // return true, otherwise, the session ends
                 }
@@ -738,6 +788,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
 
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
 pub(crate) fn attempt_kem_as_bob(
+    session: &HdpSession,
     resp_target_cid: u64,
     header: &Ref<&[u8], HdpHeader>,
     transfer: Option<AliceToBobTransferType>,
@@ -745,30 +796,44 @@ pub(crate) fn attempt_kem_as_bob(
     hr: &StackedRatchet,
 ) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
-        let update = if resp_target_cid != C2S_ENCRYPTION_ONLY {
+        let (update, session_password) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
+            let session_password = state_container
+                .get_session_password(resp_target_cid)
+                .cloned();
+            if session_password.is_none() {
+                log::error!(target: "citadel", "Session password not found for peer_cid {}", resp_target_cid);
+                return None;
+            }
+
             let crypt = &mut state_container
                 .active_virtual_connections
                 .get_mut(&resp_target_cid)?
                 .endpoint_container
                 .as_mut()?
                 .endpoint_crypto;
-            ToolsetUpdate::E2E {
-                crypt,
-                local_cid: header.target_cid.get(),
-            }
+            (
+                ToolsetUpdate::E2E {
+                    crypt,
+                    local_cid: header.target_cid.get(),
+                },
+                session_password.unwrap(),
+            )
         } else {
             let crypt = &mut state_container
                 .c2s_channel_container
                 .as_mut()
                 .unwrap()
                 .peer_session_crypto;
-            ToolsetUpdate::E2E {
-                crypt,
-                local_cid: header.session_cid.get(),
-            }
+            (
+                ToolsetUpdate::E2E {
+                    crypt,
+                    local_cid: header.session_cid.get(),
+                },
+                session.session_password.clone(),
+            )
         };
 
-        update_toolset_as_bob(update, transfer, hr)
+        update_toolset_as_bob(update, transfer, hr, session_password)
     } else {
         Some(KemTransferStatus::Empty)
     }
@@ -778,6 +843,7 @@ pub(crate) fn update_toolset_as_bob(
     mut update_method: ToolsetUpdate<'_>,
     transfer: AliceToBobTransferType,
     hr: &StackedRatchet,
+    session_password: PreSharedKey,
 ) -> Option<KemTransferStatus> {
     let cid = update_method.get_local_cid();
     let new_version = transfer.get_declared_new_version();
@@ -785,8 +851,13 @@ pub(crate) fn update_toolset_as_bob(
     //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
     let opts = hr.get_next_constructor_opts();
     if matches!(transfer, AliceToBobTransferType::Fcm(..)) {
-        let constructor =
-            EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
+        let constructor = EndpointRatchetConstructor::<ThinRatchet>::new_bob(
+            cid,
+            new_version,
+            opts,
+            transfer,
+            session_password.as_ref(),
+        )?;
         Some(
             update_method
                 .update(ConstructorType::Fcm(constructor), false)
@@ -798,11 +869,26 @@ pub(crate) fn update_toolset_as_bob(
             new_version,
             opts,
             transfer,
+            session_password.as_ref(),
         )?;
         Some(
             update_method
                 .update(ConstructorType::Default(constructor), false)
                 .ok()?,
         )
+    }
+}
+
+/// Returns the virtual connection type for the response target cid. Is relative to the current node, not the receiving node
+pub fn get_v_conn_from_header(header: &HdpHeader) -> VirtualConnectionType {
+    let target_cid = header.session_cid.get();
+    let implicated_cid = header.target_cid.get();
+    if target_cid != C2S_ENCRYPTION_ONLY {
+        VirtualConnectionType::LocalGroupPeer {
+            implicated_cid,
+            peer_cid: target_cid,
+        }
+    } else {
+        VirtualConnectionType::LocalGroupServer { implicated_cid }
     }
 }

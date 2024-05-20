@@ -13,7 +13,6 @@ use citadel_types::crypto::SecurityLevel;
 use citadel_types::crypto::LARGEST_NONCE_LEN;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -116,7 +115,11 @@ impl Ratchet for ThinRatchet {
         _security_level: SecurityLevel,
     ) -> Result<Vec<u8>, CryptError> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.local_decrypt(pqc, contents.into())
+        let contents = contents.into();
+        if contents.is_empty() {
+            return Ok(vec![]);
+        }
+        drill.local_decrypt(pqc, contents)
     }
 }
 
@@ -146,10 +149,11 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         _new_drill_vers: u32,
         mut opts: Vec<ConstructorOpts>,
         transfer: AliceToBobTransferType,
+        psks: &[Vec<u8>],
     ) -> Option<Self> {
         match transfer {
             AliceToBobTransferType::Fcm(transfer) => {
-                ThinRatchetConstructor::new_bob(opts.remove(0), transfer)
+                ThinRatchetConstructor::new_bob(opts.remove(0), transfer, psks)
             }
 
             _ => {
@@ -167,9 +171,13 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         Some(BobToAliceTransferType::Fcm(self.stage0_bob()?))
     }
 
-    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Result<(), CryptError> {
+    fn stage1_alice(
+        &mut self,
+        transfer: BobToAliceTransferType,
+        psks: &[Vec<u8>],
+    ) -> Result<(), CryptError> {
         match transfer {
-            BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer),
+            BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer, psks),
 
             _ => Err(CryptError::DrillUpdateError(
                 "Incompatible Ratchet Type passed! [X-44]".to_string(),
@@ -225,9 +233,13 @@ impl ThinRatchetConstructor {
     }
 
     ///
-    pub fn new_bob(opts: ConstructorOpts, transfer: FcmAliceToBobTransfer) -> Option<Self> {
+    pub fn new_bob(
+        opts: ConstructorOpts,
+        transfer: FcmAliceToBobTransfer,
+        psks: &[Vec<u8>],
+    ) -> Option<Self> {
         let params = transfer.params;
-        let pqc = PostQuantumContainer::new_bob(opts, transfer.transfer_params).ok()?;
+        let pqc = PostQuantumContainer::new_bob(opts, transfer.transfer_params, psks).ok()?;
         let drill =
             EntropyBank::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;
 
@@ -265,9 +277,13 @@ impl ThinRatchetConstructor {
     }
 
     ///
-    pub fn stage1_alice(&mut self, transfer: FcmBobToAliceTransfer) -> Result<(), CryptError> {
+    pub fn stage1_alice(
+        &mut self,
+        transfer: FcmBobToAliceTransfer,
+        psks: &[Vec<u8>],
+    ) -> Result<(), CryptError> {
         self.pqc
-            .alice_on_receive_ciphertext(transfer.params_tx)
+            .alice_on_receive_ciphertext(transfer.params_tx, psks)
             .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
         let bytes = self
             .pqc

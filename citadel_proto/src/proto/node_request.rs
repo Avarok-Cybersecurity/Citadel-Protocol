@@ -1,11 +1,13 @@
 use crate::auth::AuthenticationRequest;
 use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;
+use crate::re_imports::openssl::sha::sha256;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{ConnectMode, SessionSecuritySettings, UdpMode};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -14,6 +16,8 @@ pub struct RegisterToHypernode {
     pub remote_addr: SocketAddr,
     pub proposed_credentials: ProposedCredentials,
     pub static_security_settings: SessionSecuritySettings,
+    // Some servers require a password in order to register and connect. By default, it is empty.
+    pub session_password: PreSharedKey,
 }
 
 pub struct PeerCommand {
@@ -31,6 +35,7 @@ pub struct ConnectToHypernode {
     pub connect_mode: ConnectMode,
     pub udp_mode: UdpMode,
     pub keep_alive_timeout: Option<u64>,
+    pub session_password: PreSharedKey,
     pub session_security_settings: SessionSecuritySettings,
 }
 
@@ -99,8 +104,62 @@ pub enum NodeRequest {
     Shutdown,
 }
 
+impl NodeRequest {
+    pub fn implicated_cid(&self) -> Option<u64> {
+        match self {
+            NodeRequest::RegisterToHypernode(_) => None,
+            NodeRequest::PeerCommand(PeerCommand { implicated_cid, .. }) => Some(*implicated_cid),
+            NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
+                implicated_cid,
+                ..
+            }) => Some(*implicated_cid),
+            NodeRequest::ConnectToHypernode(connect) => connect.auth_request.implicated_cid(),
+            NodeRequest::ReKey(rk) => Some(rk.v_conn_type.get_implicated_cid()),
+            NodeRequest::SendObject(SendObject { implicated_cid, .. }) => Some(*implicated_cid),
+            NodeRequest::PullObject(pull) => Some(pull.v_conn.get_implicated_cid()),
+            NodeRequest::DeleteObject(del) => Some(del.v_conn.get_implicated_cid()),
+            NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
+                implicated_cid, ..
+            }) => Some(*implicated_cid),
+            NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { implicated_cid }) => {
+                Some(*implicated_cid)
+            }
+            NodeRequest::GetActiveSessions => None,
+            NodeRequest::Shutdown => None,
+        }
+    }
+}
+
 impl Debug for NodeRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeRequest")
+    }
+}
+
+#[derive(Default, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct PreSharedKey {
+    passwords: Vec<Vec<u8>>,
+}
+
+impl PreSharedKey {
+    /// Adds a password to the session password list. Both connecting nodes
+    /// must have matching passwords in order to establish a connection.
+    ///
+    /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
+    pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
+        self.passwords.push(sha256(password.as_ref()).to_vec());
+        self
+    }
+}
+
+impl AsRef<[Vec<u8>]> for PreSharedKey {
+    fn as_ref(&self) -> &[Vec<u8>] {
+        &self.passwords
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
+    fn from(password: T) -> Self {
+        PreSharedKey::default().add_password(password)
     }
 }

@@ -13,7 +13,7 @@ use citadel_types::crypto::SecrecyMode;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_rekey(
     session: &HdpSession,
     packet: HdpPacket,
@@ -56,6 +56,7 @@ pub fn process_rekey(
                     let resp_target_cid = get_resp_target_cid_from_header(&header);
                     let status = return_if_none!(
                         attempt_kem_as_bob(
+                            session,
                             resp_target_cid,
                             &header,
                             Some(AliceToBobTransferType::Default(transfer)),
@@ -112,6 +113,7 @@ pub fn process_rekey(
 
                     let latest_hr = return_if_none!(return_if_none!(
                         attempt_kem_as_alice_finish(
+                            session,
                             secrecy_mode,
                             peer_cid,
                             target_cid,

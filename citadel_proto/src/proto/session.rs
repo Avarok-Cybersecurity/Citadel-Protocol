@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -42,7 +43,7 @@ use citadel_types::proto::SessionSecuritySettings;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::kernel::RuntimeFuture;
-use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, SecureProtocolPacket};
+use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, PreSharedKey, SecureProtocolPacket};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
@@ -79,6 +80,7 @@ use citadel_wire::nat_identification::NatType;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::time::{SystemTime, UNIX_EPOCH};
 //use futures_codec::Framed;
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
@@ -206,6 +208,8 @@ pub struct HdpSessionInner {
     pub(super) hypernode_peer_layer: HyperNodePeerLayer,
     pub(super) stun_servers: Option<Vec<String>>,
     pub(super) init_time: Instant,
+    pub(super) file_transfer_compatible: DualLateInit<bool>,
+    pub(super) session_password: PreSharedKey,
     on_drop: UnboundedSender<()>,
 }
 
@@ -255,6 +259,7 @@ pub(crate) struct SessionInitParams {
     pub client_only_settings: Option<ClientOnlySessionInitSettings>,
     pub stun_servers: Option<Vec<String>>,
     pub init_time: Instant,
+    pub session_password: PreSharedKey,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings {
@@ -349,6 +354,7 @@ impl HdpSession {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let init_time = session_init_params.init_time;
+        let session_password = session_init_params.session_password;
 
         let mut inner = HdpSessionInner {
             hypernode_peer_layer,
@@ -390,6 +396,8 @@ impl HdpSession {
             client_config,
             stun_servers,
             init_time,
+            file_transfer_compatible: DualLateInit::default(),
+            session_password,
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -409,7 +417,7 @@ impl HdpSession {
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn execute(
         &self,
@@ -537,7 +545,7 @@ impl HdpSession {
     /// Before going through the usual flow, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn handle_zero_state(
         zero_packet: Option<BytesMut>,
@@ -873,7 +881,7 @@ impl HdpSession {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn outbound_stream(
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
@@ -884,7 +892,7 @@ impl HdpSession {
             .map(|r| {
                 #[cfg_attr(
                     feature = "localhost-testing",
-                    tracing::instrument(target = "citadel", skip_all, fields(packet_length = r.len()))
+                    tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()))
                 )]
                 fn process_outbound_packet(r: BytesMut) -> Bytes {
                     r.freeze()
@@ -900,7 +908,7 @@ impl HdpSession {
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
@@ -915,7 +923,7 @@ impl HdpSession {
             ref implicated_cid,
             ref kernel_tx,
             ref primary_stream,
-            p2p,
+            peer_cid,
             is_server,
         ) = if let Some(p2p) = p2p_handle {
             (
@@ -924,7 +932,7 @@ impl HdpSession {
                 p2p.implicated_cid,
                 p2p.kernel_tx,
                 p2p.to_primary_stream,
-                true,
+                Some(p2p.peer_cid),
                 false,
             )
         } else {
@@ -941,7 +949,7 @@ impl HdpSession {
                 implicated_cid,
                 kernel_tx,
                 primary_stream,
-                false,
+                None,
                 is_server,
             )
         };
@@ -951,6 +959,7 @@ impl HdpSession {
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult>,
             session: &HdpSession,
+            cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             match result {
                 Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
@@ -959,6 +968,7 @@ impl HdpSession {
                         kernel_tx,
                         return_packet,
                         None,
+                        cid_opt,
                     )
                     .map_err(|err| {
                         std::io::Error::new(
@@ -989,9 +999,10 @@ impl HdpSession {
         }
 
         fn handle_session_terminating_error(
+            session: &HdpSession,
             err: std::io::Error,
             is_server: bool,
-            p2p: bool,
+            peer_cid: Option<u64>,
         ) -> SessionShutdownReason {
             const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
             const _RST: i32 = 104;
@@ -1000,7 +1011,7 @@ impl HdpSession {
             let error = err.raw_os_error().unwrap_or(-1);
             // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
             if error != -1 {
-                log::error!(target: "citadel", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
+                log::error!(target: "citadel", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, peer_cid.is_some());
             }
 
             let err_string = err.to_string();
@@ -1008,6 +1019,35 @@ impl HdpSession {
             if err_string.contains(SUCCESS_DISCONNECT) {
                 SessionShutdownReason::ProperShutdown
             } else {
+                let implicated_cid = session.implicated_cid.get().unwrap_or_default();
+                let v_conn_type = if let Some(peer_cid) = peer_cid {
+                    VirtualConnectionType::LocalGroupPeer {
+                        implicated_cid,
+                        peer_cid,
+                    }
+                } else {
+                    VirtualConnectionType::LocalGroupServer { implicated_cid }
+                };
+
+                if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
+                    ticket: session.kernel_ticket.get(),
+                    cid_opt: session.implicated_cid.get(),
+                    success: false,
+                    v_conn_type: Some(v_conn_type),
+                    message: err_string.clone(),
+                })) {
+                    log::error!(target: "citadel", "Error sending disconnect signal to kernel: {err:?}");
+                }
+
+                if peer_cid.is_none() {
+                    // If this is a c2s connection, close the session
+                    session.send_session_dc_signal(
+                        Some(session.kernel_ticket.get()),
+                        false,
+                        err_string.as_str(),
+                    );
+                }
+
                 SessionShutdownReason::Error(NetworkError::Generic(err_string))
             }
         }
@@ -1020,17 +1060,18 @@ impl HdpSession {
 
         let res = reader
             .try_for_each_concurrent(None, |packet| async move {
+                let implicated_cid = implicated_cid.get();
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
-                    implicated_cid.get(),
+                    implicated_cid,
                     this_main,
                     *remote_peer,
                     *local_primary_port,
                     packet,
                 )
                 .await;
-                evaluate_result(result, primary_stream, kernel_tx, this_main)
+                evaluate_result(result, primary_stream, kernel_tx, this_main, implicated_cid)
             })
-            .map_err(|err| handle_session_terminating_error(err, is_server, p2p))
+            .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
             .await;
 
         match res {
@@ -1047,11 +1088,13 @@ impl HdpSession {
         kernel_tx: &UnboundedSender<NodeResult>,
         msg: BytesMut,
         ticket: Option<Ticket>,
+        cid_opt: Option<u64>,
     ) -> Result<(), NetworkError> {
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
             kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: ticket,
+                    cid_opt,
                     message: err.to_string(),
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -1063,7 +1106,7 @@ impl HdpSession {
 
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn execute_queue_worker(this_main: HdpSession) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
@@ -1083,7 +1126,7 @@ impl HdpSession {
 
             let kernel_ticket = borrow.kernel_ticket.get();
             let is_server = borrow.is_server;
-            std::mem::drop(borrow);
+            drop(borrow);
 
             // now, begin loading the subroutines
             //let mut loop_idx = 0;
@@ -1160,8 +1203,6 @@ impl HdpSession {
                 }
             });
 
-            // TODO: Rework UDP keep-alive subsystem to take QUIC into consideration.
-            // QUIC already handles KA, but raw udp does not
             queue_worker.insert_reserved_fn(
                 Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)),
                 FIREWALL_KEEP_ALIVE_UDP,
@@ -1188,7 +1229,6 @@ impl HdpSession {
             queue_worker
         };
 
-        //std::mem::drop(this_main);
         queue_worker.await
     }
 
@@ -1201,7 +1241,6 @@ impl HdpSession {
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
         self.ensure_connected(&ticket)?;
-
         let mut state_container = inner_mut_state!(self.state_container);
         let ts = self.time_tracker.get_global_time_ns();
 
@@ -1351,7 +1390,16 @@ impl HdpSession {
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
         let this = self;
-        let source_path_location_opt = source.delete_path();
+        let source_path = source.path().ok_or_else(|| {
+            NetworkError::InternalError("The source object does not have a path location")
+        })?;
+
+        let file =
+            File::open(&source_path).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let file_metadata = file
+            .metadata()
+            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+
         self.ensure_connected(&ticket)?;
 
         let file_name = source
@@ -1382,6 +1430,10 @@ impl HdpSession {
             VirtualTargetType::LocalGroupServer { implicated_cid } => {
                 // if we are sending this just to the HyperLAN server (in the case of file uploads),
                 // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                if !*self.file_transfer_compatible {
+                    return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+                }
+
                 let crypt_container = &mut state_container
                     .c2s_channel_container
                     .as_mut()
@@ -1414,12 +1466,18 @@ impl HdpSession {
                 )
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
+                let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+
                 let file_metadata = VirtualObjectMetadata {
                     object_id,
                     name: file_name,
-                    // TODO: update metadata using the local file handle metadata
-                    date_created: "".to_string(),
-                    author: "N/A".to_string(),
+                    date_created: chrono::DateTime::from_timestamp(
+                        date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+                        0,
+                    )
+                    .expect("Invalid timestamp")
+                    .to_rfc2822(),
+                    author: implicated_cid.to_string(),
                     plaintext_length: file_size,
                     group_count: groups_needed,
                     cid: implicated_cid,
@@ -1427,7 +1485,7 @@ impl HdpSession {
                 };
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                let amt_to_reserve = groups_needed - 1;
+                let amt_to_reserve = groups_needed.saturating_sub(1);
                 crypt_container.rolling_group_id += amt_to_reserve as u64;
                 let file_header = packet_crafter::file::craft_file_header_packet(
                     &latest_hr,
@@ -1455,9 +1513,24 @@ impl HdpSession {
                 peer_cid: target_cid,
             } => {
                 log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
+                // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
+                // of the file
+                let crypt_container_c2s = &state_container
+                    .c2s_channel_container
+                    .as_ref()
+                    .unwrap()
+                    .peer_session_crypto;
+                let static_aux_ratchet = crypt_container_c2s
+                    .toolset
+                    .get_static_auxiliary_ratchet()
+                    .clone();
+
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
+
+                if !endpoint_container.file_transfer_compatible {
+                    return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
+                }
 
                 let object_id = endpoint_container
                     .endpoint_crypto
@@ -1472,11 +1545,11 @@ impl HdpSession {
                     .get_hyper_ratchet(None)
                     .unwrap();
 
-                let static_aux_ratchet = endpoint_container
-                    .endpoint_crypto
-                    .toolset
-                    .get_static_auxiliary_ratchet()
-                    .clone();
+                /*let static_aux_ratchet = endpoint_container
+                .endpoint_crypto
+                .toolset
+                .get_static_auxiliary_ratchet()
+                .clone();*/
 
                 let preferred_primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
@@ -1500,11 +1573,18 @@ impl HdpSession {
                 )
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
+                let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+
                 let file_metadata = VirtualObjectMetadata {
                     object_id,
                     name: file_name,
-                    date_created: "".to_string(),
-                    author: "".to_string(),
+                    date_created: chrono::DateTime::from_timestamp(
+                        date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+                        0,
+                    )
+                    .expect("Invalid timestamp")
+                    .to_rfc2822(),
+                    author: implicated_cid.to_string(),
                     plaintext_length: file_size,
                     group_count: groups_needed,
                     cid: implicated_cid,
@@ -1523,7 +1603,7 @@ impl HdpSession {
                 );
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                let amt_to_reserve = groups_needed - 1;
+                let amt_to_reserve = groups_needed.saturating_sub(1);
                 endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
 
                 (
@@ -1574,7 +1654,7 @@ impl HdpSession {
             .outbound_files
             .insert(file_key, outbound_file_transfer_container);
         // spawn the task that takes GroupSenders from the threadpool cryptscrambler
-        std::mem::drop(state_container);
+        drop(state_container);
 
         let this = self.clone();
         let future = async move {
@@ -1606,6 +1686,7 @@ impl HdpSession {
             //
 
             let mut relative_group_id = 0;
+            let implicated_cid = this.implicated_cid.get();
             // while waiting, we likely have a set of GroupSenders to process
             while let Some(sender) = group_sender_rx.next().await {
                 match sender {
@@ -1689,7 +1770,7 @@ impl HdpSession {
                             relative_group_id += 1;
                             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
                             // the key is the target_cid coupled with the group id
-                            let key = GroupKey::new(key_cid, group_id);
+                            let key = GroupKey::new(key_cid, group_id, object_id);
 
                             assert!(state_container
                                 .outbound_transmitters
@@ -1704,7 +1785,6 @@ impl HdpSession {
                         };
 
                         let kernel_tx2 = kernel_tx.clone();
-
                         this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                             if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
                                 // as long as a wave ACK has been received, proceed with the timeout check
@@ -1727,6 +1807,7 @@ impl HdpSession {
 
                                             if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                 ticket_opt: Some(ticket),
+                                                cid_opt: implicated_cid,
                                                 message: format!("Timeout on ticket {ticket}")
                                             })).is_err() {
                                                 log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
@@ -1735,7 +1816,7 @@ impl HdpSession {
                                                 QueueWorkerResult::Complete
                                             }
                                         } else {
-                                            log::trace!(target: "citadel", "[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                            log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {}", group_id);
                                             QueueWorkerResult::Incomplete
                                         }
                                     } else {
@@ -1766,6 +1847,7 @@ impl HdpSession {
                             .clone()
                             .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                 ticket_opt: Some(ticket),
+                                cid_opt: implicated_cid,
                                 message: err.to_string(),
                             }));
                     }
@@ -1773,9 +1855,7 @@ impl HdpSession {
             }
 
             // we finished pulling. Now, execute the hook if present
-            if let Some(path) = source_path_location_opt {
-                post_close_hook(path);
-            }
+            post_close_hook(source_path);
         };
 
         spawn!(future);
@@ -1823,6 +1903,7 @@ impl HdpSession {
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
                                             ticket_opt: Some(ticket),
+                                            cid_opt: this.implicated_cid.get(),
                                             message: err.into_string(),
                                         },
                                     ))
@@ -1838,6 +1919,7 @@ impl HdpSession {
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
                                             ticket_opt: Some(ticket),
+                                            cid_opt: this.implicated_cid.get(),
                                             message: err.into_string(),
                                         },
                                     ))
@@ -1899,6 +1981,9 @@ impl HdpSession {
                                     )),
                                 },
                                 ticket,
+                                implicated_cid: self.implicated_cid.get().ok_or_else(|| {
+                                    NetworkError::InternalError("Implicated CID not set")
+                                })?,
                             }))
                             .map_err(|err| NetworkError::Generic(err.to_string()));
                     }
@@ -1918,16 +2003,21 @@ impl HdpSession {
                 PeerSignal::PostConnect {
                     peer_conn_type: a,
                     ticket_opt: b,
-                    invitee_response: None,
+                    invitee_response,
                     session_security_settings: d,
                     udp_mode: e,
+                    session_password,
                 } => {
+                    let session_password = session_password.unwrap_or_default();
                     if state_container
                         .outgoing_peer_connect_attempts
                         .contains_key(&a.get_original_target_cid())
                     {
                         log::warn!(target: "citadel", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
                     }
+
+                    state_container
+                        .store_session_password(a.get_original_target_cid(), session_password);
 
                     // in case the ticket gets mapped during simultaneous_connect, store locally
                     let _ = state_container
@@ -1936,9 +2026,10 @@ impl HdpSession {
                     PeerSignal::PostConnect {
                         peer_conn_type: a,
                         ticket_opt: b,
-                        invitee_response: None,
+                        invitee_response,
                         session_security_settings: d,
                         udp_mode: e,
+                        session_password: None,
                     }
                 }
 
@@ -2118,6 +2209,7 @@ impl HdpSession {
                     to_kernel_tx,
                     disconnect_stage0_packet,
                     Some(ticket),
+                    self.implicated_cid.get(),
                 )
             })?
             .map(|_| true)
@@ -2176,6 +2268,7 @@ impl HdpSessionInner {
                 Err(err) => {
                     self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                         ticket_opt: ticket,
+                        cid_opt: self.implicated_cid.get(),
                         message: err.to_string(),
                     }))
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -2200,6 +2293,7 @@ impl HdpSessionInner {
                 self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: ticket,
                     message: err.to_string(),
+                    cid_opt: self.implicated_cid.get(),
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 Err(err)

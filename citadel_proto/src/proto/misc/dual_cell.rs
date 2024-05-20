@@ -15,7 +15,7 @@ impl<T: ContextRequirements> DualCell<T> {
     {
         #[cfg(not(feature = "multi-threaded"))]
         {
-            let _ = self.inner.set(new);
+            self.inner.set(new);
         }
         #[cfg(feature = "multi-threaded")]
         {

@@ -145,6 +145,7 @@ jobs:
       - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
       - run: cargo clippy --features=webrtc,sql,redis -- -D warnings
       - run: cargo clippy --features=webrtc,sql,redis --release -- -D warnings
+      - run: cargo clippy --tests -- -D warnings
       - run: cargo fmt --check
       - run: RUSTDOCFLAGS="-D warnings" cargo make docs
       - run: cargo test --package citadel_sdk --doc

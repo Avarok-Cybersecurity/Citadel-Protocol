@@ -11,15 +11,15 @@ pub(crate) mod do_connect {
     pub(crate) async fn validate_stage0_packet(
         cnac: &ClientNetworkAccount,
         payload: &[u8],
-    ) -> Result<(), NetworkError> {
+    ) -> Result<DoConnectStage0Packet, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
-        cnac.validate_credentials(payload.proposed_credentials)
+        cnac.validate_credentials(payload.proposed_credentials.clone())
             .await
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::trace!(target: "citadel", "Success validating credentials!");
-        Ok(())
+        Ok(payload)
     }
 
     pub(crate) fn validate_final_status_packet(
@@ -30,9 +30,10 @@ pub(crate) mod do_connect {
 }
 
 pub(crate) mod group {
+    use byteorder::{BigEndian, ReadBytesExt};
     use std::ops::RangeInclusive;
 
-    use bytes::{Bytes, BytesMut};
+    use bytes::{Buf, Bytes, BytesMut};
 
     use citadel_crypt::scramble::crypt_splitter::GroupReceiverConfig;
 
@@ -82,12 +83,17 @@ pub(crate) mod group {
     }
 
     pub(crate) fn validate_message(
-        payload: &mut BytesMut,
-    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>)> {
-        let message = SecureProtocolPacket::extract_message(payload).ok()?;
-        let deser =
-            citadel_user::serialization::SyncIO::deserialize_from_vector(&payload[..]).ok()?;
-        Some((message.into(), deser))
+        payload_orig: &mut BytesMut,
+    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>, u64)> {
+        // Safely check that there are 8 bytes in length, then, split at the end - 8
+        if payload_orig.len() < 8 {
+            return None;
+        }
+        let mut payload = payload_orig.split_to(payload_orig.len() - 8);
+        let object_id = payload_orig.reader().read_u64::<BigEndian>().ok()?;
+        let message = SecureProtocolPacket::extract_message(&mut payload).ok()?;
+        let deser = SyncIO::deserialize_from_vector(&payload[..]).ok()?;
+        Some((message.into(), deser, object_id))
     }
 
     #[derive(Serialize, Deserialize)]
@@ -97,9 +103,11 @@ pub(crate) mod group {
             fast_msg: bool,
             initial_window: Option<RangeInclusive<u32>>,
             transfer: KemTransferStatus,
+            object_id: u64,
         },
         NotReady {
             fast_msg: bool,
+            object_id: u64,
         },
     }
 
@@ -206,6 +214,7 @@ pub(crate) mod pre_connect {
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::error::NetworkError;
+    use crate::prelude::PreSharedKey;
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
@@ -236,6 +245,7 @@ pub(crate) mod pre_connect {
         cnac: &ClientNetworkAccount,
         packet: HdpPacket,
         session_manager: &HdpSessionManager,
+        session_password: &PreSharedKey,
     ) -> Result<SynValidationResult, NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
@@ -281,6 +291,7 @@ pub(crate) mod pre_connect {
             0,
             opts,
             transfer.transfer,
+            session_password.as_ref(),
         )
         .ok_or(NetworkError::InternalError(
             "Unable to create bob container",
@@ -313,6 +324,7 @@ pub(crate) mod pre_connect {
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)
     /// This returns Ok(true) if the system was already synchronized, or Ok(false) if the system needed to synchronize toolsets
     pub fn validate_syn_ack(
+        session_password: &PreSharedKey,
         cnac: &ClientNetworkAccount,
         mut alice_constructor: StackedRatchetConstructor,
         packet: HdpPacket,
@@ -325,9 +337,10 @@ pub(crate) mod pre_connect {
 
         let lvl = packet.transfer.security_level;
         log::trace!(target: "citadel", "Session security level based-on returned transfer: {:?}", lvl);
-        if let Err(err) =
-            alice_constructor.stage1_alice(BobToAliceTransferType::Default(packet.transfer))
-        {
+        if let Err(err) = alice_constructor.stage1_alice(
+            BobToAliceTransferType::Default(packet.transfer),
+            session_password.as_ref(),
+        ) {
             log::error!(target: "citadel", "Error on stage1_alice: {:?}", err);
             return None;
         }
@@ -352,8 +365,8 @@ pub(crate) mod pre_connect {
 pub(crate) mod file {
     use crate::proto::packet::HdpHeader;
     use crate::proto::packet_crafter::file::{
-        FileHeaderAckPacket, FileHeaderPacket, ReVFSAckPacket, ReVFSDeletePacket,
-        ReVFSPullAckPacket, ReVFSPullPacket,
+        FileHeaderAckPacket, FileHeaderPacket, FileTransferErrorPacket, ReVFSAckPacket,
+        ReVFSDeletePacket, ReVFSPullAckPacket, ReVFSPullPacket,
     };
     use crate::proto::packet_processor::includes::Ref;
     use citadel_user::serialization::SyncIO;
@@ -363,6 +376,13 @@ pub(crate) mod file {
         payload: &[u8],
     ) -> Option<FileHeaderPacket> {
         FileHeaderPacket::deserialize_from_vector(payload).ok()
+    }
+
+    pub fn validate_file_error(
+        _header: &Ref<&[u8], HdpHeader>,
+        payload: &[u8],
+    ) -> Option<FileTransferErrorPacket> {
+        FileTransferErrorPacket::deserialize_from_vector(payload).ok()
     }
 
     /// return Some(success, object_id) if valid, or None if invalid

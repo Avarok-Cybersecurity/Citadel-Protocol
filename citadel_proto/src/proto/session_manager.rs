@@ -19,7 +19,7 @@ use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS, UDP_MOD
 use crate::error::NetworkError;
 use crate::kernel::RuntimeFuture;
 use crate::macros::SyncContextRequirements;
-use crate::prelude::Disconnect;
+use crate::prelude::{Disconnect, PreSharedKey};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
@@ -31,8 +31,7 @@ use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::{
-    HyperNodePeerLayer, HyperNodePeerLayerInner, MailboxTransfer, PeerConnectionType, PeerResponse,
-    PeerSignal,
+    HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
@@ -144,6 +143,7 @@ impl HdpSessionManager {
         keep_alive_timeout_ns: Option<i64>,
         security_settings: SessionSecuritySettings,
         default_client_config: &Arc<ClientConfig>,
+        session_password: PreSharedKey,
     ) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
@@ -309,6 +309,7 @@ impl HdpSessionManager {
                 client_only_settings: Some(client_only_settings),
                 stun_servers,
                 init_time,
+                session_password,
             };
 
             let (stopper, new_session) = HdpSession::new(session_init_params)?;
@@ -340,7 +341,7 @@ impl HdpSessionManager {
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
-    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(implicated_cid=new_session.implicated_cid.get(), is_server=new_session.is_server, peer_addr=peer_addr.to_string())))]
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=new_session.implicated_cid.get(), is_server=new_session.is_server, peer_addr=peer_addr.to_string())))]
     async fn execute_session_with_safe_shutdown(
         session_manager: HdpSessionManager,
         new_session: HdpSession,
@@ -479,6 +480,7 @@ impl HdpSessionManager {
         local_nat_type: NatType,
         peer_addr: SocketAddr,
         primary_stream: GenericNetworkStream,
+        session_password: PreSharedKey,
     ) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
@@ -513,6 +515,7 @@ impl HdpSessionManager {
             client_only_settings: None,
             stun_servers,
             init_time,
+            session_password,
         };
 
         let (stopper, new_session) = HdpSession::new(session_init_params)?;
@@ -559,6 +562,9 @@ impl HdpSessionManager {
         transfer_type: TransferType,
     ) -> Result<(), NetworkError> {
         let this = inner!(self);
+
+        let local_encryption_level = None;
+
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
             existing_session.1.process_outbound_file(
                 ticket,
@@ -567,7 +573,7 @@ impl HdpSessionManager {
                 virtual_target,
                 security_level,
                 transfer_type,
-                None,
+                local_encryption_level,
                 |_| {},
             )
         } else {
@@ -758,7 +764,7 @@ impl HdpSessionManager {
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
     pub fn clear_provisional_session(&self, addr: &SocketAddr, init_time: Instant) {
-        log::warn!(target: "citadel", "Attempting to clear provisional session ...");
+        log::trace!(target: "citadel", "Attempting to clear provisional session ...");
         let mut this = inner_mut!(self);
         if let Some((prev_init_time, _, _)) = this.provisional_connections.get(addr) {
             if *prev_init_time == init_time {
@@ -1077,7 +1083,6 @@ impl HdpSessionManager {
     #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
-        peer_layer: &HyperNodePeerLayerInner,
         implicated_cid: u64,
         target_cid: u64,
         ticket: Ticket,
@@ -1106,7 +1111,11 @@ impl HdpSessionManager {
 
             // get the target cid's session
             if let Some(ref sess_ref) = sess {
-                peer_layer
+                sess_ref
+                    .hypernode_peer_layer
+                    .inner
+                    .write()
+                    .await
                     .insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout)
                     .await;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
@@ -1120,15 +1129,21 @@ impl HdpSessionManager {
             } else {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
-                peer_layer
-                    .insert_tracked_posting(
-                        implicated_cid,
-                        timeout,
-                        ticket,
-                        signal.clone(),
-                        on_timeout,
-                    )
-                    .await;
+                {
+                    let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+                    peer_layer
+                        .inner
+                        .write()
+                        .await
+                        .insert_tracked_posting(
+                            implicated_cid,
+                            timeout,
+                            ticket,
+                            signal.clone(),
+                            on_timeout,
+                        )
+                        .await;
+                }
                 HyperNodePeerLayer::try_add_mailbox(&pers, target_cid, signal)
                     .await
                     .map_err(|err| err.into_string())
@@ -1244,12 +1259,20 @@ impl HdpSessionManager {
         implicated_cid: u64,
         target_cid: u64,
         ticket: Ticket,
-        peer_layer: &mut HyperNodePeerLayerInner,
+        session: &HdpSession,
         packet: impl FnOnce(&StackedRatchet) -> BytesMut,
         post_send: impl FnOnce(&HdpSession, PeerSignal) -> Result<PrimaryProcessorResult, NetworkError>,
     ) -> Result<Result<PrimaryProcessorResult, NetworkError>, String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
-        if let Some(tracked_posting) = peer_layer.remove_tracked_posting_inner(target_cid, ticket) {
+        let tracked_posting = {
+            session
+                .hypernode_peer_layer
+                .inner
+                .write()
+                .await
+                .remove_tracked_posting_inner(target_cid, ticket)
+        };
+        if let Some(tracked_posting) = tracked_posting {
             // since the posting was valid, we just need to forward the signal to `implicated_cid`
             let this = inner!(self);
             if let Some(target_sess) = this.sessions.get(&target_cid) {

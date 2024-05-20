@@ -94,7 +94,7 @@ impl NatType {
     /// `local_bind_addr`: Only relevant for localhost testing
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
         match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
@@ -445,7 +445,13 @@ where
     usize: From<<T as Sub>::Output>,
 {
     let vals = vals.as_ref().iter().copied().sorted().collect::<Vec<T>>();
+
+    if vals.is_empty() {
+        return 0;
+    }
+
     let count = vals.len() as f32;
+
     let sum_diff: usize = vals
         .into_iter()
         .tuple_windows()
@@ -457,7 +463,7 @@ where
 
 #[cfg_attr(
     feature = "localhost-testing",
-    tracing::instrument(target = "citadel", skip_all, ret, err(Debug))
+    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
 )]
 async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyhow::Error> {
     let stun_servers = if let Some(stun_servers) = &stun_servers {
@@ -484,7 +490,6 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 udp_sck.connect(server).await?;
                 let (handler_tx, mut handler_rx) = tokio::sync::mpsc::unbounded_channel();
                 log::trace!(target: "citadel", "Connected to STUN server {:?}", server);
-
                 let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
 
                 client.send(msg, Some(Arc::new(handler_tx))).await?;

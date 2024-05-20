@@ -8,7 +8,7 @@ use citadel_crypt::stacked_ratchet::constructor::{
 use std::sync::atomic::Ordering;
 
 /// This will handle a registration packet
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_register(
     session_ref: &HdpSession,
     packet: HdpPacket,
@@ -61,6 +61,7 @@ pub async fn process_register(
                                 }
 
                                 std::mem::drop(state_container);
+                                let session_password = session.session_password.clone();
 
                                 async move {
                                     let cid = header.session_cid.get();
@@ -72,6 +73,7 @@ pub async fn process_register(
                                             (transfer.security_level.value() + 1) as usize,
                                         ),
                                         transfer,
+                                        session_password.as_ref(),
                                     )
                                     .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
                                     let transfer = return_if_none!(
@@ -143,7 +145,10 @@ pub async fn process_register(
                         );
                         let security_level = transfer.security_level;
                         alice_constructor
-                            .stage1_alice(BobToAliceTransferType::Default(transfer))
+                            .stage1_alice(
+                                BobToAliceTransferType::Default(transfer),
+                                session.session_password.as_ref(),
+                            )
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
                         let new_hyper_ratchet = return_if_none!(
                             alice_constructor.finish(),

@@ -19,7 +19,7 @@ use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
-use crate::prelude::{DeleteObject, PullObject};
+use crate::prelude::{DeleteObject, PreSharedKey, PullObject};
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
 };
@@ -39,7 +39,6 @@ use citadel_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
 use citadel_wire::exports::Endpoint;
 use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
 use citadel_wire::tls::client_config_to_tls_connector;
-use std::convert::TryFrom;
 
 pub type TlsDomain = Option<String>;
 
@@ -59,10 +58,14 @@ pub struct NodeInner {
     nat_type: NatType,
     // for TLS params
     client_config: Arc<ClientConfig>,
+    // All connecting/registering clients must present this pre-shared password in order to register and connect
+    // to the server. This is an additional security measure to prevent unauthorized connections.
+    server_only_c2s_session_password: PreSharedKey,
 }
 
 impl Node {
     /// Creates a new [`Node`]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
         local_node_type: NodeType,
         to_kernel: UnboundedSender<NodeResult>,
@@ -71,6 +74,7 @@ impl Node {
         underlying_proto: ServerUnderlyingProtocol,
         client_config: Option<Arc<ClientConfig>>,
         stun_servers: Option<Vec<String>>,
+        server_only_c2s_session_password: Option<PreSharedKey>,
     ) -> io::Result<(
         NodeRemote,
         Pin<Box<dyn RuntimeFuture>>,
@@ -125,6 +129,7 @@ impl Node {
             session_manager,
             nat_type,
             client_config,
+            server_only_c2s_session_password: server_only_c2s_session_password.unwrap_or_default(),
         };
 
         let this = Self::from(inner);
@@ -161,7 +166,9 @@ impl Node {
 
         let (outbound_send_request_tx, outbound_send_request_rx) =
             BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
-        let kernel_async_callback_handler = KernelAsyncCallbackHandler::default();
+        let kernel_async_callback_handler = KernelAsyncCallbackHandler {
+            inner: Default::default(),
+        };
         let remote = NodeRemote::new(
             outbound_send_request_tx,
             kernel_async_callback_handler.clone(),
@@ -172,6 +179,7 @@ impl Node {
             .session_manager
             .load_server_remote_get_tt(remote.clone());
         let session_manager = read.session_manager.clone();
+        let server_only_session_password = read.server_only_c2s_session_password.clone();
 
         drop(read);
 
@@ -194,6 +202,7 @@ impl Node {
                         this.clone(),
                         tt,
                         kernel_tx.clone(),
+                        server_only_session_password,
                         session_spawner_tx.clone(),
                     ))
                 } else {
@@ -223,6 +232,7 @@ impl Node {
                         this.clone(),
                         tt,
                         kernel_tx.clone(),
+                        server_only_session_password,
                         session_spawner_tx.clone(),
                     ))
                 } else {
@@ -592,6 +602,7 @@ impl Node {
         server: Node,
         _tt: TimeTracker,
         to_kernel: UnboundedSender<NodeResult>,
+        server_only_session_password: PreSharedKey,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
     ) -> Result<(), NetworkError> {
         let primary_port_future = {
@@ -599,12 +610,13 @@ impl Node {
             let listener = this.primary_socket.take().unwrap();
             let session_manager = this.session_manager.clone();
             let local_nat_type = this.nat_type.clone();
-            std::mem::drop(this);
+            drop(this);
             Self::primary_session_creator_loop(
                 to_kernel,
                 local_nat_type,
                 session_manager,
                 listener,
+                server_only_session_password,
                 session_spawner,
             )
         };
@@ -617,6 +629,7 @@ impl Node {
         local_nat_type: NatType,
         session_manager: HdpSessionManager,
         mut socket: DualListener,
+        server_session_password: PreSharedKey,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
     ) -> Result<(), NetworkError> {
         loop {
@@ -632,6 +645,7 @@ impl Node {
                         local_nat_type.clone(),
                         peer_addr,
                         stream,
+                        server_session_password.clone(),
                     ) {
                         Ok(session) => {
                             session_spawner
@@ -643,6 +657,7 @@ impl Node {
                             to_kernel.unbounded_send(NodeResult::InternalServerError(
                                 InternalServerError {
                                     ticket_opt: None,
+                                    cid_opt: None,
                                     message: format!(
                                         "HDP Server dropping connection to {peer_addr}. Reason: {err}"
                                     ),
@@ -704,6 +719,7 @@ impl Node {
             if to_kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: Some(ticket_id),
+                    cid_opt: None,
                     message: err.clone(),
                 }))
                 .is_err()
@@ -736,6 +752,7 @@ impl Node {
                     remote_addr: peer_addr,
                     proposed_credentials: credentials,
                     static_security_settings: security_settings,
+                    session_password,
                 }) => {
                     match session_manager
                         .initiate_connection(
@@ -749,6 +766,7 @@ impl Node {
                             None,
                             security_settings,
                             &default_client_config,
+                            session_password,
                         )
                         .await
                     {
@@ -770,6 +788,7 @@ impl Node {
                     udp_mode,
                     keep_alive_timeout,
                     session_security_settings: security_settings,
+                    session_password,
                 }) => {
                     match session_manager
                         .initiate_connection(
@@ -783,6 +802,7 @@ impl Node {
                             keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
                             security_settings,
                             &default_client_config,
+                            session_password,
                         )
                         .await
                     {

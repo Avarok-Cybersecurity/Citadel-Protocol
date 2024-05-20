@@ -24,20 +24,34 @@ pub struct NodeBuilder {
     client_tls_config: Option<RustlsClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
+    server_session_password: Option<PreSharedKey>,
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
 pub struct NodeFuture<'a, K> {
-    inner: Pin<Box<dyn LocalFutureContextRequirements<'a, Result<K, NetworkError>>>>,
+    inner: Pin<Box<dyn FutureContextRequirements<'a, Result<K, NetworkError>>>>,
     _pd: PhantomData<fn() -> K>,
 }
 
-trait LocalFutureContextRequirements<'a, Output>:
+#[cfg(feature = "multi-threaded")]
+trait FutureContextRequirements<'a, Output>:
+    Future<Output = Output> + Send + LocalContextRequirements<'a>
+{
+}
+#[cfg(feature = "multi-threaded")]
+impl<'a, T: Future<Output = Output> + Send + LocalContextRequirements<'a>, Output>
+    FutureContextRequirements<'a, Output> for T
+{
+}
+
+#[cfg(not(feature = "multi-threaded"))]
+trait FutureContextRequirements<'a, Output>:
     Future<Output = Output> + LocalContextRequirements<'a>
 {
 }
+#[cfg(not(feature = "multi-threaded"))]
 impl<'a, T: Future<Output = Output> + LocalContextRequirements<'a>, Output>
-    LocalFutureContextRequirements<'a, Output> for T
+    crate::builder::node_builder::FutureContextRequirements<'a, Output> for T
 {
 }
 
@@ -91,6 +105,8 @@ impl NodeBuilder {
                 .map_err(|err| anyhow::Error::msg(err.into_string()))?
         };
 
+        let server_only_session_password = self.server_session_password.take();
+
         Ok(NodeFuture {
             _pd: Default::default(),
             inner: Box::pin(async move {
@@ -115,6 +131,7 @@ impl NodeBuilder {
                     client_config,
                     kernel_executor_settings,
                     stun_servers,
+                    server_only_session_password,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -255,6 +272,15 @@ impl NodeBuilder {
     /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
     pub fn with_stun_servers<T: Into<String>, R: Into<Vec<T>>>(&mut self, servers: R) -> &mut Self {
         self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
+        self
+    }
+
+    /// Sets the pre-shared key for the server. Only a server should set this value
+    /// If no value is set, any client can connect to the server. If a pre-shared key
+    /// is specified, the client must have the matching pre-shared key in order to
+    /// register and connect with the server.
+    pub fn with_server_password<T: Into<PreSharedKey>>(&mut self, password: T) -> &mut Self {
+        self.server_session_password = Some(password.into());
         self
     }
 

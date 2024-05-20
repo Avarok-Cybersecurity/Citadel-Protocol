@@ -2,13 +2,13 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use crate::proto::state_container::VirtualConnectionType;
 use citadel_types::proto::ConnectMode;
+use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
 use std::sync::atomic::Ordering;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "citadel", skip_all, ret, err, fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_connect(
     sess_ref: &HdpSession,
     packet: HdpPacket,
@@ -55,12 +55,18 @@ pub async fn process_connect(
         match header.cmd_aux {
             // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
             packet_flags::cmd::aux::do_connect::STAGE0 => {
-                log::trace!(target: "citadel", "STAGE 2 CONNECT PACKET");
+                log::trace!(target: "citadel", "STAGE 0 CONNECT PACKET");
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
-                        Ok(_) => {
+                        Ok(stage0_packet) => {
                             let mut state_container = inner_mut_state!(session.state_container);
-
+                            let local_uses_file_system = matches!(
+                                session.account_manager.get_backend_type(),
+                                BackendType::Filesystem(..)
+                            );
+                            session
+                                .file_transfer_compatible
+                                .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
                             let cid = hyper_ratchet.get_cid();
                             let success_time = session.time_tracker.get_global_time_ns();
                             let addr = session.remote_peer;
@@ -131,6 +137,7 @@ pub async fn process_connect(
                                         peers,
                                         success_time,
                                         security_level,
+                                        session.account_manager.get_backend_type(),
                                     );
 
                                 session.implicated_cid.set(Some(cid));
@@ -177,6 +184,7 @@ pub async fn process_connect(
                                 Vec::new(),
                                 fail_time,
                                 security_level,
+                                session.account_manager.get_backend_type(),
                             );
                             return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                         }
@@ -228,6 +236,14 @@ pub async fn process_connect(
                 let task = {
                     let mut state_container = inner_mut_state!(session.state_container);
                     let last_stage = state_container.connect_state.last_stage;
+                    let remote_uses_filesystem = header.group.get() != 0;
+                    let local_uses_file_system = matches!(
+                        session.account_manager.get_backend_type(),
+                        BackendType::Filesystem(..)
+                    );
+                    session
+                        .file_transfer_compatible
+                        .set_once(local_uses_file_system && remote_uses_filesystem);
 
                     if last_stage == packet_flags::cmd::aux::do_connect::STAGE1 {
                         if let Some(payload) =
