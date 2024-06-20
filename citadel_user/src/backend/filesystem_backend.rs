@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::prelude::PeerInfo;
 use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
@@ -113,6 +114,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
         self.memory_backend.get_username_by_cid(cid).await
+    }
+
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        self.memory_backend.get_full_name_by_cid(cid).await
+    }
+
+    async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, PeerInfo> {
+        self.memory_backend.get_peer_info_from_cids(cids).await
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {

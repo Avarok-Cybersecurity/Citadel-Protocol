@@ -10,8 +10,10 @@ use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSet
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_types::prelude::PeerInfo;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
+use std::collections::HashMap;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -200,8 +202,18 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         self.persistence_handler.get_username_by_cid(cid).await
     }
 
+    /// Gets full name by CID
+    pub async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        self.persistence_handler.get_full_name_by_cid(cid).await
+    }
+
+    /// Gets user info for all the given CIDs, omitting any invalid users from the returned values
+    pub async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, PeerInfo> {
+        self.persistence_handler.get_peer_info_from_cids(cids).await
+    }
+
     /// Returns the first username detected. This is not advised to use, because overlapping usernames are entirely possible.
-    /// Instead, use get_client_by_cid, as the cid is unique unlike the cid
+    /// Instead, use get_client_by_cid, as the cid is unique unlike the username
     pub async fn get_client_by_username<T: AsRef<str>>(
         &self,
         username: T,

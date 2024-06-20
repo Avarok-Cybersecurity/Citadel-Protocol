@@ -18,6 +18,7 @@ use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user;
 use citadel_types::user::MutualPeer;
+use citadel_types::user::PeerInfo;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
@@ -166,6 +167,10 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     ) -> Result<Option<Vec<u64>>, AccountError>;
     /// Gets the username by CID
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
+    /// Gets the full name by CID
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
+    /// Gets user info for all given CIDs in a HashMap using CID as the key. Omits any invalid CIDs
+    async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, PeerInfo>;
     /// Gets the CID by username
     fn get_cid_by_username(&self, username: &str) -> u64 {
         user::username_to_cid(username)

@@ -3,6 +3,7 @@ use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;
 use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_types::prelude::PeerInfo;
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use parking_lot::RwLock;
@@ -97,6 +98,34 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
         Ok(self.clients.read().get(&cid).map(|r| r.get_username()))
+    }
+
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        Ok(self
+            .clients
+            .read()
+            .get(&cid)
+            .map(|r| r.get_metadata().full_name))
+    }
+
+    async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, PeerInfo> {
+        let mut peers = HashMap::new();
+        let _ = self
+            .clients
+            .read()
+            .iter()
+            .filter(|&user| cids.contains(user.0))
+            .map(|user| {
+                peers.insert(
+                    *user.0,
+                    PeerInfo {
+                        cid: *user.0,
+                        username: user.1.get_username(),
+                        full_name: user.1.get_metadata().full_name,
+                    },
+                )
+            });
+        peers
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
