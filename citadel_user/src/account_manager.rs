@@ -3,7 +3,7 @@ use crate::backend::memory::MemoryBackend;
 use crate::backend::{BackendType, PersistenceHandler};
 use crate::client_account::ClientNetworkAccount;
 use crate::external_services::{ServicesConfig, ServicesHandler};
-use crate::misc::AccountError;
+use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
@@ -13,7 +13,11 @@ use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_types::prelude::PeerInfo;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
+use futures::stream::FuturesOrdered;
+use futures::StreamExt;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -208,8 +212,51 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     }
 
     /// Gets user info for all the given CIDs, omitting any invalid users from the returned values
-    pub async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, PeerInfo> {
-        self.persistence_handler.get_peer_info_from_cids(cids).await
+    pub async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, Option<PeerInfo>> {
+        let mut peer_info = HashMap::new();
+        let mut queue = FuturesOrdered::<
+            Pin<Box<dyn Future<Output = Result<Option<CNACMetadata>, AccountError>>>>,
+        >::new();
+        for cid in cids {
+            queue.push_back(Box::pin(self.persistence_handler.get_client_metadata(*cid)))
+        }
+        let mut results = futures::executor::block_on(queue.collect::<Vec<_>>());
+        let mut metadata: Vec<&Option<CNACMetadata>> = results
+            .iter_mut()
+            .map(|result| result.as_ref().unwrap_or(&None))
+            .collect();
+        let _ = cids
+            .iter()
+            .zip(metadata.iter_mut())
+            .map(|(&cid, &mut user_data)| {
+                peer_info.insert(
+                    cid,
+                    user_data.as_ref().map(|some| PeerInfo {
+                        cid: some.cid.clone(),
+                        username: some.username.clone(),
+                        full_name: some.full_name.clone(),
+                    }),
+                )
+            });
+        // while let res = queue.next().await {
+        //     match res {
+        //         None => break,
+        //         Some(result) => {
+        //             match result.unwrap_or(None) {
+        //                 None => continue,
+        //                 Some(info) => peer_info.insert(
+        //                     info.cid,
+        //                     Some(PeerInfo {
+        //                         cid: info.cid,
+        //                         username: info.username,
+        //                         full_name: info.full_name,
+        //                     }),
+        //                 ),
+        //             };
+        //         }
+        //     };
+        // }
+        peer_info
     }
 
     /// Returns the first username detected. This is not advised to use, because overlapping usernames are entirely possible.

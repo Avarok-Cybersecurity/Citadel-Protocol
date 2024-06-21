@@ -770,7 +770,7 @@ pub enum PeerResponse {
     None,
     ServerReceivedRequest,
     Timeout,
-    RegisteredCids(Vec<PeerInfo>, Vec<bool>),
+    RegisteredCids(Vec<Option<PeerInfo>>, Vec<bool>),
 }
 
 impl PeerResponse {

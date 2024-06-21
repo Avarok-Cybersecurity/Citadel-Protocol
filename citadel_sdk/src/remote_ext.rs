@@ -394,11 +394,13 @@ pub trait ProtocolRemoteExt: Remote {
                 return Ok(peer_info
                     .into_iter()
                     .zip(is_onlines.into_iter())
-                    .map(|(peer_info, is_online)| LocalGroupPeerFullInfo {
-                        cid: peer_info.cid,
-                        username: Some(peer_info.username),
-                        full_name: Some(peer_info.full_name),
-                        is_online,
+                    .filter_map(|(peer_info, is_online)| {
+                        peer_info.map(|info| LocalGroupPeerFullInfo {
+                            cid: info.cid,
+                            username: Some(info.username),
+                            full_name: Some(info.full_name),
+                            is_online,
+                        })
                     })
                     .collect());
             }
@@ -439,11 +441,13 @@ pub trait ProtocolRemoteExt: Remote {
                 return Ok(peer_info
                     .into_iter()
                     .zip(is_onlines.into_iter())
-                    .map(|(peer_info, is_online)| LocalGroupPeerFullInfo {
-                        cid: peer_info.cid,
-                        username: Some(peer_info.username),
-                        full_name: Some(peer_info.full_name),
-                        is_online,
+                    .filter_map(|(peer_info, is_online)| {
+                        peer_info.map(|info| LocalGroupPeerFullInfo {
+                            cid: info.cid,
+                            username: Some(info.username),
+                            full_name: Some(info.full_name),
+                            is_online,
+                        })
                     })
                     .collect());
             }
