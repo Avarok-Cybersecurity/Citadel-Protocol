@@ -221,14 +221,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             queue.push_back(Box::pin(self.persistence_handler.get_client_metadata(*cid)))
         }
         let mut results = futures::executor::block_on(queue.collect::<Vec<_>>());
-        let mut metadata: Vec<&Option<CNACMetadata>> = results
+        let metadata: Vec<&Option<CNACMetadata>> = results
             .iter_mut()
             .map(|result| result.as_ref().unwrap_or(&None))
             .collect();
-        let _ = cids
+        let _: Vec<_> = cids
             .iter()
-            .zip(metadata.iter_mut())
-            .map(|(&cid, &mut user_data)| {
+            .zip(metadata.into_iter())
+            .map(|(&cid, &ref user_data)| {
                 peer_info.insert(
                     cid,
                     user_data.as_ref().map(|some| PeerInfo {
@@ -237,25 +237,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                         full_name: some.full_name.clone(),
                     }),
                 )
-            });
-        // while let res = queue.next().await {
-        //     match res {
-        //         None => break,
-        //         Some(result) => {
-        //             match result.unwrap_or(None) {
-        //                 None => continue,
-        //                 Some(info) => peer_info.insert(
-        //                     info.cid,
-        //                     Some(PeerInfo {
-        //                         cid: info.cid,
-        //                         username: info.username,
-        //                         full_name: info.full_name,
-        //                     }),
-        //                 ),
-        //             };
-        //         }
-        //     };
-        // }
+            })
+            .collect();
         peer_info
     }
 
