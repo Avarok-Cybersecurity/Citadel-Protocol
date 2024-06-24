@@ -127,7 +127,6 @@ impl HdpSessionManager {
 
     /// Called by the higher-level [Node] async writer loop
     /// `nid_local` is only needed in case a provisional id is needed.
-    ///
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(clippy::too_many_arguments)]
@@ -658,7 +657,6 @@ impl HdpSessionManager {
         }
     }
 
-    ///
     pub fn check_online_status(&self, users: &[u64]) -> Vec<bool> {
         let this = inner!(self);
         users
@@ -697,10 +695,8 @@ impl HdpSessionManager {
 
     /// This upgrades a provisional connection to a full connection. Returns true if the upgrade
     /// succeeded, false otherwise
-    ///
     /// Adds the internal queues to the hypernode_peer_layer. This function thus MUST be called during the
     /// DO_CONNECT stage
-    ///
     /// This will return false if the provisional connection was already removed. This can happen to really
     /// slow connections, or during background execution on android/ios
     pub fn upgrade_connection(&self, socket_addr: SocketAddr, implicated_cid: u64) -> bool {
@@ -1183,7 +1179,6 @@ impl HdpSessionManager {
     /// `mail_if_offline`: Deposits mail if the target is offline
     /// NOTE: it is the duty of the calling closure to ensure that the [MessageGroup] exists!
     /// NOTE: This does not check to see if the two peers can send to each other. That is up to the caller to ensure that
-    ///
     pub async fn send_group_broadcast_signal_to(
         &self,
         timestamp: i64,

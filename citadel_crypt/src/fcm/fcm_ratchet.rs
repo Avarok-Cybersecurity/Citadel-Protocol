@@ -36,7 +36,6 @@ impl ThinRatchet {
 }
 
 #[derive(Serialize, Deserialize)]
-///
 pub struct ThinRatchetInner {
     drill: EntropyBank,
     pqc: PostQuantumContainer,
@@ -199,7 +198,6 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
 }
 
 #[derive(Serialize, Deserialize)]
-///
 pub struct FcmAliceToBobTransfer {
     transfer_params: AliceToBobTransferParameters,
     pub params: CryptoParameters,
@@ -232,7 +230,6 @@ impl ThinRatchetConstructor {
         })
     }
 
-    ///
     pub fn new_bob(
         opts: ConstructorOpts,
         transfer: FcmAliceToBobTransfer,
@@ -253,7 +250,6 @@ impl ThinRatchetConstructor {
         })
     }
 
-    ///
     pub fn stage0_alice(&self) -> Option<FcmAliceToBobTransfer> {
         let pk = self.pqc.generate_alice_to_bob_transfer().ok()?;
         Some(FcmAliceToBobTransfer {
@@ -265,7 +261,6 @@ impl ThinRatchetConstructor {
         })
     }
 
-    ///
     pub fn stage0_bob(&self) -> Option<FcmBobToAliceTransfer> {
         Some(FcmBobToAliceTransfer {
             params_tx: self.pqc.generate_bob_to_alice_transfer().ok()?,
@@ -276,7 +271,6 @@ impl ThinRatchetConstructor {
         })
     }
 
-    ///
     pub fn stage1_alice(
         &mut self,
         transfer: FcmBobToAliceTransfer,
@@ -294,21 +288,18 @@ impl ThinRatchetConstructor {
         Ok(())
     }
 
-    ///
     pub fn update_version(&mut self, version: u32) -> Option<()> {
         self.version = version;
         self.drill.as_mut()?.version = version;
         Some(())
     }
 
-    ///
     pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<ThinRatchet> {
         self.cid = cid;
         self.drill.as_mut()?.cid = cid;
         self.finish()
     }
 
-    ///
     pub fn finish(self) -> Option<ThinRatchet> {
         ThinRatchet::try_from(self).ok()
     }

@@ -412,7 +412,6 @@ impl HdpSession {
 
     /// Once the [HdpSession] is created, it can then be executed to begin handling a periodic connection handler.
     /// This will automatically stop running once the internal state is set to Disconnected
-    ///
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
     #[cfg_attr(

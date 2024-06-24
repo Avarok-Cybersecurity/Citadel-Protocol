@@ -6,7 +6,6 @@ use bytes::BytesMut;
 
 /// For the custom BytesCodec that doesn't overflow
 pub(crate) mod codec;
-///
 pub(crate) mod endpoint_crypto_accessor;
 pub(crate) mod misc;
 /// Used at each HyperNode
@@ -21,7 +20,6 @@ pub(crate) mod packet;
 pub(crate) mod packet_crafter;
 /// Contains the library for processing inbound packet types. all #[inline]'d
 pub(crate) mod packet_processor;
-///
 pub(crate) mod peer;
 pub mod remote;
 /// Each CID gets a session

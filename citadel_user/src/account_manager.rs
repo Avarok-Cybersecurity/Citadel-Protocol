@@ -228,11 +228,11 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let _: Vec<_> = cids
             .iter()
             .zip(metadata.into_iter())
-            .map(|(&cid, &ref user_data)| {
+            .map(|(&cid, user_data)| {
                 peer_info.insert(
                     cid,
                     user_data.as_ref().map(|some| PeerInfo {
-                        cid: some.cid.clone(),
+                        cid: some.cid,
                         username: some.username.clone(),
                         full_name: some.full_name.clone(),
                     }),
