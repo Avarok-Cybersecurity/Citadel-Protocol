@@ -611,7 +611,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                                 LockType::Read => {
                                     // load inside local map to allow instant local read access
                                     let lock = Some(Arc::new(lock));
-                                    *read_lock_local.write() = lock.clone();
+                                    read_lock_local.write().clone_from(&lock);
                                     LocalLockHolder::Read(lock, true)
                                 }
 

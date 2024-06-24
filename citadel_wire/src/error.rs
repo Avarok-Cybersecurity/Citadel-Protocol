@@ -1,3 +1,4 @@
+use std::fmt::Formatter;
 use tokio::io::Error;
 
 #[derive(Debug)]
@@ -16,16 +17,19 @@ impl FirewallError {
     }
 }
 
-impl ToString for FirewallError {
-    fn to_string(&self) -> String {
-        match self {
-            FirewallError::UPNP(err) => err.to_string(),
-            FirewallError::HolePunch(err) => err.to_string(),
-            FirewallError::NotApplicable => "Method not applicable to local node".to_string(),
-            FirewallError::HolePunchExhausted => "No more NAT traversal methods exist".to_string(),
-            FirewallError::LocalIPAddrFail => "Unable to obtain local IP info".to_string(),
-            FirewallError::Skip => "Skipped".to_string(),
-        }
+impl std::fmt::Display for FirewallError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FirewallError::UPNP(err) | FirewallError::HolePunch(err) => err,
+                FirewallError::NotApplicable => "Method not applicable to local node",
+                FirewallError::HolePunchExhausted => "No more NAT traversal methods exist",
+                FirewallError::LocalIPAddrFail => "Unable to obtain local IP info",
+                FirewallError::Skip => "Skipped",
+            }
+        )
     }
 }
 

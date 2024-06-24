@@ -18,15 +18,12 @@ impl<'a, T: Send + 'a> NetJoin<'a, T> {
         S: Subscribable<ID = K, UnderlyingConn = Conn>,
         K: MultiplexedConnKey + 'a,
         Conn: ReliableOrderedStreamToTarget + 'static,
-        F: Send + 'a,
+        F: Future<Output = T> + Send + 'a,
     >(
         conn: &'a S,
         local_node_type: RelativeNodeType,
         future: F,
-    ) -> Self
-    where
-        F: Future<Output = T>,
-    {
+    ) -> Self {
         // we can safely unwrap since we are wrapping the result in an Ok()
         Self {
             future: Box::pin(

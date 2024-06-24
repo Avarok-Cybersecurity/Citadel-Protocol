@@ -12,6 +12,7 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::fmt::Formatter;
 use std::net::IpAddr;
 #[cfg(not(target_family = "wasm"))]
 use std::net::SocketAddr;
@@ -190,10 +191,10 @@ pub enum IpRetrieveError {
     Error(String),
 }
 
-impl ToString for IpRetrieveError {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for IpRetrieveError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            IpRetrieveError::Error(err) => err.to_string(),
+            IpRetrieveError::Error(err) => write!(f, "{}", err),
         }
     }
 }
