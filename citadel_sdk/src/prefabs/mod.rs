@@ -78,9 +78,17 @@ impl ClientServerRemote {
         limit: Option<usize>,
     ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
         let implicated_cid = self.conn_type.get_implicated_cid();
-        self.inner
+        let peer_info = self
+            .inner
             .get_local_group_peers(implicated_cid, limit)
-            .await
+            .await?;
+        Ok(peer_info
+            .iter()
+            .map(|info| LocalGroupPeer {
+                cid: info.cid,
+                is_online: info.is_online,
+            })
+            .collect())
     }
 }
 

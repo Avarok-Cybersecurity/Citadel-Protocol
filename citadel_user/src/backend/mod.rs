@@ -166,6 +166,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     ) -> Result<Option<Vec<u64>>, AccountError>;
     /// Gets the username by CID
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
+    /// Gets the full name by CID
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
     /// Gets the CID by username
     fn get_cid_by_username(&self, username: &str) -> u64 {
         user::username_to_cid(username)

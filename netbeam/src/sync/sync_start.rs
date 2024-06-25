@@ -20,21 +20,15 @@ impl<'a, R: 'a> NetSyncStart<'a, R> {
         S: Subscribable<ID = K, UnderlyingConn = Conn>,
         K: MultiplexedConnKey + 'a,
         Conn: ReliableOrderedStreamToTarget + 'static,
-        F: 'a,
-        Fx: 'a,
+        F: Future<Output = R> + Send + 'a,
+        Fx: FnOnce(P) -> F + Send + 'a,
         P: Serialize + DeserializeOwned + Send + Sync + 'a,
     >(
         conn: &'a S,
         relative_node_type: RelativeNodeType,
         future: Fx,
         payload: P,
-    ) -> Self
-    where
-        F: Future<Output = R>,
-        F: Send,
-        Fx: FnOnce(P) -> F,
-        Fx: Send,
-    {
+    ) -> Self {
         Self {
             future: Box::pin(synchronize(conn, relative_node_type, future, payload)),
         }

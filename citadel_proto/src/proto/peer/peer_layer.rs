@@ -6,6 +6,7 @@ use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_types::prelude::PeerInfo;
 use citadel_types::proto::{
     GroupType, MessageGroupKey, MessageGroupOptions, SessionSecuritySettings, UdpMode,
     VirtualObjectMetadata,
@@ -769,7 +770,7 @@ pub enum PeerResponse {
     None,
     ServerReceivedRequest,
     Timeout,
-    RegisteredCids(Vec<u64>, Vec<bool>),
+    RegisteredCids(Vec<Option<PeerInfo>>, Vec<bool>),
 }
 
 impl PeerResponse {

@@ -25,29 +25,17 @@ pub mod includes {
     pub use super::PrimaryProcessorResult;
 }
 
-///
 pub mod connect_packet;
-///
 pub mod deregister_packet;
-///
 pub mod disconnect_packet;
-///
 pub mod file_packet;
-///
 pub mod keep_alive_packet;
-///
 pub mod peer;
-///
 pub mod preconnect_packet;
-///
 pub mod primary_group_packet;
-///
 pub mod raw_primary_packet;
-///
 pub mod register_packet;
-///
 pub mod rekey_packet;
-///
 pub mod udp_packet;
 //
 pub mod hole_punch;

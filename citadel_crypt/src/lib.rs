@@ -43,7 +43,7 @@ pub mod secure_buffer;
 pub mod stacked_ratchet;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod streaming_crypt_scrambler;
-///
+
 pub mod sync_toggle;
 /// Provides drill management, update, and versioning. This is what's exposed to the citadel_user api. The drills themselves are abstracted beneath
 pub mod toolset;

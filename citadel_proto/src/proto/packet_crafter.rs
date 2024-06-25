@@ -75,7 +75,6 @@ pub struct GroupTransmitter {
 
 /// The base ratchet is always required, whether between HyperLAN peer to server or hyperlan p2p.
 /// base_constructor may not be present, since a concurrent update may already be occurring
-///
 /// Fcm may be present, in which case, the innermost encryption pass goes through the fcm ratchet to ensure
 /// Google can't see the information. The fcm constructor may not be present either, since a concurrent update may
 /// be occurring
@@ -665,9 +664,7 @@ pub(crate) mod do_register {
     }
 
     /// At this stage, the drill does not exist. There is no verifying such packets. The payload contains Alice's public key.
-    ///
     /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
-    ///
     /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
     pub(crate) fn craft_stage0(
         algorithm: u8,

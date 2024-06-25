@@ -18,7 +18,7 @@ use rayon::prelude::*;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
-///
+
 pub const MAX_WAVEFORM_PACKET_SIZE: usize = 480;
 
 /// The overhead of the GHASH function

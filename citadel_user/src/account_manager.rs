@@ -3,15 +3,21 @@ use crate::backend::memory::MemoryBackend;
 use crate::backend::{BackendType, PersistenceHandler};
 use crate::client_account::ClientNetworkAccount;
 use crate::external_services::{ServicesConfig, ServicesHandler};
-use crate::misc::AccountError;
+use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
 use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_types::prelude::PeerInfo;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
+use futures::stream::FuturesOrdered;
+use futures::StreamExt;
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -200,8 +206,44 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         self.persistence_handler.get_username_by_cid(cid).await
     }
 
+    /// Gets full name by CID
+    pub async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        self.persistence_handler.get_full_name_by_cid(cid).await
+    }
+
+    /// Gets user info for all the given CIDs, omitting any invalid users from the returned values
+    pub async fn get_peer_info_from_cids(&self, cids: &[u64]) -> HashMap<u64, Option<PeerInfo>> {
+        let mut peer_info = HashMap::new();
+        let mut queue = FuturesOrdered::<
+            Pin<Box<dyn Future<Output = Result<Option<CNACMetadata>, AccountError>>>>,
+        >::new();
+        for cid in cids {
+            queue.push_back(Box::pin(self.persistence_handler.get_client_metadata(*cid)))
+        }
+        let mut results = futures::executor::block_on(queue.collect::<Vec<_>>());
+        let metadata: Vec<&Option<CNACMetadata>> = results
+            .iter_mut()
+            .map(|result| result.as_ref().unwrap_or(&None))
+            .collect();
+        let _: Vec<_> = cids
+            .iter()
+            .zip(metadata.into_iter())
+            .map(|(&cid, user_data)| {
+                peer_info.insert(
+                    cid,
+                    user_data.as_ref().map(|some| PeerInfo {
+                        cid: some.cid,
+                        username: some.username.clone(),
+                        full_name: some.full_name.clone(),
+                    }),
+                )
+            })
+            .collect();
+        peer_info
+    }
+
     /// Returns the first username detected. This is not advised to use, because overlapping usernames are entirely possible.
-    /// Instead, use get_client_by_cid, as the cid is unique unlike the cid
+    /// Instead, use get_client_by_cid, as the cid is unique unlike the username
     pub async fn get_client_by_username<T: AsRef<str>>(
         &self,
         username: T,

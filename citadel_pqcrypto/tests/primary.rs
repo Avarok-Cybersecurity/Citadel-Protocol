@@ -301,8 +301,8 @@ mod tests {
             // pretend someone grabs the header + ciphertext
             let mut intercepted_packet = buf.clone();
             if y == 0 {
-                zeroth = intercepted_packet.clone();
-                zeroth_nonce = nonce.clone();
+                zeroth.clone_from(&intercepted_packet);
+                zeroth_nonce.clone_from(&nonce);
             }
 
             // to simulate out-of order delivery, protect a new packet in place and validate that one

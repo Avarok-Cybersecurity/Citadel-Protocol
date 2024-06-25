@@ -82,17 +82,14 @@ impl CredentialRequirements {
     }
 }
 
-///
 pub const MIN_PASSWORD_LENGTH: u8 = 7;
-///
+
 pub const MAX_PASSWORD_LENGTH: u8 = 17;
 
-///
 pub const MIN_USERNAME_LENGTH: u8 = 3;
-///
+
 pub const MAX_USERNAME_LENGTH: u8 = 37;
 
-///
 pub const MIN_NAME_LENGTH: u8 = 2;
-///
+
 pub const MAX_NAME_LENGTH: u8 = 77;

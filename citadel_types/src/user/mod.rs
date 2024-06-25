@@ -13,6 +13,17 @@ pub struct MutualPeer {
     pub username: Option<String>,
 }
 
+/// Contains info about a peer, used for giving the user access to usernames and names of peers
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PeerInfo {
+    /// the client to which belongs within `parent_icid`
+    pub cid: u64,
+    /// The username of this peer
+    pub username: String,
+    /// The full name of this peer
+    pub full_name: String,
+}
+
 impl PartialEq for MutualPeer {
     fn eq(&self, other: &Self) -> bool {
         self.parent_icid == other.parent_icid

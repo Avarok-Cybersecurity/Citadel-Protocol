@@ -24,7 +24,6 @@ impl SessionSecuritySettingsBuilder {
 
     /// Sets the session secrecy mode. If Perfect is selected, then each message is guaranteed to use only a single symmetric key for encryption (best for high-security protocols that do not need high throughput)
     /// If BestEffort is selected, the protocol will attempt to re-key the system at the earliest opportunity, and will not enqueue packets if a re-key has not yet completed (best for high-throughput applications)
-    ///
     /// If high relatively throughput is desired, but additional security is needed, consider coupling BestEffort mode with a higher security level for multi-layered cryptography
     /// ```
     /// use citadel_proto::prelude::{SessionSecuritySettingsBuilder, SecrecyMode};

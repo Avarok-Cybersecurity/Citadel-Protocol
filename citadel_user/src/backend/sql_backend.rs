@@ -305,6 +305,20 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         }
     }
 
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        let conn = &(self.get_conn().await?);
+        let query = self.format("SELECT full_name FROM cnacs WHERE cid = ? LIMIT 1");
+        let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
+            .fetch_optional(conn)
+            .await?;
+
+        if let Some(row) = query {
+            Ok(Some(try_get_blob_as_utf8("full_name", &row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     // We want to also update the CNACs involved
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);

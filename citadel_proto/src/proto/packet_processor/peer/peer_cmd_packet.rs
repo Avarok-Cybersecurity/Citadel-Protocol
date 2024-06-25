@@ -1408,12 +1408,18 @@ async fn process_signal_command_as_server(
                         // TODO: Make check_online_status check database for database mode
                         let online_status =
                             session_manager.check_online_status(&registered_local_clients);
+                        let peer_info = account_manager
+                            .get_peer_info_from_cids(&registered_local_clients)
+                            .await;
+                        let mut all_peers = Vec::new();
+                        for client in registered_local_clients.iter() {
+                            if let Some(info) = peer_info.get(client) {
+                                all_peers.push(info.clone());
+                            }
+                        }
                         PeerSignal::GetRegisteredPeers {
                             peer_conn_type: hypernode_conn_type,
-                            response: Some(PeerResponse::RegisteredCids(
-                                registered_local_clients,
-                                online_status,
-                            )),
+                            response: Some(PeerResponse::RegisteredCids(all_peers, online_status)),
                             limit,
                         }
                     } else {
@@ -1455,9 +1461,16 @@ async fn process_signal_command_as_server(
                     .await?
                 {
                     let online_status = session_manager.check_online_status(&mutuals);
+                    let peer_info = account_manager.get_peer_info_from_cids(&mutuals).await;
+                    let mut all_peers = Vec::new();
+                    for client in mutuals.iter() {
+                        if let Some(info) = peer_info.get(client) {
+                            all_peers.push(info.clone());
+                        }
+                    }
                     PeerSignal::GetMutuals {
                         v_conn_type: hypernode_conn_type,
-                        response: Some(PeerResponse::RegisteredCids(mutuals, online_status)),
+                        response: Some(PeerResponse::RegisteredCids(all_peers, online_status)),
                     }
                 } else {
                     PeerSignal::GetMutuals {

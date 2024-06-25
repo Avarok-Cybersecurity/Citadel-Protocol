@@ -768,7 +768,6 @@ fn forward_signal(
 }
 
 /// Returns None if the implicated_cid is NOT the key's cid.
-///
 /// Passing the permission gate requires that the implicated_cid is the key's owning cid
 fn permission_gate(implicated_cid: u64, key: MessageGroupKey) -> Option<()> {
     if implicated_cid != key.cid {
