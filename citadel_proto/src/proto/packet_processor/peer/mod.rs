@@ -2,13 +2,9 @@ use crate::error::NetworkError;
 use crate::prelude::{ConnectFail, NodeResult, Ticket};
 use crate::proto::session::HdpSession;
 
-///
 pub mod group_broadcast;
-///
 pub mod peer_cmd_packet;
-///
 pub mod server;
-///
 pub mod signal_handler_interface;
 
 pub(crate) fn send_dc_signal_peer<T: Into<String>>(

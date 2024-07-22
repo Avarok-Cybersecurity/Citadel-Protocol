@@ -141,37 +141,43 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     /// Both nodes execute a function, returning once one of the functions gets evaluated
-    pub fn net_select<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetSelect<'a, R>
-    where
-        F: Future<Output = R>,
-    {
+    pub fn net_select<'a, F: Future<Output = R> + Send + 'a, R: Send + 'a>(
+        &'a self,
+        future: F,
+    ) -> NetSelect<'a, R> {
         NetSelect::new(self, self.node_type(), future)
     }
 
     /// Both nodes execute a function, returning once one of the nodes achieves an Ok result
-    pub fn net_select_ok<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetSelectOk<'a, R>
-    where
-        F: Future<Output = Result<R, anyhow::Error>>,
-    {
+    pub fn net_select_ok<
+        'a,
+        F: Future<Output = Result<R, anyhow::Error>> + Send + 'a,
+        R: Send + 'a,
+    >(
+        &'a self,
+        future: F,
+    ) -> NetSelectOk<'a, R> {
         NetSelectOk::new(self, self.node_type(), future)
     }
 
     /// Both nodes execute a function, returning the output once both nodes finish the operation
-    pub fn net_join<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetJoin<'a, R>
-    where
-        F: Future<Output = R>,
-    {
+    pub fn net_join<'a, F: Future<Output = R> + Send + 'a, R: Send + 'a>(
+        &'a self,
+        future: F,
+    ) -> NetJoin<'a, R> {
         NetJoin::new(self, self.node_type(), future)
     }
 
     /// Both nodes attempt to execute a fallible function. Returns once both functions return Ok, or, when one returns an error
-    pub fn net_try_join<'a, F: Send + 'a, R: Send + 'a, E: Send + 'a>(
+    pub fn net_try_join<
+        'a,
+        F: Future<Output = Result<R, E>> + Send + 'a,
+        R: Send + 'a,
+        E: Send + 'a,
+    >(
         &'a self,
         future: F,
-    ) -> NetTryJoin<'a, R, E>
-    where
-        F: Future<Output = Result<R, E>>,
-    {
+    ) -> NetTryJoin<'a, R, E> {
         NetTryJoin::new(self, self.node_type(), future)
     }
 
@@ -181,10 +187,10 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     /// Returns the payload to the adjacent node at about the same time. This node receives the payload sent by the adjacent node (exchange)
-    pub fn sync_exchange_payload<'a, R: 'a>(&'a self, payload: R) -> NetSyncStart<'a, R>
-    where
-        R: Serialize + DeserializeOwned + Send + Sync,
-    {
+    pub fn sync_exchange_payload<'a, R: Serialize + DeserializeOwned + Send + Sync + 'a>(
+        &'a self,
+        payload: R,
+    ) -> NetSyncStart<'a, R> {
         NetSyncStart::exchange_payload(self, self.node_type(), payload)
     }
 
@@ -192,21 +198,15 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     /// - payload: an element to exchange with the opposite node
     pub fn sync_execute<
         'a,
-        F: 'a,
-        Fx: 'a,
+        F: Future<Output = R> + Send + 'a,
+        Fx: FnOnce(P) -> F + Send + 'a,
         P: Serialize + DeserializeOwned + Send + Sync + 'a,
         R: 'a,
     >(
         &'a self,
         future: Fx,
         payload: P,
-    ) -> NetSyncStart<'a, R>
-    where
-        F: Future<Output = R>,
-        F: Send,
-        Fx: FnOnce(P) -> F,
-        Fx: Send,
-    {
+    ) -> NetSyncStart<'a, R> {
         NetSyncStart::new(self, self.node_type(), future, payload)
     }
 

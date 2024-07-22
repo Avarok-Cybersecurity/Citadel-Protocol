@@ -195,13 +195,11 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         self.latest_usable_version = self.latest_usable_version.wrapping_add(1);
     }
 
-    ///
     pub fn get_and_increment_group_id(&mut self) -> u64 {
         self.rolling_group_id = self.rolling_group_id.wrapping_add(1);
         self.rolling_group_id.wrapping_sub(1)
     }
 
-    ///
     pub fn get_and_increment_object_id(&mut self) -> u64 {
         self.rolling_object_id = self.rolling_object_id.wrapping_add(1);
         self.rolling_object_id.wrapping_sub(1)

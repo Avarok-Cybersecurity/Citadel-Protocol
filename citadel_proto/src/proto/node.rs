@@ -138,9 +138,7 @@ impl Node {
 
     /// Note: spawning via handle is more efficient than joining futures. Source: https://cafbit.com/post/tokio_internals/
     /// To handle the shutdown process, we need
-    ///
     /// This will panic if called twice in succession without a proper server reload.
-    ///
     /// Returns a handle to communicate with the [Node].
     #[allow(unused_results, unused_must_use)]
     fn load(
@@ -403,9 +401,7 @@ impl Node {
 
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
-    ///
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
-    ///
     /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
     pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(
         remote: R,
@@ -562,7 +558,7 @@ impl Node {
                     .map_err(generic_error)?
                 };
 
-                quic_endpoint.tls_domain_opt = domain.clone();
+                quic_endpoint.tls_domain_opt.clone_from(&domain);
 
                 Self::quic_p2p_connect_defaults(
                     quic_endpoint.endpoint.clone(),
@@ -594,7 +590,6 @@ impl Node {
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
     /// Once a TcpStream is established, it is passed into the underlying HdpSessionManager and a Session
     /// is created to handle the stream.
-    ///
     /// In personal mode, if a new connection needs to be forged with another node, then a new SO_REUSE socket
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
