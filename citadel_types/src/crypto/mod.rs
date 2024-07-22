@@ -59,12 +59,22 @@ pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoPa
     ret
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PrimitiveEnum_u8)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum SecrecyMode {
     /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
     Perfect,
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
     BestEffort,
+}
+
+impl From<u8> for SecrecyMode {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::Perfect,
+            1 => Self::BestEffort,
+            _ => panic!("Cannot cast `{}` into SecrecyMode", value),
+        }
+    }
 }
 
 impl Default for SecrecyMode {
