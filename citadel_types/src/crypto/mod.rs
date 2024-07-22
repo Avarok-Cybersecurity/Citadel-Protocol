@@ -59,7 +59,7 @@ pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoPa
     ret
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PrimitiveEnum_u8)]
 pub enum SecrecyMode {
     /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
     Perfect,
