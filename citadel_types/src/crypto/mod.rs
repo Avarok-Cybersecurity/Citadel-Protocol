@@ -67,12 +67,17 @@ pub enum SecrecyMode {
     BestEffort,
 }
 
-impl From<u8> for SecrecyMode {
-    fn from(value: u8) -> Self {
+impl TryFrom<u8> for SecrecyMode {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Self::Perfect,
-            1 => Self::BestEffort,
-            _ => panic!("Cannot cast `{}` into SecrecyMode", value),
+            0 => Ok(Self::Perfect),
+            1 => Ok(Self::BestEffort),
+            _ => Err(Self::Error::Other(format!(
+                "Cannot cast `{}` into SecrecyMode",
+                value
+            ))),
         }
     }
 }
