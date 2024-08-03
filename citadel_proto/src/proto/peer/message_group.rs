@@ -13,10 +13,8 @@ use std::collections::HashMap;
 /// or Sally may opt-in to communicate in a group *with* John. Jacob or Sally are never forced to, and are given
 /// a set of the peripheral users before entering G(P_0). If John ever leaves, the axis falls and the group
 /// disintegrates. In this model, John was the axis of consent, and the peripheral users were Jacob and Sally.
-///
 /// Axis of consent: P_0
 /// Peripheral Users: all users connected to P_0 *and* agreed to enter G(P_0)
-///
 /// [MessageGroup]s should be seen as short-lived messaging frames. They stay alive as long as the axis of consent
 /// keeps the group alive or disconnects from the HyperLAN Server. When P_0 leaves, users will still have local messages
 /// of the chat, but won't receive anymore chats from the group

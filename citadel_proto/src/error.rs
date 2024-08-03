@@ -18,7 +18,6 @@ pub enum NetworkError {
     InvalidPacketSize(usize),
     /// A bad external request
     InvalidRequest(&'static str),
-    ///
     InternalError(&'static str),
     /// For a converted error
     Generic(String),
@@ -27,7 +26,6 @@ pub enum NetworkError {
         request: Box<NodeRequest>,
         reason: String,
     },
-    ///
     ProperShutdown,
 }
 

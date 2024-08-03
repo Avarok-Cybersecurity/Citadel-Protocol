@@ -361,14 +361,12 @@ impl StackedRatchet {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-///
 pub struct StackedRatchetInner {
     pub(crate) message: MessageRatchet,
     pub(crate) scramble: ScrambleRatchet,
     pub(crate) default_security_level: SecurityLevel,
 }
 
-///
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchet {
     inner: Vec<MessageRatchetInner>,
@@ -380,7 +378,6 @@ pub(crate) struct MessageRatchetInner {
     pub(crate) pqc: PostQuantumContainer,
 }
 
-///
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ScrambleRatchet {
     pub(crate) drill: EntropyBank,
@@ -559,13 +556,11 @@ pub mod constructor {
     #[derive(Serialize, Deserialize)]
     /// Transferred during KEM
     pub struct AliceToBobTransfer {
-        ///
         pub params: CryptoParameters,
         params_txs: Vec<AliceToBobTransferParameters>,
         scramble_alice_params: AliceToBobTransferParameters,
         scramble_nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
         msg_nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
-        ///
         pub security_level: SecurityLevel,
         cid: u64,
         new_version: u32,
@@ -590,7 +585,6 @@ pub mod constructor {
     }
 
     impl BobToAliceTransfer {
-        ///
         pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
             let len = bincode2::serialized_size(self).ok()?;
             buf.reserve(len as usize);
@@ -603,12 +597,10 @@ pub mod constructor {
     }
 
     impl AliceToBobTransfer {
-        ///
         pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
             bincode2::serialize(self).ok()
         }
 
-        ///
         pub fn deserialize_from(source: &[u8]) -> Option<AliceToBobTransfer> {
             bincode2::deserialize(source).ok()
         }

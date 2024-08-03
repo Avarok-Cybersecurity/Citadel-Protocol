@@ -144,7 +144,6 @@ pub struct PreSharedKey {
 impl PreSharedKey {
     /// Adds a password to the session password list. Both connecting nodes
     /// must have matching passwords in order to establish a connection.
-    ///
     /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
     pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
         self.passwords.push(sha256(password.as_ref()).to_vec());

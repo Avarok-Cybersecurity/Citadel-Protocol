@@ -19,15 +19,12 @@ impl<'a, R: Send + 'a> NetSelectOk<'a, R> {
         S: Subscribable<ID = K, UnderlyingConn = Conn>,
         K: MultiplexedConnKey + 'a,
         Conn: ReliableOrderedStreamToTarget + 'static,
-        F: Send + 'a,
+        F: Future<Output = Result<R, anyhow::Error>> + Send + 'a,
     >(
         conn: &'a S,
         local_node_type: RelativeNodeType,
         future: F,
-    ) -> Self
-    where
-        F: Future<Output = Result<R, anyhow::Error>>,
-    {
+    ) -> Self {
         Self {
             future: Box::pin(resolve(conn, local_node_type, future)),
         }
