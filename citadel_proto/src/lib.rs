@@ -327,7 +327,7 @@ pub mod macros {
     }
 }
 
-#[cfg(not(target_host = "wasm"))]
+#[cfg(not(target_family = "wasm"))]
 pub mod re_imports {
     pub use async_trait::*;
     pub use bytes::BufMut;

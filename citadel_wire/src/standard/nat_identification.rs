@@ -114,9 +114,8 @@ impl NatType {
         match citadel_io::tokio::time::timeout(_timeout, get_nat_type(stun_servers)).await {
             Ok(res) => res
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))
-                .map(|nat_type| {
+                .inspect(|nat_type| {
                     *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
-                    nat_type
                 }),
 
             Err(_elapsed) => {
