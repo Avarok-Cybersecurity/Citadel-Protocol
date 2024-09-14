@@ -100,6 +100,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         Ok(self.clients.read().get(&cid).map(|r| r.get_username()))
     }
 
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        Ok(self
+            .clients
+            .read()
+            .get(&cid)
+            .map(|r| r.get_metadata().full_name))
+    }
+
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let read = self.clients.read();
         let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;

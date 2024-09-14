@@ -50,7 +50,6 @@ pub const MAX_PAYLOAD_SIZE_IPV4: usize = MTU - BASE_HEADER_LEN_IPV4;
 pub const MAX_PAYLOAD_SIZE_IPV6: usize = MTU - BASE_HEADER_LEN_IPV6;
 /// the initial reconnect delay
 pub const INITIAL_RECONNECT_LOCKOUT_TIME_NS: i64 = NANOSECONDS_PER_SECOND;
-///
 pub const KEEP_ALIVE_INTERVAL_MS: u64 = 60000 * 15; // every 15 minutes
 /// The keep alive max interval
 pub const KEEP_ALIVE_TIMEOUT_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 3 * 1_000_000) as i64;
@@ -59,9 +58,7 @@ pub const KEEP_ALIVE_TIMEOUT_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 3 * 1_000_000) 
 pub const DRILL_UPDATE_TIMEOUT_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
 /// For setting up the GroupReceivers
 pub const GROUP_TIMEOUT_MS: usize = KEEP_ALIVE_INTERVAL_MS as usize;
-///
 pub const INDIVIDUAL_WAVE_TIMEOUT_MS: usize = GROUP_TIMEOUT_MS / 2;
-///
 pub const DO_DEREGISTER_EXPIRE_TIME_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
 
 /// The frequency at which KEEP_ALIVES need to be sent through the system
@@ -81,10 +78,8 @@ pub const DO_CONNECT_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::
 /// After this timeout,
 pub const UPNP_FIREWALL_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 pub const MULTIPORT_START: u16 = 25000;
-///
 //pub const MULTIPORT_END: u16 = citadel_crypt::entropy_bank::PORT_RANGE as u16 + MULTIPORT_START;
 pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
-///
 pub const PRIMARY_PORT: u16 = 25021;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 480 * 1_000_000_000;
@@ -100,13 +95,11 @@ pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 480 * 1_000_000_000;
 /// this is applied to the ping. If the ping is 200ms, the a multiplier of 2.0 will mean that in 200*2.0 = 400ms,
 /// the hole-punching process will begin
 pub const HOLE_PUNCH_SYNC_TIME_MULTIPLIER: f64 = 2.0f64;
-///
 pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30);
 /// the preconnect + connect stage will be limited by this duration
 pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(20);
 /// Every 30 minutes, resync the clocks. This was to fix bugs related to long-lasting connections and reconnections
 pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60 * 30);
-///
 pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
 pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 512;

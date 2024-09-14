@@ -19,15 +19,12 @@ impl<'a, T: Send + 'a, E: Send + 'a> NetTryJoin<'a, T, E> {
         S: Subscribable<ID = K, UnderlyingConn = Conn>,
         K: MultiplexedConnKey + 'a,
         Conn: ReliableOrderedStreamToTarget + 'static,
-        F: Send + 'a,
+        F: Future<Output = Result<T, E>> + Send + 'a,
     >(
         conn: &'a S,
         local_node_type: RelativeNodeType,
         future: F,
-    ) -> NetTryJoin<'a, T, E>
-    where
-        F: Future<Output = Result<T, E>>,
-    {
+    ) -> NetTryJoin<'a, T, E> {
         Self {
             future: Box::pin(resolve(conn, local_node_type, future)),
         }

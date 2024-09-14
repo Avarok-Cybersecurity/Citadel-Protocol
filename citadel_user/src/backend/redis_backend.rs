@@ -242,6 +242,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         self.get(get_cid_to_username_key(cid)).await
     }
 
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        match self.get_client_metadata(cid).await? {
+            None => Ok(None),
+            Some(metadata) => Ok(Some(metadata.full_name)),
+        }
+    }
+
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(

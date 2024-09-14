@@ -116,6 +116,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.memory_backend.get_username_by_cid(cid).await
     }
 
+    async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        self.memory_backend.get_full_name_by_cid(cid).await
+    }
+
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         self.memory_backend
             .register_p2p_as_server(cid0, cid1)

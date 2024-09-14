@@ -2,7 +2,7 @@ use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
-use crate::remote_ext::results::LocalGroupPeer;
+use crate::remote_ext::results::LocalGroupPeerFullInfo;
 
 use futures::StreamExt;
 use std::path::PathBuf;
@@ -163,6 +163,9 @@ pub trait ProtocolRemoteExt: Remote {
                 NodeResult::RegisterFailure(err) => {
                     return Err(NetworkError::Generic(err.error_message));
                 }
+                NodeResult::Disconnect(err) => {
+                    return Err(NetworkError::Generic(err.message));
+                }
                 evt => {
                     log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
                 }
@@ -251,7 +254,9 @@ pub trait ProtocolRemoteExt: Remote {
                 cid_opt: _,
                 error_message: err,
             }) => Err(NetworkError::Generic(err)),
-
+            NodeResult::Disconnect(err) => {
+                return Err(NetworkError::Generic(err.message));
+            }
             res => Err(NetworkError::msg(format!(
                 "[connect] An unexpected response occurred: {res:?}"
             ))),
@@ -364,7 +369,7 @@ pub trait ProtocolRemoteExt: Remote {
         &self,
         local_user: T,
         limit: Option<usize>,
-    ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
+    ) -> Result<Vec<LocalGroupPeerFullInfo>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: local_cid,
@@ -382,17 +387,24 @@ pub trait ProtocolRemoteExt: Remote {
                 event:
                     PeerSignal::GetRegisteredPeers {
                         peer_conn_type: _,
-                        response: Some(PeerResponse::RegisteredCids(cids, is_onlines)),
+                        response: Some(PeerResponse::RegisteredCids(peer_info, is_onlines)),
                         limit: _,
                     },
                 ticket: _,
                 ..
             }) = map_errors(status)?
             {
-                return Ok(cids
+                return Ok(peer_info
                     .into_iter()
                     .zip(is_onlines.into_iter())
-                    .map(|(cid, is_online)| LocalGroupPeer { cid, is_online })
+                    .filter_map(|(peer_info, is_online)| {
+                        peer_info.map(|info| LocalGroupPeerFullInfo {
+                            cid: info.cid,
+                            username: Some(info.username),
+                            full_name: Some(info.full_name),
+                            is_online,
+                        })
+                    })
                     .collect());
             }
         }
@@ -406,7 +418,7 @@ pub trait ProtocolRemoteExt: Remote {
     async fn get_local_group_mutual_peers<T: Into<UserIdentifier> + Send>(
         &self,
         local_user: T,
-    ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
+    ) -> Result<Vec<LocalGroupPeerFullInfo>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
             implicated_cid: local_cid,
@@ -423,16 +435,23 @@ pub trait ProtocolRemoteExt: Remote {
                 event:
                     PeerSignal::GetMutuals {
                         v_conn_type: _,
-                        response: Some(PeerResponse::RegisteredCids(cids, is_onlines)),
+                        response: Some(PeerResponse::RegisteredCids(peer_info, is_onlines)),
                     },
                 ticket: _,
                 ..
             }) = map_errors(status)?
             {
-                return Ok(cids
+                return Ok(peer_info
                     .into_iter()
                     .zip(is_onlines.into_iter())
-                    .map(|(cid, is_online)| LocalGroupPeer { cid, is_online })
+                    .filter_map(|(peer_info, is_online)| {
+                        peer_info.map(|info| LocalGroupPeerFullInfo {
+                            cid: info.cid,
+                            username: Some(info.username),
+                            full_name: Some(info.full_name),
+                            is_online,
+                        })
+                    })
                     .collect());
             }
         }
@@ -1201,6 +1220,14 @@ pub mod results {
     #[derive(Clone, Debug)]
     pub struct LocalGroupPeer {
         pub cid: u64,
+        pub is_online: bool,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct LocalGroupPeerFullInfo {
+        pub cid: u64,
+        pub username: Option<String>,
+        pub full_name: Option<String>,
         pub is_online: bool,
     }
 }

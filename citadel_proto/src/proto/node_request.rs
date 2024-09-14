@@ -6,12 +6,12 @@ use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{ConnectMode, SessionSecuritySettings, UdpMode};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use sha256::Sha256Digest;
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use itertools::Itertools;
-use sha256::Sha256Digest;
 
 pub struct RegisterToHypernode {
     pub remote_addr: SocketAddr,
@@ -145,7 +145,6 @@ pub struct PreSharedKey {
 impl PreSharedKey {
     /// Adds a password to the session password list. Both connecting nodes
     /// must have matching passwords in order to establish a connection.
-    ///
     /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
     pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
         let mut hasher = sha256::Sha256::default();

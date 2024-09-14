@@ -25,7 +25,6 @@ use std::sync::atomic::Ordering;
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
 /// has reached its destination. Just need to ensure that intermediary packets get the proper target_cid on the headers that way
 /// they proxy
-///
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
@@ -674,7 +673,6 @@ impl ToolsetUpdate<'_> {
 
 /// peer_cid: from header.session_cid
 /// target_cid: from header.target_cid
-///
 /// Returns: Ok(latest_hyper_ratchet)
 pub(crate) fn attempt_kem_as_alice_finish(
     session: &HdpSession,

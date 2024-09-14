@@ -60,14 +60,14 @@ where
 
 #[allow(dead_code)]
 #[cfg(not(feature = "localhost-testing"))]
-pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
+pub fn server_info_reactive<
+    'a,
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync + 'a,
+    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
+>(
     _f: F,
     _opts: impl FnOnce(&mut NodeBuilder),
-) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
-where
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
-    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
-{
+) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr) {
     panic!("Function server_info_reactive is not available without the localhost-testing feature");
 }
 

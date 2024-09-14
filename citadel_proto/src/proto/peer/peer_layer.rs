@@ -9,6 +9,7 @@ use crate::proto::state_container::VirtualConnectionType;
 use citadel_io::tokio::time::error::Error;
 use citadel_io::tokio::time::Duration;
 use citadel_io::tokio_util::time::{delay_queue, delay_queue::DelayQueue};
+use citadel_types::prelude::PeerInfo;
 use citadel_types::proto::{
     GroupType, MessageGroupKey, MessageGroupOptions, SessionSecuritySettings, UdpMode,
     VirtualObjectMetadata,
@@ -769,7 +770,7 @@ pub enum PeerResponse {
     None,
     ServerReceivedRequest,
     Timeout,
-    RegisteredCids(Vec<u64>, Vec<bool>),
+    RegisteredCids(Vec<Option<PeerInfo>>, Vec<bool>),
 }
 
 impl PeerResponse {
