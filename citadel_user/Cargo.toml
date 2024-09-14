@@ -71,3 +71,6 @@ citadel_pqcrypto = { workspace = true }
 
 [lib]
 doctest = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
