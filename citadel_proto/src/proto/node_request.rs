@@ -6,9 +6,7 @@ use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{ConnectMode, SessionSecuritySettings, UdpMode};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use sha256::Sha256Digest;
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -147,9 +145,8 @@ impl PreSharedKey {
     /// must have matching passwords in order to establish a connection.
     /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
     pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
-        let mut hasher = sha256::Sha256::default();
-        hasher.update(password.as_ref());
-        self.passwords.push(hasher.finalize());
+        self.passwords
+            .push(sha256::digest(password.as_ref()).into_bytes());
         self
     }
 }
