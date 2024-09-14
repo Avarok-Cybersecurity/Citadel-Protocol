@@ -20,7 +20,7 @@ wasm = []
 deadlock-detection = ["parking_lot/deadlock_detection"]
 
 [dependencies]
-getrandom = { version = "0.2.14", features = ["js"] }
+getrandom = { version = "0.2.8", features = ["js"] }
 rand = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

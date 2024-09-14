@@ -46,18 +46,20 @@ netbeam = { workspace = true  }
 uuid = { workspace = true, features = ["v4", "serde"] }
 tracing = { workspace = true, optional = true }
 lazy_static = { workspace = true }
+rustls = { workspace = true, default-features = false, features = ["quic", "dangerous_configuration"] }
+socket2 = { workspace = true, features = ["all"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-socket2 = { workspace = true, features = ["all"] }
-rustls-native-certs = { workspace = true }
-igd = { workspace = true, features = ["aio"] }
 quinn = { workspace = true, features = ["rustls"] }
 openssl = { workspace = true }
+rustls-native-certs = { workspace = true }
+igd = { workspace = true, features = ["aio"] }
 stun = { workspace = true }
 rcgen = { workspace = true, features = ["pem"] }
-rustls = { workspace = true, features = ["quic", "dangerous_configuration"] }
 rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
 
 [dev-dependencies]
 citadel_logging = { path = "../citadel_logging" }

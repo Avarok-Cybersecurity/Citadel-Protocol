@@ -1,7 +1,6 @@
 use crate::auth::AuthenticationRequest;
 use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;
-use crate::re_imports::openssl::sha::sha256;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;
@@ -11,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use itertools::Itertools;
+use sha256::Sha256Digest;
 
 pub struct RegisterToHypernode {
     pub remote_addr: SocketAddr,
@@ -147,7 +148,9 @@ impl PreSharedKey {
     ///
     /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
     pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
-        self.passwords.push(sha256(password.as_ref()).to_vec());
+        let mut hasher = sha256::Sha256::default();
+        hasher.update(password.as_ref());
+        self.passwords.push(hasher.finalize());
         self
     }
 }

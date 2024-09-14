@@ -11,17 +11,9 @@ pub mod exports {
 }
 
 pub mod error;
-#[cfg(not(target_family = "wasm"))]
 pub mod udp_traversal;
 
 pub mod hypernode_type;
-
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod standard;
-#[cfg(target_family = "wasm")]
-pub(crate) mod wasm;
 
-#[cfg(not(target_family = "wasm"))]
 pub use standard::*;
-#[cfg(target_family = "wasm")]
-pub use wasm::*;

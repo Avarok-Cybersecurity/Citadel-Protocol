@@ -82,7 +82,7 @@ async-trait-with-sync = { default-features = false, version = "0.1.36" }
 uuid = { version = "1.2.2", default-features = false }
 tracing = { version = "0.1.37", default-features = false }
 lazy_static = { default-features = false, version = "1.4.0" }
-socket2 = { version = "0.5.1", default-features = false }
+socket2 = { git = "https://github.com/wasix-org/socket2.git", branch = "v0.4.9", features = ["all"] }
 rustls-native-certs = { version = "0.6.2", default-features = false }
 igd = { version = "^0.12.0", default-features = false }
 quinn = { version = "0.10.2", default-features = false }
@@ -117,12 +117,17 @@ once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.8.0" }
 embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
+sha256 = { version = "1.5.0" }
 
 [patch.crates-io]
 socket2 = { git = "https://github.com/wasix-org/socket2.git", branch = "v0.4.9" }
 libc = { git = "https://github.com/wasix-org/libc.git" }
 tokio = { git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.24.2" }
 wasm-bindgen = {  git = "https://github.com/wasix-org/wasm-bindgen/", branch = "wasi" }
+wasm-bindgen-futures = {  git = "https://github.com/wasix-org/wasm-bindgen/", branch = "wasi" }
+wasm-bindgen-test = {  git = "https://github.com/wasix-org/wasm-bindgen/", branch = "wasi" }
+getrandom = { git = "https://github.com/wasix-org/getrandom/", branch = "wasix" }
+ring = { package = "ring-wasi", git = "https://github.com/jedisct1/ring-wasi", branch = "0.16.20" }
 
 [profile.dev]
 opt-level = 3
