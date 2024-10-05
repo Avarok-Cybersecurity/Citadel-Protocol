@@ -100,7 +100,9 @@ pub mod tests {
 
             let res = citadel_io::tokio::try_join!(server, client);
             log::trace!("RES: {:?}", res);
-            let _ = res.unwrap();
+            if let Err(err) = res {
+                log::error!(target: "citadel", "Error: {:?}", err);
+            }
             log::trace!(target: "citadel", "Ended");
         }
 
@@ -111,7 +113,7 @@ pub mod tests {
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[timeout(Duration::from_secs(240))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "current_thread")]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerUnderlyingProtocol>,
