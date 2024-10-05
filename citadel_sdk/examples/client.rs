@@ -1,5 +1,5 @@
 use citadel_io::tokio;
-use citadel_sdk::prefabs::client::{ServerConnectionSettings, ServerConnectionSettingsBuilder};
+use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -37,8 +37,7 @@ async fn main() {
                 remote.shutdown_kernel().await?;
                 Ok(())
             },
-        )
-        .unwrap();
+        );
 
     let _ = NodeBuilder::default()
         .with_node_type(NodeType::Peer)

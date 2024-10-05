@@ -19,16 +19,19 @@ async fn main() {
         .ensure_registered()
         .add();
 
+    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
+        addr,
+        my_peer_id,
+        "dunny name",
+        "password",
+    )
+    .build()
+    .unwrap();
+
     let finished = &AtomicBool::new(false);
     let peer = citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel::new(
-        "dummy name",
-        my_peer_id,
-        "password",
+        server_connection_settings,
         agg,
-        addr,
-        UdpMode::Enabled,
-        Default::default(),
-        None,
         |mut connection, remote| async move {
             let mut connection = connection.recv().await.unwrap()?;
             let chan = connection.udp_channel_rx.take();
@@ -44,8 +47,7 @@ async fn main() {
             }
             Ok(())
         },
-    )
-    .unwrap();
+    );
 
     let _ = NodeBuilder::default()
         .with_node_type(NodeType::Peer)

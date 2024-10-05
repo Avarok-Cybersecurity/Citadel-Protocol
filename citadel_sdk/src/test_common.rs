@@ -44,13 +44,13 @@ pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
-pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
+pub fn server_info_reactive<'a, F, Fut>(
     f: F,
     opts: impl FnOnce(&mut NodeBuilder),
 ) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
-    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync + 'a,
+    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
 {
     crate::test_common::server_test_node(
         Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>,
