@@ -224,5 +224,5 @@ jobs:
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@main
       - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
-        run: docker-compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+        run: docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
         shell: bash
