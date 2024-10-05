@@ -9,7 +9,7 @@ use futures::StreamExt;
 use citadel_io::tokio::io::AsyncRead;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
-use citadel_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
+use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
 use citadel_wire::exports::Endpoint;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
@@ -449,7 +449,7 @@ impl Node {
         log::trace!(target: "citadel", "Connecting to QUIC node {:?}", remote);
         // when using p2p quic, if domain is some, then we will use the default cfg
         let cfg = if domain.is_some() {
-            citadel_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)
+            citadel_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)?
         } else {
             // if there is no domain specified, assume self-signed (For now)
             // this is non-blocking since native certs won't be loaded
@@ -528,14 +528,16 @@ impl Node {
 
                 let stream = connector
                     .connect(
-                        ServerName::try_from(domain.as_deref().unwrap_or(SELF_SIGNED_DOMAIN))
-                            .map_err(|err| generic_error(err.to_string()))?,
+                        pki_types::ServerName::try_from(
+                            domain
+                                .clone()
+                                .unwrap_or_else(|| SELF_SIGNED_DOMAIN.to_string()),
+                        )
+                        .map_err(|err| generic_error(err.to_string()))?,
                         stream,
                     )
                     .await
-                    .map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err)
-                    })?;
+                    .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
                 Ok((GenericNetworkStream::Tls(stream.into()), None))
             }
             FirstPacket::Quic {
@@ -550,7 +552,7 @@ impl Node {
                     citadel_wire::quic::QuicClient::new_no_verify(udp_socket)
                         .map_err(generic_error)?
                 } else {
-                    citadel_wire::quic::QuicClient::new_with_config(
+                    citadel_wire::quic::QuicClient::new_with_rustls_config(
                         udp_socket,
                         default_client_config.clone(),
                     )

@@ -14,7 +14,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { workspace = true, features = ["rustls", "rustls-native-certs", "rustls-tls", "json", "serde_json"] }
+reqwest = { workspace = true, features = ["rustls-tls-native-roots", "rustls-tls", "json"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 

@@ -130,7 +130,7 @@ impl AsyncWrite for GenericNetworkStream {
         match self.deref_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
             Self::Tls(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Quic(sink, ..) => Pin::new(sink).poll_write(cx, buf),
+            Self::Quic(sink, ..) => Pin::new(sink).poll_write(cx, buf).map_err(|err| err.into()),
         }
     }
 

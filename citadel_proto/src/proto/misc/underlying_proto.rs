@@ -9,12 +9,32 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::sync::Arc;
 
-#[derive(Clone)]
 #[allow(variant_size_differences)]
 pub enum ServerUnderlyingProtocol {
     Tcp(Option<Arc<Mutex<Option<citadel_io::tokio::net::TcpListener>>>>),
     Tls(TLSQUICInterop, TlsDomain, bool),
-    Quic(Option<(Vec<Certificate>, PrivateKey)>, TlsDomain, bool),
+    Quic(
+        Option<(Vec<Certificate<'static>>, PrivateKey<'static>)>,
+        TlsDomain,
+        bool,
+    ),
+}
+
+impl Clone for ServerUnderlyingProtocol {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Tcp(listener) => Self::Tcp(listener.clone()),
+            Self::Tls(interop, domain, self_signed) => {
+                Self::Tls(interop.clone(), domain.clone(), *self_signed)
+            }
+            Self::Quic(keys, domain, self_signed) => Self::Quic(
+                keys.as_ref()
+                    .map(|(cert, key)| (cert.clone(), key.clone_key())),
+                domain.clone(),
+                *self_signed,
+            ),
+        }
+    }
 }
 
 impl ServerUnderlyingProtocol {

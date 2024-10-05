@@ -20,7 +20,8 @@ std = [
     "citadel_io/std",
     "openssl/default",
     "quinn/default",
-    "serde/std"
+    "serde/std",
+    "async_ip/std",
 ]
 localhost-testing = ["tracing"]
 localhost-testing-loopback-only = []
@@ -44,9 +45,9 @@ itertools = { workspace = true, features = ["use_alloc"] }
 either = { workspace = true }
 netbeam = { workspace = true  }
 uuid = { workspace = true, features = ["v4", "serde"] }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true, features = ["attributes"] }
 lazy_static = { workspace = true }
-rustls = { workspace = true, default-features = false, features = ["quic", "dangerous_configuration"] }
+rustls = { workspace = true }
 socket2 = { workspace = true, features = ["all"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -55,7 +56,7 @@ openssl = { workspace = true }
 rustls-native-certs = { workspace = true }
 igd = { workspace = true, features = ["aio"] }
 stun = { workspace = true }
-rcgen = { workspace = true, features = ["pem"] }
+rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
 rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
 

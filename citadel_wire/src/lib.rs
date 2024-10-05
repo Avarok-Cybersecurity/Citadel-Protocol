@@ -4,8 +4,8 @@
 pub mod exports {
     pub use openssl;
     pub use quinn::{Accept, Connecting, Connection, Endpoint, RecvStream, SendStream};
+    pub use rustls::pki_types::{CertificateDer as Certificate, PrivateKeyDer as PrivateKey};
     pub use rustls::ClientConfig;
-    pub use rustls::{Certificate, PrivateKey};
     pub use rustls_pemfile;
     pub use tokio_rustls;
 }

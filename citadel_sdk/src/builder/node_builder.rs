@@ -262,9 +262,14 @@ impl NodeBuilder {
     /// The file should be a DER formatted certificate
     pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
         let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
-        let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der)?;
+        let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der).collect::<Vec<_>>();
+        // iter certs and try collecting on the results
+        let mut filtered_certs = Vec::new();
+        for cert in certs {
+            filtered_certs.push(cert?);
+        }
         self.client_tls_config = Some(citadel_proto::re_imports::create_rustls_client_config(
-            &certs,
+            &filtered_certs,
         )?);
         Ok(self)
     }
