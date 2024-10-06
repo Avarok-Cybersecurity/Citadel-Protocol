@@ -1,5 +1,5 @@
 use argon2::Config;
-use citadel_io::{BlockingSpawn, BlockingSpawnError};
+use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
 use futures::Future;
 use rand::rngs::ThreadRng;
@@ -9,18 +9,19 @@ use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use tokio::task::{JoinError, JoinHandle};
 
 const ARGON_SALT_LENGTH: usize = 16;
 
 // A wrapper that allows asynchronous hashing and verification
 pub struct AsyncArgon {
     /// for access to the handle as required
-    pub task: BlockingSpawn<ArgonStatus>,
+    pub task: JoinHandle<ArgonStatus>,
 }
 
 impl AsyncArgon {
     pub fn hash(password: SecBuffer, settings: ArgonSettings) -> Self {
-        let task = citadel_io::spawn_blocking(move || {
+        let task = tokio::task::spawn_blocking(move || {
             match argon2::hash_raw(
                 password.as_ref(),
                 settings.inner.salt.as_slice(),
@@ -35,7 +36,7 @@ impl AsyncArgon {
     }
 
     pub fn verify(proposed_password: SecBuffer, settings: ServerArgonContainer) -> Self {
-        let task = citadel_io::spawn_blocking(move || {
+        let task = tokio::task::spawn_blocking(move || {
             match argon2::verify_raw(
                 proposed_password.as_ref(),
                 settings.settings.inner.salt.as_slice(),
@@ -253,7 +254,7 @@ impl ArgonContainerType {
 }
 
 impl Future for AsyncArgon {
-    type Output = Result<ArgonStatus, BlockingSpawnError>;
+    type Output = Result<ArgonStatus, JoinError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.task).poll(cx)

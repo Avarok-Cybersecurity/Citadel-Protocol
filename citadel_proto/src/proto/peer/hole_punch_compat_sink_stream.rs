@@ -4,11 +4,11 @@ use crate::proto::state_container::StateContainerInner;
 use async_trait::async_trait;
 use bytes::Bytes;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_io::tokio::sync::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use netbeam::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
 use std::net::SocketAddr;
 use std::str::FromStr;
-use tokio::sync::Mutex;
 
 pub(crate) struct ReliableOrderedCompatStream {
     to_primary_stream: OutboundPrimaryStreamSender,
@@ -31,7 +31,7 @@ impl ReliableOrderedCompatStream {
         hr: StackedRatchet,
         security_level: SecurityLevel,
     ) -> Self {
-        let (from_stream_tx, from_stream_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (from_stream_tx, from_stream_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
 
         // insert from_stream_tx into state container so that the protocol can deliver packets to the hole puncher
         // NOTE: The protocol must strip the header when passing packets to the from_stream function!

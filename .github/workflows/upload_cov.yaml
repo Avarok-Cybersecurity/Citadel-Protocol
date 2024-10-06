@@ -14,7 +14,7 @@ env:
 
 jobs:
   coverage:
-    runs-on: linux-x86_64-epyc-7351-16core-128GB-ram
+    runs-on: macos-14
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4

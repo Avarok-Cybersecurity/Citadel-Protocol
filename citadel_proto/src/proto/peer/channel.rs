@@ -7,6 +7,7 @@ use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::SessionRequest;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::re_exports::__private::Formatter;
@@ -15,7 +16,6 @@ use futures::Stream;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::macros::support::Pin;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 #[derive(Debug)]
@@ -280,7 +280,7 @@ impl UdpChannel {
 #[cfg_attr(docsrs, doc(cfg(feature = "webrtc")))]
 pub struct WebRTCCompatChannel {
     send_half: OutboundUdpSender,
-    recv_half: tokio::sync::Mutex<PeerChannelRecvHalf>,
+    recv_half: citadel_io::tokio::sync::Mutex<PeerChannelRecvHalf>,
 }
 
 #[cfg(feature = "webrtc")]
@@ -295,7 +295,7 @@ mod rtc_impl {
         fn from(this: UdpChannel) -> Self {
             Self {
                 send_half: this.send_half,
-                recv_half: tokio::sync::Mutex::new(this.recv_half),
+                recv_half: citadel_io::tokio::sync::Mutex::new(this.recv_half),
             }
         }
     }

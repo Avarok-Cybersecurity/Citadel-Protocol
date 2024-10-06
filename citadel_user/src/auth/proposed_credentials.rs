@@ -97,7 +97,7 @@ impl ProposedCredentials {
             settings.clone(),
         )
         .await
-        .map_err(|err| AccountError::Generic(err.message))?
+        .map_err(|err| AccountError::Generic(err.to_string()))?
         {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
             other => Err(AccountError::Generic(format!(
@@ -218,7 +218,7 @@ impl ProposedCredentials {
 
                 match AsyncArgon::hash(password_hashed, settings.clone())
                     .await
-                    .map_err(|err| AccountError::Generic(err.message))?
+                    .map_err(|err| AccountError::Generic(err.to_string()))?
                 {
                     ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
                         username,
@@ -249,7 +249,7 @@ impl ProposedCredentials {
             ArgonContainerType::Server(server_container) => {
                 match AsyncArgon::verify(password_hashed, server_container)
                     .await
-                    .map_err(|err| AccountError::Generic(err.message))?
+                    .map_err(|err| AccountError::Generic(err.to_string()))?
                 {
                     ArgonStatus::VerificationSuccess => Ok(()),
 

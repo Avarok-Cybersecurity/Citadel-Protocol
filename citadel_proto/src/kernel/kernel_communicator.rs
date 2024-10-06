@@ -19,7 +19,7 @@ pub struct KernelAsyncCallbackHandlerInner {
 
 #[allow(dead_code)]
 pub(crate) struct CallbackNotifier {
-    tx: tokio::sync::mpsc::UnboundedSender<NodeResult>,
+    tx: citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult>,
     key: CallbackKey,
 }
 
@@ -100,7 +100,7 @@ impl KernelAsyncCallbackHandler {
         callback_key: CallbackKey,
     ) -> Result<KernelStreamSubscription, NetworkError> {
         let mut this = self.inner.lock();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         this.insert(
             callback_key,
             CallbackNotifier {
@@ -179,7 +179,7 @@ impl Clone for KernelAsyncCallbackHandler {
 
 #[allow(dead_code)]
 pub struct KernelStreamSubscription {
-    inner: tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
+    inner: citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
     ptr: KernelAsyncCallbackHandler,
     callback_key: CallbackKey,
 }

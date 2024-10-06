@@ -1,3 +1,4 @@
+#[cfg(target_family = "unix")]
 use std::os::raw::c_void;
 
 /// Locks-down the memory location, preventing it from being read until unlocked

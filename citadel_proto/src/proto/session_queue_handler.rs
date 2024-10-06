@@ -1,19 +1,19 @@
 use crate::error::NetworkError;
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;
+use citadel_io::tokio::sync::broadcast::Sender;
+use citadel_io::tokio::time::error::Error;
+use citadel_io::tokio_util::time::{delay_queue, DelayQueue};
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
-use tokio::sync::broadcast::Sender;
-use tokio::time::error::Error;
-use tokio_util::time::{delay_queue, DelayQueue};
 
 use crate::inner_arg::ExpectedInnerTargetMut;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
+use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
 pub const QUEUE_WORKER_RESERVED_INDEX: usize = 10;
@@ -118,7 +118,7 @@ pub enum QueueWorkerResult {
 
 impl SessionQueueWorker {
     pub fn new(sess_shutdown: Sender<()>) -> (Self, SessionQueueWorkerHandle) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let handle = SessionQueueWorkerHandle {
             tx,
             rolling_idx: Arc::new(Default::default()),

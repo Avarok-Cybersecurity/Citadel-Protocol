@@ -155,7 +155,7 @@ where
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time))
                 .await?;
 
-            tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
+            citadel_io::tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for receiver ...");
             Ok((future)(payload_recv).await)
         }
@@ -178,7 +178,7 @@ where
 
             if sync_time > now {
                 let delta = i64::abs(sync_time - tt.get_global_time_ns());
-                tokio::time::sleep(Duration::from_nanos(delta as _)).await;
+                citadel_io::tokio::time::sleep(Duration::from_nanos(delta as _)).await;
             }
 
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for initiator ...");
@@ -192,6 +192,7 @@ where
 mod tests {
     use crate::sync::test_utils::create_streams;
     use crate::time_tracker::TimeTracker;
+    use citadel_io::tokio;
     use futures::{FutureExt, StreamExt};
 
     #[tokio::test]
@@ -226,7 +227,10 @@ mod tests {
                 res
             };
 
-            let (server, client) = (citadel_io::spawn(server), citadel_io::spawn(client));
+            let (server, client) = (
+                citadel_io::tokio::task::spawn(server),
+                citadel_io::tokio::task::spawn(client),
+            );
 
             let joined = futures::future::join(server, client).then(|(res0, res1)| async move {
                 let (res0, res1) = (res0.unwrap(), res1.unwrap());
@@ -234,7 +238,7 @@ mod tests {
                 tx.unbounded_send(()).unwrap();
             });
 
-            citadel_io::spawn(joined);
+            citadel_io::tokio::task::spawn(joined);
         }
 
         rx.take(COUNT).collect::<()>().await;
@@ -258,9 +262,9 @@ mod tests {
             res
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
+        let server = citadel_io::tokio::spawn(server);
+        let client = citadel_io::tokio::spawn(client);
+        let (res0, res1) = citadel_io::tokio::join!(server, client);
         res0.unwrap();
         res1.unwrap();
     }

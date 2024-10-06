@@ -5,6 +5,7 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use mobc::async_trait;
@@ -14,7 +15,6 @@ use redis_base::{AsyncCommands, Client, ErrorKind, FromRedisValue, ToRedisArgs};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 /// Backend struct for redis
 pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {

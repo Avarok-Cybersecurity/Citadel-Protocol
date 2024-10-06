@@ -15,6 +15,8 @@ pub enum Error {
     Other(String),
     /// Bad length
     InvalidLength,
+    /// Unsupported algorithm
+    UnsupportedAlgorithm,
 }
 
 impl Display for Error {

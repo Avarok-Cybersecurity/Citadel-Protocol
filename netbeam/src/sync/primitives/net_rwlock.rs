@@ -4,8 +4,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
+use citadel_io::tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::net_mutex::{sync_establish_init, InnerChannel};
@@ -29,7 +29,7 @@ pub struct NetRwLock<T: NetObject, S: Subscribable + 'static> {
     // if local tries to write, then the mutex guard is given-as is
     shared: Arc<Mutex<InnerState<T>>>,
     channel: Arc<InnerChannel<S>>,
-    stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    stop_tx: Option<citadel_io::tokio::sync::oneshot::Sender<()>>,
     // Used to cheaply clone read locks locally. There is no equivalent WriteLock version, since only one can exist
     local_active_read_lock: Arc<citadel_io::RwLock<Option<OwnedLocalReadLock<T>>>>,
     active_to_bg_signalled: Sender<()>,
@@ -45,8 +45,8 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         initial_value: T,
     ) -> Result<Self, anyhow::Error> {
         // create a channel to listen here for incoming messages and alter the local state as needed
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-        let (active_to_bg_tx, active_to_bg_rx) = tokio::sync::mpsc::channel(1);
+        let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (active_to_bg_tx, active_to_bg_rx) = citadel_io::tokio::sync::mpsc::channel(1);
 
         let this = Self {
             shared: Arc::new(Mutex::new((initial_value, active_to_bg_tx.clone()))),
@@ -60,7 +60,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         let local_read_lock = this.local_active_read_lock.clone();
         let channel = this.channel.clone();
 
-        citadel_io::spawn(async move {
+        citadel_io::tokio::task::spawn(async move {
             if let Err(err) = passive_background_handler::<S, T>(
                 channel,
                 shared_state,
@@ -113,7 +113,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLock<T, S> {
         let stop_tx = self.stop_tx.take().unwrap();
         let _ = stop_tx.send(());
 
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+        if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
             rt.spawn(async move { conn.send_serialized(UpdatePacket::Halt).await });
         }
     }
@@ -214,7 +214,7 @@ pub(crate) mod read {
                 // immediately remove the shared store to prevent further acquires
                 *self.shared_store.write() = None; // 1 arc left (this)
 
-                if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
                     let future = NetRwLockEitherGuardDropCode::new::<T, S>(self.conn.clone(), this);
                     rt.spawn(future);
                 }
@@ -282,7 +282,7 @@ pub(crate) mod write {
     impl<T: NetObject + 'static, S: Subscribable + 'static> Drop for NetRwLockWriteGuard<T, S> {
         fn drop(&mut self) {
             let this = self.inner.take().unwrap();
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
                 let future = NetRwLockEitherGuardDropCode::new::<T, S>(self.conn.clone(), this);
                 rt.spawn(future);
             }
@@ -507,7 +507,7 @@ impl<T> Drop for LocalLockHolder<T> {
         // if this is a lock holder from the BG, we aren't interested in sending an alert
         if !self.is_from_background() {
             let sender = self.free_lock_and_get_sender(); // frees the lock
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
                 rt.spawn(async move {
                     let _ = sender.send(()).await; // alert the bg
                 });
@@ -585,7 +585,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
 async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
     channel: Arc<InnerChannel<S>>,
     shared_state: Arc<Mutex<InnerState<T>>>,
-    stop_rx: tokio::sync::oneshot::Receiver<()>,
+    stop_rx: citadel_io::tokio::sync::oneshot::Receiver<()>,
     mut active_to_background_rx: Receiver<()>,
     read_lock_local: Arc<citadel_io::RwLock<Option<OwnedLocalReadLock<T>>>>,
 ) -> Result<(), anyhow::Error> {
@@ -596,7 +596,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
             match shared_state.clone().try_lock_owned() {
                 Ok(lock) => {
                     // here, any local requests will be blocked until an external packet gets received OR local signals background to stop;
-                    let packet = tokio::select! {
+                    let packet = citadel_io::tokio::select! {
                         res0 = channel.recv_serialized::<UpdatePacket>() => res0?,
                         res1 = active_to_background_rx.recv() => {
                             // in the case local tries ot make an outgoing request, we will stop listening in the background
@@ -658,7 +658,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
         }
     };
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = background_task => res0,
         _res1 = stop_rx => Ok(())
     }
@@ -848,6 +848,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::sync::test_utils::create_streams;
+    use citadel_io::tokio;
 
     #[tokio::test]
     async fn many_writes() {
@@ -859,13 +860,13 @@ mod tests {
 
         let init_value = 1000u64;
         let final_value = 1001u64;
-        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx, client_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (server_done_tx, server_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
         let server_ref = Arc::new(AtomicU64::new(init_value));
         let client_ref = server_ref.clone();
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let rwlock = &server_stream.rwlock(Some(init_value)).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on server");
             client_done_rx.await.unwrap();
@@ -887,7 +888,7 @@ mod tests {
             server_done_tx.send(()).unwrap();
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut guard = rwlock.write().await.unwrap();
@@ -909,7 +910,7 @@ mod tests {
             server_done_rx.await.unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }
@@ -924,15 +925,15 @@ mod tests {
 
         let init_value = 1000u64;
         let final_value = 1001u64;
-        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let (server_done_tx0, server_done_rx0) = tokio::sync::oneshot::channel::<()>();
-        let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let (client_done_tx2, client_done_rx2) = tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx, client_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (server_done_tx0, server_done_rx0) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (server_done_tx, server_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx2, client_done_rx2) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
         let server_ref = Arc::new(AtomicU64::new(init_value));
         let client_ref = server_ref.clone();
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let rwlock = &server_stream.rwlock(Some(init_value)).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on server");
             client_done_rx.await.unwrap();
@@ -957,7 +958,7 @@ mod tests {
             client_done_rx2.await.unwrap();
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut guard = rwlock.write().await.unwrap();
@@ -983,12 +984,12 @@ mod tests {
             client_done_tx2.send(()).unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn many_reads_no_initial_write() {
         citadel_logging::setup_log();
 
@@ -996,9 +997,9 @@ mod tests {
 
         const COUNT: u64 = 1000;
 
-        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx, client_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let rwlock = &server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on server");
 
@@ -1007,7 +1008,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1015,7 +1016,7 @@ mod tests {
             client_done_rx.await.unwrap();
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut reads = Vec::new();
@@ -1023,7 +1024,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Client obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1034,12 +1035,12 @@ mod tests {
             client_done_tx.send(()).unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn many_reads_end_with_write() {
         citadel_logging::setup_log();
 
@@ -1047,8 +1048,8 @@ mod tests {
 
         const COUNT: u64 = 1000;
 
-        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx, client_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (server_done_tx, server_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
         let init_value = 1000u64;
         let final_value = 1001u64;
@@ -1056,7 +1057,7 @@ mod tests {
         let server_ref = Arc::new(AtomicU64::new(init_value));
         let client_ref = server_ref.clone();
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let rwlock = &server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on server");
 
@@ -1065,7 +1066,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1080,7 +1081,7 @@ mod tests {
             server_done_tx.send(()).unwrap();
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on client");
             let mut reads = Vec::new();
@@ -1088,7 +1089,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Client obtaining lock {}", idx);
                 let lock = rwlock.read().await.unwrap();
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1106,12 +1107,12 @@ mod tests {
             server_done_rx.await.unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn many_interweaved() {
         citadel_logging::setup_log();
 
@@ -1119,15 +1120,15 @@ mod tests {
 
         const COUNT: u64 = 1000;
 
-        let (init_tx, init_rx) = tokio::sync::oneshot::channel::<()>();
-        let (init2_tx, init2_rx) = tokio::sync::oneshot::channel::<()>();
-        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let (init_tx, init_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (init2_tx, init2_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx, client_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (server_done_tx, server_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
         let server_ref = Arc::new(AtomicU64::new(0));
         let client_ref = server_ref.clone();
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let rwlock = &server_stream.rwlock::<u64>(Some(0)).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on server");
             init_tx.send(()).unwrap();
@@ -1138,13 +1139,13 @@ mod tests {
                 log::trace!(target: "citadel", "Server obtaining lock {}", idx);
                 if do_read {
                     let lock = rwlock.read().await.unwrap();
-                    //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                     do_read = false;
                     assert_eq!(server_ref.load(Ordering::Relaxed), *lock);
                 } else {
                     let mut lock = rwlock.write().await.unwrap();
-                    //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
                     do_read = true;
                     *lock = idx;
@@ -1156,7 +1157,7 @@ mod tests {
             server_done_tx.send(()).unwrap();
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::trace!(target: "citadel", "Success establishing rwlock on client");
             init_rx.await.unwrap();
@@ -1167,13 +1168,13 @@ mod tests {
             for idx in 0..COUNT {
                 if do_read {
                     let lock = rwlock.read().await.unwrap();
-                    //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                     do_read = false;
                     assert_eq!(client_ref.load(Ordering::Relaxed), *lock);
                 } else {
                     let mut lock = rwlock.write().await.unwrap();
-                    //tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
                     do_read = true;
                     *lock = idx;
@@ -1185,7 +1186,7 @@ mod tests {
             server_done_rx.await.unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }

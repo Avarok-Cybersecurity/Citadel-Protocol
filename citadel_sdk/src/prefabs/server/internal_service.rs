@@ -54,10 +54,12 @@ impl<'a, F, Fut> NetKernel for InternalServiceKernel<'a, F, Fut> {
 #[cfg(test)]
 mod test {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prefabs::server::internal_service::InternalServiceKernel;
     use crate::prefabs::shared::internal_service::InternalServerCommunicator;
     use crate::prelude::*;
     use crate::test_common::TestBarrier;
+    use citadel_io::tokio;
     use citadel_logging::setup_log;
     use hyper::client::conn::Builder;
     use hyper::server::conn::Http;
@@ -105,12 +107,14 @@ mod test {
         Ok(())
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_internal_service_basic_bytes() {
         setup_log();
         let barrier = &TestBarrier::new(2);
         let success_count = &AtomicUsize::new(0);
-        let message = &(0..4096).map(|r| (r % 256) as u8).collect::<Vec<u8>>();
+        let message = &(0..4096usize)
+            .map(|r| (r % u8::MAX as usize) as u8)
+            .collect::<Vec<u8>>();
         let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let server_bind_addr = server_listener.local_addr().unwrap();
         let server_kernel =
@@ -124,9 +128,13 @@ mod test {
                 .await
             });
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
-            Uuid::new_v4(),
-            server_bind_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_bind_addr, Uuid::new_v4())
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |connect_success, remote| async move {
                 crate::prefabs::shared::internal_service::internal_service(
                     remote,
@@ -147,7 +155,7 @@ mod test {
 
         let client = NodeBuilder::default()
             .with_node_type(NodeType::Peer)
-            .build(client_kernel.unwrap())
+            .build(client_kernel)
             .unwrap();
 
         let server = NodeBuilder::default()
@@ -158,7 +166,7 @@ mod test {
             .build(server_kernel)
             .unwrap();
 
-        let res = tokio::select! {
+        let res = citadel_io::tokio::select! {
             res0 = server => {
                 citadel_logging::info!(target: "citadel", "Server exited");
                 res0.map(|_|())
@@ -175,7 +183,7 @@ mod test {
         assert_eq!(success_count.load(Ordering::SeqCst), 2);
     }
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_internal_service_http() {
         setup_log();
         let barrier = &TestBarrier::new(2);
@@ -198,9 +206,13 @@ mod test {
             Ok(())
         });
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(
-            Uuid::new_v4(),
-            server_bind_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_bind_addr, Uuid::new_v4())
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |connect_success, remote| async move {
                 crate::prefabs::shared::internal_service::internal_service(
                     remote,
@@ -208,14 +220,14 @@ mod test {
                     |internal_server_communicator| async move {
                         barrier.wait().await;
                         // wait for the server
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
                         let (mut request_sender, connection) = Builder::new()
                             .handshake(internal_server_communicator)
                             .await
                             .map_err(from_hyper_error)?;
 
                         // spawn a task to poll the connection and drive the HTTP state
-                        drop(tokio::spawn(async move {
+                        drop(citadel_io::tokio::spawn(async move {
                             if let Err(e) = connection.await {
                                 citadel_logging::error!(target: "citadel", "Error in connection: {e}");
                                 std::process::exit(-1);
@@ -223,7 +235,7 @@ mod test {
                         }));
 
                         // give time for task to spawn
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
                         let request = Request::builder()
                             // We need to manually add the host header because SendRequest does not
                             .header("Host", "example.com")
@@ -249,7 +261,7 @@ mod test {
 
         let client = NodeBuilder::default()
             .with_node_type(NodeType::Peer)
-            .build(client_kernel.unwrap())
+            .build(client_kernel)
             .unwrap();
 
         let server = NodeBuilder::default()
@@ -260,7 +272,7 @@ mod test {
             .build(server_kernel)
             .unwrap();
 
-        let res = tokio::select! {
+        let res = citadel_io::tokio::select! {
             res0 = server => {
                 citadel_logging::info!(target: "citadel", "Server exited");
                 res0.map(|_|())

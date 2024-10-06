@@ -1,9 +1,9 @@
 use crate::impl_remote;
+use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use citadel_io::Mutex;
 use citadel_proto::prelude::*;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 /// Kernels for clients
 pub mod client;
@@ -43,7 +43,7 @@ impl ClientServerRemote {
     /// Can only be called once per remote. Allows receiving events
     pub fn get_unprocessed_signals_receiver(
         &self,
-    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<NodeResult>> {
+    ) -> Option<citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult>> {
         self.unprocessed_signals_rx.lock().take()
     }
 }

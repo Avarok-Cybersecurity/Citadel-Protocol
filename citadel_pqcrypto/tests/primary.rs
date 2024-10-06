@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use bytes::{BufMut, BytesMut};
-    use rand::prelude::ThreadRng;
+    use citadel_io::ThreadRng;
     use rand::RngCore;
 
     use citadel_logging::setup_log;

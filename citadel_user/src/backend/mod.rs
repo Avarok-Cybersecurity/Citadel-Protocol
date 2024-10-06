@@ -14,6 +14,7 @@ use crate::backend::sql_backend::SqlConnectionOptions;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_io::tokio;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user;
@@ -21,7 +22,7 @@ use citadel_types::user::MutualPeer;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
-#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+#[cfg(feature = "filesystem")]
 pub mod filesystem_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
@@ -45,7 +46,7 @@ pub enum BackendType {
     /// access
     InMemory,
     /// Synchronization will occur on the filesystem
-    #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+    #[cfg(feature = "filesystem")]
     Filesystem(String),
     #[cfg(all(feature = "sql", not(coverage)))]
     /// Synchronization will occur on a remote SQL database

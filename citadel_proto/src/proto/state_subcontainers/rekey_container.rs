@@ -1,4 +1,4 @@
-use tokio::time::Duration;
+use citadel_io::tokio::time::Duration;
 
 use crate::constants::{
     DRILL_UPDATE_FREQUENCY_DIVINE_BASE, DRILL_UPDATE_FREQUENCY_HIGH_BASE,

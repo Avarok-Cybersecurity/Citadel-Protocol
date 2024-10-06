@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
 
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
+use citadel_io::tokio::time::Duration;
 use either::Either;
 use igd::PortMappingProtocol;
-use tokio::time::Duration;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -70,8 +70,10 @@ impl SingleUDPHolePuncher {
     pub async fn try_method(
         &mut self,
         method: NatTraversalMethod,
-        mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>,
-        post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>,
+        mut kill_switch: citadel_io::tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>,
+        post_kill_rebuild: citadel_io::tokio::sync::mpsc::UnboundedSender<
+            Option<HolePunchedUdpSocket>,
+        >,
     ) -> Result<HolePunchedUdpSocket, FirewallError> {
         match method {
             NatTraversalMethod::UPnP => {
@@ -143,7 +145,7 @@ impl SingleUDPHolePuncher {
                     None
                 };
 
-                let res = tokio::select! {
+                let res = citadel_io::tokio::select! {
                     res0 = process => Either::Right(res0?),
                     res1 = kill_listener => Either::Left(res1)
                 };

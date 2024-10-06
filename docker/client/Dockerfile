@@ -1,4 +1,4 @@
-FROM rust:1.70 as builder
+FROM rust:1.81 as builder
 WORKDIR /usr/src/client
 COPY . .
 COPY ./docker/set_nat.sh .

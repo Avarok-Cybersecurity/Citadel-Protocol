@@ -215,7 +215,9 @@ pub fn process_file_packet(
                                             Some(local_encryption_level),
                                             move |source| {
                                                 if delete_on_pull {
-                                                    spawn!(tokio::fs::remove_file(source));
+                                                    spawn!(citadel_io::tokio::fs::remove_file(
+                                                        source
+                                                    ));
                                                 }
                                             },
                                         ) {

@@ -6,6 +6,8 @@ use crate::sync::subscription::{
 use crate::sync::{RelativeNodeType, SymmetricConvID};
 use anyhow::Error;
 use async_trait::async_trait;
+use citadel_io::tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use citadel_io::tokio::sync::Mutex;
 use citadel_io::RwLock;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -15,8 +17,6 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::Mutex;
 
 pub trait MultiplexedConnKey:
     Debug + Eq + Hash + Copy + Send + Sync + Serialize + DeserializeOwned + IDGen<Self>
@@ -108,7 +108,7 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
         let mut subscribers = HashMap::new();
 
         for id in ids {
-            let (tx, pre_reserved_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (tx, pre_reserved_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
             subscribers.insert(
                 id,
                 MemorySender {
@@ -317,6 +317,7 @@ mod tests {
     use crate::sync::test_utils::create_streams;
     use crate::sync::SymmetricConvID;
     use async_recursion::async_recursion;
+    use citadel_io::tokio;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
@@ -340,10 +341,10 @@ mod tests {
             return (server_stream, client_stream);
         }
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
         let (server_stream0, client_stream0) = (server_stream.clone(), client_stream.clone());
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             // get one substream from the input stream
             let next_stream: OwnedMultiplexedSubscription =
                 server_stream.initiate_subscription().await.unwrap();
@@ -352,7 +353,7 @@ mod tests {
             next_stream.multiplex::<SymmetricConvID>().await.unwrap()
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let next_stream: OwnedMultiplexedSubscription =
                 client_stream.initiate_subscription().await.unwrap();
             let val = next_stream.recv_serialized::<Packet>().await.unwrap();
@@ -361,9 +362,9 @@ mod tests {
             next_stream.multiplex::<SymmetricConvID>().await.unwrap()
         });
 
-        let (tx1, rx1) = tokio::sync::oneshot::channel::<()>();
+        let (tx1, rx1) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
-        let server1 = tokio::spawn(async move {
+        let server1 = citadel_io::tokio::spawn(async move {
             // get one substream from the input stream
             let next_stream: OwnedMultiplexedSubscription =
                 server_stream0.initiate_subscription().await.unwrap();
@@ -372,7 +373,7 @@ mod tests {
             next_stream.multiplex::<SymmetricConvID>().await.unwrap()
         });
 
-        let client1 = tokio::spawn(async move {
+        let client1 = citadel_io::tokio::spawn(async move {
             let next_stream: OwnedMultiplexedSubscription =
                 client_stream0.initiate_subscription().await.unwrap();
             let val = next_stream.recv_serialized::<Packet>().await.unwrap();
@@ -382,7 +383,7 @@ mod tests {
         });
 
         let (next_server_stream, next_client_stream, _, _) =
-            tokio::join!(server, client, server1, client1);
+            citadel_io::tokio::join!(server, client, server1, client1);
 
         nested(
             idx + 1,

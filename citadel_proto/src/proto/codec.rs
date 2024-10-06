@@ -2,7 +2,7 @@ use std::io;
 
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
-use tokio_util::codec::{Decoder, Encoder};
+use citadel_io::tokio_util::codec::{Decoder, Encoder};
 
 use crate::constants::CODEC_MIN_BUFFER;
 
@@ -49,7 +49,7 @@ mod tests {
     use crate::constants::CODEC_BUFFER_CAPACITY;
     use crate::proto::codec::BytesCodec;
     use bytes::{BufMut, Bytes, BytesMut};
-    use tokio_util::codec::{Decoder, Encoder};
+    use citadel_io::tokio_util::codec::{Decoder, Encoder};
 
     #[test]
     fn test_bytes_codec() {

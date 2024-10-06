@@ -1,7 +1,7 @@
 use std::pin::Pin;
 
+use citadel_io::tokio::runtime::Handle;
 use futures::TryStreamExt;
-use tokio::runtime::Handle;
 
 use citadel_user::account_manager::AccountManager;
 
@@ -19,7 +19,7 @@ use crate::proto::remote::NodeRemote;
 pub struct KernelExecutor<K: NetKernel> {
     server_remote: Option<NodeRemote>,
     server_to_kernel_rx: Option<UnboundedReceiver<NodeResult>>,
-    shutdown_alerter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+    shutdown_alerter_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
     callback_handler: Option<KernelAsyncCallbackHandler>,
     context: Option<KernelContext>,
     account_manager: AccountManager,
@@ -28,7 +28,7 @@ pub struct KernelExecutor<K: NetKernel> {
 }
 
 #[cfg(not(feature = "multi-threaded"))]
-pub type LocalSet = tokio::task::LocalSet;
+pub type LocalSet = citadel_io::tokio::task::LocalSet;
 #[cfg(feature = "multi-threaded")]
 pub type LocalSet = ();
 
@@ -51,7 +51,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
-            tokio::sync::oneshot::channel();
+            citadel_io::tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
         let (remote, future, localset_opt, callback_handler) = Node::init(
             hypernode_type,
@@ -105,7 +105,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             {
                 use crate::proto::misc::panic_future::ExplicitPanicFuture;
                 let hdp_server_future = ExplicitPanicFuture::new(_rt.spawn(hdp_server));
-                tokio::select! {
+                citadel_io::tokio::select! {
                     ret0 = kernel_future => ret0,
                     ret1 = hdp_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
                 }
@@ -116,7 +116,7 @@ impl<K: NetKernel> KernelExecutor<K> {
                 //let _ = localset.spawn_local(hdp_server);
                 let hdp_server_future = localset.run_until(hdp_server);
                 //let hdp_server_future = localset;
-                tokio::select! {
+                citadel_io::tokio::select! {
                     ret0 = kernel_future => ret0,
                     ret1 = hdp_server_future => ret1
                 }
@@ -132,7 +132,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         kernel: &mut K,
         mut server_to_kernel_rx: UnboundedReceiver<NodeResult>,
         hdp_server_remote: NodeRemote,
-        shutdown: tokio::sync::oneshot::Receiver<()>,
+        shutdown: citadel_io::tokio::sync::oneshot::Receiver<()>,
         callback_handler: KernelAsyncCallbackHandler,
         kernel_settings: KernelExecutorSettings,
     ) -> Result<(), NetworkError> {
@@ -142,7 +142,8 @@ impl<K: NetKernel> KernelExecutor<K> {
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
 
-        let (ref clean_stop_tx, mut clean_stop_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let (ref clean_stop_tx, mut clean_stop_rx) =
+            citadel_io::tokio::sync::mpsc::channel::<()>(1);
         let kernel_ref = &*kernel;
 
         let init = async move { kernel_ref.on_start().await };
@@ -181,13 +182,13 @@ impl<K: NetKernel> KernelExecutor<K> {
 
         let base_execution = futures::future::try_join(init, inbound_stream);
 
-        let exec_res = tokio::select! {
+        let exec_res = citadel_io::tokio::select! {
             base_res = base_execution => base_res.map(|_| ()),
             _stopper = clean_stop_rx.recv() => Ok(())
         };
 
         log::trace!(target: "citadel", "Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
-        tokio::time::timeout(Duration::from_millis(300), shutdown).await;
+        citadel_io::tokio::time::timeout(Duration::from_millis(300), shutdown).await;
         log::trace!(target: "citadel", "KernelExecutor confirmed HdpServer has been shut down");
         let stop_res = kernel.on_stop().await;
         // give precedence to the execution res

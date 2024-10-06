@@ -306,11 +306,10 @@ pub async fn process_group_broadcast(
             Some(key),
             GroupBroadcast::EndResponse { key, success },
         )
-        .map(|res| {
+        .inspect(|_res| {
             let _ = inner_mut_state!(session.state_container)
                 .group_channels
                 .remove(&key);
-            res
         }),
 
         GroupBroadcast::Disconnected { key } => forward_signal(
@@ -319,11 +318,10 @@ pub async fn process_group_broadcast(
             Some(key),
             GroupBroadcast::Disconnected { key },
         )
-        .map(|res| {
+        .inspect(|_res| {
             let _ = inner_mut_state!(session.state_container)
                 .group_channels
                 .remove(&key);
-            res
         }),
 
         GroupBroadcast::Message {
@@ -548,11 +546,10 @@ pub async fn process_group_broadcast(
                 message: response,
             },
         )
-        .map(|res| {
+        .inspect(|_res| {
             let _ = inner_mut_state!(session.state_container)
                 .group_channels
                 .remove(&key);
-            res
         }),
 
         GroupBroadcast::Add {
