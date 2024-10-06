@@ -13,10 +13,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
-/// This kernel will only allow outbound communication for the provided account
-///
-/// After establishing a connection to the central node, this kernel then begins connecting to the desired
+/// After establishing a connection to the central node, this kernel begins connecting to the desired
 /// peer(s)
 pub struct PeerConnectionKernel<'a, F, Fut> {
     inner_kernel: Box<dyn NetKernel + 'a>,

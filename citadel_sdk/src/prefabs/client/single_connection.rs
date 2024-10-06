@@ -10,10 +10,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
-/// This kernel will only allow outbound communication for the provided account.
-///
-/// This [`NetKernel`] is the base kernel type for other built-in implementations of [`NetKernel`]
+/// This [`SingleClientServerConnectionKernel`] is the base kernel type for other built-in implementations of [`NetKernel`].
+/// It establishes connections to a central node for purposes of NAT traversal and peer discovery, and depending on the application layer,
+/// can leverage the client to server connection for other purposes that require communication between the two.
 pub struct SingleClientServerConnectionKernel<F, Fut> {
     handler: Mutex<Option<F>>,
     udp_mode: UdpMode,
@@ -51,7 +50,7 @@ where
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     /// Creates a new [`SingleClientServerConnectionKernel`] with the given settings.
-    /// The [`ServerConnectionSettings`] must be provided, and the [`on_channel_received`] function will be called when the connection is established.
+    /// The [`ServerConnectionSettings`] must be provided, and the `on_channel_received` function will be called when the connection is established.
     pub fn new(settings: ServerConnectionSettings, on_channel_received: F) -> Self {
         let (udp_mode, session_security_settings) =
             (settings.udp_mode(), settings.session_security_settings());
