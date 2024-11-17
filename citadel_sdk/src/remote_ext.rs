@@ -120,7 +120,9 @@ pub struct ConnectionSuccess {
 }
 
 /// Contains the elements entailed by a successful registration
-pub struct RegisterSuccess {}
+pub struct RegisterSuccess {
+    pub cid: u64,
+}
 
 #[async_trait]
 /// Endows the [NodeRemote](NodeRemote) with additional functions
@@ -157,8 +159,10 @@ pub trait ProtocolRemoteExt: Remote {
         let mut subscription = self.send_callback_subscription(register_request).await?;
         while let Some(status) = subscription.next().await {
             match map_errors(status)? {
-                NodeResult::RegisterOkay(RegisterOkay { .. }) => {
-                    return Ok(RegisterSuccess {});
+                NodeResult::RegisterOkay(RegisterOkay { cnac, .. }) => {
+                    return Ok(RegisterSuccess {
+                        cid: cnac.get_cid(),
+                    });
                 }
                 NodeResult::RegisterFailure(err) => {
                     return Err(NetworkError::Generic(err.error_message));
