@@ -227,7 +227,7 @@ pub fn process_primary_packet(
                                                     if group.has_begun {
                                                         if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
                                                             if state_container.meta_expiry_state.expired() {
-                                                                log::error!(target: "citadel", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
+                                                                log::warn!(target: "citadel", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
                                                                 if let Some(group) = state_container.inbound_groups.remove(&key) {
                                                                     if group.object_id != 0 {
                                                                         // belongs to a file. Delete file; stop transmission

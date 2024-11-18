@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 /// Sets up the logging for any crate
 pub fn setup_log() {
     std::panic::set_hook(Box::new(|info| {
-        error!(target: "citadel", "Panic occurred: {:#?}", info);
+        error!(target: "citadel", "Panic occurred: {}", info);
         std::process::exit(1);
     }));
 

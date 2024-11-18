@@ -26,10 +26,12 @@ pub struct VirtualObjectMetadata {
     pub author: String,
     pub plaintext_length: usize,
     pub group_count: usize,
-    pub object_id: u64,
+    pub object_id: i64,
     pub cid: u64,
     pub transfer_type: TransferType,
 }
+
+pub type ObjectId = i64;
 
 impl VirtualObjectMetadata {
     pub fn serialize(&self) -> Vec<u8> {

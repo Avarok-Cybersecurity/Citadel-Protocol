@@ -7,6 +7,7 @@ use crate::toolset::{Toolset, UpdateStatus};
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::CryptoParameters;
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::prelude::ObjectId;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -21,7 +22,7 @@ pub struct PeerSessionCrypto<R: Ratchet = StackedRatchet> {
     pub update_in_progress: Arc<AtomicBool>,
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
     pub local_is_initiator: bool,
-    pub rolling_object_id: u64,
+    pub rolling_object_id: ObjectId,
     pub rolling_group_id: u64,
     pub lock_set_by_alice: Option<bool>,
     /// Alice sends to Bob, then bob updates internally the toolset. However. Bob can't send packets to Alice quite yet using that newest version. He must first wait from Alice to commit on her end and wait for an ACK.
@@ -200,9 +201,25 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         self.rolling_group_id.wrapping_sub(1)
     }
 
-    pub fn get_and_increment_object_id(&mut self) -> u64 {
-        self.rolling_object_id = self.rolling_object_id.wrapping_add(1);
-        self.rolling_object_id.wrapping_sub(1)
+    pub fn get_and_increment_object_id(&mut self) -> i64 {
+        let next = if self.local_is_initiator {
+            let mut next_val = self.rolling_object_id.wrapping_add(1);
+            if next_val <= 0 {
+                next_val = 1
+            }
+
+            next_val
+        } else {
+            let mut next_val = self.rolling_object_id.wrapping_sub(1);
+            if next_val >= 0 {
+                next_val = -1
+            }
+
+            next_val
+        };
+
+        self.rolling_object_id = next;
+        next
     }
 
     /// Returns a new constructor only if a concurrent update isn't occurring

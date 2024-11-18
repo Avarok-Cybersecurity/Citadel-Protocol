@@ -280,7 +280,7 @@ where
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         if let Some(val) = self.unprocessed_signal_filter_tx.lock().as_ref() {
-            log::info!(target: "citadel", "Will forward message {:?}", val);
+            log::trace!(target: "citadel", "Will forward message {:?}", val);
             if let Err(err) = val.send(message) {
                 log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
             }

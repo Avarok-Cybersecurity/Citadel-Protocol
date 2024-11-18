@@ -32,6 +32,7 @@ use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
 use crate::proto::packet::HdpHeader;
+use crate::proto::packet_crafter::group::unpack_i64_from_u128;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_crafter::{
     GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket,
@@ -62,6 +63,7 @@ use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecrecyMode;
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::prelude::ObjectId;
 use citadel_types::proto::{
     MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
     TransferType, UdpMode, VirtualObjectMetadata,
@@ -136,21 +138,22 @@ pub struct StateContainerInner {
 pub(crate) struct GroupKey {
     target_cid: u64,
     group_id: u64,
-    object_id: u64,
+    object_id: ObjectId,
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub struct FileKey {
+    // Where the information will be streamed
     pub target_cid: u64,
     // wave payload get the object id inscribed
-    pub object_id: u64,
+    pub object_id: ObjectId,
 }
 
 /// when the GROUP_HEADER comes inbound with virtual file metadata, this should be created alongside
 /// an async task fired-up on the threadpool
 #[allow(dead_code)]
 pub(crate) struct InboundFileTransfer {
-    pub object_id: u64,
+    pub object_id: ObjectId,
     pub total_groups: usize,
     pub groups_rendered: usize,
     pub last_group_window_len: usize,
@@ -176,7 +179,7 @@ pub(crate) struct OutboundFileTransfer {
 }
 
 impl GroupKey {
-    pub fn new(target_cid: u64, group_id: u64, object_id: u64) -> Self {
+    pub fn new(target_cid: u64, group_id: u64, object_id: ObjectId) -> Self {
         Self {
             target_cid,
             group_id,
@@ -186,7 +189,7 @@ impl GroupKey {
 }
 
 impl FileKey {
-    pub fn new(target_cid: u64, object_id: u64) -> Self {
+    pub fn new(target_cid: u64, object_id: ObjectId) -> Self {
         Self {
             target_cid,
             object_id,
@@ -510,12 +513,12 @@ pub(crate) struct GroupReceiverContainer {
     max_window_size: usize,
     window_drift: isize,
     waves_in_window_finished: usize,
-    pub object_id: u64,
+    pub object_id: ObjectId,
 }
 
 impl GroupReceiverContainer {
     pub fn new(
-        object_id: u64,
+        object_id: ObjectId,
         receiver: GroupReceiver,
         virtual_target: VirtualTargetType,
         security_level: SecurityLevel,
@@ -1104,9 +1107,10 @@ impl StateContainerInner {
         let ticket = header.context_info.get().into();
         let is_revfs_pull = local_encryption_level.is_some();
 
+        log::info!(target: "citadel", "File header received for cid {}, file key: {key:?} | revfs_pull: {is_revfs_pull}", hyper_ratchet.get_cid());
+
         if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
-            let (start_recv_tx, start_recv_rx) = tokio::sync::oneshot::channel::<bool>();
 
             let security_level_rebound: SecurityLevel = header.security_level.into();
             let timestamp = self.time_tracker.get_global_time_ns();
@@ -1129,38 +1133,44 @@ impl StateContainerInner {
                 local_encryption_level,
             };
 
+            let (start_recv_tx, start_recv_rx) = if !is_revfs_pull {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                (Some(tx), Some(rx))
+            } else {
+                (None, None)
+            };
+
             e.insert(entry);
             let (handle, tx_status) = ObjectTransferHandler::new(
                 header.session_cid.get(),
                 header.target_cid.get(),
                 metadata.clone(),
                 ObjectTransferOrientation::Receiver { is_revfs_pull },
-                Some(start_recv_tx),
+                start_recv_tx,
             );
-            self.file_transfer_handles.insert(
-                key,
-                crate::proto::outbound_sender::UnboundedSender(tx_status.clone()),
-            );
+            self.file_transfer_handles
+                .insert(key, UnboundedSender(tx_status.clone()));
             // finally, alert the kernel (receiver)
             if let Err(err) = self
                 .kernel_tx
                 .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                     ticket,
                     handle,
-                    implicated_cid: hyper_ratchet.get_cid(),
+                    implicated_cid: header.target_cid.get(),
                 }))
             {
                 log::error!(target: "citadel", "Failed to send the ObjectTransferHandle to the kernel: {err:?}");
             }
 
             let task = async move {
-                let res = if is_revfs_pull {
-                    // auto-accept for revfs pull requests
-                    log::trace!(target: "citadel", "Auto-accepting for REVFS pull request");
-                    Ok(true)
+                log::info!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
+                let res = if let Some(start_rx) = start_recv_rx {
+                    start_rx.await
                 } else {
-                    start_recv_rx.await
+                    Ok(true)
                 };
+
+                log::info!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
 
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender
@@ -1196,13 +1206,13 @@ impl StateContainerInner {
                                 .await
                             {
                                 Ok(()) => {
-                                    log::info!(target: "citadel", "Successfully synced file to backend | {is_revfs_pull}");
+                                    log::info!(target: "citadel", "Successfully synced file to backend | revfs_pull: {is_revfs_pull}");
                                     let status = match success_receiving_rx.await {
                                         Ok(header) => {
                                             // write the header
                                             let wave_ack = packet_crafter::group::craft_wave_ack(
                                                 &hyper_ratchet,
-                                                header.context_info.get() as u32,
+                                                unpack_i64_from_u128(header.context_info.get()),
                                                 get_resp_target_cid_from_header(&header),
                                                 header.group.get(),
                                                 header.wave_id.get(),
@@ -1235,6 +1245,7 @@ impl StateContainerInner {
                             }
                         } else {
                             // user did not accept. cleanup local
+                            log::warn!(target: "citadel", "User did not accept file transfer");
                             let mut state_container = inner_mut_state!(state_container);
                             let _ = state_container.inbound_files.remove(&key);
                             let _ = state_container.file_transfer_handles.remove(&key);
@@ -1272,7 +1283,7 @@ impl StateContainerInner {
         success: bool,
         implicated_cid: u64,
         ticket: Ticket,
-        object_id: u64,
+        object_id: ObjectId,
         v_target: VirtualTargetType,
         _transfer_type: TransferType,
     ) -> Option<()> {
@@ -1362,7 +1373,7 @@ impl StateContainerInner {
         peer_cid: u64,
         target_cid: u64,
         group_id: u64,
-        object_id: u64,
+        object_id: ObjectId,
         next_window: Option<RangeInclusive<u32>>,
         transfer: KemTransferStatus,
         fast_msg: bool,
@@ -1412,7 +1423,7 @@ impl StateContainerInner {
         &mut self,
         header: &HdpHeader,
         error_message: T,
-        object_id: u64,
+        object_id: ObjectId,
     ) -> Result<(), NetworkError> {
         let target_cid = header.session_cid.get();
         self.notify_object_transfer_handle_failure_with(target_cid, object_id, error_message)
@@ -1421,7 +1432,7 @@ impl StateContainerInner {
     pub fn notify_object_transfer_handle_failure_with<T: Into<String>>(
         &mut self,
         target_cid: u64,
-        object_id: u64,
+        object_id: ObjectId,
         error_message: T,
     ) -> Result<(), NetworkError> {
         // let group_key = GroupKey::new(target_cid, group_id, object_id);
@@ -1445,10 +1456,10 @@ impl StateContainerInner {
         header: &HdpHeader,
         payload: Bytes,
         hr: &StackedRatchet,
-    ) -> Result<PrimaryProcessorResult, (NetworkError, Ticket, u64)> {
+    ) -> Result<PrimaryProcessorResult, (NetworkError, Ticket, ObjectId)> {
         let target_cid = header.session_cid.get();
         let group_id = header.group.get();
-        let object_id = header.context_info.get() as u64;
+        let object_id = unpack_i64_from_u128(header.context_info.get());
         let group_key = GroupKey::new(target_cid, group_id, object_id);
         let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
             (
@@ -1521,7 +1532,7 @@ impl StateContainerInner {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 let receiver = self.inbound_groups.remove(&group_key).unwrap().receiver;
                 let mut chunk = receiver.finalize();
-                log::info!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
+                log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
 
                 if let Some(local_encryption_level) = file_container.local_encryption_level {
                     // which static hr do we need? Since we are receiving this chunk, always our local account's
@@ -1589,7 +1600,7 @@ impl StateContainerInner {
         }
 
         if complete {
-            log::trace!(target: "citadel", "Finished receiving file {:?}", file_key);
+            log::info!(target: "citadel", "Finished receiving file {:?}", file_key);
             let _ = self.inbound_files.remove(&file_key);
             let _ = self.file_transfer_handles.remove(&file_key);
         }
@@ -1599,7 +1610,7 @@ impl StateContainerInner {
             if !complete {
                 let wave_ack = packet_crafter::group::craft_wave_ack(
                     hr,
-                    header.context_info.get() as u32,
+                    unpack_i64_from_u128(header.context_info.get()),
                     get_resp_target_cid_from_header(header),
                     header.group.get(),
                     header.wave_id.get(),
@@ -1622,10 +1633,10 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn on_wave_ack_received(
         &mut self,
-        _implicated_cid: u64,
+        implicated_cid: u64,
         header: &Ref<&[u8], HdpHeader>,
     ) -> bool {
-        let object_id = header.context_info.get() as u64;
+        let object_id = unpack_i64_from_u128(header.context_info.get());
         let group = header.group.get();
         let wave_id = header.wave_id.get();
         let target_cid = header.session_cid.get();
@@ -1672,6 +1683,7 @@ impl StateContainerInner {
                         ObjectTransferStatus::TransferComplete
                     };
 
+                    log::info!(target: "citadel", "Transmitter {file_key:?} received final wave ack. Sending status to local node: {:?}", status);
                     if let Err(err) = tx.unbounded_send(status.clone()) {
                         // if the server is using an accept-only policy with no further responses, this branch
                         // will be reached
@@ -1682,11 +1694,11 @@ impl StateContainerInner {
 
                     if matches!(status, ObjectTransferStatus::TransferComplete) {
                         // remove the transmitter. Dropping will stop related futures
-                        log::trace!(target: "citadel", "FileTransfer is complete!");
+                        log::info!(target: "citadel", "FileTransfer is complete!");
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
                 } else {
-                    log::error!(target: "citadel", "Unable to find ObjectTransferHandle for {:?}", file_key);
+                    log::error!(target: "citadel", "Unable to find ObjectTransferHandle for {:?} | Local is {implicated_cid} | FileKeys available: {:?}", file_key, self.file_transfer_handles.keys().copied().collect::<Vec<_>>());
                 }
 
                 delete_group = true;
@@ -1859,7 +1871,7 @@ impl StateContainerInner {
             }
 
             // object singleton == 0 implies that the data does not belong to a file
-            const OBJECT_SINGLETON: u64 = 0;
+            const OBJECT_SINGLETON: ObjectId = 0;
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
             let (mut transmitter, group_id, target_cid) = match virtual_target {

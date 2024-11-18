@@ -55,6 +55,7 @@ async fn driver(
     conn: &NetworkEndpoint,
     mut encrypted_config_container: HolePunchConfigContainer,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+    log::trace!(target: "citadel", "[driver] Starting hole puncher ...");
     // create stream
     let stream = &(conn.initiate_subscription().await?);
     let stun_servers = encrypted_config_container.take_stun_servers();
@@ -91,6 +92,7 @@ async fn driver(
         conn,
     )?
     .await;
+
     res.map_err(|err| {
         anyhow::Error::msg(format!(
             "**HOLE-PUNCH-ERR**: {err:?} | local_nat_type: {local_nat_type:?} | peer_nat_type: {peer_nat_type:?}",

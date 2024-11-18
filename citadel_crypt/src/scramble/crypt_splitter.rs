@@ -13,6 +13,7 @@ use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::stacked_ratchet::Ratchet;
+pub use citadel_types::prelude::ObjectId;
 #[cfg(not(target_family = "wasm"))]
 use rayon::prelude::*;
 
@@ -62,7 +63,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     header_size_bytes: usize,
     security_level: SecurityLevel,
     group_id: u64,
-    object_id: u64,
+    object_id: ObjectId,
     enx: EncryptionAlgorithm,
     sig_alg: SigAlgorithm,
     transfer_type: &TransferType,
@@ -141,7 +142,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     header_size_bytes: usize,
     security_level: SecurityLevel,
     group_id: u64,
-    object_id: u64,
+    object_id: ObjectId,
     transfer_type: &TransferType,
     empty_transfer: bool,
 ) -> Result<
@@ -190,13 +191,13 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     static_aux_ratchet: &R,
     header_size_bytes: usize,
     target_cid: u64,
-    object_id: u64,
+    object_id: ObjectId,
     group_id: u64,
     transfer_type: TransferType,
     header_inscriber: F,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>>
 where
-    F: Fn(&PacketVector, &EntropyBank, u64, u64, &mut BytesMut) + Send + Sync,
+    F: Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 {
     let mut plain_text = Cow::Borrowed(plain_text.as_ref());
 
@@ -303,9 +304,9 @@ fn scramble_encrypt_wave(
     msg_pqc: &PostQuantumContainer,
     scramble_drill: &EntropyBank,
     target_cid: u64,
-    object_id: u64,
+    object_id: ObjectId,
     header_size_bytes: usize,
-    header_inscriber: impl Fn(&PacketVector, &EntropyBank, u64, u64, &mut BytesMut) + Send + Sync,
+    header_inscriber: impl Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
     let ciphertext = msg_drill
         .encrypt(msg_pqc, bytes_to_encrypt_for_this_wave)
@@ -336,7 +337,7 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
     plain_text: SecureMessagePacket<N>,
     header_size_bytes: usize,
     group_id: u64,
-    object_id: u64,
+    object_id: ObjectId,
     empty_transfer: bool,
 ) -> Result<GroupSenderDevice<N>, CryptError<String>> {
     let len = plain_text.message_len() as u64;
@@ -435,7 +436,7 @@ pub struct GroupReceiverConfig {
     // this is NOT inscribed; only for transmission
     pub header_size_bytes: u64,
     pub group_id: u64,
-    pub object_id: u64,
+    pub object_id: ObjectId,
     // only relevant for files. Note: if transfer type is RemoteVirtualFileystem, then,
     // the receiving endpoint won't decrypt the first level of encryption since the goal
     // is to keep the file remotely encrypted
@@ -450,7 +451,7 @@ impl GroupReceiverConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new_refresh(
         group_id: u64,
-        object_id: u64,
+        object_id: ObjectId,
         header_size_bytes: u64,
         plaintext_length: u64,
         max_packet_payload_size: u32,

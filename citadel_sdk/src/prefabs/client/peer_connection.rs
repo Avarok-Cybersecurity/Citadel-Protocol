@@ -364,7 +364,7 @@ where
                         }
 
                         let _reg_success = handle.register_to_peer().await?;
-                        log::trace!(target: "citadel", "Peer {:?} registered || success -> now connecting", id);
+                        log::info!(target: "citadel", "Peer {:?} registered || success -> now connecting", id);
                         handle
                     };
 

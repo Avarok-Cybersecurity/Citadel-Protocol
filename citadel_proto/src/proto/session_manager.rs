@@ -31,7 +31,8 @@ use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::{
-    HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal,
+    HyperNodePeerLayer, HyperNodePeerLayerInner, MailboxTransfer, PeerConnectionType, PeerResponse,
+    PeerSignal,
 };
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
@@ -1079,6 +1080,7 @@ impl HdpSessionManager {
     #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
+        peer_layer: &mut HyperNodePeerLayerInner,
         implicated_cid: u64,
         target_cid: u64,
         ticket: Ticket,
@@ -1107,11 +1109,7 @@ impl HdpSessionManager {
 
             // get the target cid's session
             if let Some(ref sess_ref) = sess {
-                sess_ref
-                    .hypernode_peer_layer
-                    .inner
-                    .write()
-                    .await
+                peer_layer
                     .insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout)
                     .await;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
@@ -1126,11 +1124,7 @@ impl HdpSessionManager {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
                 {
-                    let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
                     peer_layer
-                        .inner
-                        .write()
-                        .await
                         .insert_tracked_posting(
                             implicated_cid,
                             timeout,

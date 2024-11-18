@@ -44,6 +44,7 @@ pub(crate) mod group {
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::SecBuffer;
     use citadel_types::crypto::SecurityLevel;
+    use citadel_types::proto::ObjectId;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
@@ -84,13 +85,13 @@ pub(crate) mod group {
 
     pub(crate) fn validate_message(
         payload_orig: &mut BytesMut,
-    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>, u64)> {
+    ) -> Option<(SecBuffer, Option<AliceToBobTransfer>, ObjectId)> {
         // Safely check that there are 8 bytes in length, then, split at the end - 8
         if payload_orig.len() < 8 {
             return None;
         }
         let mut payload = payload_orig.split_to(payload_orig.len() - 8);
-        let object_id = payload_orig.reader().read_u64::<BigEndian>().ok()?;
+        let object_id = payload_orig.reader().read_i64::<BigEndian>().ok()?;
         let message = SecureProtocolPacket::extract_message(&mut payload).ok()?;
         let deser = SyncIO::deserialize_from_vector(&payload[..]).ok()?;
         Some((message.into(), deser, object_id))
@@ -103,11 +104,11 @@ pub(crate) mod group {
             fast_msg: bool,
             initial_window: Option<RangeInclusive<u32>>,
             transfer: KemTransferStatus,
-            object_id: u64,
+            object_id: ObjectId,
         },
         NotReady {
             fast_msg: bool,
-            object_id: u64,
+            object_id: ObjectId,
         },
     }
 

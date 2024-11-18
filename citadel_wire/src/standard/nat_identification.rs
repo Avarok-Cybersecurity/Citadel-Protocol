@@ -4,13 +4,12 @@ use crate::error::FirewallError;
 use crate::socket_helpers::is_ipv6_enabled;
 use async_ip::IpAddressInfo;
 use futures::stream::FuturesUnordered;
-use futures::{Future, StreamExt};
+use futures::StreamExt;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -97,6 +96,12 @@ impl NatType {
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
+        if cfg!(feature = "localhost-testing") {
+            if let Some(nat_type) = LOCALHOST_TESTING_NAT_TYPE.lock().as_ref() {
+                return Ok(nat_type.clone());
+            }
+        }
+
         match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
             Ok(nat_type) => Ok(nat_type),
             Err(err) => {
@@ -393,9 +398,8 @@ pub enum TraversalTypeRequired {
 }
 
 // we only need to check the NAT type once per node
-lazy_static::lazy_static! {
-    pub static ref LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> = citadel_io::Mutex::new(None);
-}
+static LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> =
+    citadel_io::Mutex::new(None);
 
 impl NatType {
     /// Returns the NAT traversal type required to access self and other, respectively
@@ -547,42 +551,31 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                     external: addr3_ext,
                 };
 
-                let net_type = NatType::new(pair0, pair1, pair2);
-                log::info!(target: "citadel", "NAT type: {:?}", net_type);
+                let nat_type = NatType::new(pair0, pair1, pair2);
+                log::trace!(target: "citadel", "NAT type: {:?}", nat_type);
 
-                Ok(net_type)
+                Ok(nat_type)
             }
 
             _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
         }
     };
 
-    let ip_info_future = if cfg!(feature = "localhost-testing") {
-        Box::pin(async move { Ok(Some(async_ip::IpAddressInfo::localhost())) })
-            as Pin<
-                Box<
-                    dyn Future<Output = Result<Option<IpAddressInfo>, async_ip::IpRetrieveError>>
-                        + Send,
-                >,
-            >
-    } else {
-        Box::pin(async move {
-            match tokio::time::timeout(
-                Duration::from_millis(1500),
-                async_ip::get_all_multi_concurrent(None),
-            )
-            .await
-            {
-                Ok(Ok(ip_info)) => Ok(Some(ip_info)),
-                Ok(Err(err)) => Err(err),
-                Err(_) => Ok(None),
-            }
-        })
+    let ip_info_future = async move {
+        match tokio::time::timeout(
+            Duration::from_millis(2000),
+            async_ip::get_all_multi_concurrent(None),
+        )
+        .await
+        {
+            Ok(Ok(ip_info)) => Ok(Some(ip_info)),
+            Ok(Err(err)) => Err(err),
+            Err(_) => Ok(None),
+        }
     };
 
     let (nat_type, ip_info) = tokio::join!(nat_type, ip_info_future);
     let mut nat_type = nat_type?;
-    log::trace!(target: "citadel", "NAT Type: {nat_type:?} | IpInfo: {ip_info:?}");
 
     let ip_info = match ip_info {
         Ok(Some(ip_info)) => ip_info,
@@ -597,6 +590,9 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
     };
 
     nat_type.ip_info = Some(ip_info);
+
+    log::info!(target: "citadel", "NAT Type: {nat_type:?}");
+
     Ok(nat_type)
 }
 

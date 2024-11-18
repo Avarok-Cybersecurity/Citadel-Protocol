@@ -320,7 +320,7 @@ mod tests {
 
     #[rstest]
     #[case(SecrecyMode::BestEffort)]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
@@ -360,12 +360,11 @@ mod tests {
                 let mut connection = connection.recv().await.unwrap()?;
                 wait_for_peers().await;
                 // The other peer will send the file first
-                log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
+                log::info!(target: "citadel", "***CLIENT A LOGIN SUCCESS :: File transfer next ***");
+                let remote = connection.remote.clone();
                 let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
                 accept_all(handle_orig);
-                wait_for_peers().await;
 
-                /*
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write the file to the RE-VFS
                 crate::fs::write_with_security_level(
@@ -375,17 +374,17 @@ mod tests {
                     &virtual_path,
                 )
                 .await?;
-                log::error!(target: "citadel", "X01");
-                log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
+                log::info!(target: "citadel", "***CLIENT A FILE TRANSFER SUCCESS***");
+                //wait_for_peers().await;
                 // now, pull it
                 let save_dir = crate::fs::read(&remote, virtual_path).await?;
                 // now, compare bytes
-                log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
+                log::info!(target: "citadel", "***CLIENT A REVFS PULL SUCCESS");
                 let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
                 let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
-                log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
-                wait_for_peers().await;*/
+                log::info!(target: "citadel", "***CLIENT A REVFS PULL COMPARE SUCCESS");
+                wait_for_peers().await;
                 client0_success.store(true, Ordering::Relaxed);
                 remote_outer.shutdown_kernel().await
             },
@@ -401,11 +400,13 @@ mod tests {
             None,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
-                let connection = connection.recv().await.unwrap()?;
+                let mut connection = connection.recv().await.unwrap()?;
                 wait_for_peers().await;
-                let remote = connection.remote.clone();
-                log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
-                let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
+                let _remote = connection.remote.clone();
+                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
+                accept_all(handle_orig);
+                log::info!(target: "citadel", "***CLIENT B LOGIN SUCCESS :: File transfer next ***");
+                /*let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write the file to the RE-VFS
                 crate::fs::write_with_security_level(
                     &remote,
@@ -414,22 +415,19 @@ mod tests {
                     &virtual_path,
                 )
                 .await?;
-                log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
+                log::info!(target: "citadel", "***CLIENT B FILE TRANSFER SUCCESS***");
+                wait_for_peers().await;
                 // now, pull it
                 let save_dir = crate::fs::read(&remote, virtual_path).await?;
                 // now, compare bytes
-                log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
+                log::info!(target: "citadel", "***CLIENT B REVFS PULL SUCCESS");
                 let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
                 let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
-                log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
-                wait_for_peers().await;
-                /*
-                // Now, accept the peer's incoming handle
-                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
-                accept_all(handle_orig);
+                log::info!(target: "citadel", "***CLIENT B REVFS PULL COMPARE SUCCESS");
 
-                wait_for_peers().await;*/
+                log::info!(target: "citadel", "***CLIENT B WAITING FOR ADJACENT PEER TO FINISH STREAMING");*/
+                wait_for_peers().await;
                 client1_success.store(true, Ordering::Relaxed);
                 remote_outer.shutdown_kernel().await
             },
@@ -458,10 +456,13 @@ mod tests {
     fn accept_all(mut rx: FileTransferHandleRx) {
         let handle = tokio::task::spawn(async move {
             while let Some(mut handle) = rx.recv().await {
-                let _ = handle.accept();
+                if let Err(err) = handle.accept() {
+                    log::error!(target: "citadel", "Failed to accept file transfer: {err:?}");
+                }
                 // Exhaust the stream
                 let handle = tokio::task::spawn(async move {
                     while let Some(evt) = handle.next().await {
+                        log::info!(target: "citadel", "File Transfer Event: {evt:?}");
                         if let ObjectTransferStatus::Fail(err) = evt {
                             log::error!(target: "citadel", "File Transfer Failed: {err:?}");
                             std::process::exit(1);
