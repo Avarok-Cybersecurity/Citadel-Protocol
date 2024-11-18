@@ -1074,7 +1074,7 @@ async fn process_signal_command_as_server(
                                 &sess_mgr,
                                 &sess_hyper_ratchet,
                                 security_level,
-                                &mut *peer_layer,
+                                &mut peer_layer,
                             )
                             .await
                         }
@@ -1273,7 +1273,7 @@ async fn process_signal_command_as_server(
                                 &sess_mgr,
                                 &sess_hyper_ratchet,
                                 security_level,
-                                &mut *peer_layer,
+                                &mut peer_layer,
                             )
                             .await
                         }
