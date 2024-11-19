@@ -69,6 +69,8 @@ async fn driver(
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
     let internal_bind_addr = local_initial_socket.local_addr()?;
 
+    let sockets = vec![local_initial_socket];
+
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
     let peer_internal_bind_addr = conn.sync_exchange_payload(internal_bind_addr).await?;
@@ -77,11 +79,7 @@ async fn driver(
     log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
-    let hole_punch_config = HolePunchConfig::new(
-        peer_nat_type,
-        &peer_internal_bind_addr,
-        local_initial_socket,
-    );
+    let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addr, sockets);
 
     let conn = conn.clone();
     log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
@@ -208,22 +206,20 @@ mod tests {
 
             log::trace!(target: "citadel", "A");
             _res0
-                .socket
                 .send_to(dummy_bytes as &[u8], _res0.addr.send_address)
                 .await
                 .unwrap();
             log::trace!(target: "citadel", "B");
             let buf = &mut [0u8; 4096];
-            let (len, _addr) = _res1.socket.recv_from(buf).await.unwrap();
+            let (len, _addr) = _res1.recv_from(buf).await.unwrap();
             //assert_eq!(res1.addr.receive_address, addr);
             log::trace!(target: "citadel", "C");
             assert_ne!(len, 0);
             _res1
-                .socket
                 .send_to(dummy_bytes, _res1.addr.send_address)
                 .await
                 .unwrap();
-            let (len, _addr) = _res0.socket.recv_from(buf).await.unwrap();
+            let (len, _addr) = _res0.recv_from(buf).await.unwrap();
             assert_ne!(len, 0);
             //assert_eq!(res0.addr.receive_address, addr);
             log::trace!(target: "citadel", "D");

@@ -24,7 +24,7 @@ async fn main() {
     log::trace!(target: "citadel", "Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
 
     let (_conn, mut sink, mut stream) = citadel_wire::quic::QuicServer::new_from_pkcs_12_der_path(
-        hole_punched_socket.socket,
+        hole_punched_socket.into_socket(),
         "../keys/testing.p12",
         "mrmoney10",
     )

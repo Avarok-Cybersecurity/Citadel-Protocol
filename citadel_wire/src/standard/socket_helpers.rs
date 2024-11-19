@@ -30,8 +30,13 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
 
     socket.set_nonblocking(true)?;
 
+    /*
     if addr.is_ipv6() {
         socket.set_only_v6(false)?;
+    }*/
+
+    if addr.is_ipv6() {
+        socket.set_only_v6(true)?;
     }
 
     Ok(())
@@ -140,16 +145,7 @@ pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
 }
 
 pub fn get_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        get_udp_socket_inner(addr, false)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let std_socket = std::net::UdpSocket::bind(addr)?;
-        std_socket.set_nonblocking(true)?;
-        Ok(citadel_io::UdpSocket::from_std(std_socket)?)
-    }
+    get_udp_socket_inner(addr, false)
 }
 
 /// `backlog`: the max number of unprocessed TCP connections

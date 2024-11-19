@@ -675,10 +675,8 @@ fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, Networ
 
 fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
     log::trace!(target: "citadel", "Will use Raw UDP for UDP transmission");
-    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(
-        socket.socket,
-        socket.addr.send_address,
-    ))
+    let send_addr = socket.addr.send_address;
+    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.into_socket(), send_addr))
 }
 
 fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpSplittableTypes {

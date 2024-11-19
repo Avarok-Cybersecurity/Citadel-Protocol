@@ -311,7 +311,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             .map_err(generic_error)?;
         let remote_connect_addr = hole_punched_socket.addr.send_address;
         let addr = hole_punched_socket.addr;
-        let local_addr = hole_punched_socket.socket.local_addr()?;
+        let local_addr = hole_punched_socket.local_addr()?;
         log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
 
         app.sync().await.map_err(generic_error)?;
@@ -320,7 +320,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
         if is_initiator {
             // give time for non-initiator to setup local bind
             tokio::time::sleep(Duration::from_millis(200)).await;
-            let socket = hole_punched_socket.socket;
+            let socket = hole_punched_socket.into_socket();
             let quic_endpoint =
                 citadel_wire::quic::QuicClient::new_with_config(socket, client_config.clone())
                     .map_err(generic_error)?;

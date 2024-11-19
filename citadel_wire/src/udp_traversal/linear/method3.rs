@@ -245,7 +245,7 @@ impl Method3 {
         send_packet_params: &SendPacketBarrageParams<'_>,
     ) -> Result<TargettedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
-        log::trace!(target: "citadel", "[Hole-punch] Listening on {:?}", socket.socket.local_addr().unwrap());
+        log::trace!(target: "citadel", "[Hole-punch] Listening on {:?}", socket.socket.local_addr()?);
 
         let mut has_received_syn = false;
         loop {
@@ -269,12 +269,12 @@ impl Method3 {
                             adjacent_node_type,
                             their_send_addr,
                         )) => {
-                            if adjacent_node_type == this_node_type {
-                                log::warn!(target: "citadel", "RECV loopback packet; will discard");
+                            if has_received_syn {
                                 continue;
                             }
 
-                            if has_received_syn {
+                            if adjacent_node_type == this_node_type {
+                                log::warn!(target: "citadel", "RECV loopback packet; will discard");
                                 continue;
                             }
 
@@ -325,8 +325,18 @@ impl Method3 {
                             let expected_addr = address_we_sent_to;
 
                             if peer_external_addr != expected_addr {
-                                log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
-                                //continue;
+                                // See if we can send a packet to the addr
+                                if socket
+                                    .socket
+                                    .send_to(b"0", peer_external_addr)
+                                    .await
+                                    .is_ok()
+                                {
+                                    log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                                } else {
+                                    log::warn!(target: "citadel", "[will NOT allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                                    continue;
+                                }
                             }
 
                             // this means there was a successful ping-pong.

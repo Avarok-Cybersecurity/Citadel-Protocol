@@ -25,15 +25,15 @@ async fn main() {
     .unwrap();
     let client_config = Arc::new(citadel_wire::quic::insecure::rustls_client_config());
     log::trace!(target: "citadel", "Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (_conn, mut sink, mut stream) =
-        citadel_wire::quic::QuicClient::new_with_config(hole_punched_socket.socket, client_config)
-            .unwrap()
-            .connect_biconn(
-                hole_punched_socket.addr.receive_address,
-                "mail.satorisocial.com",
-            )
-            .await
-            .unwrap();
+    let recv_addr = hole_punched_socket.addr.receive_address;
+    let (_conn, mut sink, mut stream) = citadel_wire::quic::QuicClient::new_with_config(
+        hole_punched_socket.into_socket(),
+        client_config,
+    )
+    .unwrap()
+    .connect_biconn(recv_addr, "mail.satorisocial.com")
+    .await
+    .unwrap();
     log::trace!(target: "citadel", "Successfully obtained QUIC connection ...");
 
     let writer = async move {

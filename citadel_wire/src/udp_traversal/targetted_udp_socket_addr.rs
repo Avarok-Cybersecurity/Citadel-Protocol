@@ -60,11 +60,43 @@ impl Display for TargettedSocketAddr {
 
 #[derive(Debug)]
 pub struct HolePunchedUdpSocket {
-    pub socket: UdpSocket,
+    pub(crate) socket: UdpSocket,
     pub addr: TargettedSocketAddr,
 }
 
 impl HolePunchedUdpSocket {
+    pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> std::io::Result<usize> {
+        let bind_ip = self.socket.local_addr()?.ip();
+        let send_ip = self.addr.send_address.ip();
+        let send_ip = match (bind_ip, send_ip) {
+            (IpAddr::V4(_bind_ip), IpAddr::V6(send_ip)) => {
+                // If we're sending from an IPv4 address to an IPv6 address, we need to convert the
+                // IPv4 address to an IPv4-mapped IPv6 address
+                if let Some(addr) = send_ip.to_ipv4_mapped() {
+                    IpAddr::V4(addr)
+                } else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "IPv4-mapped IPv6 address conversion failed; Cannot send from ipv4 socket to v6",
+                    ));
+                }
+            }
+
+            (IpAddr::V6(_bind_ip), IpAddr::V4(send_ip)) => {
+                // If we're sending from an IPv6 address to an IPv4 address, we need to convert the
+                // IPv4 address to an IPv4-mapped IPv6 address
+                IpAddr::V6(send_ip.to_ipv6_mapped())
+            }
+
+            _ => send_ip,
+        };
+
+        log::info!(target: "citadel", "Sending to: {send_ip:?} from {bind_ip:?}");
+
+        self.socket
+            .send_to(buf, SocketAddr::new(send_ip, addr.port()))
+            .await
+    }
     // After hole-punching, some packets may be sent that need to be flushed
     // this cleanses the stream
     pub(crate) fn cleanse(&self) -> std::io::Result<()> {
@@ -80,5 +112,17 @@ impl HolePunchedUdpSocket {
                 }
             }
         }
+    }
+
+    pub async fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        self.socket.recv_from(buf).await
+    }
+
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
+    pub fn into_socket(self) -> UdpSocket {
+        self.socket
     }
 }
