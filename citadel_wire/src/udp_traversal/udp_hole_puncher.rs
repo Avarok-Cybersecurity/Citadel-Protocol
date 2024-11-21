@@ -137,14 +137,7 @@ pub fn get_optimal_bind_socket(
         // bind to IN_ADDR6_ANY. Allows both conns from loopback and public internet
         crate::socket_helpers::get_udp_socket("[::]:0")
     } else {
-        #[cfg(not(feature = "localhost-testing"))]
-        {
-            crate::socket_helpers::get_udp_socket("0.0.0.0:0")
-        }
-        #[cfg(feature = "localhost-testing")]
-        {
-            crate::socket_helpers::get_udp_socket("127.0.0.1:0")
-        }
+        crate::socket_helpers::get_udp_socket("0.0.0.0:0")
     }
 }
 

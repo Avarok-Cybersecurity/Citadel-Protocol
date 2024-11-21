@@ -36,7 +36,7 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
     }*/
 
     if addr.is_ipv6() {
-        socket.set_only_v6(true)?;
+        socket.set_only_v6(false)?;
     }
 
     Ok(())

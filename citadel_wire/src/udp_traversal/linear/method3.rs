@@ -212,11 +212,16 @@ impl Method3 {
                         }
                     }
                     Err(err) => {
-                        if err.kind() != ErrorKind::AddrNotAvailable {
+                        let err_kind = err.kind();
+                        if err_kind != ErrorKind::AddrNotAvailable {
                             log::warn!(target: "citadel", "Error sending packet from {:?} to {endpoint}: {:?}", socket.socket.local_addr()?, err);
                         }
 
-                        if err.kind().to_string().contains("NetworkUnreachable") {
+                        if err_kind.to_string().contains("NetworkUnreachable") {
+                            endpoints_not_reachable.push(*endpoint);
+                        }
+
+                        if err_kind == ErrorKind::InvalidInput {
                             endpoints_not_reachable.push(*endpoint);
                         }
 
