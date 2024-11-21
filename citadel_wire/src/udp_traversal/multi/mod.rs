@@ -53,11 +53,19 @@ impl DualStackUdpHolePuncher {
             .locally_bound_sockets
             .take()
             .ok_or_else(|| anyhow::Error::msg("sockets already taken"))?;
-        let addrs_to_ping: &Vec<SocketAddr> = &hole_punch_config.into_iter().collect();
+        let addrs_to_ping = hole_punch_config
+            .into_iter()
+            .collect::<Vec<Vec<SocketAddr>>>();
 
         // each individual hole puncher fans-out from 1 bound socket to n many peer addrs (determined by addrs_to_ping)
-        for socket in sockets {
-            // TODO: ensure only *some* of the addrs in addrs_to_ping get passed (MAX 2)
+        for (socket, mut addrs_to_ping) in sockets.into_iter().zip(addrs_to_ping) {
+            let socket_local_addr = socket.local_addr()?;
+            // We can't send from an ipv4 socket to an ipv6, addr, so remove any addrs that are ipv6
+            if socket_local_addr.is_ipv4() {
+                addrs_to_ping.retain(|addr| addr.is_ipv4());
+            }
+
+            log::info!(target: "citadel", "Hole punching with socket: {socket_local_addr} | addrs to ping: {addrs_to_ping:?}");
             let hole_puncher = SingleUDPHolePuncher::new(
                 relative_node_type,
                 encrypted_config_container.clone(),

@@ -67,19 +67,24 @@ async fn driver(
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
-    let internal_bind_addr = local_initial_socket.local_addr()?;
-
-    let sockets = vec![local_initial_socket];
+    let internal_bind_addr_optimal = local_initial_socket.local_addr()?;
+    let mut sockets = vec![local_initial_socket];
+    let mut internal_addresses = vec![internal_bind_addr_optimal];
+    if internal_bind_addr_optimal.is_ipv6() {
+        let additional_socket = crate::socket_helpers::get_udp_socket("0.0.0.0:0")?;
+        internal_addresses.push(additional_socket.local_addr()?);
+        sockets.push(additional_socket);
+    }
 
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
-    let peer_internal_bind_addr = conn.sync_exchange_payload(internal_bind_addr).await?;
+    let peer_internal_bind_addrs = conn.sync_exchange_payload(internal_addresses).await?;
     log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
-    log::trace!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr:?}\nPeer internal bind addr: {peer_internal_bind_addr:?}");
+    log::trace!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
     log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
-    let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addr, sockets);
+    let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);
 
     let conn = conn.clone();
     log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
@@ -90,6 +95,8 @@ async fn driver(
         conn,
     )?
     .await;
+
+    log::trace!(target: "citadel", "Hole Punch Status: {res:?}");
 
     res.map_err(|err| {
         anyhow::Error::msg(format!(
@@ -127,7 +134,7 @@ pub fn get_optimal_bind_socket(
     let local_allows_ipv6 = local_nat_info.is_ipv6_compatible();
     let peer_allows_ipv6 = peer_nat_info.is_ipv6_compatible();
 
-    // only bind to ipv6 if v6 is enabled locally, and, there both nodes have an external ipv6 addr,
+    // only bind to ipv6 if v6 is enabled locally, and, both nodes have an external ipv6 addr,
     // AND, the peer allows ipv6, then go with ipv6
     if local_allows_ipv6
         && local_has_an_external_ipv6_addr
