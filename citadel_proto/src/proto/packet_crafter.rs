@@ -298,7 +298,7 @@ pub(crate) mod group {
             packet
         };
 
-        packet.put_i64(processor.object_id);
+        packet.put_u128(processor.object_id.0);
 
         processor
             .hyper_ratchet_container
@@ -364,14 +364,6 @@ pub(crate) mod group {
         packet
     }
 
-    pub(crate) fn pack_i64_to_u128(value: i64) -> u128 {
-        value as u128 & 0xFFFFFFFFFFFFFFFF
-    }
-
-    pub(crate) fn unpack_i64_from_u128(packed: u128) -> i64 {
-        (packed & 0xFFFFFFFFFFFFFFFF) as i64
-    }
-
     /// This is called by the scrambler. NOTE: the scramble_drill MUST have the same drill/cid as the message_drill, otherwise
     /// packets will not be rendered on the otherside
     pub(crate) fn craft_wave_payload_packet_into(
@@ -387,7 +379,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::GROUP_PAYLOAD,
             algorithm: 0,
             security_level: 0, // Irrelevant; supplied by the wave header anyways
-            context_info: U128::new(pack_i64_to_u128(object_id)),
+            context_info: U128::new(object_id.0),
             group: U64::new(coords.group_id),
             wave_id: U32::new(coords.wave_id),
             session_cid: U64::new(scramble_drill.get_cid()),
@@ -424,7 +416,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::WAVE_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(pack_i64_to_u128(object_id)),
+            context_info: U128::new(object_id.0),
             group: U64::new(group_id),
             wave_id: U32::new(wave_id),
             session_cid: U64::new(hyper_ratchet.get_cid()),

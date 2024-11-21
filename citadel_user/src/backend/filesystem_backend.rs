@@ -7,9 +7,9 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::CNAC_SERIALIZED_EXTENSION;
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
+use citadel_crypt::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
-use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
@@ -357,6 +357,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         )
         .await?;
 
+        let chunk_size = sink_metadata.plaintext_length.min(MAX_BYTES_PER_GROUP);
+
         log::info!(target: "citadel", "Will stream object to {file_path:?}");
         let file = tokio::fs::File::create(&file_path)
             .await
@@ -369,12 +371,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         let mut size = 0;
         let mut writer = tokio::io::BufWriter::new(file);
-        let mut reader = tokio_util::io::StreamReader::new(
+        let reader = tokio_util::io::StreamReader::new(
             tokio_stream::wrappers::UnboundedReceiverStream::new(source).map(|r| {
+                log::trace!(target: "citadel", "Received {} byte chunk", r.len());
                 size += r.len();
                 Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>
             }),
         );
+
+        let mut reader = tokio::io::BufReader::with_capacity(chunk_size, reader);
 
         if is_virtual_file {
             // start by writing the metadata file next to it
@@ -431,7 +436,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         &self,
         cid: u64,
         virtual_path: std::path::PathBuf,
-    ) -> Result<(Box<dyn ObjectSource>, SecurityLevel), AccountError> {
+    ) -> Result<(Box<dyn ObjectSource>, VirtualObjectMetadata), AccountError> {
         let directory_store = self.directory_store.as_ref().unwrap();
         let file_path = get_file_path(
             cid,
@@ -453,9 +458,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let metadata: VirtualObjectMetadata =
             VirtualObjectMetadata::deserialize_from_owned_vector(raw_metadata)?;
 
-        let security_level = metadata.get_security_level().ok_or_else(|| AccountError::IoError("The requested file was not designated as a RE-VFS type, yet, a metadata file existed for it".into()))?;
-
-        Ok((Box::new(file_path), security_level))
+        Ok((Box::new(file_path), metadata))
     }
 
     async fn revfs_delete(

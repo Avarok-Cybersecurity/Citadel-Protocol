@@ -17,6 +17,7 @@ use citadel_crypt::misc::CryptError;
 use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use citadel_crypt::stacked_ratchet::{Ratchet, RatchetType, StackedRatchet};
 use citadel_types::crypto::SecrecyMode;
+use citadel_types::prelude::ObjectId;
 use citadel_types::proto::UdpMode;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
@@ -229,9 +230,9 @@ pub fn process_primary_packet(
                                                             if state_container.meta_expiry_state.expired() {
                                                                 log::warn!(target: "citadel", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
                                                                 if let Some(group) = state_container.inbound_groups.remove(&key) {
-                                                                    if group.object_id != 0 {
+                                                                    if group.object_id != ObjectId::zero() {
                                                                         // belongs to a file. Delete file; stop transmission
-                                                                        let key = FileKey::new(peer_cid, group.object_id);
+                                                                        let key = FileKey::new(group.object_id);
                                                                         if let Some(_file) = state_container.inbound_files.remove(&key) {
                                                                             // dropping this will automatically drop the future streaming to HD
                                                                             log::warn!(target: "citadel", "File transfer expired");

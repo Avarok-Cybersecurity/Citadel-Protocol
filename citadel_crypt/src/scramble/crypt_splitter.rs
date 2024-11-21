@@ -212,10 +212,9 @@ where
     }
 
     if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
-        log::trace!(target: "citadel", "Detected REVFS. Locally encrypting w/level {security_level:?} | Ratchet used: {} w/version {}", static_aux_ratchet.get_cid(), static_aux_ratchet.version());
+        log::trace!(target: "citadel", "Detected REVFS. Locally encrypting object {object_id} w/level {security_level:?} | Ratchet used: {} w/version {}", static_aux_ratchet.get_cid(), static_aux_ratchet.version());
         // pre-encrypt
         let local_encrypted = static_aux_ratchet.local_encrypt(plain_text, *security_level)?;
-
         plain_text = Cow::Owned(local_encrypted);
     }
 

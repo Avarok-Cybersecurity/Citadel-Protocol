@@ -18,6 +18,7 @@ pub mod prelude {
     pub use crate::entropy_bank::EntropyBank;
     pub use crate::misc::CryptError;
     pub use crate::packet_vector::PacketVector;
+    pub use crate::streaming_crypt_scrambler::FixedSizedSource;
     pub use crate::toolset::Toolset;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_types::crypto::SecurityLevel;

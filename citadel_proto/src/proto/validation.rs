@@ -91,7 +91,7 @@ pub(crate) mod group {
             return None;
         }
         let mut payload = payload_orig.split_to(payload_orig.len() - 8);
-        let object_id = payload_orig.reader().read_i64::<BigEndian>().ok()?;
+        let object_id = payload_orig.reader().read_u128::<BigEndian>().ok()?.into();
         let message = SecureProtocolPacket::extract_message(&mut payload).ok()?;
         let deser = SyncIO::deserialize_from_vector(&payload[..]).ok()?;
         Some((message.into(), deser, object_id))

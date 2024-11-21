@@ -70,7 +70,7 @@ use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSen
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
 use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
-use citadel_crypt::prelude::ConstructorOpts;
+use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
 use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_types::proto::TransferType;
 use citadel_user::backend::PersistenceHandler;
@@ -1386,6 +1386,7 @@ impl HdpSession {
         security_level: SecurityLevel,
         transfer_type: TransferType,
         local_encryption_level: Option<SecurityLevel>,
+        virtual_object_metadata: Option<VirtualObjectMetadata>,
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
         let this = self;
@@ -1395,6 +1396,20 @@ impl HdpSession {
 
         let file =
             File::open(&source_path).map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+        if let Some(virtual_object_metadata) = &virtual_object_metadata {
+            let expected_min_length = virtual_object_metadata.plaintext_length;
+            let file_length = file
+                .length()
+                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+            if file_length < expected_min_length as u64 {
+                log::warn!(target: "citadel", "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem: Current file length: {file_length}, expected min length: {expected_min_length}");
+                return Err(NetworkError::InternalError(
+                    "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem",
+                ));
+            }
+        }
+
         let file_metadata = file
             .metadata()
             .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -1438,7 +1453,10 @@ impl HdpSession {
                     .as_mut()
                     .unwrap()
                     .peer_session_crypto;
-                let object_id = crypt_container.get_and_increment_object_id();
+                let object_id = virtual_object_metadata
+                    .as_ref()
+                    .map(|r| r.object_id)
+                    .unwrap_or_else(|| crypt_container.get_next_object_id());
                 let group_id_start = crypt_container.get_and_increment_group_id();
                 let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
                 let static_aux_ratchet = crypt_container
@@ -1531,9 +1549,11 @@ impl HdpSession {
                     return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
                 }
 
-                let object_id = endpoint_container
-                    .endpoint_crypto
-                    .get_and_increment_object_id();
+                let object_id = virtual_object_metadata
+                    .as_ref()
+                    .map(|r| r.object_id)
+                    .unwrap_or_else(|| endpoint_container.endpoint_crypto.get_next_object_id());
+
                 // reserve group ids
                 let start_group_id = endpoint_container
                     .endpoint_crypto
@@ -1543,12 +1563,6 @@ impl HdpSession {
                     .endpoint_crypto
                     .get_hyper_ratchet(None)
                     .unwrap();
-
-                /*let static_aux_ratchet = endpoint_container
-                .endpoint_crypto
-                .toolset
-                .get_static_auxiliary_ratchet()
-                .clone();*/
 
                 let preferred_primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
@@ -1648,7 +1662,7 @@ impl HdpSession {
             next_gs_alerter: next_gs_alerter.clone(),
             start: Some(start),
         };
-        let file_key = FileKey::new(key_cid, object_id);
+        let file_key = FileKey::new(object_id);
         let _ = state_container
             .outbound_files
             .insert(file_key, outbound_file_transfer_container);

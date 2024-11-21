@@ -728,7 +728,7 @@ mod tests {
                     &pseudo_static_aux_ratchet_alice,
                     HEADER_SIZE_BYTES,
                     0,
-                    0,
+                    ObjectId::zero(),
                     0,
                     transfer_type.clone(),
                     |_vec, _drill, _target_cid, _, buffer| {
@@ -902,7 +902,7 @@ mod tests {
         let (bytes, _num_groups, _mxbpg) = scramble_encrypt_source::<_, _, HEADER_LEN>(
             source,
             None,
-            99,
+            ObjectId::zero(),
             group_sender_tx,
             stop_rx,
             security_level,

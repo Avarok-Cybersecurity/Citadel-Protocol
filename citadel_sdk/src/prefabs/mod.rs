@@ -1,4 +1,5 @@
 use crate::impl_remote;
+use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use citadel_io::Mutex;
 use citadel_proto::prelude::*;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -20,6 +21,7 @@ use crate::remote_ext::ProtocolRemoteExt;
 pub struct ClientServerRemote {
     pub(crate) inner: NodeRemote,
     pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult>>>>,
+    pub(crate) file_transfer_handle_rx: Arc<Mutex<Option<FileTransferHandleRx>>>,
     conn_type: VirtualTargetType,
     session_security_settings: SessionSecuritySettings,
 }
@@ -32,19 +34,31 @@ impl ClientServerRemote {
         conn_type: VirtualTargetType,
         remote: NodeRemote,
         session_security_settings: SessionSecuritySettings,
+        unprocessed_signals_rx: Option<UnboundedReceiver<NodeResult>>,
+        file_transfer_handle_rx: Option<FileTransferHandleRx>,
     ) -> Self {
+        // TODO: Add handles, only the server calls this
         Self {
             inner: remote,
-            unprocessed_signals_rx: Default::default(),
+            unprocessed_signals_rx: Arc::new(Mutex::new(unprocessed_signals_rx)),
+            file_transfer_handle_rx: Arc::new(Mutex::new(file_transfer_handle_rx)),
             conn_type,
             session_security_settings,
         }
     }
     /// Can only be called once per remote. Allows receiving events
-    pub fn get_unprocessed_signals_receiver(
-        &self,
-    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<NodeResult>> {
+    pub fn get_unprocessed_signals_receiver(&self) -> Option<UnboundedReceiver<NodeResult>> {
         self.unprocessed_signals_rx.lock().take()
+    }
+
+    /// Obtains a receiver which yields incoming file/object transfer handles
+    pub fn get_incoming_file_transfer_handle(&self) -> Result<FileTransferHandleRx, NetworkError> {
+        self.file_transfer_handle_rx
+            .lock()
+            .take()
+            .ok_or(NetworkError::InternalError(
+                "This function has already been called",
+            ))
     }
 }
 

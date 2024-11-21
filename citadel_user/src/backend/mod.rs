@@ -14,7 +14,6 @@ use crate::backend::sql_backend::SqlConnectionOptions;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
-use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user;
 use citadel_types::user::MutualPeer;
@@ -301,7 +300,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         &self,
         cid: u64,
         virtual_path: std::path::PathBuf,
-    ) -> Result<(Box<dyn ObjectSource>, SecurityLevel), AccountError> {
+    ) -> Result<(Box<dyn ObjectSource>, VirtualObjectMetadata), AccountError> {
         Err(AccountError::Generic(
             "The target does not support the RE-VFS protocol".into(),
         ))

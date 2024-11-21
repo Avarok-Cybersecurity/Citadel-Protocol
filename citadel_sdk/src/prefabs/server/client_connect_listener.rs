@@ -59,6 +59,8 @@ where
                     conn_type,
                     self.node_remote.clone().unwrap(),
                     session_security_settings,
+                    None, // TODO: Add real handles
+                    None,
                 );
                 (self.on_channel_received)(
                     ConnectionSuccess {

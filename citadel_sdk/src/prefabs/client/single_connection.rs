@@ -1,3 +1,4 @@
+use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use crate::prefabs::{get_socket_addr, ClientServerRemote};
 use crate::remote_ext::ConnectionSuccess;
 use crate::remote_ext::ProtocolRemoteExt;
@@ -6,7 +7,6 @@ use citadel_proto::prelude::*;
 use futures::Future;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
 use uuid::Uuid;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
@@ -21,6 +21,8 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
     unprocessed_signal_filter_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
     remote: Option<NodeRemote>,
     server_password: Option<PreSharedKey>,
+    rx_incoming_object_transfer_handle: Mutex<Option<FileTransferHandleRx>>,
+    tx_incoming_object_transfer_handle: tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
 }
@@ -48,6 +50,18 @@ where
     F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
+    fn generate_object_transfer_handle() -> (
+        tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
+        Mutex<Option<FileTransferHandleRx>>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let rx = FileTransferHandleRx {
+            inner: rx,
+            conn_type: VirtualTargetType::LocalGroupServer { implicated_cid: 0 },
+        };
+        (tx, Mutex::new(Some(rx)))
+    }
+
     /// Creates a new connection with a central server entailed by the user information
     pub fn new_connect<T: Into<String>, P: Into<SecBuffer>>(
         username: T,
@@ -57,6 +71,8 @@ where
         server_password: Option<PreSharedKey>,
         on_channel_received: F,
     ) -> Self {
+        let (tx_incoming_object_transfer_handle, rx_incoming_object_transfer_handle) =
+            Self::generate_object_transfer_handle();
         Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
@@ -64,6 +80,8 @@ where
                 username: username.into(),
                 password: password.into(),
             })),
+            rx_incoming_object_transfer_handle,
+            tx_incoming_object_transfer_handle,
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
             remote: None,
@@ -101,6 +119,8 @@ where
         on_channel_received: F,
     ) -> Result<Self, NetworkError> {
         let server_addr = get_socket_addr(server_addr)?;
+        let (tx_incoming_object_transfer_handle, rx_incoming_object_transfer_handle) =
+            Self::generate_object_transfer_handle();
         Ok(Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
@@ -112,6 +132,8 @@ where
             })),
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
+            rx_incoming_object_transfer_handle,
+            tx_incoming_object_transfer_handle,
             remote: None,
             server_password,
             _pd: Default::default(),
@@ -153,12 +175,16 @@ where
         on_channel_received: F,
     ) -> Result<Self, NetworkError> {
         let server_addr = get_socket_addr(server_addr)?;
+        let (tx_incoming_object_transfer_handle, rx_incoming_object_transfer_handle) =
+            Self::generate_object_transfer_handle();
         Ok(Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
             auth_info: Mutex::new(Some(ConnectionType::Passwordless { uuid, server_addr })),
             session_security_settings,
             unprocessed_signal_filter_tx: Default::default(),
+            rx_incoming_object_transfer_handle,
+            tx_incoming_object_transfer_handle,
             server_password,
             remote: None,
             _pd: Default::default(),
@@ -258,31 +284,44 @@ where
             implicated_cid: connect_success.cid,
         };
 
-        let unprocessed_signal_filter = if cfg!(feature = "localhost-testing") {
-            let (reroute_tx, reroute_rx) = tokio::sync::mpsc::unbounded_channel();
-            *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
-            Some(reroute_rx)
-        } else {
-            None
+        let mut handle = {
+            let mut lock = self.rx_incoming_object_transfer_handle.lock();
+            lock.take().expect("Should not have been called before")
         };
 
-        (handler)(
+        handle.conn_type.set_implicated_cid(connect_success.cid);
+
+        let (reroute_tx, reroute_rx) = tokio::sync::mpsc::unbounded_channel();
+        *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
+
+        handler(
             connect_success,
-            ClientServerRemote {
-                inner: remote,
-                unprocessed_signals_rx: Arc::new(Mutex::new(unprocessed_signal_filter)),
+            ClientServerRemote::new(
                 conn_type,
+                remote,
                 session_security_settings,
-            },
+                Some(reroute_rx),
+                Some(handle),
+            ),
         )
         .await
     }
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
-        if let Some(val) = self.unprocessed_signal_filter_tx.lock().as_ref() {
-            log::trace!(target: "citadel", "Will forward message {:?}", val);
-            if let Err(err) = val.send(message) {
-                log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
+        match message {
+            NodeResult::ObjectTransferHandle(handle) => {
+                if let Err(err) = self.tx_incoming_object_transfer_handle.send(handle.handle) {
+                    log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
+                }
+            }
+
+            message => {
+                if let Some(val) = self.unprocessed_signal_filter_tx.lock().as_ref() {
+                    log::trace!(target: "citadel", "Will forward message {:?}", val);
+                    if let Err(err) = val.send(message) {
+                        log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
+                    }
+                }
             }
         }
 

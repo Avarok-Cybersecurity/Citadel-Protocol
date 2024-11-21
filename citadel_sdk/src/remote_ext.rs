@@ -651,12 +651,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let mut stream = self.remote().send_callback_subscription(request).await?;
 
         while let Some(event) = stream.next().await {
-            log::info!(target: "citadel", "REVFS NODE RESULT for {} {:?}", self.user().get_implicated_cid(), event);
             match map_errors(event)? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
                     let mut local_path = None;
                     while let Some(res) = handle.next().await {
-                        log::info!(target: "citadel", "REVFS PULL EVENT {:?}", res);
                         match res {
                             ObjectTransferStatus::ReceptionBeginning(path, _) => {
                                 local_path = Some(path)

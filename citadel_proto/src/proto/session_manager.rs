@@ -574,6 +574,7 @@ impl HdpSessionManager {
                 security_level,
                 transfer_type,
                 local_encryption_level,
+                None,
                 |_| {},
             )
         } else {
