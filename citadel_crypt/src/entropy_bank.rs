@@ -246,12 +246,12 @@ impl EntropyBank {
 
     /// Serializes self to a vector
     pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError<String>> {
-        bincode2::serialize(self).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+        bincode::serialize(self).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
     }
 
     /// Deserializes self from a set of bytes
     pub fn deserialize_from<T: AsRef<[u8]>>(drill: T) -> Result<Self, CryptError<String>> {
-        bincode2::deserialize(drill.as_ref())
+        bincode::deserialize(drill.as_ref())
             .map_err(|err| CryptError::DrillUpdateError(err.to_string()))
     }
 }

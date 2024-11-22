@@ -200,7 +200,7 @@ impl Method3 {
                     // SynAck
                 };
 
-                let packet_plaintext = bincode2::serialize(&packet_ty).unwrap();
+                let packet_plaintext = bincode::serialize(&packet_ty).unwrap();
 
                 let packet = encryptor.generate_packet(&packet_plaintext);
                 log::trace!(target: "citadel", "Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
@@ -265,7 +265,7 @@ impl Method3 {
                         }
                     };
 
-                    match bincode2::deserialize(&packet)
+                    match bincode::deserialize(&packet)
                         .map_err(|err| FirewallError::HolePunch(err.to_string()))
                     {
                         Ok(NatPacket::Check) => {
@@ -342,7 +342,7 @@ impl Method3 {
                             // the other node ACKs our sent out SYN, we should not terminate.
 
                             if peer_external_addr != address_we_sent_to {
-                                let packet = bincode2::serialize(&NatPacket::Check).unwrap();
+                                let packet = bincode::serialize(&NatPacket::Check).unwrap();
                                 // See if we can send a packet to the addr
                                 if socket
                                     .socket

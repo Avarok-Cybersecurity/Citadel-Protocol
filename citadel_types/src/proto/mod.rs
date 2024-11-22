@@ -65,11 +65,11 @@ impl From<u128> for ObjectId {
 
 impl VirtualObjectMetadata {
     pub fn serialize(&self) -> Vec<u8> {
-        bincode2::serialize(self).unwrap()
+        bincode::serialize(self).unwrap()
     }
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
-        bincode2::deserialize(input.as_ref()).ok()
+        bincode::deserialize(input.as_ref()).ok()
     }
 
     pub fn get_security_level(&self) -> Option<SecurityLevel> {

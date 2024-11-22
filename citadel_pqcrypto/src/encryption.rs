@@ -295,7 +295,7 @@ pub(crate) mod kyber_module {
         // encrypt the 32-byte scramble dict using post-quantum pke
 
         let scram_crypt_ser =
-            bincode2::serialize(&scram_crypt_dict).map_err(|err| Error::Other(err.to_string()))?;
+            bincode::serialize(&scram_crypt_dict).map_err(|err| Error::Other(err.to_string()))?;
 
         let encrypted_scramble_dict = encrypt_pke(kem_alg, public_key, scram_crypt_ser, nonce)?;
         input
@@ -333,7 +333,7 @@ pub(crate) mod kyber_module {
         let (_, encrypted_scramble_dict) = input.as_ref().split_at(split_pt);
         let decrypted_scramble_dict = decrypt_pke(kem_alg, local_sk, encrypted_scramble_dict)?;
         let scram_crypt_dict: ScramCryptDictionary<32> =
-            bincode2::deserialize(&decrypted_scramble_dict)
+            bincode::deserialize(&decrypted_scramble_dict)
                 .map_err(|err| Error::Other(err.to_string()))?;
         // remove the encrypted scramble data from the input buf
         let truncate_point = input.len().saturating_sub(encrypted_scramble_dict_len);

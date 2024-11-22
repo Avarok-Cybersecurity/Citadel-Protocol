@@ -1,5 +1,5 @@
 use crate::misc::AccountError;
-use bincode2::BincodeRead;
+use bincode::BincodeRead;
 use bytes::BufMut;
 use bytes::BytesMut;
 use serde::de::DeserializeOwned;
@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 
 /// Convenient serialization methods for types that #[derive(Serialize, Deserialize)]
 pub trait SyncIO {
-    /// Serializes a bincode2 type to a byte vector
+    /// Serializes a bincode type to a byte vector
     fn serialize_to_vector(&self) -> Result<Vec<u8>, AccountError>
     where
         Self: Serialize,
     {
         type_to_bytes(self)
     }
-    /// Deserialized a bincode2 type from a byte vector
+    /// Deserialized a bincode type from a byte vector
     fn deserialize_from_vector<'a>(input: &'a [u8]) -> Result<Self, AccountError>
     where
         Self: Deserialize<'a>,
@@ -28,7 +28,7 @@ pub trait SyncIO {
         Self: DeserializeOwned,
     {
         use bytes::Buf;
-        bincode2::deserialize_from(input.reader())
+        bincode::deserialize_from(input.reader())
             .map_err(|err| AccountError::Generic(err.to_string()))
     }
 
@@ -38,7 +38,7 @@ pub trait SyncIO {
         T: serde::de::Deserialize<'a>,
         R: BincodeRead<'a>,
     {
-        bincode2::deserialize_in_place(reader, place)
+        bincode::deserialize_in_place(reader, place)
             .map_err(|err| AccountError::Generic(err.to_string()))
     }
 
@@ -47,10 +47,10 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode2::serialized_size(self)
+        bincode::serialized_size(self)
             .and_then(|amt| {
                 buf.reserve(amt as usize);
-                bincode2::serialize_into(buf.writer(), self)
+                bincode::serialize_into(buf.writer(), self)
             })
             .map_err(|_| AccountError::Generic("Bad ser".to_string()))
     }
@@ -60,7 +60,7 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode2::serialize_into(slice, self).map_err(|err| AccountError::Generic(err.to_string()))
+        bincode::serialize_into(slice, self).map_err(|err| AccountError::Generic(err.to_string()))
     }
 
     /// Returns the expected size of the serialized objects
@@ -68,7 +68,7 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode2::serialized_size(self).ok().map(|res| res as usize)
+        bincode::serialized_size(self).ok().map(|res| res as usize)
     }
 }
 
@@ -76,10 +76,10 @@ impl<'a, T> SyncIO for T where T: Serialize + Deserialize<'a> + Sized {}
 
 /// Deserializes the bytes, T, into type D
 fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, AccountError> {
-    bincode2::deserialize(bytes).map_err(|err| AccountError::IoError(err.to_string()))
+    bincode::deserialize(bytes).map_err(|err| AccountError::IoError(err.to_string()))
 }
 
 /// Converts a type, D to Vec<u8>
 fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, AccountError> {
-    bincode2::serialize(&input).map_err(|err| AccountError::IoError(err.to_string()))
+    bincode::serialize(&input).map_err(|err| AccountError::IoError(err.to_string()))
 }

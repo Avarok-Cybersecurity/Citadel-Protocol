@@ -35,7 +35,7 @@ fcm = []
 
 [dependencies]
 async-trait = { workspace = true }
-bincode2 = { workspace = true }
+bincode = { workspace = true }
 serde = { workspace = true, features=["rc", "derive"] }
 futures = { workspace = true }
 log = { workspace = true }

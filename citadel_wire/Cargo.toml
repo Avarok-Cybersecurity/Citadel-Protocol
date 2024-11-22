@@ -38,7 +38,7 @@ citadel_io = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }
-bincode2 = { workspace = true }
+bincode = { workspace = true }
 async_ip = { workspace = true }
 itertools = { workspace = true, features = ["use_alloc", "use_std"] }
 either = { workspace = true }

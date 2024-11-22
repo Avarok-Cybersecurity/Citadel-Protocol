@@ -240,10 +240,8 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(
     lock: LocalLockHolder<T>,
 ) -> Result<(), anyhow::Error> {
     log::trace!(target: "citadel", "[NetMutex] Drop code initialized for {:?}...", conn.node_type());
-    conn.send_serialized(UpdatePacket::Released(bincode2::serialize(
-        &lock.deref().0,
-    )?))
-    .await?;
+    conn.send_serialized(UpdatePacket::Released(bincode::serialize(&lock.deref().0)?))
+        .await?;
 
     let mut adjacent_trying_to_acquire = false;
 
@@ -330,7 +328,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
         match packet {
             UpdatePacket::Released(new_data) => {
-                let new_data = bincode2::deserialize::<T>(&new_data)?;
+                let new_data = bincode::deserialize::<T>(&new_data)?;
                 *value = new_data;
                 // now, send a LockAcquired packet
                 conn.send_serialized(UpdatePacket::LockAcquired).await?;
@@ -388,7 +386,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
 ) -> Result<LocalLockHolder<T>, anyhow::Error> {
     channel
         .send_serialized(UpdatePacket::Released(
-            bincode2::serialize(&lock.deref().0).unwrap(),
+            bincode::serialize(&lock.deref().0).unwrap(),
         ))
         .await?;
 
@@ -396,7 +394,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
         let next_packet = channel.recv_serialized().await?;
         match next_packet {
             UpdatePacket::Released(new_value) => {
-                lock.deref_mut().0 = bincode2::deserialize(&new_value)?;
+                lock.deref_mut().0 = bincode::deserialize(&new_value)?;
                 channel.send_serialized(UpdatePacket::LockAcquired).await?;
                 channel
                     .send_serialized(UpdatePacket::ReleasedVerified)

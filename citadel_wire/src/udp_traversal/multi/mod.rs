@@ -385,12 +385,12 @@ async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(
     conn: &V,
 ) -> Result<(), anyhow::Error> {
     Ok(conn
-        .send_to_peer(&bincode2::serialize(&input).unwrap())
+        .send_to_peer(&bincode::serialize(&input).unwrap())
         .await?)
 }
 
 async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(
     conn: &V,
 ) -> Result<T, anyhow::Error> {
-    Ok(bincode2::deserialize(&conn.recv().await?)?)
+    Ok(bincode::deserialize(&conn.recv().await?)?)
 }

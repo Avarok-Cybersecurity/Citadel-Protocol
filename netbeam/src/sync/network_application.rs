@@ -120,7 +120,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     pub async fn forward_packet(&self, packet: &[u8]) -> Result<(), anyhow::Error> {
-        let deserialized = bincode2::deserialize::<MultiplexedPacket<K>>(packet)?;
+        let deserialized = bincode::deserialize::<MultiplexedPacket<K>>(packet)?;
         match deserialized {
             MultiplexedPacket::ApplicationLayer { id, payload } => {
                 let lock = self.subscriptions().read();

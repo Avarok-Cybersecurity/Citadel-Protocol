@@ -586,23 +586,23 @@ pub mod constructor {
 
     impl BobToAliceTransfer {
         pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
-            let len = bincode2::serialized_size(self).ok()?;
+            let len = bincode::serialized_size(self).ok()?;
             buf.reserve(len as usize);
-            bincode2::serialize_into(buf.writer(), self).ok()
+            bincode::serialize_into(buf.writer(), self).ok()
         }
 
         pub fn deserialize_from<T: AsRef<[u8]>>(source: T) -> Option<BobToAliceTransfer> {
-            bincode2::deserialize(source.as_ref()).ok()
+            bincode::deserialize(source.as_ref()).ok()
         }
     }
 
     impl AliceToBobTransfer {
         pub fn serialize_to_vec(&self) -> Option<Vec<u8>> {
-            bincode2::serialize(self).ok()
+            bincode::serialize(self).ok()
         }
 
         pub fn deserialize_from(source: &[u8]) -> Option<AliceToBobTransfer> {
-            bincode2::deserialize(source).ok()
+            bincode::deserialize(source).ok()
         }
 
         /// Gets the declared new version

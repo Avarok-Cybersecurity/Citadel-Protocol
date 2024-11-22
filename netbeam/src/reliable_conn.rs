@@ -30,7 +30,7 @@ impl<T: ConnAddr + ReliableOrderedStreamToTarget> ReliableOrderedConnectionToTar
 pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
     async fn recv_serialized<T: DeserializeOwned + Send + Sync>(&self) -> std::io::Result<T> {
         let packet = &self.recv().await?;
-        Ok(bincode2::deserialize(packet)
+        Ok(bincode::deserialize(packet)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
     }
 
@@ -55,7 +55,7 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
     }
 
     async fn send_serialized<T: Serialize + Send + Sync>(&self, t: T) -> std::io::Result<()> {
-        let packet = &bincode2::serialize(&t)
+        let packet = &bincode::serialize(&t)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
         self.send_to_peer(packet).await
     }

@@ -82,7 +82,7 @@ pub fn read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, AccountEr
     std::fs::File::open(path.as_ref())
         .map_err(|err| AccountError::IoError(err.to_string()))
         .and_then(|file| {
-            bincode2::deserialize_from(std::io::BufReader::new(file))
+            bincode::deserialize_from(std::io::BufReader::new(file))
                 .map_err(|err| AccountError::IoError(err.to_string()))
         })
 }

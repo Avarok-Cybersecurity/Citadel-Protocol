@@ -128,9 +128,9 @@ mod tests {
     #[test]
     fn test_sec_buffer() {
         let buf = SecBuffer::from("Hello, world!");
-        let serde = bincode2::serialize(&buf).unwrap();
+        let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
@@ -197,9 +197,9 @@ mod tests {
     fn secbytes() {
         citadel_logging::setup_log();
         let buf = SecBuffer::from("Hello, world!");
-        let serde = bincode2::serialize(&buf).unwrap();
+        let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
