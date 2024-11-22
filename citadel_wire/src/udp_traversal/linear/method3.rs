@@ -217,7 +217,7 @@ impl Method3 {
                             log::warn!(target: "citadel", "Error sending packet from {:?} to {endpoint}: {:?}", socket.socket.local_addr()?, err);
                         }
 
-                        if err_kind.to_string().contains("NetworkUnreachable") {
+                        if err.to_string().contains("NetworkUnreachable") {
                             endpoints_not_reachable.push(*endpoint);
                         }
 
