@@ -32,6 +32,7 @@ pub struct VirtualObjectMetadata {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[repr(transparent)]
 pub struct ObjectId(pub u128);
 
 impl Debug for ObjectId {

@@ -4,7 +4,7 @@ use crate::proto::packet_processor::includes::VirtualConnectionType;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::remote::Ticket;
-use crate::proto::session::HdpSession;
+use crate::proto::session::CitadelSession;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
@@ -20,7 +20,7 @@ pub(crate) async fn handle_response_phase_post_connect(
     implicated_cid: u64,
     target_cid: u64,
     timestamp: i64,
-    session: &HdpSession,
+    session: &CitadelSession,
     sess_hyper_ratchet: &StackedRatchet,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

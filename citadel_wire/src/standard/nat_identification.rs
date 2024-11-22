@@ -1,5 +1,3 @@
-#![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
-
 use crate::error::FirewallError;
 use crate::socket_helpers::is_ipv6_enabled;
 use async_ip::IpAddressInfo;

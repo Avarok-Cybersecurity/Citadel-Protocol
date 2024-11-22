@@ -27,7 +27,7 @@ pub const fn build_tag() -> &'static str {
 pub mod macros {
     use either::Either;
 
-    use crate::proto::session::HdpSessionInner;
+    use crate::proto::session::CitadelSessionInner;
 
     pub type OwnedReadGuard<'a, T> = std::cell::Ref<'a, T>;
     pub type OwnedWriteGuard<'a, T> = std::cell::RefMut<'a, T>;
@@ -44,7 +44,7 @@ pub mod macros {
     impl<T: 'static> SyncContextRequirements for T {}
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
-    pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
+    pub type SessionBorrow<'a> = std::cell::RefMut<'a, CitadelSessionInner>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::rc::Weak<std::cell::RefCell<T>>,
@@ -177,7 +177,7 @@ pub mod macros {
 pub mod macros {
     use either::Either;
 
-    use crate::proto::session::HdpSessionInner;
+    use crate::proto::session::CitadelSessionInner;
 
     pub type OwnedReadGuard<'a, T> = citadel_io::RwLockReadGuard<'a, T>;
     pub type OwnedWriteGuard<'a, T> = citadel_io::RwLockWriteGuard<'a, T>;
@@ -194,7 +194,7 @@ pub mod macros {
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
 
     pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
-    pub type SessionBorrow<'a> = citadel_io::RwLockWriteGuard<'a, HdpSessionInner>;
+    pub type SessionBorrow<'a> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::sync::Weak<citadel_io::RwLock<T>>,

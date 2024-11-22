@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 /// This will handle a registration packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_register(
-    session_ref: &HdpSession,
+    session_ref: &CitadelSession,
     packet: HdpPacket,
     remote_addr: SocketAddr,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -113,7 +113,9 @@ pub async fn process_register(
                                     .state
                                     .store(SessionState::NeedsRegister, Ordering::Relaxed);
 
-                                return Ok(PrimaryProcessorResult::Void);
+                                return Ok(PrimaryProcessorResult::EndSession(
+                                    "Unable to validate STAGE0_REGISTER packet",
+                                ));
                             }
                         }
                     } else {
@@ -324,7 +326,7 @@ pub async fn process_register(
                                 {
                                     Ok(new_cnac) => {
                                         if passwordless {
-                                            HdpSession::begin_connect(&session, &new_cnac)?;
+                                            CitadelSession::begin_connect(&session, &new_cnac)?;
                                             inner_mut_state!(session.state_container).cnac =
                                                 Some(new_cnac);
                                             // begin_connect will handle the connection process from here on out

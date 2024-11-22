@@ -26,7 +26,7 @@ use std::sync::atomic::Ordering;
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_preconnect(
-    session_orig: &HdpSession,
+    session_orig: &CitadelSession,
     packet: HdpPacket,
     header_drill_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -524,7 +524,7 @@ pub async fn process_preconnect(
 }
 
 fn begin_connect_process(
-    session: &HdpSession,
+    session: &CitadelSession,
     hyper_ratchet: &StackedRatchet,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -560,7 +560,7 @@ fn begin_connect_process(
 fn send_success_as_initiator(
     udp_splittable: Option<UdpSplittableTypes>,
     hyper_ratchet: &StackedRatchet,
-    session: &HdpSession,
+    session: &CitadelSession,
     security_level: SecurityLevel,
     implicated_cid: u64,
     state_container: &mut StateContainerInner,
@@ -579,7 +579,7 @@ fn send_success_as_initiator(
 
 fn handle_success_as_receiver(
     udp_splittable: Option<UdpSplittableTypes>,
-    session: &HdpSession,
+    session: &CitadelSession,
     implicated_cid: u64,
     state_container: &mut StateContainerInner,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -601,7 +601,7 @@ fn handle_success_as_receiver(
     if let Some(udp_splittable) = udp_splittable {
         let peer_addr = udp_splittable.peer_addr();
         // the UDP subsystem will automatically engage at this point
-        HdpSession::udp_socket_loader(
+        CitadelSession::udp_socket_loader(
             session.clone(),
             VirtualTargetType::LocalGroupServer { implicated_cid },
             udp_splittable,

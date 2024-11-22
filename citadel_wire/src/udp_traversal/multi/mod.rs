@@ -65,7 +65,12 @@ impl DualStackUdpHolePuncher {
                 addrs_to_ping.retain(|addr| addr.is_ipv4());
             }
 
-            log::info!(target: "citadel", "Hole punching with socket: {socket_local_addr} | addrs to ping: {addrs_to_ping:?}");
+            // We can't send from an ipv6 socket to and ipv4, addr, so remove any addrs that are ipv4
+            if socket_local_addr.is_ipv6() {
+                addrs_to_ping.retain(|addr| addr.is_ipv6());
+            }
+
+            log::trace!(target: "citadel", "Hole punching with socket: {socket_local_addr} | addrs to ping: {addrs_to_ping:?}");
             let hole_puncher = SingleUDPHolePuncher::new(
                 relative_node_type,
                 encrypted_config_container.clone(),
@@ -170,13 +175,15 @@ async fn drive(
         });
     }
 
-    let current_enqueued = &tokio::sync::Mutex::new(None);
+    let current_enqueued: &tokio::sync::Mutex<Option<HolePunchedUdpSocket>> =
+        &tokio::sync::Mutex::new(None);
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
     // This is called to scan currently-running tasks to terminate, and, returning the rebuilt
     // hole-punched socket on completion
     let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID| async move {
+        log::trace!(target: "citadel", "Local {local_id:?} has been commanded to use {peer_id:?}");
         let mut lock = rebuilder.lock().await;
         // first, check local failures
         if let Some(mut failure) = lock.local_failures.remove(&local_id) {
@@ -198,7 +205,12 @@ async fn drive(
         // Note: if properly implemented, the below should return almost instantly
         loop {
             if let Some(current_enqueued) = current_enqueued.lock().await.take() {
-                log::trace!(target: "citadel", "Grabbed the currently enqueued socket!");
+                log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
+                if current_enqueued.addr.unique_id != peer_id {
+                    log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
+                    continue;
+                }
+
                 return Ok(current_enqueued);
             }
 
@@ -325,6 +337,7 @@ async fn drive(
                 log::trace!(target: "citadel", "*** received MutexSet. Will unconditionally end ...");
                 assert!(loser_value_set.lock().replace((local, remote)).is_none());
                 let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
+                log::trace!(target: "citadel", "Selecting socket: {hole_punched_socket:?}");
                 let _ = hole_punched_socket.cleanse();
                 submit_final_candidate(hole_punched_socket)?;
                 // return here. The winner must exit last

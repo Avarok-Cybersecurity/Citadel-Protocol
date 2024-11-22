@@ -96,7 +96,7 @@ async fn driver(
     )?
     .await;
 
-    log::trace!(target: "citadel", "Hole Punch Status: {res:?}");
+    log::info!(target: "citadel", "Hole Punch Status: {res:?}");
 
     res.map_err(|err| {
         anyhow::Error::msg(format!(

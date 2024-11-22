@@ -23,7 +23,6 @@ std = [
     "serde/std"
 ]
 localhost-testing = ["tracing"]
-localhost-testing-loopback-only = []
 wasm = [
     "citadel_io/wasm",
     "netbeam/wasm"

@@ -112,6 +112,7 @@ impl SingleUDPHolePuncher {
                     socket: self.socket.take().ok_or_else(|| {
                         FirewallError::HolePunch("UDP socket not loaded".to_string())
                     })?,
+                    local_id: unique_id,
                 })
             }
 
@@ -152,6 +153,7 @@ impl SingleUDPHolePuncher {
                     Either::Right(addr) => Ok(HolePunchedUdpSocket {
                         socket: self.socket.take().unwrap(),
                         addr,
+                        local_id: this_local_id,
                     }),
 
                     Either::Left(id_opt) => {
@@ -189,6 +191,7 @@ impl SingleUDPHolePuncher {
                         receive_address: self.peer_external_addr(),
                         unique_id,
                     },
+                    local_id: unique_id,
                 })
             }
         }
@@ -225,7 +228,11 @@ impl SingleUDPHolePuncher {
             .1
             .get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
         let socket = self.socket.take()?;
-        Some(HolePunchedUdpSocket { addr, socket })
+        Some(HolePunchedUdpSocket {
+            addr,
+            socket,
+            local_id: self.unique_id,
+        })
     }
 
     /// this should only be called when the adjacent node verified that the connection occurred
@@ -234,7 +241,11 @@ impl SingleUDPHolePuncher {
         addr: TargettedSocketAddr,
     ) -> Option<HolePunchedUdpSocket> {
         let socket = self.socket.take()?;
-        Some(HolePunchedUdpSocket { addr, socket })
+        Some(HolePunchedUdpSocket {
+            addr,
+            socket,
+            local_id: self.unique_id,
+        })
     }
 }
 

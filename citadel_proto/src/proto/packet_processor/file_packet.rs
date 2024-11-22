@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_file_packet(
-    session: &HdpSession,
+    session: &CitadelSession,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

@@ -94,11 +94,11 @@ use citadel_types::crypto::SecurityLevel;
 //define_outer_struct_wrapper!(HdpSession, HdpSessionInner);
 
 /// Allows a connection stream to be worked on by a single worker
-pub struct HdpSession {
+pub struct CitadelSession {
     #[cfg(not(feature = "multi-threaded"))]
-    pub inner: std::rc::Rc<HdpSessionInner>,
+    pub inner: std::rc::Rc<CitadelSessionInner>,
     #[cfg(feature = "multi-threaded")]
-    pub inner: std::sync::Arc<HdpSessionInner>,
+    pub inner: std::sync::Arc<CitadelSessionInner>,
 }
 
 enum SessionShutdownReason {
@@ -106,7 +106,7 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-impl HdpSession {
+impl CitadelSession {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -120,28 +120,28 @@ impl HdpSession {
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn as_weak(&self) -> std::rc::Weak<HdpSessionInner> {
+    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner> {
         std::rc::Rc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn as_weak(&self) -> std::sync::Weak<HdpSessionInner> {
+    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner> {
         std::sync::Arc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn upgrade_weak(this: &std::sync::Weak<HdpSessionInner>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn upgrade_weak(this: &std::rc::Weak<HdpSessionInner>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 }
 
-impl From<HdpSessionInner> for HdpSession {
-    fn from(inner: HdpSessionInner) -> Self {
+impl From<CitadelSessionInner> for CitadelSession {
+    fn from(inner: CitadelSessionInner) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
         {
             Self {
@@ -158,15 +158,15 @@ impl From<HdpSessionInner> for HdpSession {
     }
 }
 
-impl Deref for HdpSession {
-    type Target = HdpSessionInner;
+impl Deref for CitadelSession {
+    type Target = CitadelSessionInner;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl Clone for HdpSession {
+impl Clone for CitadelSession {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -178,7 +178,7 @@ impl Clone for HdpSession {
 
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
-pub struct HdpSessionInner {
+pub struct CitadelSessionInner {
     pub(super) implicated_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
@@ -273,7 +273,7 @@ pub(crate) struct ClientOnlySessionInitSettings {
     pub connect_mode: Option<ConnectMode>,
 }
 
-impl HdpSession {
+impl CitadelSession {
     pub(crate) fn new(
         session_init_params: SessionInitParams,
     ) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
@@ -356,7 +356,7 @@ impl HdpSession {
         let init_time = session_init_params.init_time;
         let session_password = session_init_params.session_password;
 
-        let mut inner = HdpSessionInner {
+        let mut inner = CitadelSessionInner {
             hypernode_peer_layer,
             connect_mode: DualRwLock::from(connect_mode),
             primary_stream_quic_conn: DualRwLock::from(None),
@@ -410,7 +410,7 @@ impl HdpSession {
         Ok((stopper_tx, Self::from(inner)))
     }
 
-    /// Once the [HdpSession] is created, it can then be executed to begin handling a periodic connection handler.
+    /// Once the [CitadelSession] is created, it can then be executed to begin handling a periodic connection handler.
     /// This will automatically stop running once the internal state is set to Disconnected
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
@@ -550,7 +550,7 @@ impl HdpSession {
         zero_packet: Option<BytesMut>,
         persistence_handler: PersistenceHandler,
         to_outbound: OutboundPrimaryStreamSender,
-        session: HdpSession,
+        session: CitadelSession,
         state: SessionState,
         timestamp: i64,
         cnac: Option<ClientNetworkAccount>,
@@ -644,7 +644,7 @@ impl HdpSession {
     }
 
     pub(crate) fn begin_connect(
-        session: &HdpSession,
+        session: &CitadelSession,
         cnac: &ClientNetworkAccount,
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine!");
@@ -716,7 +716,7 @@ impl HdpSession {
 
     // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
     pub(crate) fn udp_socket_loader(
-        this: HdpSession,
+        this: CitadelSession,
         v_target: VirtualTargetType,
         udp_conn: UdpSplittableTypes,
         addr: TargettedSocketAddr,
@@ -727,7 +727,7 @@ impl HdpSession {
         std::mem::drop(this);
         let task = async move {
             let (listener, udp_sender_future, stopper_rx) = {
-                let this = HdpSession::upgrade_weak(&this_weak)
+                let this = CitadelSession::upgrade_weak(&this_weak)
                     .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let sess = this;
@@ -758,7 +758,7 @@ impl HdpSession {
                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 }
 
-                let sess = HdpSession::upgrade_weak(&this_weak)
+                let sess = CitadelSession::upgrade_weak(&this_weak)
                     .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let accessor = match v_target {
@@ -911,7 +911,7 @@ impl HdpSession {
     )]
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
-        this_main: HdpSession,
+        this_main: CitadelSession,
         p2p_handle: Option<P2PInboundHandle>,
     ) -> Result<(), NetworkError> {
         let this_main = &this_main;
@@ -957,12 +957,12 @@ impl HdpSession {
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult>,
-            session: &HdpSession,
+            session: &CitadelSession,
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             match result {
                 Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
-                    HdpSession::send_to_primary_stream_closure(
+                    CitadelSession::send_to_primary_stream_closure(
                         primary_stream,
                         kernel_tx,
                         return_packet,
@@ -998,7 +998,7 @@ impl HdpSession {
         }
 
         fn handle_session_terminating_error(
-            session: &HdpSession,
+            session: &CitadelSession,
             err: std::io::Error,
             is_server: bool,
             peer_cid: Option<u64>,
@@ -1107,7 +1107,7 @@ impl HdpSession {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn execute_queue_worker(this_main: HdpSession) -> Result<(), NetworkError> {
+    async fn execute_queue_worker(this_main: CitadelSession) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
@@ -1878,7 +1878,7 @@ impl HdpSession {
 
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
-        this: HdpSession,
+        this: CitadelSession,
         mut rx: tokio::sync::mpsc::Receiver<SessionRequest>,
     ) {
         let task = async move {
@@ -2077,7 +2077,7 @@ impl HdpSession {
     }
 
     async fn listen_udp_port<S: UdpStream>(
-        this: HdpSession,
+        this: CitadelSession,
         _hole_punched_addr_ip: IpAddr,
         local_port: u16,
         mut stream: S,
@@ -2229,7 +2229,7 @@ impl HdpSession {
     }
 }
 
-impl HdpSessionInner {
+impl CitadelSessionInner {
     /// Stores the proposed credentials into the register state container
     pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
         let mut state_container = inner_mut_state!(self.state_container);
@@ -2384,7 +2384,7 @@ impl HdpSessionInner {
     }
 }
 
-impl Drop for HdpSessionInner {
+impl Drop for CitadelSessionInner {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
         self.send_session_dc_signal(None, false, "Session dropped");

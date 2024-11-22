@@ -36,7 +36,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_crafter::{
     GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket,
 };
-use crate::proto::packet_processor::includes::{HdpSession, Instant, SocketAddr};
+use crate::proto::packet_processor::includes::{CitadelSession, Instant, SocketAddr};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::channel::{PeerChannel, UdpChannel};
@@ -818,7 +818,7 @@ impl StateContainerInner {
         target_cid: u64,
         connection_type: VirtualConnectionType,
         endpoint_crypto: PeerSessionCrypto,
-        sess: &HdpSession,
+        sess: &CitadelSession,
         file_transfer_compatible: bool,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
@@ -840,7 +840,7 @@ impl StateContainerInner {
             tx,
         );
         let to_channel = OrderedChannel::new(channel_tx);
-        HdpSession::spawn_message_sender_function(sess.clone(), rx);
+        CitadelSession::spawn_message_sender_function(sess.clone(), rx);
 
         let endpoint_container = Some(EndpointChannelContainer {
             default_security_settings,
@@ -874,7 +874,7 @@ impl StateContainerInner {
         security_level: SecurityLevel,
         channel_ticket: Ticket,
         implicated_cid: u64,
-        session: &HdpSession,
+        session: &CitadelSession,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -889,7 +889,7 @@ impl StateContainerInner {
             channel_rx,
             tx,
         );
-        HdpSession::spawn_message_sender_function(session.clone(), rx);
+        CitadelSession::spawn_message_sender_function(session.clone(), rx);
 
         let c2s = C2SChannelContainer {
             to_channel: OrderedChannel::new(channel_tx),
@@ -1390,7 +1390,7 @@ impl StateContainerInner {
     #[allow(clippy::too_many_arguments)]
     pub fn on_group_header_ack_received(
         &mut self,
-        session: &HdpSession,
+        session: &CitadelSession,
         base_session_secrecy_mode: SecrecyMode,
         peer_cid: u64,
         target_cid: u64,
@@ -2227,7 +2227,7 @@ impl StateContainerInner {
 
                         let to_primary_stream = self.get_primary_stream().unwrap();
                         let kernel_tx = &self.kernel_tx;
-                        HdpSession::send_to_primary_stream_closure(
+                        CitadelSession::send_to_primary_stream_closure(
                             to_primary_stream,
                             kernel_tx,
                             stage0_packet,
@@ -2390,7 +2390,7 @@ impl StateContainerInner {
         &mut self,
         key: MessageGroupKey,
         ticket: Ticket,
-        session: &HdpSession,
+        session: &CitadelSession,
     ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
         let implicated_cid = self
@@ -2410,7 +2410,7 @@ impl StateContainerInner {
         let (to_session_tx, to_session_rx) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
 
-        HdpSession::spawn_message_sender_function(session.clone(), to_session_rx);
+        CitadelSession::spawn_message_sender_function(session.clone(), to_session_rx);
 
         Ok(GroupChannel::new(
             self.hdp_server_remote.clone(),

@@ -1,9 +1,7 @@
-#![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
-
 use crate::nat_identification::NatType;
 use citadel_io::UdpSocket;
 use itertools::Itertools;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 #[derive(Debug)]
 pub struct HolePunchConfig {
@@ -93,8 +91,14 @@ impl HolePunchConfig {
 }
 
 fn get_localhost_bands(peer_internal_addr: &SocketAddr) -> Vec<AddrBand> {
-    vec![AddrBand {
-        necessary_ip: IpAddr::from([127, 0, 0, 1]),
-        anticipated_ports: vec![peer_internal_addr.port()],
-    }]
+    vec![
+        AddrBand {
+            necessary_ip: IpAddr::from(Ipv4Addr::LOCALHOST),
+            anticipated_ports: vec![peer_internal_addr.port()],
+        },
+        AddrBand {
+            necessary_ip: IpAddr::V6(Ipv6Addr::LOCALHOST),
+            anticipated_ports: vec![peer_internal_addr.port()],
+        },
+    ]
 }

@@ -95,14 +95,14 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only
+        run: cargo nextest run --package citadel_sdk --features=localhost-testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
       - name: Single-threaded testing (windows only)
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only,vendored
+        run: cargo nextest run --package citadel_sdk --features=localhost-testing,vendored
         if: startsWith(matrix.os, 'windows')
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only
+        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
 
   citadel_sdk_release:
     strategy:
@@ -114,9 +114,9 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing,localhost-testing-loopback-only --release
+        run: cargo nextest run --package citadel_sdk --features=localhost-testing --release
       - name: Multi-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,localhost-testing-loopback-only --release
+        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing --release
 
   misc_checks:
     name: miscellaneous

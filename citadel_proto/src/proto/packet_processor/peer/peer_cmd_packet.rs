@@ -41,7 +41,7 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 /// HyperLAN client and the HyperLAN Server
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_peer_cmd(
-    session_orig: &HdpSession,
+    session_orig: &CitadelSession,
     aux_cmd: u8,
     packet: HdpPacket,
     header_drill_version: u32,
@@ -870,7 +870,7 @@ pub async fn process_peer_cmd(
 }
 
 async fn process_signal_command_as_server(
-    sess_ref: &HdpSession,
+    sess_ref: &CitadelSession,
     signal: PeerSignal,
     ticket: Ticket,
     sess_hyper_ratchet: StackedRatchet,
@@ -1711,9 +1711,9 @@ pub(crate) async fn route_signal_response(
     target_cid: u64,
     timestamp: i64,
     ticket: Ticket,
-    session: HdpSession,
+    session: CitadelSession,
     sess_hyper_ratchet: &StackedRatchet,
-    on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal),
+    on_route_finished: impl FnOnce(&CitadelSession, &CitadelSession, PeerSignal),
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     trace!(target: "citadel", "Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);

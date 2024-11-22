@@ -30,7 +30,8 @@ pub struct Method3 {
 enum NatPacket {
     Syn(HolePunchID, u32, RelativeNodeType, SocketAddr),
     // contains the local bind addr of candidate for socket identification
-    SynAck(HolePunchID, RelativeNodeType, SocketAddr),
+    SynAck(HolePunchID, RelativeNodeType, SocketAddr, HolePunchID),
+    Check,
 }
 
 impl Method3 {
@@ -55,7 +56,6 @@ impl Method3 {
     ) -> Result<TargettedSocketAddr, FirewallError> {
         match self.this_node_type {
             RelativeNodeType::Initiator => self.execute_either(socket, endpoints).await,
-
             RelativeNodeType::Receiver => self.execute_either(socket, endpoints).await,
         }
     }
@@ -158,7 +158,7 @@ impl Method3 {
     #[allow(clippy::too_many_arguments)]
     async fn send_packet_barrage(
         params: &SendPacketBarrageParams<'_>,
-        syn_received_addr: Option<SocketAddr>,
+        syn_received_addr: Option<(SocketAddr, HolePunchID)>,
     ) -> Result<(), anyhow::Error> {
         let SendPacketBarrageParams {
             ttl_init,
@@ -189,10 +189,10 @@ impl Method3 {
                     continue;
                 }
 
-                let packet_ty = if let Some(syn_addr) = syn_received_addr {
+                let packet_ty = if let Some((syn_addr, peer_id_recv)) = syn_received_addr {
                     // put the addr the peer used to send to this node, that way the peer knows where
                     // to send the packet, even if the receive address is translated
-                    NatPacket::SynAck(*unique_id, *this_node_type, syn_addr)
+                    NatPacket::SynAck(*unique_id, *this_node_type, syn_addr, peer_id_recv)
                 } else {
                     // put the endpoint we are sending to in the payload, that way, once we get a SynAck, we know
                     // where our sent packet was sent that worked
@@ -243,7 +243,7 @@ impl Method3 {
     async fn recv_until(
         socket: &UdpWrapper<'_>,
         encryptor: &HolePunchConfigContainer,
-        _unique_id: &HolePunchID,
+        unique_id: &HolePunchID,
         observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>,
         _millis_delta: u64,
         this_node_type: RelativeNodeType,
@@ -268,6 +268,9 @@ impl Method3 {
                     match bincode2::deserialize(&packet)
                         .map_err(|err| FirewallError::HolePunch(err.to_string()))
                     {
+                        Ok(NatPacket::Check) => {
+                            continue;
+                        }
                         Ok(NatPacket::Syn(
                             peer_unique_id,
                             ttl,
@@ -278,7 +281,8 @@ impl Method3 {
                                 continue;
                             }
 
-                            if adjacent_node_type == this_node_type {
+                            if adjacent_node_type == this_node_type || &peer_unique_id == unique_id
+                            {
                                 log::warn!(target: "citadel", "RECV loopback packet; will discard");
                                 continue;
                             }
@@ -307,9 +311,12 @@ impl Method3 {
                             let mut send_params = send_packet_params.clone();
                             send_params.endpoints = &send_addrs;
 
-                            Self::send_packet_barrage(&send_params, Some(their_send_addr))
-                                .await
-                                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                            Self::send_packet_barrage(
+                                &send_params,
+                                Some((their_send_addr, peer_unique_id)),
+                            )
+                            .await
+                            .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
                         }
 
                         // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
@@ -317,6 +324,7 @@ impl Method3 {
                             adjacent_unique_id,
                             adjacent_node_type,
                             address_we_sent_to,
+                            our_id,
                         )) => {
                             log::trace!(target: "citadel", "RECV SYN_ACK");
                             if adjacent_node_type == this_node_type {
@@ -324,22 +332,27 @@ impl Method3 {
                                 continue;
                             }
 
+                            if &our_id != unique_id {
+                                log::warn!(target: "citadel", "RECV Packet from wrong hole punching process. Received {our_id:?}, But expected our id of {unique_id:?}");
+                                continue;
+                            }
+
                             // NOTE: it is entirely possible that we receive a SynAck before even getting a Syn.
                             // Since we send SYNs to the other node, and, it's possible that we don't receive a SYN by the time
                             // the other node ACKs our sent out SYN, we should not terminate.
-                            let expected_addr = address_we_sent_to;
 
-                            if peer_external_addr != expected_addr {
+                            if peer_external_addr != address_we_sent_to {
+                                let packet = bincode2::serialize(&NatPacket::Check).unwrap();
                                 // See if we can send a packet to the addr
                                 if socket
                                     .socket
-                                    .send_to(b"0", peer_external_addr)
+                                    .send_to(&packet, peer_external_addr)
                                     .await
                                     .is_ok()
                                 {
-                                    log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                                    log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, address_we_sent_to);
                                 } else {
-                                    log::warn!(target: "citadel", "[will NOT allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                                    log::warn!(target: "citadel", "[will NOT allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, address_we_sent_to);
                                     continue;
                                 }
                             }

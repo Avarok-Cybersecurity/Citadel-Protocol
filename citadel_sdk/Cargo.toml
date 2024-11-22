@@ -28,7 +28,6 @@ vendored = ["citadel_proto/vendored"]
 # for testing only
 localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_io/deadlock-detection"]
 localhost-testing-assert-no-proxy = ["citadel_proto/localhost-testing-assert-no-proxy"]
-localhost-testing-loopback-only = ["citadel_proto/localhost-testing-loopback-only"]
 
 doc-images = ["embed-doc-image"]
 

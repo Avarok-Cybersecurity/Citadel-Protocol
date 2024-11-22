@@ -3,6 +3,7 @@ use citadel_io::UdpSocket;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TargettedSocketAddr {
@@ -60,13 +61,15 @@ impl Display for TargettedSocketAddr {
 
 #[derive(Debug)]
 pub struct HolePunchedUdpSocket {
+    pub local_id: HolePunchID,
     pub(crate) socket: UdpSocket,
     pub addr: TargettedSocketAddr,
 }
 
 impl HolePunchedUdpSocket {
     pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> std::io::Result<usize> {
-        let bind_ip = self.socket.local_addr()?.ip();
+        let bind_addr = self.socket.local_addr()?;
+        let bind_ip = bind_addr.ip();
         let send_ip = self.addr.send_address.ip();
         let send_ip = match (bind_ip, send_ip) {
             (IpAddr::V4(_bind_ip), IpAddr::V6(send_ip)) => {
@@ -91,11 +94,15 @@ impl HolePunchedUdpSocket {
             _ => send_ip,
         };
 
-        log::info!(target: "citadel", "Sending to: {send_ip:?} from {bind_ip:?}");
+        let target_addr = SocketAddr::new(send_ip, addr.port());
+        log::trace!(target: "citadel", "Sending packet from {bind_addr} to {target_addr}");
 
-        self.socket
-            .send_to(buf, SocketAddr::new(send_ip, addr.port()))
-            .await
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            self.socket.send_to(buf, target_addr),
+        )
+        .await
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))?
     }
     // After hole-punching, some packets may be sent that need to be flushed
     // this cleanses the stream

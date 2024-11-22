@@ -52,7 +52,7 @@ where
     F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
 {
-    crate::test_common::server_test_node(
+    server_test_node(
         Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>,
         opts,
     )

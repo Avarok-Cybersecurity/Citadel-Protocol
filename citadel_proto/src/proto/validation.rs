@@ -87,10 +87,11 @@ pub(crate) mod group {
         payload_orig: &mut BytesMut,
     ) -> Option<(SecBuffer, Option<AliceToBobTransfer>, ObjectId)> {
         // Safely check that there are 8 bytes in length, then, split at the end - 8
-        if payload_orig.len() < 8 {
+        if payload_orig.len() < std::mem::size_of::<ObjectId>() {
             return None;
         }
-        let mut payload = payload_orig.split_to(payload_orig.len() - 8);
+        let mut payload =
+            payload_orig.split_to(payload_orig.len() - std::mem::size_of::<ObjectId>());
         let object_id = payload_orig.reader().read_u128::<BigEndian>().ok()?.into();
         let message = SecureProtocolPacket::extract_message(&mut payload).ok()?;
         let deser = SyncIO::deserialize_from_vector(&payload[..]).ok()?;

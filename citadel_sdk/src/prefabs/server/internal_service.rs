@@ -63,6 +63,7 @@ mod test {
     use hyper::server::conn::Http;
     use hyper::service::service_fn;
     use hyper::{Body, Error, Request, Response, StatusCode};
+    use rstest::rstest;
     use std::convert::Infallible;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -105,13 +106,15 @@ mod test {
         Ok(())
     }
 
+    #[rstest]
+    #[timeout(Duration::from_secs(120))]
     #[tokio::test]
     async fn test_internal_service_basic_bytes() {
         setup_log();
         let barrier = &TestBarrier::new(2);
         let success_count = &AtomicUsize::new(0);
         let message = &(0..4096).map(|r| (r % 256) as u8).collect::<Vec<u8>>();
-        let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
         let server_bind_addr = server_listener.local_addr().unwrap();
         let server_kernel =
             InternalServiceKernel::new(|mut internal_server_communicator| async move {
@@ -175,12 +178,14 @@ mod test {
         assert_eq!(success_count.load(Ordering::SeqCst), 2);
     }
 
+    #[rstest]
+    #[timeout(Duration::from_secs(120))]
     #[tokio::test]
     async fn test_internal_service_http() {
         setup_log();
         let barrier = &TestBarrier::new(2);
         let success_count = &AtomicUsize::new(0);
-        let server_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
         let server_bind_addr = server_listener.local_addr().unwrap();
 
         let server_kernel = InternalServiceKernel::new(|internal_server_communicator| async move {
