@@ -60,14 +60,18 @@ async fn setup_connect(
     Ok(tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
 }
 
+#[allow(unused_mut)]
 fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     addr: T,
     reuse: bool,
 ) -> Result<UdpSocket, anyhow::Error> {
-    let addr: SocketAddr = addr
+    let mut addr: SocketAddr = addr
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
+
+    let addr = windows_check(addr);
+
     log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() {
         Domain::IPV4
@@ -82,6 +86,19 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     Ok(tokio_socket)
 }
 
+fn windows_check(addr: SocketAddr) -> SocketAddr {
+    if cfg!(feature = "localhost-testing") && cfg!(windows) {
+        log::warn!(target: "citadel", "Localhost testing is enabled on windows, will ensure bind is 127.0.0.1");
+        if addr.is_ipv4() {
+            SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), addr.port())
+        } else {
+            SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), addr.port())
+        }
+    } else {
+        addr
+    }
+}
+
 fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     addr: T,
     reuse: bool,
@@ -90,6 +107,9 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
+
+    let addr = windows_check(addr);
+
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
 
     let domain = if addr.is_ipv4() {
