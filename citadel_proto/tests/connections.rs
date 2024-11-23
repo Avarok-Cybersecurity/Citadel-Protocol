@@ -57,7 +57,7 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[timeout(Duration::from_secs(240))]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_tcp_or_tls(
         #[case] addr: SocketAddr,
@@ -109,7 +109,7 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[timeout(Duration::from_secs(240))]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,

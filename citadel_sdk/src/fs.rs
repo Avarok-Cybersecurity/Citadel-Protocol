@@ -97,7 +97,6 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(90))]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
@@ -108,6 +107,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer_revfs(
         #[case] enx: EncryptionAlgorithm,
@@ -173,12 +173,12 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(90))]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer_revfs_take(
         #[case] enx: EncryptionAlgorithm,
@@ -246,12 +246,12 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(90))]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer_revfs_delete(
         #[case] enx: EncryptionAlgorithm,
@@ -321,7 +321,7 @@ mod tests {
 
     #[rstest]
     #[case(SecrecyMode::BestEffort)]
-    #[timeout(Duration::from_secs(240))]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,

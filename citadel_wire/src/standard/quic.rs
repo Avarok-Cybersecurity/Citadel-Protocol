@@ -373,10 +373,10 @@ mod tests {
     use std::net::SocketAddr;
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(3))]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[trace]
+    #[timeout(std::time::Duration::from_secs(5))]
     #[tokio::test]
     async fn test_quic(#[case] addr: SocketAddr) -> std::io::Result<()> {
         citadel_logging::setup_log();

@@ -62,7 +62,7 @@ rand = { default-features = false, version = "0.8.5" }
 async-stream = { default-features = false, version = "0.3.3" }
 sync_wrapper = { default-features = false, version = "1.0.0" }
 async-recursion = { version = "1.0.4" }
-rstest = { version = "0.18.2" }
+rstest = { version = "0.23.0" }
 bincode = { default-features = false, version = "1.3.3" }
 serde = { version="1.0.152", default-features = false }
 futures = { version = "0.3.25", default-features = false }

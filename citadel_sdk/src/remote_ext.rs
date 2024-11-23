@@ -1341,7 +1341,6 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(90))]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
@@ -1352,6 +1351,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer(
         #[case] enx: EncryptionAlgorithm,

@@ -194,7 +194,7 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
-    #[timeout(std::time::Duration::from_secs(80))]
+    #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
@@ -265,7 +265,7 @@ mod tests {
     #[rstest]
     #[case(100, SecrecyMode::Perfect, None)]
     #[case(100, SecrecyMode::BestEffort, Some("test-password"))]
-    #[timeout(std::time::Duration::from_secs(80))]
+    #[timeout(std::time::Duration::from_secs(240))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
@@ -448,7 +448,7 @@ mod tests {
 
     #[rstest]
     #[case(500, 3)]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();

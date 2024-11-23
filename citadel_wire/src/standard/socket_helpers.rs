@@ -21,6 +21,8 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
         }
     }
 
+    socket.set_nonblocking(true)?;
+
     if !cfg!(windows) && addr.is_ipv6() {
         socket.set_only_v6(false)?;
     }
@@ -66,7 +68,6 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     let socket = get_udp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
     let std_socket: std::net::UdpSocket = socket.into();
-    std_socket.set_nonblocking(true)?;
     let tokio_socket = citadel_io::UdpSocket::from_std(std_socket)?;
     Ok(tokio_socket)
 }
@@ -74,7 +75,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
 fn windows_check(addr: SocketAddr) -> SocketAddr {
     // if feature "localhost-testing" is enabled, and, we are not on mac, then, we will bind to 127.0.0.1
     if cfg!(feature = "localhost-testing") && !cfg!(target_os = "macos") {
-        log::warn!(target: "citadel", "Localhost testing is enabled on non-mac OS will ensure bind is 127.0.0.1");
+        log::warn!(target: "citadel", "Localhost testing is enabled on non-mac OS. Will ensure bind is 127.0.0.1");
         if addr.is_ipv4() {
             SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), addr.port())
         } else {
@@ -107,7 +108,6 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     setup_bind(addr, &socket, reuse)?;
     socket.listen(1024)?;
     let std_tcp_socket: std::net::TcpListener = socket.into();
-    std_tcp_socket.set_nonblocking(true)?;
     Ok(citadel_io::TcpListener::from_std(std_tcp_socket)?)
 }
 
