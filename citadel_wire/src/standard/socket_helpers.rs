@@ -3,13 +3,6 @@ use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 
-/// Given an ip bind addr, finds an open socket at that ip addr
-pub fn get_unused_udp_socket_at_bind_ip(bind_addr: IpAddr) -> std::io::Result<UdpSocket> {
-    let socket = std::net::UdpSocket::bind((bind_addr, 0))?;
-    socket.set_nonblocking(true)?;
-    UdpSocket::from_std(socket)
-}
-
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
     Ok(socket2::Socket::new(domain, Type::DGRAM, None)?)
 }
@@ -27,13 +20,6 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
             socket.set_reuse_port(true)?;
         }
     }
-
-    socket.set_nonblocking(true)?;
-
-    /*
-    if addr.is_ipv6() {
-        socket.set_only_v6(false)?;
-    }*/
 
     if !cfg!(windows) && addr.is_ipv6() {
         socket.set_only_v6(false)?;
@@ -119,10 +105,10 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     };
     let socket = get_tcp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
-    let std_tcp_socket: std::net::TcpStream = socket.into();
+    socket.listen(1024)?;
+    let std_tcp_socket: std::net::TcpListener = socket.into();
     std_tcp_socket.set_nonblocking(true)?;
-
-    Ok(citadel_io::TcpSocket::from_std_stream(std_tcp_socket).listen(1024)?)
+    Ok(citadel_io::TcpListener::from_std(std_tcp_socket)?)
 }
 
 async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(

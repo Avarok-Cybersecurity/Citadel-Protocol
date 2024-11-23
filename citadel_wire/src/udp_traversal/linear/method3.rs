@@ -140,9 +140,9 @@ impl Method3 {
         log::trace!(target: "citadel", "Hole-punch join result: recv={:?} and send={:?}", res0, res1);
 
         if let Some(default_ttl) = default_ttl {
-            socket
+            let _ = socket
                 .set_ttl(default_ttl)
-                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                .map_err(|err| FirewallError::HolePunch(err.to_string()));
         }
 
         let hole_punched_addr = res0?;
