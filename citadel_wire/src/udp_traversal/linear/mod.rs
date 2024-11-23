@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 
 use citadel_io::UdpSocket;
 use either::Either;
-use futures::pin_mut;
 use igd::PortMappingProtocol;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
@@ -146,11 +145,9 @@ impl SingleUDPHolePuncher {
                     None
                 };
 
-                pin_mut!(kill_listener);
-
                 let res = tokio::select! {
-                    res0 = process => Either::Right(res0),
-                    res1 = &mut kill_listener => Either::Left(res1)
+                    res0 = process => Either::Right(res0?),
+                    res1 = kill_listener => Either::Left(res1)
                 };
 
                 async fn handle_rebuild_input(
@@ -175,14 +172,7 @@ impl SingleUDPHolePuncher {
                 }
 
                 match res {
-                    Either::Right(Err(err)) => {
-                        // In this case, we failed to hole punch, but, the other side may still attempt
-                        // to rebuild this one.
-                        log::error!(target: "citadel", "Failed to hole punch. Will attempt to wait for rebuild signal ... (err: {err:?})");
-                        let res = kill_listener.await;
-                        handle_rebuild_input(self, &mut post_kill_rebuild, res).await
-                    }
-                    Either::Right(Ok(addr)) => Ok(HolePunchedUdpSocket {
+                    Either::Right(addr) => Ok(HolePunchedUdpSocket {
                         socket: self.socket.take().unwrap(),
                         addr,
                         local_id: this_local_id,

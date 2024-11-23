@@ -768,13 +768,21 @@ where
                 let local_wins = if remote_request_time == local_request_time {
                     rwlock.node_type() == RelativeNodeType::Initiator
                 } else {
-                    remote_request_time < local_request_time
+                    remote_request_time > local_request_time
                 };
 
                 if local_wins {
-                    // remote gets the lock. We send the local value first. Then, we must continue looping
-                    // yield the lock
+                    // we requested before the remote node; tell the remote node we took the value
+                    conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
+                        .await?;
 
+                    if owned_local_lock.lock_type() == LockType::Read {
+                        *rwlock.local_active_read_lock.write() =
+                            Some(owned_local_lock.assert_read().clone())
+                    }
+
+                    return Ok((fx)(owned_local_lock));
+                } else {
                     // transform only if local wins
                     if owned_local_lock.lock_type() != lock_type {
                         log::trace!(target: "citadel", "Remote is trying to acquire lock type not equal to local type. Must transform. Local {:?}, Remote {:?}", owned_local_lock.lock_type(), lock_type);
@@ -816,17 +824,6 @@ where
                             log::trace!(target: "citadel", "Asserted local is write and downgraded");
                         }
                     }
-                } else {
-                    // we requested before the remote node; tell the remote node we took the value
-                    conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
-                        .await?;
-
-                    if owned_local_lock.lock_type() == LockType::Read {
-                        *rwlock.local_active_read_lock.write() =
-                            Some(owned_local_lock.assert_read().clone())
-                    }
-
-                    return Ok((fx)(owned_local_lock));
                 }
             }
 

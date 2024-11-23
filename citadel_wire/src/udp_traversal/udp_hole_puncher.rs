@@ -71,9 +71,10 @@ async fn driver(
             }
             Err(_) => {
                 log::warn!(target: "citadel", "Hole puncher timed-out");
-                retries += 1;
             }
         }
+
+        retries += 1;
 
         if retries >= MAX_RETRIES {
             return Err(anyhow::Error::msg("Max retries reached for UDP Traversal"));

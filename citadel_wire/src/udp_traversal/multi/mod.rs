@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -32,9 +33,9 @@ pub(crate) struct DualStackUdpHolePuncher {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[allow(variant_size_differences)]
-enum DualStackCandidate {
-    MutexSet(HolePunchID, HolePunchID),
+enum DualStackCandidateSignal {
     WinnerCanEnd,
+    AllFailed,
 }
 
 impl DualStackUdpHolePuncher {
@@ -125,7 +126,9 @@ async fn drive(
 
     log::trace!(target: "citadel", "Initiating NetMutex ...");
     // setup a mutex for handling contentions
-    let net_mutex = &(app.mutex::<Option<()>>(value).await?);
+    let net_mutex = &(app
+        .mutex::<Option<(HolePunchID, HolePunchID)>>(value)
+        .await?);
 
     let (final_candidate_tx, final_candidate_rx) =
         tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
@@ -157,8 +160,6 @@ async fn drive(
         post_rebuild_rx: Some(post_rebuild_rx),
     });
 
-    let loser_value_set = &citadel_io::Mutex::new(None);
-
     let mut futures = FuturesUnordered::new();
     for (kill_switch_rx, mut hole_puncher) in hole_punchers
         .into_iter()
@@ -176,83 +177,12 @@ async fn drive(
         });
     }
 
-    let current_enqueued: &tokio::sync::Mutex<Option<HolePunchedUdpSocket>> =
-        &tokio::sync::Mutex::new(None);
+    let current_enqueued: &tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
+        &tokio::sync::Mutex::new(vec![]);
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
-    // This is called to scan currently-running tasks to terminate, and, returning the rebuilt
-    // hole-punched socket on completion
-    let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID| async move {
-        log::trace!(target: "citadel", "Local {local_id:?} has been commanded to use {peer_id:?}");
-        let _receivers = kill_signal_tx.send((local_id, peer_id))?;
-        let mut lock = rebuilder.lock().await;
-        let mut post_rebuild_rx = lock
-            .post_rebuild_rx
-            .take()
-            .ok_or_else(|| anyhow::Error::msg("post_rebuild_rx has already been taken"))?;
-        drop(lock);
-
-        let failure_poller = async move {
-            let mut ticker = tokio::time::interval(Duration::from_millis(100));
-            loop {
-                ticker.tick().await;
-                let mut lock = rebuilder.lock().await;
-                if let Some(mut failure) = lock.local_failures.remove(&local_id) {
-                    log::trace!(target: "citadel", "[Rebuild] While searching local_failures, found match");
-                    if let Some(rebuilt) =
-                        failure.recovery_mode_generate_socket_by_remote_id(peer_id)
-                    {
-                        return Ok(rebuilt);
-                    } else {
-                        log::warn!(target: "citadel", "[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
-                    }
-                }
-            }
-        };
-
-        let rebuilder_task = async move {
-            log::trace!(target: "citadel", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
-            // Note: if properly implemented, the below should return almost instantly
-            loop {
-                if let Some(current_enqueued) = current_enqueued.lock().await.take() {
-                    log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
-                    if current_enqueued.addr.unique_id != peer_id {
-                        log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
-                        continue;
-                    }
-
-                    return Ok(current_enqueued);
-                }
-
-                match post_rebuild_rx.recv().await {
-                    None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
-
-                    Some(None) => {
-                        let mut count = finished_count.lock();
-                        *count += 1;
-                        log::trace!(target: "citadel", "*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
-                        if *count == hole_puncher_count {
-                            return Err(anyhow::Error::msg("All hole-punchers have failed"));
-                        }
-                    }
-
-                    Some(Some(res)) => {
-                        log::trace!(target: "citadel", "*** [rebuild] complete");
-                        return Ok(res);
-                    }
-                }
-            }
-        };
-
-        select_ok([
-            Box::pin(failure_poller)
-                as Pin<Box<dyn Send + Future<Output = Result<HolePunchedUdpSocket, _>>>>,
-            Box::pin(rebuilder_task),
-        ])
-        .await
-        .map(|res| res.0)
-    };
+    let commanded_winner = &tokio::sync::Mutex::new(None);
 
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
     let done_tx = citadel_io::Mutex::new(Some(done_tx));
@@ -266,8 +196,125 @@ async fn drive(
             .map_err(|_| anyhow::Error::msg("signal_done oneshot sender failed to send"))
     };
 
-    let (winner_can_end_tx, winner_can_end_rx) = tokio::sync::oneshot::channel();
+    let failure_occurred = &AtomicBool::new(false);
+    let set_failure_occurred = || async move {
+        let no_failure_yet = !failure_occurred.fetch_or(true, Ordering::SeqCst);
+        if no_failure_yet {
+            log::trace!(target: "citadel", "All hole-punchers have failed locally. Will send AllFailed signal");
+            send(DualStackCandidateSignal::AllFailed, conn).await?;
+            Ok(())
+        } else {
+            // In this case, remote already set_failure_occurred, so we know that since they
+            // failed, and now that we failed, we can end.
+            log::error!(target: "citadel", "Remote has already failed, and locally failed, therefore returning");
+            Err(anyhow::Error::msg(
+                "All local and remote hold punchers failed",
+            ))
+        }
+    };
 
+    // This is called to scan currently-running tasks to terminate, and, returning the rebuilt
+    // hole-punched socket on completion
+    let loser_rebuilder_task = async move {
+        let mut lock = rebuilder.lock().await;
+        let mut post_rebuild_rx = lock
+            .post_rebuild_rx
+            .take()
+            .ok_or_else(|| anyhow::Error::msg("post_rebuild_rx has already been taken"))?;
+        drop(lock);
+
+        let loser_poller = async move {
+            let mut ticker = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                ticker.tick().await;
+
+                if let Some((local_id, peer_id)) = *commanded_winner.lock().await {
+                    log::trace!(target: "citadel", "Local {local_id:?} has been commanded to use {peer_id:?}");
+                    let receivers = kill_signal_tx.send((local_id, peer_id))?;
+                    log::trace!(target: "citadel", "Sent kill signal to {receivers} hole-punchers");
+
+                    'pop: while let Some(current_enqueued) = current_enqueued.lock().await.pop() {
+                        log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
+                        if current_enqueued.addr.unique_id != peer_id {
+                            log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
+                            continue 'pop;
+                        }
+
+                        return Ok(current_enqueued);
+                    }
+
+                    let mut lock = rebuilder.lock().await;
+                    if let Some(failure) = lock.local_failures.get_mut(&local_id) {
+                        log::trace!(target: "citadel", "[Rebuild] While searching local_failures, found match");
+                        if let Some(rebuilt) =
+                            failure.recovery_mode_generate_socket_by_remote_id(peer_id)
+                        {
+                            return Ok(rebuilt);
+                        } else {
+                            log::warn!(target: "citadel", "[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
+                        }
+                    }
+
+                    if lock.local_failures.len() == hole_puncher_count {
+                        return Err(anyhow::Error::msg("All hole-punchers have failed (t1)"));
+                    }
+                }
+            }
+        };
+
+        let loser_rebuilder_task = async move {
+            log::trace!(target: "citadel", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
+            // Note: if properly implemented, the below should return almost instantly
+            loop {
+                let result = post_rebuild_rx.recv().await;
+                log::trace!(target: "citadel", "*** [rebuild] Received signal {:?}", result);
+                match result {
+                    None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
+
+                    Some(None) => {
+                        let fail_count = rebuilder.lock().await.local_failures.len();
+                        log::trace!(target: "citadel", "*** [rebuild] So-far, {}/{} have finished", fail_count, hole_puncher_count);
+                        if fail_count == hole_puncher_count {
+                            return Err(anyhow::Error::msg("All hole-punchers have failed (t2)"));
+                        }
+                    }
+
+                    Some(Some(res)) => {
+                        log::trace!(target: "citadel", "*** [rebuild] complete");
+                        return Ok(res);
+                    }
+                }
+            }
+        };
+
+        let hole_punched_socket_res = select_ok([
+            Box::pin(loser_poller)
+                as Pin<Box<dyn Send + Future<Output = Result<HolePunchedUdpSocket, _>>>>,
+            Box::pin(loser_rebuilder_task),
+        ])
+        .await
+        .map(|res| res.0);
+
+        match hole_punched_socket_res {
+            Err(err) => {
+                // The only way an error can occur is if the total number of failures is equal to the number of hole-punchers
+                // In this case, while remote claimed a winner, we were unable to create/find the winner (this should be unreachable)
+                log::error!(target: "citadel", "Rebuilder task failed. Please contact developers on Github: {err:?}");
+                set_failure_occurred().await
+            }
+
+            Ok(hole_punched_socket) => {
+                log::trace!(target: "citadel", "Selecting socket: {hole_punched_socket:?}");
+                let _ = hole_punched_socket.cleanse();
+                submit_final_candidate(hole_punched_socket)?;
+                // return here. The winner must exit last
+                send(DualStackCandidateSignal::WinnerCanEnd, conn).await?;
+                signal_done()
+            }
+        }
+    };
+
+    let (winner_can_end_tx, winner_can_end_rx) = tokio::sync::oneshot::channel();
     let (futures_tx, mut futures_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let futures_executor = async move {
@@ -286,20 +333,16 @@ async fn drive(
         while let Some((res, hole_puncher)) = futures_rx.recv().await {
             log::trace!(target: "citadel", "[Future resolver loop] Received {:?}", res);
             *finished_count.lock() += 1;
+
             match res {
                 Ok(socket) => {
                     let peer_unique_id = socket.addr.unique_id;
                     let local_id = hole_puncher.get_unique_id();
+                    current_enqueued.lock().await.push(socket);
 
-                    if let Some((pre_local, pre_remote)) = *loser_value_set.lock() {
-                        log::trace!(target: "citadel", "*** Local did not win, and, already received a MutexSet: ({:?}, {:?})", pre_local, pre_remote);
-                        if local_id == pre_local && peer_unique_id == pre_remote {
-                            log::trace!(target: "citadel", "*** Local did not win, and, is currently waiting for the current value! (returning)");
-                            // this implies local is already waiting for this result. Submit and finish here
-                            post_rebuild_tx.send(Some(socket))?;
-                        }
-
-                        // continue to keep polling futures
+                    if let Some((required_local, required_remote)) = *commanded_winner.lock().await
+                    {
+                        log::trace!(target: "citadel", "*** [Future resolver loop] Commanded winner (skipping NetMutex acquisition): {required_local:?}, {required_remote:?}. Will require rebuilder task to return the valid socket ...");
                         continue;
                     }
 
@@ -307,28 +350,38 @@ async fn drive(
                     // future: if this node gets here, and waits for the mutex to drop from the other end,
                     // the other end may say that the current result is valid, but, be unaccessible since
                     // we are blocked waiting for the mutex. As such, we need to set the enqueued field
-                    *current_enqueued.lock().await = Some(socket);
+                    log::trace!(target: "citadel", "*** [Future resolver loop] Acquiring NetMutex ....");
                     let mut net_lock = net_mutex.lock().await?;
-                    if let Some(socket) = current_enqueued.lock().await.take() {
-                        if net_lock.as_ref().is_none() {
-                            log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
-                            *net_lock = Some(());
+                    log::trace!(target: "citadel", "*** [Future resolver loop] Mutex acquired. Local = {local_id:?}, Remote = {peer_unique_id:?}");
+                    if let Some((local, remote)) = *net_lock {
+                        log::trace!(target: "citadel", "*** The Mutex is already set! Will not claim winner status ...");
+                        *commanded_winner.lock().await = Some((local, remote));
+                        if local_id == local && peer_unique_id == remote {
+                            log::trace!(target: "citadel", "*** [Future resolver loop] The received socket *IS* the socket remote requested. Will wait for background rebuilder to finish ...");
+                        } else {
+                            log::trace!(target: "citadel", "*** [Future resolver loop] The received socket *is NOT* the socket remote requested. Will wait for background rebuilder to finish ...");
+                        }
+                    } else {
+                        // We are the winner
+                        log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
+                        while let Some(socket) = current_enqueued.lock().await.pop() {
+                            if socket.local_id != local_id {
+                                log::warn!(target: "citadel", "*** Winner: socket ID mismatch. Expected {local_id:?}, got {:?}. Looping ...", socket.local_id);
+                                continue;
+                            }
+
+                            *net_lock = Some((peer_unique_id, local_id));
                             let _ = socket.cleanse();
-                            // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
-                            send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn)
-                                .await?;
                             submit_final_candidate(socket)?;
                             log::trace!(target: "citadel", "*** [winner] Awaiting the signal ...");
+                            drop(net_lock);
                             // the winner will drop once the adjacent node sends a WinnerCanEnd signal
                             winner_can_end_rx.await?;
                             log::trace!(target: "citadel", "*** [winner] received the signal");
-                            std::mem::drop(net_lock);
                             return signal_done();
-                        } else {
-                            log::error!(target: "citadel", "This should not happen");
                         }
-                    } else {
-                        log::trace!(target: "citadel", "While looping, detected that the socket was taken")
+
+                        unreachable!("Winner did not find any enqueued sockets. This is a developer bug. Please report this issue to github");
                     }
                 }
 
@@ -338,11 +391,20 @@ async fn drive(
 
                 Err(err) => {
                     log::warn!(target: "citadel", "[non-terminating] Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
-                    rebuilder
-                        .lock()
-                        .await
-                        .local_failures
-                        .insert(hole_puncher.get_unique_id(), hole_puncher);
+                    let fail_count = {
+                        let mut lock = rebuilder.lock().await;
+                        let _ = lock
+                            .local_failures
+                            .insert(hole_puncher.get_unique_id(), hole_puncher);
+                        lock.local_failures.len()
+                    };
+
+                    if fail_count == hole_puncher_count {
+                        // All failed locally, but, remote may claim that it has a valid socket/
+                        // Run the function below to exit if remote already set_failure_occurred
+                        log::warn!(target: "citadel", "All hole-punchers have failed locally");
+                        set_failure_occurred().await?;
+                    }
                 }
             }
         }
@@ -353,24 +415,23 @@ async fn drive(
     };
 
     let reader = async move {
-        match receive::<DualStackCandidate, _>(conn).await? {
-            DualStackCandidate::MutexSet(local, remote) => {
-                log::trace!(target: "citadel", "*** received MutexSet. Will unconditionally end ...");
-                assert!(loser_value_set.lock().replace((local, remote)).is_none());
-                let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
-                log::trace!(target: "citadel", "Selecting socket: {hole_punched_socket:?}");
-                let _ = hole_punched_socket.cleanse();
-                submit_final_candidate(hole_punched_socket)?;
-                // return here. The winner must exit last
-                send(DualStackCandidate::WinnerCanEnd, conn).await?;
-                signal_done()
-            }
+        loop {
+            match receive::<DualStackCandidateSignal, _>(conn).await? {
+                DualStackCandidateSignal::AllFailed => {
+                    // All failed locally, but, remote may claim that it has a valid socket/
+                    // Run the function below to exit if remote already set_failure_occurred
+                    log::warn!(target: "citadel", "Remote claims all hole punchers failed");
+                    set_failure_occurred().await?;
+                    // If we reach here, it implies this node is still resolving futures. Do not return
+                    // until the other joined future resolves itself
+                }
 
-            DualStackCandidate::WinnerCanEnd => {
-                winner_can_end_tx
-                    .send(())
-                    .map_err(|_| anyhow::Error::msg("Unable to send through winner_can_end_tx"))?;
-                Ok(())
+                DualStackCandidateSignal::WinnerCanEnd => {
+                    winner_can_end_tx.send(()).map_err(|_| {
+                        anyhow::Error::msg("Unable to send through winner_can_end_tx")
+                    })?;
+                    return Ok::<_, anyhow::Error>(());
+                }
             }
         }
     };
@@ -390,8 +451,12 @@ async fn drive(
         res2 = futures_executor => {
             log::trace!(target: "citadel", "[DualStack] Futures executor finished {res2:?}");
             res2?
+        },
+        res3 = loser_rebuilder_task => {
+            log::trace!(target: "citadel", "[DualStack] Loser rebuilder task finished {res3:?}");
+            res3?
         }
-    };
+    }
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
 

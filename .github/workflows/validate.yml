@@ -51,12 +51,6 @@ jobs:
           redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - name: Make windos fireweall permissive to all networking
-        if: startsWith(matrix.os, 'windows')
-        run: netsh advfirewall set allprofiles state off
-      - name: Make ubuntu firewall permissive to all networking
-        if: startsWith(matrix.os, 'ubuntu')
-        run: sudo ufw allow in on any && sudo ufw allow out on any
       - run: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
@@ -83,12 +77,6 @@ jobs:
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - name: Make windos fireweall permissive to all networking
-        if: startsWith(matrix.os, 'windows')
-        run: netsh advfirewall set allprofiles state off
-      - name: Make ubuntu firewall permissive to all networking
-        if: startsWith(matrix.os, 'ubuntu')
-        run: sudo ufw allow in on any && sudo ufw allow out on any
       - run: cargo nextest run --package netbeam
       - name: Run basic localhost NAT tests
         if: ${{ !startsWith(matrix.os, 'windows') }}
@@ -106,12 +94,6 @@ jobs:
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - name: Make windos fireweall permissive to all networking
-        if: startsWith(matrix.os, 'windows')
-        run: netsh advfirewall set allprofiles state off
-      - name: Make ubuntu firewall permissive to all networking
-        if: startsWith(matrix.os, 'ubuntu')
-        run: sudo ufw allow in on any && sudo ufw allow out on any
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
@@ -131,8 +113,6 @@ jobs:
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - name: Make ubuntu firewall permissive to all networking
-        run: sudo ufw allow in on any && sudo ufw allow out on any
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing --release
       - name: Multi-threaded testing
@@ -143,21 +123,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
-      #      - name: Install Valgrind
-      #        run: |
-      #          sudo apt-get update -y
-      #          sudo apt-get install -y valgrind
-      #      # Compile tests
-      #      - name: cargo build secmem_bytes_test
-      #        run: cargo build --bin secmem_bytes_test
+#      - name: Install Valgrind
+#        run: |
+#          sudo apt-get update -y
+#          sudo apt-get install -y valgrind
+#      # Compile tests
+#      - name: cargo build secmem_bytes_test
+#        run: cargo build --bin secmem_bytes_test
       # Run with valgrind
-      #      - name: Run valgrind secmem_bytes
-      #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
-      #      - name: cargo build secmem_string_test
-      #        run: cargo build --bin secmem_string_test
+#      - name: Run valgrind secmem_bytes
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
+#      - name: cargo build secmem_string_test
+#        run: cargo build --bin secmem_string_test
       # Run with valgrind
-      #      - name: Run valgrind secmem_string
-      #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+#      - name: Run valgrind secmem_string
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
       - run: rustup component add clippy-preview
@@ -170,20 +150,20 @@ jobs:
       - run: RUSTDOCFLAGS="-D warnings" cargo make docs
       - run: cargo test --package citadel_sdk --doc
       #      - name: cargo build pq_kems
-  #        run: cargo build --bin pq_kems_test
-  #      # Run with valgrind
-  #      - name: Run valgrind pq_kems
-  #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
+#        run: cargo build --bin pq_kems_test
+#      # Run with valgrind
+#      - name: Run valgrind pq_kems
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
 
-  #  features_check:
-  #    name: check features
-  #    runs-on: ubuntu-latest
-  #    steps:
-  #      - uses: Avarok-Cybersecurity/gh-actions-deps@master
-  #      - name: Install features checker
-  #        run: cargo install cargo-all-features
-  #      - name: Check all feature combinations
-  #        run: cargo check-all-features --package citadel_sdk
+#  features_check:
+#    name: check features
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+#      - name: Install features checker
+#        run: cargo install cargo-all-features
+#      - name: Check all feature combinations
+#        run: cargo check-all-features --package citadel_sdk
 
   coverage:
     runs-on: macos-latest
@@ -208,11 +188,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        nat_type_client_a:
-          - "full_cone"
-          - "address_restricted"
-          - "port_restricted"
-          - "symmetric"
+          nat_type_client_a:
+              - "full_cone"
+              - "address_restricted"
+              - "port_restricted"
+              - "symmetric"
     timeout-minutes: 60
     env:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
