@@ -372,7 +372,13 @@ impl Method3 {
                         target: "citadel",
                         "Error receiving packet from {:?}: {err:?}",
                         socket.socket.local_addr()?
-                    )
+                    );
+
+                    if err.kind() == ErrorKind::ConnectionReset {
+                        return Err(FirewallError::HolePunch(
+                            "Connection reset while waiting for UDP penetration".to_string(),
+                        ));
+                    }
                 }
             }
         }

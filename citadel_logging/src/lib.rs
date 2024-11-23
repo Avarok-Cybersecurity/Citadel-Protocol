@@ -18,7 +18,7 @@ pub fn setup_log_no_panic_hook() {
     let _ = SubscriberBuilder::default()
         .with_line_number(true)
         .with_file(true)
-        .with_span_events(FmtSpan::FULL)
+        .with_span_events(FmtSpan::NONE)
         .with_env_filter(EnvFilter::from_default_env())
         .finish()
         .try_init();

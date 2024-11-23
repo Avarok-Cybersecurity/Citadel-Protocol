@@ -1,12 +1,13 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
+use futures::future::select_ok;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::error::FirewallError;
@@ -184,53 +185,73 @@ async fn drive(
     // hole-punched socket on completion
     let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID| async move {
         log::trace!(target: "citadel", "Local {local_id:?} has been commanded to use {peer_id:?}");
-        let mut lock = rebuilder.lock().await;
-        // first, check local failures
-        if let Some(mut failure) = lock.local_failures.remove(&local_id) {
-            log::trace!(target: "citadel", "[Rebuild] While searching local_failures, found match");
-            if let Some(rebuilt) = failure.recovery_mode_generate_socket_by_remote_id(peer_id) {
-                return Ok(rebuilt);
-            } else {
-                log::warn!(target: "citadel", "[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
-            }
-        }
-
         let _receivers = kill_signal_tx.send((local_id, peer_id))?;
+        let mut lock = rebuilder.lock().await;
         let mut post_rebuild_rx = lock
             .post_rebuild_rx
             .take()
             .ok_or_else(|| anyhow::Error::msg("post_rebuild_rx has already been taken"))?;
-        log::trace!(target: "citadel", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
-        let mut count = 0;
-        // Note: if properly implemented, the below should return almost instantly
-        loop {
-            if let Some(current_enqueued) = current_enqueued.lock().await.take() {
-                log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
-                if current_enqueued.addr.unique_id != peer_id {
-                    log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
-                    continue;
-                }
+        drop(lock);
 
-                return Ok(current_enqueued);
-            }
-
-            match post_rebuild_rx.recv().await {
-                None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
-
-                Some(None) => {
-                    count += 1;
-                    log::trace!(target: "citadel", "*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
-                    if count == hole_puncher_count {
-                        log::error!(target: "citadel", "This should not happen")
+        let failure_poller = async move {
+            let mut ticker = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                ticker.tick().await;
+                let mut lock = rebuilder.lock().await;
+                if let Some(mut failure) = lock.local_failures.remove(&local_id) {
+                    log::trace!(target: "citadel", "[Rebuild] While searching local_failures, found match");
+                    if let Some(rebuilt) =
+                        failure.recovery_mode_generate_socket_by_remote_id(peer_id)
+                    {
+                        return Ok(rebuilt);
+                    } else {
+                        log::warn!(target: "citadel", "[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
                     }
                 }
+            }
+        };
 
-                Some(Some(res)) => {
-                    log::trace!(target: "citadel", "*** [rebuild] complete");
-                    return Ok(res);
+        let rebuilder_task = async move {
+            log::trace!(target: "citadel", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
+            let mut count = 0;
+            // Note: if properly implemented, the below should return almost instantly
+            loop {
+                if let Some(current_enqueued) = current_enqueued.lock().await.take() {
+                    log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
+                    if current_enqueued.addr.unique_id != peer_id {
+                        log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
+                        continue;
+                    }
+
+                    return Ok(current_enqueued);
+                }
+
+                match post_rebuild_rx.recv().await {
+                    None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
+
+                    Some(None) => {
+                        count += 1;
+                        log::trace!(target: "citadel", "*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
+                        if count == hole_puncher_count {
+                            log::error!(target: "citadel", "This should not happen")
+                        }
+                    }
+
+                    Some(Some(res)) => {
+                        log::trace!(target: "citadel", "*** [rebuild] complete");
+                        return Ok(res);
+                    }
                 }
             }
-        }
+        };
+
+        select_ok([
+            Box::pin(failure_poller)
+                as Pin<Box<dyn Send + Future<Output = Result<HolePunchedUdpSocket, _>>>>,
+            Box::pin(rebuilder_task),
+        ])
+        .await
+        .map(|res| res.0)
     };
 
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();

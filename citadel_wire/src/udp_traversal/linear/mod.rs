@@ -2,7 +2,9 @@ use std::net::SocketAddr;
 
 use citadel_io::UdpSocket;
 use either::Either;
+use futures::pin_mut;
 use igd::PortMappingProtocol;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;
@@ -71,7 +73,7 @@ impl SingleUDPHolePuncher {
         &mut self,
         method: NatTraversalMethod,
         mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>,
-        post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>,
+        mut post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>,
     ) -> Result<HolePunchedUdpSocket, FirewallError> {
         match method {
             NatTraversalMethod::UPnP => {
@@ -144,33 +146,50 @@ impl SingleUDPHolePuncher {
                     None
                 };
 
+                pin_mut!(kill_listener);
+
                 let res = tokio::select! {
-                    res0 = process => Either::Right(res0?),
-                    res1 = kill_listener => Either::Left(res1)
+                    res0 = process => Either::Right(res0),
+                    res1 = &mut kill_listener => Either::Left(res1)
                 };
 
+                async fn handle_rebuild_input(
+                    this: &mut SingleUDPHolePuncher,
+                    post_kill_rebuild: &mut UnboundedSender<Option<HolePunchedUdpSocket>>,
+                    id_opt: Option<(HolePunchID, HolePunchID)>,
+                ) -> Result<HolePunchedUdpSocket, FirewallError> {
+                    match id_opt {
+                        Some((_local_id, peer_id)) => {
+                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::HolePunch("Kill switch called, but no matching values were found internally".to_string()))?)).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                        }
+
+                        None => {
+                            log::trace!(target: "citadel", "Will end hole puncher {:?} since kill switch called", this.get_unique_id());
+                            post_kill_rebuild
+                                .send(None)
+                                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                        }
+                    }
+
+                    Err(FirewallError::Skip)
+                }
+
                 match res {
-                    Either::Right(addr) => Ok(HolePunchedUdpSocket {
+                    Either::Right(Err(err)) => {
+                        // In this case, we failed to hole punch, but, the other side may still attempt
+                        // to rebuild this one.
+                        log::error!(target: "citadel", "Failed to hole punch. Will attempt to wait for rebuild signal ... (err: {err:?})");
+                        let res = kill_listener.await;
+                        handle_rebuild_input(self, &mut post_kill_rebuild, res).await
+                    }
+                    Either::Right(Ok(addr)) => Ok(HolePunchedUdpSocket {
                         socket: self.socket.take().unwrap(),
                         addr,
                         local_id: this_local_id,
                     }),
 
                     Either::Left(id_opt) => {
-                        match id_opt {
-                            Some((_local_id, peer_id)) => {
-                                post_kill_rebuild.send(Some(self.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::HolePunch("Kill switch called, but no matching values were found internally".to_string()))?)).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                            }
-
-                            None => {
-                                log::trace!(target: "citadel", "Will end hole puncher {:?} since kill switch called", self.get_unique_id());
-                                post_kill_rebuild
-                                    .send(None)
-                                    .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                            }
-                        }
-
-                        Err(FirewallError::Skip)
+                        handle_rebuild_input(self, &mut post_kill_rebuild, id_opt).await
                     }
                 }
             }

@@ -1,5 +1,3 @@
-use std::os::raw::c_void;
-
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
 /// # Safety
@@ -8,11 +6,11 @@ use std::os::raw::c_void;
 #[cfg(target_family = "unix")]
 #[allow(unused_results)]
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
-    libc::mlock(ptr as *const c_void, len);
+    libc::mlock(ptr as *const std::os::raw::c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
-    libc::madvise(ptr as *mut c_void, len, libc::MADV_NOCORE);
+    libc::madvise(ptr as *mut std::os::raw::c_void, len, libc::MADV_NOCORE);
     #[cfg(target_os = "linux")]
-    libc::madvise(ptr as *mut c_void, len, libc::MADV_DONTDUMP);
+    libc::madvise(ptr as *mut std::os::raw::c_void, len, libc::MADV_DONTDUMP);
 }
 
 #[cfg(target_family = "wasm")]
@@ -34,11 +32,11 @@ pub unsafe fn mlock(ptr: *const u8, len: usize) {
 #[cfg(target_family = "unix")]
 #[allow(unused_results)]
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
-    libc::munlock(ptr as *const c_void, len);
+    libc::munlock(ptr as *const std::os::raw::c_void, len);
     #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
-    libc::madvise(ptr as *mut c_void, len, libc::MADV_CORE);
+    libc::madvise(ptr as *mut std::os::raw::c_void, len, libc::MADV_CORE);
     #[cfg(target_os = "linux")]
-    libc::madvise(ptr as *mut c_void, len, libc::MADV_DODUMP);
+    libc::madvise(ptr as *mut std::os::raw::c_void, len, libc::MADV_DODUMP);
 }
 
 #[cfg(target_family = "wasm")]
