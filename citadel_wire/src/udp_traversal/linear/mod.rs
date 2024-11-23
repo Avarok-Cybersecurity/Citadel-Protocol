@@ -227,15 +227,9 @@ impl SingleUDPHolePuncher {
             .method3
             .1
             .get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
-        let socket = self.socket.take()?;
-        Some(HolePunchedUdpSocket {
-            addr,
-            socket,
-            local_id: self.unique_id,
-        })
+        self.recovery_mode_generate_socket_by_addr(addr)
     }
 
-    /// this should only be called when the adjacent node verified that the connection occurred
     pub fn recovery_mode_generate_socket_by_addr(
         &mut self,
         addr: TargettedSocketAddr,
