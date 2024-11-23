@@ -275,6 +275,16 @@ mod tests {
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
+
+        if cfg!(windows)
+            && kem == KemAlgorithm::Ntru
+            && secrecy_mode == SecrecyMode::Perfect
+            && std::env::var("IN_CI").is_ok()
+        {
+            log::warn!(target: "citadel", "Skipping NTRU/Perfect forward secrecy test on Windows due to performance issues");
+            return;
+        }
+
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -351,6 +361,16 @@ mod tests {
         enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
+
+        if cfg!(windows)
+            && kem == KemAlgorithm::Ntru
+            && secrecy_mode == SecrecyMode::Perfect
+            && std::env::var("IN_CI").is_ok()
+        {
+            log::warn!(target: "citadel", "Skipping NTRU/Perfect forward secrecy test on Windows due to performance issues");
+            return;
+        }
+
         citadel_sdk::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);

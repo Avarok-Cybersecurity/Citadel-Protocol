@@ -12,6 +12,7 @@ env:
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
   RUST_LOG: "citadel=warn"
+  IN_CI: "true"
 
 jobs:
   core_libs:
@@ -100,8 +101,11 @@ jobs:
       - name: Single-threaded testing (windows only)
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,vendored
         if: startsWith(matrix.os, 'windows')
+      - name: Multi-threaded testing (windows only)
+        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,vendored
+        if: startsWith(matrix.os, 'windows')
       - name: Multi-threaded testing
-        if: startsWith(matrix.os, 'ubuntu')
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
 
   citadel_sdk_release:
