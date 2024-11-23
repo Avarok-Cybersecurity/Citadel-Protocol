@@ -213,7 +213,6 @@ async fn drive(
 
         let rebuilder_task = async move {
             log::trace!(target: "citadel", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
-            let mut count = 0;
             // Note: if properly implemented, the below should return almost instantly
             loop {
                 if let Some(current_enqueued) = current_enqueued.lock().await.take() {
@@ -230,10 +229,11 @@ async fn drive(
                     None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
 
                     Some(None) => {
-                        count += 1;
+                        let mut count = finished_count.lock();
+                        *count += 1;
                         log::trace!(target: "citadel", "*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
-                        if count == hole_puncher_count {
-                            log::error!(target: "citadel", "This should not happen")
+                        if *count == hole_puncher_count {
+                            return Err(anyhow::Error::msg("All hole-punchers have failed"));
                         }
                     }
 

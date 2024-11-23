@@ -16,7 +16,7 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(6000);
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(5000);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
@@ -32,9 +32,9 @@ impl<'a> UdpHolePuncher<'a> {
         timeout: Duration,
     ) -> Self {
         Self {
-            driver: Box::pin(async move {
-                tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
-            }),
+            driver: Box::pin(
+                async move { driver(conn, encrypted_config_container, timeout).await },
+            ),
         }
     }
 }
@@ -47,11 +47,41 @@ impl Future for UdpHolePuncher<'_> {
     }
 }
 
+const MAX_RETRIES: usize = 3;
+
 #[cfg_attr(
     feature = "localhost-testing",
     tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
 )]
 async fn driver(
+    conn: &NetworkEndpoint,
+    encrypted_config_container: HolePunchConfigContainer,
+    timeout: Duration,
+) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+    let mut retries = 0;
+    loop {
+        let task = tokio::time::timeout(
+            timeout,
+            driver_inner(conn, encrypted_config_container.clone()),
+        );
+        match task.await {
+            Ok(Ok(res)) => return Ok(res),
+            Ok(Err(err)) => {
+                log::warn!(target: "citadel", "Hole puncher failed: {err:?}");
+            }
+            Err(_) => {
+                log::warn!(target: "citadel", "Hole puncher timed-out");
+                retries += 1;
+            }
+        }
+
+        if retries >= MAX_RETRIES {
+            return Err(anyhow::Error::msg("Max retries reached for UDP Traversal"));
+        }
+    }
+}
+
+async fn driver_inner(
     conn: &NetworkEndpoint,
     mut encrypted_config_container: HolePunchConfigContainer,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
