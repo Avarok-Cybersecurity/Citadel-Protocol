@@ -319,6 +319,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
         // if local IS the initiator, then start connecting. It should work
         if is_initiator {
             // give time for non-initiator to setup local bind
+            // TODO: Replace with biconn channel logic
             tokio::time::sleep(Duration::from_millis(200)).await;
             let socket = hole_punched_socket.into_socket();
             let quic_endpoint =
