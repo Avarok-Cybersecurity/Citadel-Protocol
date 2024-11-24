@@ -1,0 +1,74 @@
+name: Bump Protocol Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Install cargo-make
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --force cargo-make
+
+      - name: Create bump branch
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git checkout -b bump-proto-version-${{ github.run_number }}
+
+      - name: Bump version
+        run: |
+          if [ "${{ github.event.inputs.version_type }}" = "patch" ]; then
+            cargo make bump-proto-patch
+          elif [ "${{ github.event.inputs.version_type }}" = "minor" ]; then
+            cargo make bump-proto-minor
+          else
+            cargo make bump-proto-major
+          fi
+
+      - name: Run clippy
+        run: cargo clippy --tests
+
+      - name: Commit changes
+        run: |
+          VERSION=$(cargo pkgid --package citadel_sdk | cut -d# -f2 | cut -d: -f2)
+          git add .
+          git commit -am "upgrade: protocol version ${VERSION} release (${{ github.event.inputs.version_type }})"
+
+      - name: Push changes
+        run: git push origin bump-proto-version-${{ github.run_number }}
+
+      - name: Merge to main
+        run: |
+          git checkout main
+          git merge bump-proto-version-${{ github.run_number }}
+          git push origin main
+
+      - name: Delete temporary branch
+        run: git push origin --delete bump-proto-version-${{ github.run_number }}
