@@ -1,0 +1,55 @@
+name: Publish to Crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version publish type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+env:
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-make
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --force cargo-make
+
+      - name: Create publish branch
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git checkout -b publish-version-${{ github.run_number }}
+
+      - name: Publish version
+        run: |
+          if [ "${{ github.event.inputs.version_type }}" = "patch" ]; then
+            cargo make publish-patch
+          elif [ "${{ github.event.inputs.version_type }}" = "minor" ]; then
+            cargo make publish-minor
+          else
+            cargo make publish-major
+          fi
