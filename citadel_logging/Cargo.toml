@@ -1,6 +1,6 @@
 [package]
 name = "citadel_logging"
-version = "0.8.0"
+version = "0.10.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
 description = "logging library for the Citadel Protocol"
