@@ -34,6 +34,7 @@ pub(crate) struct DualStackUdpHolePuncher {
 #[derive(Serialize, Deserialize, Debug)]
 #[allow(variant_size_differences)]
 enum DualStackCandidateSignal {
+    Winner(HolePunchID, HolePunchID),
     WinnerCanEnd,
     AllFailed,
 }
@@ -230,7 +231,7 @@ async fn drive(
 
                 if let Some((local_id, peer_id)) = *commanded_winner.lock().await {
                     log::trace!(target: "citadel", "Local {local_id:?} has been commanded to use {peer_id:?}");
-                    let receivers = kill_signal_tx.send((local_id, peer_id))?;
+                    let receivers = kill_signal_tx.send((local_id, peer_id)).unwrap_or(0);
                     log::trace!(target: "citadel", "Sent kill signal to {receivers} hole-punchers");
 
                     'pop: while let Some(current_enqueued) = current_enqueued.lock().await.pop() {
@@ -364,6 +365,17 @@ async fn drive(
                     } else {
                         // We are the winner
                         log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
+                        // Tell the other side we won, that way the rebuilder background process for the other
+                        // side can respond. If we don't send this message, then, it's possible hanging occurs
+                        // on the loser end because the winner combo isn't obtained until this futures
+                        // resolver received a completed future; since in variable NAT setups, the adjacent side may fail
+                        // entirely, it could never finish, thus never trigger the code that sets the commanded_winner
+                        // and thus prompts the background code to return the socket on the adjacent node.
+                        send(
+                            DualStackCandidateSignal::Winner(peer_unique_id, local_id),
+                            conn,
+                        )
+                        .await?;
                         while let Some(socket) = current_enqueued.lock().await.pop() {
                             if socket.local_id != local_id {
                                 log::warn!(target: "citadel", "*** Winner: socket ID mismatch. Expected {local_id:?}, got {:?}. Looping ...", socket.local_id);
@@ -417,6 +429,10 @@ async fn drive(
     let reader = async move {
         loop {
             match receive::<DualStackCandidateSignal, _>(conn).await? {
+                DualStackCandidateSignal::Winner(local_id, peer_id) => {
+                    log::trace!(target: "citadel", "[READER] Remote commanded local to use peer={peer_id:?} and local={local_id:?}");
+                    *commanded_winner.lock().await = Some((local_id, peer_id));
+                }
                 DualStackCandidateSignal::AllFailed => {
                     // All failed locally, but, remote may claim that it has a valid socket/
                     // Run the function below to exit if remote already set_failure_occurred

@@ -82,7 +82,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
                 passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
                     .await
             {
-                log::error!(target: "citadel", "[NetMutex Passive Background Handler] Err: {:?}", err.to_string());
+                log::warn!(target: "citadel", "[NetMutex Passive Background Handler] Err: {:?}", err.to_string());
             }
 
             log::trace!(target: "citadel", "[NetMutex] Passive background handler ending")
