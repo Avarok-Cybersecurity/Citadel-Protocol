@@ -221,23 +221,46 @@ fn maybe_extract_value_for(line: &str, line_str_name: &str) -> Option<u8> {
 }
 '''
 
-[tasks.bump-proto]
-dependencies = ["bump-proto-inner"]
+[tasks.format-proto]
 command = "cargo"
 args = ["fmt", "--package", "citadel_proto"]
+
+[tasks.bump-proto-major]
+env = { "BUMP_PROTO_CITADEL_MAJOR" = "true" }
+run_task = [
+    { name = "bump-proto-inner" },
+    { name = "format-proto" }
+]
+
+[tasks.bump-proto-minor]
+env = { "BUMP_PROTO_CITADEL_MINOR" = "true" }
+run_task = [
+    { name = "bump-proto-inner" },
+    { name = "format-proto" }
+]
+
+[tasks.bump-proto-patch]
+env = { "BUMP_PROTO_CITADEL_PATCH" = "true" }
+run_task = [
+    { name = "bump-proto-inner" },
+    { name = "format-proto" }
+]
 
 [tasks.publish-install-deps]
 install_crate = { crate_name = "cargo-workspaces", binary = "cargo", test_arg = ["workspaces", "--help"] }
 
 [tasks.publish-bump-version-patch]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
 command = "cargo"
 args = ["workspaces", "version", "minor"]
 
 [tasks.publish-bump-version-minor]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
 command = "cargo"
 args = ["workspaces", "version", "minor"]
 
 [tasks.publish-bump-version-major]
+condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
 command = "cargo"
 args = ["workspaces", "version", "major"]
 
@@ -262,3 +285,12 @@ dependencies = ["publish-install-deps", "publish-bump-version-major"]
 [tasks.check-docs]
 command = "cargo"
 args = ["test", "--package", "citadel_sdk", "--doc"]
+
+[tasks.install-cargo-wasix]
+command = "cargo"
+args = ["install", "cargo-wasix"]
+
+[tasks.wasix]
+command = "cargo"
+args = ["--config=Cargo.wasix.toml", "wasix", "${@}", "--profile=wasix"]
+dependencies = ["install-nextest", "install-cargo-wasix"]
