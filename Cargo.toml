@@ -22,18 +22,18 @@ exclude = [
 
 [workspace.dependencies]
 # workspace deps
-citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.10.1" }
-citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.10.1" }
-citadel_user = { path = "./citadel_user", default-features = false, version = "0.10.1" }
-citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.10.1" }
-citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, version = "0.10.1" }
-citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.10.1" }
-citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.10.1" }
-citadel_io = { path = "./citadel_io", default-features = false, version = "0.8.0" }
-citadel_types = { path = "./citadel_types", default-features = false, version = "0.10.1" }
-netbeam = { path = "./netbeam", default-features = false, version = "0.10.1" }
-firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.10.1" }
-async_ip = { path = "./async_ip", default-features = false, version = "0.10.1" }
+citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.11.0" }
+citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.11.0" }
+citadel_user = { path = "./citadel_user", default-features = false, version = "0.11.0" }
+citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.11.0" }
+citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, version = "0.10.2" }
+citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.11.0" }
+citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.10.2" }
+citadel_io = { path = "./citadel_io", default-features = false, version = "0.11.0" }
+citadel_types = { path = "./citadel_types", default-features = false, version = "0.10.2" }
+netbeam = { path = "./netbeam", default-features = false, version = "0.11.0" }
+firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.10.2" }
+async_ip = { path = "./async_ip", default-features = false, version = "0.10.2" }
 
 # ordinary deps
 generic-array = { version = "0.14.6" }
