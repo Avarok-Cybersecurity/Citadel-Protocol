@@ -1,3 +1,5 @@
+name: Upload Coverage Report
+
 on:
   push:
     branches:

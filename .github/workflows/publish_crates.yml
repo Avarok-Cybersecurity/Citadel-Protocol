@@ -38,12 +38,6 @@ jobs:
           command: install
           args: --force cargo-make
 
-      - name: Create publish branch
-        run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          git checkout -b publish-version-${{ github.run_number }}
-
       - name: Publish version
         run: |
           if [ "${{ github.event.inputs.version_type }}" = "patch" ]; then
