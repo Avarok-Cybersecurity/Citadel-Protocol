@@ -166,16 +166,17 @@ async fn drive(
     {
         // TODO: Consider spawning to ensure if the reader/future-processor fail,
         // the background still can send its results to the background rebuilder
-        futures.push(async move {
+        let post_rebuild_tx = post_rebuild_tx.clone();
+        let task = async move {
             let res = hole_puncher
-                .try_method(
-                    NatTraversalMethod::Method3,
-                    kill_switch_rx,
-                    post_rebuild_tx.clone(),
-                )
+                .try_method(NatTraversalMethod::Method3, kill_switch_rx, post_rebuild_tx)
                 .await;
             (res, hole_puncher)
-        });
+        };
+
+        let task = tokio::task::spawn(task);
+
+        futures.push(task);
     }
 
     let current_enqueued: &tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
@@ -314,9 +315,18 @@ async fn drive(
     };
 
     let futures_resolver = async move {
-        while let Some((res, hole_puncher)) = futures.next().await {
-            log::trace!(target: "citadel", "[Future resolver loop] Received {:?}", res);
+        while let Some(res) = futures.next().await {
             *finished_count.lock() += 1;
+
+            let (res, hole_puncher) = match res {
+                Ok(res) => res,
+                Err(err) => {
+                    log::warn!(target: "citadel", "Hole-puncher task failed: {err:?}");
+                    continue;
+                }
+            };
+
+            log::trace!(target: "citadel", "[Future resolver loop] Received {res:?}");
 
             match res {
                 Ok(socket) => {

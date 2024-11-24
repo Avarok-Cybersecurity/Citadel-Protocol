@@ -24,7 +24,7 @@ const STUN_SERVERS: [&str; 3] = [
 ];
 
 const V4_BIND_ADDR: &str = "0.0.0.0:0";
-const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(4500);
+pub const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3000);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum IpTranslation {

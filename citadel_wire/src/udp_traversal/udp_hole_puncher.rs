@@ -1,4 +1,4 @@
-use crate::nat_identification::NatType;
+use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
@@ -16,7 +16,7 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(5000);
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(IDENTIFY_TIMEOUT.as_secs() + 5000);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
