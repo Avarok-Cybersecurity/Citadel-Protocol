@@ -1,6 +1,6 @@
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet::HdpHeader;
-use crate::proto::session::HdpSession;
+use crate::proto::session::CitadelSession;
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 
@@ -39,7 +39,7 @@ pub(crate) mod validation;
 /// Returns the preferred primary stream for returning a response
 pub(crate) fn get_preferred_primary_stream(
     header: &HdpHeader,
-    session: &HdpSession,
+    session: &CitadelSession,
     state_container: &StateContainerInner,
 ) -> Option<OutboundPrimaryStreamSender> {
     if header.target_cid.get() != 0 {

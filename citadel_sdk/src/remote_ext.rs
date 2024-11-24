@@ -655,7 +655,6 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
                     let mut local_path = None;
                     while let Some(res) = handle.next().await {
-                        log::trace!(target: "citadel", "REVFS PULL EVENT {:?}", res);
                         match res {
                             ObjectTransferStatus::ReceptionBeginning(path, _) => {
                                 local_path = Some(path)
@@ -1342,7 +1341,6 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(90))]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
         KemAlgorithm::Kyber,
@@ -1353,6 +1351,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer(
         #[case] enx: EncryptionAlgorithm,

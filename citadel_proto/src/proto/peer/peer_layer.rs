@@ -466,7 +466,7 @@ impl HyperNodePeerLayerInner {
     ) -> Option<Ticket> {
         let this = self.inner.read();
         let peer_map = this.observed_postings.get(&peer_cid)?;
-        log::trace!(target: "citadel", "[simultaneous checking] peer_map len: {}", peer_map.len());
+        log::trace!(target: "citadel", "[simultaneous checking] peer_map len: {} | {:?}", peer_map.len(), peer_map.values().map(|r| &r.signal).collect::<Vec<_>>());
         peer_map
             .iter()
             .find(|(_, posting)| (fx)(posting))

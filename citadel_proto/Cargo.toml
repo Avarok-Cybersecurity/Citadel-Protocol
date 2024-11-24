@@ -20,7 +20,6 @@ redis = ["citadel_user/redis"]
 webrtc = ["webrtc-util"]
 localhost-testing = ["citadel_wire/localhost-testing", "citadel_user/localhost-testing", "tracing"]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
-localhost-testing-loopback-only = ["citadel_wire/localhost-testing-loopback-only"]
 google-services = ["citadel_user/google-services"]
 vendored = ["citadel_user/vendored", "citadel_wire/vendored"]
 

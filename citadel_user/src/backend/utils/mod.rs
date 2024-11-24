@@ -113,25 +113,11 @@ impl ObjectTransferHandler {
     }
 
     fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
-        if matches!(
-            self.orientation,
-            ObjectTransferOrientation::Receiver {
-                is_revfs_pull: true
-            }
-        ) {
-            let _ = self.start_recv_tx.take();
-            return Ok(());
+        if let Some(tx) = self.start_recv_tx.take() {
+            tx.send(accept)
+                .map_err(|_| AccountError::msg("Failed to send response"))?;
         }
 
-        if matches!(self.orientation, ObjectTransferOrientation::Receiver { .. }) {
-            self.start_recv_tx
-                .take()
-                .ok_or_else(|| AccountError::msg("Start_recv_tx already called"))?
-                .send(accept)
-                .map_err(|err| AccountError::msg(err.to_string()))
-        } else {
-            let _ = self.start_recv_tx.take();
-            Ok(())
-        }
+        Ok(())
     }
 }

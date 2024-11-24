@@ -35,7 +35,7 @@ fcm = []
 
 [dependencies]
 async-trait = { workspace = true }
-bincode2 = { workspace = true }
+bincode = { workspace = true }
 serde = { workspace = true, features=["rc", "derive"] }
 futures = { workspace = true }
 log = { workspace = true }
@@ -54,6 +54,7 @@ tokio-stream = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }
+uuid = { version = "1.8.0", features = ["v4"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = { workspace = true }

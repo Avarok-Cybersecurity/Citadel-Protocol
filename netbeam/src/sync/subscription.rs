@@ -76,7 +76,7 @@ impl<R: SubscriptionBiStream + ?Sized> ReliableOrderedStreamToTarget for R {
             payload: input.to_vec(),
         };
         self.conn()
-            .send_to_peer(&bincode2::serialize(&packet).unwrap())
+            .send_to_peer(&bincode::serialize(&packet).unwrap())
             .await
     }
 

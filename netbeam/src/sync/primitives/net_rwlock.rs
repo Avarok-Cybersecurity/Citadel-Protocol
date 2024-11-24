@@ -339,7 +339,7 @@ mod drop {
             }
 
             LocalLockHolder::Write(_guard, ..) => {
-                conn.send_serialized(UpdatePacket::ReleasedWrite(bincode2::serialize(
+                conn.send_serialized(UpdatePacket::ReleasedWrite(bincode::serialize(
                     &lock.deref(),
                 )?))
                 .await?;
@@ -529,7 +529,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
         LocalLockHolder::Write(val, _) => {
             channel
                 .send_serialized(UpdatePacket::ReleasedWrite(
-                    bincode2::serialize(&val.as_ref().unwrap().0).unwrap(),
+                    bincode::serialize(&val.as_ref().unwrap().0).unwrap(),
                 ))
                 .await?;
         }
@@ -542,7 +542,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
             UpdatePacket::ReleasedWrite(new_value) => match &mut lock {
                 LocalLockHolder::Write(val, _) => {
                     log::trace!(target: "citadel", "Yield:: Releasing Write lock");
-                    val.as_mut().unwrap().0 = bincode2::deserialize(&new_value)?;
+                    val.as_mut().unwrap().0 = bincode::deserialize(&new_value)?;
                     channel
                         .send_serialized(UpdatePacket::ReleasedVerified(LockType::Write))
                         .await?;
@@ -699,7 +699,7 @@ where
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
         match packet {
             UpdatePacket::ReleasedWrite(new_data) => {
-                let new_data = bincode2::deserialize::<T>(&new_data)?;
+                let new_data = bincode::deserialize::<T>(&new_data)?;
                 match &mut owned_local_lock {
                     LocalLockHolder::Write(lock, ..) => {
                         lock.as_mut().unwrap().0 = new_data;
@@ -768,13 +768,21 @@ where
                 let local_wins = if remote_request_time == local_request_time {
                     rwlock.node_type() == RelativeNodeType::Initiator
                 } else {
-                    remote_request_time < local_request_time
+                    remote_request_time > local_request_time
                 };
 
                 if local_wins {
-                    // remote gets the lock. We send the local value first. Then, we must continue looping
-                    // yield the lock
+                    // we requested before the remote node; tell the remote node we took the value
+                    conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
+                        .await?;
 
+                    if owned_local_lock.lock_type() == LockType::Read {
+                        *rwlock.local_active_read_lock.write() =
+                            Some(owned_local_lock.assert_read().clone())
+                    }
+
+                    return Ok((fx)(owned_local_lock));
+                } else {
                     // transform only if local wins
                     if owned_local_lock.lock_type() != lock_type {
                         log::trace!(target: "citadel", "Remote is trying to acquire lock type not equal to local type. Must transform. Local {:?}, Remote {:?}", owned_local_lock.lock_type(), lock_type);
@@ -816,17 +824,6 @@ where
                             log::trace!(target: "citadel", "Asserted local is write and downgraded");
                         }
                     }
-                } else {
-                    // we requested before the remote node; tell the remote node we took the value
-                    conn.send_serialized(UpdatePacket::LockAcquired(lock_type))
-                        .await?;
-
-                    if owned_local_lock.lock_type() == LockType::Read {
-                        *rwlock.local_active_read_lock.write() =
-                            Some(owned_local_lock.assert_read().clone())
-                    }
-
-                    return Ok((fx)(owned_local_lock));
                 }
             }
 

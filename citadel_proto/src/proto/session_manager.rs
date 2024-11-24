@@ -31,11 +31,12 @@ use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::{
-    HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal,
+    HyperNodePeerLayer, HyperNodePeerLayerInner, MailboxTransfer, PeerConnectionType, PeerResponse,
+    PeerSignal,
 };
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
-    ClientOnlySessionInitSettings, HdpSession, HdpSessionInitMode, SessionInitParams,
+    CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode, SessionInitParams,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
@@ -56,7 +57,7 @@ define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 /// Used for handling stateful connections between two peer
 pub struct HdpSessionManagerInner {
     local_node_type: NodeType,
-    pub(crate) sessions: HashMap<u64, (Sender<()>, HdpSession)>,
+    pub(crate) sessions: HashMap<u64, (Sender<()>, CitadelSession)>,
     account_manager: AccountManager,
     pub(crate) hypernode_peer_layer: HyperNodePeerLayer,
     server_remote: Option<NodeRemote>,
@@ -64,7 +65,7 @@ pub struct HdpSessionManagerInner {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
-    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
+    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession)>,
     kernel_tx: UnboundedSender<NodeResult>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
@@ -311,7 +312,7 @@ impl HdpSessionManager {
                 session_password,
             };
 
-            let (stopper, new_session) = HdpSession::new(session_init_params)?;
+            let (stopper, new_session) = CitadelSession::new(session_init_params)?;
 
             if let Some((_prev_conn_init_time, _stopper, lingering_session)) = inner_mut!(self)
                 .provisional_connections
@@ -343,7 +344,7 @@ impl HdpSessionManager {
     #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=new_session.implicated_cid.get(), is_server=new_session.is_server, peer_addr=peer_addr.to_string())))]
     async fn execute_session_with_safe_shutdown(
         session_manager: HdpSessionManager,
-        new_session: HdpSession,
+        new_session: CitadelSession,
         peer_addr: SocketAddr,
         tcp_stream: GenericNetworkStream,
     ) -> Result<(), NetworkError> {
@@ -517,7 +518,7 @@ impl HdpSessionManager {
             session_password,
         };
 
-        let (stopper, new_session) = HdpSession::new(session_init_params)?;
+        let (stopper, new_session) = CitadelSession::new(session_init_params)?;
         this.provisional_connections
             .insert(peer_addr, (init_time, stopper, new_session.clone()));
         drop(this);
@@ -573,6 +574,7 @@ impl HdpSessionManager {
                 security_level,
                 transfer_type,
                 local_encryption_level,
+                None,
                 |_| {},
             )
         } else {
@@ -1079,6 +1081,7 @@ impl HdpSessionManager {
     #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
+        peer_layer: &mut HyperNodePeerLayerInner,
         implicated_cid: u64,
         target_cid: u64,
         ticket: Ticket,
@@ -1107,11 +1110,7 @@ impl HdpSessionManager {
 
             // get the target cid's session
             if let Some(ref sess_ref) = sess {
-                sess_ref
-                    .hypernode_peer_layer
-                    .inner
-                    .write()
-                    .await
+                peer_layer
                     .insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout)
                     .await;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
@@ -1126,11 +1125,7 @@ impl HdpSessionManager {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
                 {
-                    let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
                     peer_layer
-                        .inner
-                        .write()
-                        .await
                         .insert_tracked_posting(
                             implicated_cid,
                             timeout,
@@ -1254,9 +1249,12 @@ impl HdpSessionManager {
         implicated_cid: u64,
         target_cid: u64,
         ticket: Ticket,
-        session: &HdpSession,
+        session: &CitadelSession,
         packet: impl FnOnce(&StackedRatchet) -> BytesMut,
-        post_send: impl FnOnce(&HdpSession, PeerSignal) -> Result<PrimaryProcessorResult, NetworkError>,
+        post_send: impl FnOnce(
+            &CitadelSession,
+            PeerSignal,
+        ) -> Result<PrimaryProcessorResult, NetworkError>,
     ) -> Result<Result<PrimaryProcessorResult, NetworkError>, String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
         let tracked_posting = {

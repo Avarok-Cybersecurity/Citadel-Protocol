@@ -239,12 +239,12 @@ impl<R: Ratchet> Toolset<R> {
 
     /// Serializes the toolset to a buffer
     pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError<String>> {
-        bincode2::serialize(self).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+        bincode::serialize(self).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
     }
 
     /// Deserializes from a slice of bytes
     pub fn deserialize_from_bytes<T: AsRef<[u8]>>(input: T) -> Result<Self, CryptError<String>> {
-        bincode2::deserialize(input.as_ref())
+        bincode::deserialize(input.as_ref())
             .map_err(|err| CryptError::DrillUpdateError(err.to_string()))
     }
 

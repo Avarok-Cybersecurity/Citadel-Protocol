@@ -54,7 +54,7 @@ firebase-rtdb = { workspace = true, optional = true }
 jwt = { workspace = true, features = ["openssl"], optional = true }
 openssl = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["v4"] }
-bincode2 = { workspace = true }
+bincode = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 tokio-util = { workspace = true, features = ["io"], optional = true }
 tokio-stream = { workspace = true, optional = true }

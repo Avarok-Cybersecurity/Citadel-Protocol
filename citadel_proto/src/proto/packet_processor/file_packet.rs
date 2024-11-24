@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_file_packet(
-    session: &HdpSession,
+    session: &CitadelSession,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -203,8 +203,15 @@ pub fn process_file_packet(
                                     .revfs_get_file_info(revfs_cid, packet.virtual_path)
                                     .await
                                 {
-                                    Ok((source, local_encryption_level)) => {
+                                    Ok((source, metadata)) => {
                                         let transfer_type = TransferType::FileTransfer; // use a basic file transfer since we don't need to data to be locally encrypted when sending it back
+                                        let Some(local_encryption_level) =
+                                            metadata.get_security_level()
+                                        else {
+                                            log::error!(target: "citadel", "The requested file was not designated as a RE-VFS type, yet, a metadata file existed for it");
+                                            return;
+                                        };
+
                                         match session.process_outbound_file(
                                             ticket,
                                             None,
@@ -213,6 +220,7 @@ pub fn process_file_packet(
                                             packet.security_level,
                                             transfer_type,
                                             Some(local_encryption_level),
+                                            Some(metadata),
                                             move |source| {
                                                 if delete_on_pull {
                                                     spawn!(tokio::fs::remove_file(source));

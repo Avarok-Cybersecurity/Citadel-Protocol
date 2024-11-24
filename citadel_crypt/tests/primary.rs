@@ -16,7 +16,7 @@ mod tests {
         AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecBuffer,
         SigAlgorithm, KEM_ALGORITHM_COUNT,
     };
-    use citadel_types::proto::TransferType;
+    use citadel_types::proto::{ObjectId, TransferType};
     use rstest::rstest;
     #[cfg(not(target_family = "wasm"))]
     use std::path::PathBuf;
@@ -128,9 +128,9 @@ mod tests {
     #[test]
     fn test_sec_buffer() {
         let buf = SecBuffer::from("Hello, world!");
-        let serde = bincode2::serialize(&buf).unwrap();
+        let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
@@ -197,9 +197,9 @@ mod tests {
     fn secbytes() {
         citadel_logging::setup_log();
         let buf = SecBuffer::from("Hello, world!");
-        let serde = bincode2::serialize(&buf).unwrap();
+        let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
@@ -728,7 +728,7 @@ mod tests {
                     &pseudo_static_aux_ratchet_alice,
                     HEADER_SIZE_BYTES,
                     0,
-                    0,
+                    ObjectId::zero(),
                     0,
                     transfer_type.clone(),
                     |_vec, _drill, _target_cid, _, buffer| {
@@ -765,7 +765,13 @@ mod tests {
     }
 
     const HEADER_LEN: usize = 52;
-    fn header_inscribe(_: &PacketVector, _: &EntropyBank, _: u64, _: u64, packet: &mut BytesMut) {
+    fn header_inscribe(
+        _: &PacketVector,
+        _: &EntropyBank,
+        _: ObjectId,
+        _: u64,
+        packet: &mut BytesMut,
+    ) {
         for x in 0..HEADER_LEN {
             packet.put_u8((x % 255) as u8)
         }
@@ -896,7 +902,7 @@ mod tests {
         let (bytes, _num_groups, _mxbpg) = scramble_encrypt_source::<_, _, HEADER_LEN>(
             source,
             None,
-            99,
+            ObjectId::zero(),
             group_sender_tx,
             stop_rx,
             security_level,

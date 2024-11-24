@@ -57,7 +57,7 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[timeout(Duration::from_secs(240))]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_tcp_or_tls(
         #[case] addr: SocketAddr,
@@ -109,7 +109,7 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[timeout(Duration::from_secs(240))]
+    #[timeout(Duration::from_secs(60))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,
@@ -125,11 +125,6 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
-            if matches!(proto, ServerUnderlyingProtocol::Tls(..)) && cfg!(windows) {
-                citadel_logging::warn!(target: "citadel", "Will skip test since self-signed certs may not necessarily work on windows runner");
-                continue;
-            }
-
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 

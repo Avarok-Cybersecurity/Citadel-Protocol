@@ -16,7 +16,7 @@ use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
-use crate::proto::session::HdpSession;
+use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
@@ -71,7 +71,7 @@ impl Drop for DirectP2PRemote {
 async fn setup_listener_non_initiator(
     local_bind_addr: SocketAddr,
     remote_addr: SocketAddr,
-    session: HdpSession,
+    session: CitadelSession,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
@@ -96,7 +96,7 @@ async fn setup_listener_non_initiator(
 
 async fn p2p_conn_handler(
     mut p2p_listener: GenericNetworkListener,
-    session: HdpSession,
+    session: CitadelSession,
     _necessary_remote_addr: SocketAddr,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
@@ -112,7 +112,7 @@ async fn p2p_conn_handler(
 
     match p2p_listener.next().await {
         Some(Ok((p2p_stream, _))) => {
-            let session = HdpSession::upgrade_weak(weak)
+            let session = CitadelSession::upgrade_weak(weak)
                 .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
 
             /*
@@ -153,7 +153,7 @@ async fn p2p_conn_handler(
 fn handle_p2p_stream(
     mut p2p_stream: GenericNetworkStream,
     implicated_cid: DualRwLock<Option<u64>>,
-    session: HdpSession,
+    session: CitadelSession,
     kernel_tx: UnboundedSender<NodeResult>,
     from_listener: bool,
     v_conn: VirtualConnectionType,
@@ -191,9 +191,9 @@ fn handle_p2p_stream(
         p2p_primary_stream_tx.clone(),
         peer_cid,
     );
-    let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink);
+    let writer_future = CitadelSession::outbound_stream(p2p_primary_stream_rx, sink);
     let reader_future =
-        HdpSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
+        CitadelSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
     let stopper_future = p2p_stopper(stopper_rx);
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
@@ -205,7 +205,7 @@ fn handle_p2p_stream(
     state_container
         .insert_direct_p2p_connection(direct_p2p_remote, v_conn.get_target_cid())
         .map_err(|err| generic_error(err.into_string()))?;
-    HdpSession::udp_socket_loader(
+    CitadelSession::udp_socket_loader(
         sess.clone(),
         v_conn,
         UdpSplittableTypes::Quic(udp_conn),
@@ -288,7 +288,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 pub(crate) async fn attempt_simultaneous_hole_punch(
     peer_connection_type: PeerConnectionType,
     ticket: Ticket,
-    session: HdpSession,
+    session: CitadelSession,
     peer_nat_info: PeerNatInfo,
     implicated_cid: DualRwLock<Option<u64>>,
     kernel_tx: UnboundedSender<NodeResult>,
@@ -311,7 +311,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             .map_err(generic_error)?;
         let remote_connect_addr = hole_punched_socket.addr.send_address;
         let addr = hole_punched_socket.addr;
-        let local_addr = hole_punched_socket.socket.local_addr()?;
+        let local_addr = hole_punched_socket.local_addr()?;
         log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
 
         app.sync().await.map_err(generic_error)?;
@@ -319,8 +319,9 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
         // if local IS the initiator, then start connecting. It should work
         if is_initiator {
             // give time for non-initiator to setup local bind
+            // TODO: Replace with biconn channel logic
             tokio::time::sleep(Duration::from_millis(200)).await;
-            let socket = hole_punched_socket.socket;
+            let socket = hole_punched_socket.into_socket();
             let quic_endpoint =
                 citadel_wire::quic::QuicClient::new_with_config(socket, client_config.clone())
                     .map_err(generic_error)?;

@@ -1,14 +1,12 @@
-#![cfg_attr(feature = "localhost-testing-loopback-only", allow(unreachable_code))]
-
 use crate::nat_identification::NatType;
 use citadel_io::UdpSocket;
-use std::collections::HashSet;
-use std::net::{IpAddr, SocketAddr};
+use itertools::Itertools;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 #[derive(Debug)]
 pub struct HolePunchConfig {
     /// The IP addresses that must be connected to based on NAT traversal
-    pub bands: Vec<AddrBand>,
+    pub bands: Vec<Vec<AddrBand>>,
     // sockets bound to ports specially prepared for NAT traversal
     pub(crate) locally_bound_sockets: Option<Vec<UdpSocket>>,
 }
@@ -20,22 +18,22 @@ pub struct AddrBand {
 }
 
 impl IntoIterator for HolePunchConfig {
-    type Item = SocketAddr;
-    type IntoIter = std::collections::hash_set::IntoIter<SocketAddr>;
+    type Item = Vec<SocketAddr>;
+    type IntoIter = std::vec::IntoIter<Vec<SocketAddr>>;
 
     fn into_iter(mut self) -> Self::IntoIter {
         // Use a HashSet to enforce uniqueness
-        let mut ret = HashSet::new();
+        let mut ret = vec![];
 
-        for mut band in self.bands.drain(..) {
-            for next in band.by_ref() {
-                if next.ip() == IpAddr::from([0, 0, 0, 0]) {
-                    // we never want to send to 0.0.0.0 addrs, only loopbacks
-                    ret.insert(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), next.port()));
-                } else {
-                    ret.insert(next);
+        for band_set in self.bands.drain(..) {
+            let mut this_set = vec![];
+            for mut band in band_set {
+                for next in band.by_ref() {
+                    this_set.push(next);
                 }
             }
+
+            ret.push(this_set);
         }
 
         ret.into_iter()
@@ -55,44 +53,52 @@ impl Iterator for AddrBand {
 impl HolePunchConfig {
     pub fn new(
         peer_nat: &NatType,
-        peer_internal_addr: &SocketAddr,
-        local_socket: UdpSocket,
+        peer_internal_addrs: &[SocketAddr],
+        local_sockets: Vec<UdpSocket>,
     ) -> Self {
-        let mut this = if let Some(bands) = peer_nat.predict(peer_internal_addr) {
-            Self {
-                bands,
-                locally_bound_sockets: Some(vec![local_socket]),
-            }
-        } else if cfg!(feature = "localhost-testing") {
-            log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {:?}))", peer_internal_addr);
-            Self {
-                bands: get_localhost_bands(peer_internal_addr),
-                locally_bound_sockets: Some(vec![local_socket]),
-            }
-        } else {
-            // the peer nat is untraversable. However, they may still be able to connect to this node.
-            // As such, we will only listen:
-            Self {
-                bands: vec![AddrBand {
-                    necessary_ip: peer_internal_addr.ip(),
-                    anticipated_ports: vec![peer_internal_addr.port()],
-                }],
-                locally_bound_sockets: Some(vec![local_socket]),
-            }
+        assert_eq!(peer_internal_addrs.len(), local_sockets.len());
+        let mut this = HolePunchConfig {
+            bands: Vec::new(),
+            locally_bound_sockets: Some(local_sockets),
         };
 
-        // Sometimes, even on localhost testing, both NATs are predictable, therefore the second branch above
-        // does not execute. This means that it entirely misses out on the localhost adjacent node.
-        // Therefore, we need to add it here:
-        this.bands.extend(get_localhost_bands(peer_internal_addr));
+        for peer_internal_addr in peer_internal_addrs {
+            let mut bands = if let Some(bands) = peer_nat.predict(peer_internal_addr) {
+                bands
+            } else if cfg!(feature = "localhost-testing") {
+                log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {:?}))", peer_internal_addr);
+                get_localhost_bands(peer_internal_addr)
+            } else {
+                // the peer nat is untraversable. However, they may still be able to connect to this node.
+                // As such, we will only listen:
+                vec![AddrBand {
+                    necessary_ip: peer_internal_addr.ip(),
+                    anticipated_ports: vec![peer_internal_addr.port()],
+                }]
+            };
+
+            // Sometimes, even on localhost testing, both NATs are predictable, therefore the second branch above
+            // does not execute. This means that it entirely misses out on the localhost adjacent node.
+            // Therefore, we need to add it here:
+            bands.extend(get_localhost_bands(peer_internal_addr));
+
+            let bands = bands.into_iter().unique().collect();
+            this.bands.push(bands)
+        }
 
         this
     }
 }
 
 fn get_localhost_bands(peer_internal_addr: &SocketAddr) -> Vec<AddrBand> {
-    vec![AddrBand {
-        necessary_ip: IpAddr::from([127, 0, 0, 1]),
-        anticipated_ports: vec![peer_internal_addr.port()],
-    }]
+    vec![
+        AddrBand {
+            necessary_ip: IpAddr::from(Ipv4Addr::LOCALHOST),
+            anticipated_ports: vec![peer_internal_addr.port()],
+        },
+        AddrBand {
+            necessary_ip: IpAddr::V6(Ipv6Addr::LOCALHOST),
+            anticipated_ports: vec![peer_internal_addr.port()],
+        },
+    ]
 }

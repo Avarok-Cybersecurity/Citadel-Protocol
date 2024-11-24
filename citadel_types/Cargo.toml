@@ -18,7 +18,7 @@ bytes = { workspace = true, features = ["serde"] }
 twox-hash = { workspace = true }
 packed_struct = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4"] }
-bincode2 = { workspace = true}
+bincode = { workspace = true}
 
 [target.'cfg(target_family = "unix")'.dependencies]
 libc = { workspace = true }

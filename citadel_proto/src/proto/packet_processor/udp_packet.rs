@@ -6,7 +6,7 @@ use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_fr
 /// This will handle an inbound group packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_udp_packet(
-    _session: &HdpSession,
+    _session: &CitadelSession,
     packet: HdpPacket,
     hr_version: u32,
     accessor: &EndpointCryptoAccessor,

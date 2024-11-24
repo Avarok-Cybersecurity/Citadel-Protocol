@@ -1,4 +1,4 @@
-use crate::nat_identification::NatType;
+use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
@@ -16,7 +16,8 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(6000);
+const DEFAULT_TIMEOUT: Duration =
+    Duration::from_millis((IDENTIFY_TIMEOUT.as_millis() + 5000) as u64);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
@@ -32,9 +33,9 @@ impl<'a> UdpHolePuncher<'a> {
         timeout: Duration,
     ) -> Self {
         Self {
-            driver: Box::pin(async move {
-                tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
-            }),
+            driver: Box::pin(
+                async move { driver(conn, encrypted_config_container, timeout).await },
+            ),
         }
     }
 }
@@ -47,14 +48,46 @@ impl Future for UdpHolePuncher<'_> {
     }
 }
 
+const MAX_RETRIES: usize = 3;
+
 #[cfg_attr(
     feature = "localhost-testing",
     tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
 )]
 async fn driver(
     conn: &NetworkEndpoint,
+    encrypted_config_container: HolePunchConfigContainer,
+    timeout: Duration,
+) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+    let mut retries = 0;
+    loop {
+        let task = tokio::time::timeout(
+            timeout,
+            driver_inner(conn, encrypted_config_container.clone()),
+        );
+        match task.await {
+            Ok(Ok(res)) => return Ok(res),
+            Ok(Err(err)) => {
+                log::warn!(target: "citadel", "Hole puncher failed: {err:?}");
+            }
+            Err(_) => {
+                log::warn!(target: "citadel", "Hole puncher timed-out");
+            }
+        }
+
+        retries += 1;
+
+        if retries >= MAX_RETRIES {
+            return Err(anyhow::Error::msg("Max retries reached for UDP Traversal"));
+        }
+    }
+}
+
+async fn driver_inner(
+    conn: &NetworkEndpoint,
     mut encrypted_config_container: HolePunchConfigContainer,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+    log::trace!(target: "citadel", "[driver] Starting hole puncher ...");
     // create stream
     let stream = &(conn.initiate_subscription().await?);
     let stun_servers = encrypted_config_container.take_stun_servers();
@@ -66,21 +99,24 @@ async fn driver(
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
-    let internal_bind_addr = local_initial_socket.local_addr()?;
+    let internal_bind_addr_optimal = local_initial_socket.local_addr()?;
+    let mut sockets = vec![local_initial_socket];
+    let mut internal_addresses = vec![internal_bind_addr_optimal];
+    if internal_bind_addr_optimal.is_ipv6() {
+        let additional_socket = crate::socket_helpers::get_udp_socket("0.0.0.0:0")?;
+        internal_addresses.push(additional_socket.local_addr()?);
+        sockets.push(additional_socket);
+    }
 
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
-    let peer_internal_bind_addr = conn.sync_exchange_payload(internal_bind_addr).await?;
+    let peer_internal_bind_addrs = conn.sync_exchange_payload(internal_addresses).await?;
     log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
-    log::trace!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr:?}\nPeer internal bind addr: {peer_internal_bind_addr:?}");
+    log::trace!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
     log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
-    let hole_punch_config = HolePunchConfig::new(
-        peer_nat_type,
-        &peer_internal_bind_addr,
-        local_initial_socket,
-    );
+    let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);
 
     let conn = conn.clone();
     log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
@@ -91,6 +127,9 @@ async fn driver(
         conn,
     )?
     .await;
+
+    log::info!(target: "citadel", "Hole Punch Status: {res:?}");
+
     res.map_err(|err| {
         anyhow::Error::msg(format!(
             "**HOLE-PUNCH-ERR**: {err:?} | local_nat_type: {local_nat_type:?} | peer_nat_type: {peer_nat_type:?}",
@@ -127,7 +166,7 @@ pub fn get_optimal_bind_socket(
     let local_allows_ipv6 = local_nat_info.is_ipv6_compatible();
     let peer_allows_ipv6 = peer_nat_info.is_ipv6_compatible();
 
-    // only bind to ipv6 if v6 is enabled locally, and, there both nodes have an external ipv6 addr,
+    // only bind to ipv6 if v6 is enabled locally, and, both nodes have an external ipv6 addr,
     // AND, the peer allows ipv6, then go with ipv6
     if local_allows_ipv6
         && local_has_an_external_ipv6_addr
@@ -137,14 +176,7 @@ pub fn get_optimal_bind_socket(
         // bind to IN_ADDR6_ANY. Allows both conns from loopback and public internet
         crate::socket_helpers::get_udp_socket("[::]:0")
     } else {
-        #[cfg(not(feature = "localhost-testing"))]
-        {
-            crate::socket_helpers::get_udp_socket("0.0.0.0:0")
-        }
-        #[cfg(feature = "localhost-testing")]
-        {
-            crate::socket_helpers::get_udp_socket("127.0.0.1:0")
-        }
+        crate::socket_helpers::get_udp_socket("0.0.0.0:0")
     }
 }
 
@@ -206,22 +238,20 @@ mod tests {
 
             log::trace!(target: "citadel", "A");
             _res0
-                .socket
                 .send_to(dummy_bytes as &[u8], _res0.addr.send_address)
                 .await
                 .unwrap();
             log::trace!(target: "citadel", "B");
             let buf = &mut [0u8; 4096];
-            let (len, _addr) = _res1.socket.recv_from(buf).await.unwrap();
+            let (len, _addr) = _res1.recv_from(buf).await.unwrap();
             //assert_eq!(res1.addr.receive_address, addr);
             log::trace!(target: "citadel", "C");
             assert_ne!(len, 0);
             _res1
-                .socket
                 .send_to(dummy_bytes, _res1.addr.send_address)
                 .await
                 .unwrap();
-            let (len, _addr) = _res0.socket.recv_from(buf).await.unwrap();
+            let (len, _addr) = _res0.recv_from(buf).await.unwrap();
             assert_ne!(len, 0);
             //assert_eq!(res0.addr.receive_address, addr);
             log::trace!(target: "citadel", "D");

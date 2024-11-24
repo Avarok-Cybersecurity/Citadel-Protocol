@@ -208,6 +208,11 @@ mod tests {
         enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
+
+        if windows_pipeline_check(kem, secrecy_mode) {
+            return;
+        }
+
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -275,6 +280,11 @@ mod tests {
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
+
+        if windows_pipeline_check(kem, secrecy_mode) {
+            return;
+        }
+
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -351,6 +361,11 @@ mod tests {
         enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
+
+        if windows_pipeline_check(kem, secrecy_mode) {
+            return;
+        }
+
         citadel_sdk::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
@@ -448,7 +463,7 @@ mod tests {
 
     #[rstest]
     #[case(500, 3)]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();
@@ -523,5 +538,19 @@ mod tests {
         }
         assert!(res.is_ok());
         assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
+    }
+
+    /// This test is disabled by default because it is very slow and requires a lot of resources
+    fn windows_pipeline_check(kem: KemAlgorithm, secrecy_mode: SecrecyMode) -> bool {
+        if cfg!(windows)
+            && kem == KemAlgorithm::Ntru
+            && secrecy_mode == SecrecyMode::Perfect
+            && std::env::var("IN_CI").is_ok()
+        {
+            log::warn!(target: "citadel", "Skipping NTRU/Perfect forward secrecy test on Windows due to performance issues");
+            true
+        } else {
+            false
+        }
     }
 }

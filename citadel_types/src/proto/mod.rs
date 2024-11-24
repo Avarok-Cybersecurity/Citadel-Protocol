@@ -1,7 +1,7 @@
 use crate::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
 use crate::utils;
 use serde::{Deserialize, Serialize};
-use std::fmt::Formatter;
+use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -26,18 +26,50 @@ pub struct VirtualObjectMetadata {
     pub author: String,
     pub plaintext_length: usize,
     pub group_count: usize,
-    pub object_id: u64,
+    pub object_id: ObjectId,
     pub cid: u64,
     pub transfer_type: TransferType,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct ObjectId(pub u128);
+
+impl Debug for ObjectId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Display for ObjectId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl ObjectId {
+    pub fn random() -> Self {
+        Uuid::new_v4().as_u128().into()
+    }
+
+    pub const fn zero() -> Self {
+        Self(0)
+    }
+}
+
+impl From<u128> for ObjectId {
+    fn from(value: u128) -> Self {
+        Self(value)
+    }
+}
+
 impl VirtualObjectMetadata {
     pub fn serialize(&self) -> Vec<u8> {
-        bincode2::serialize(self).unwrap()
+        bincode::serialize(self).unwrap()
     }
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
-        bincode2::deserialize(input.as_ref()).ok()
+        bincode::deserialize(input.as_ref()).ok()
     }
 
     pub fn get_security_level(&self) -> Option<SecurityLevel> {

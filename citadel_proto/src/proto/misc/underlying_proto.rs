@@ -5,7 +5,7 @@ use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
 use std::fmt::Debug;
-use std::net::{SocketAddr, TcpListener};
+use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -23,12 +23,15 @@ impl ServerUnderlyingProtocol {
         Self::Tcp(None)
     }
 
+    pub fn new_tcp<T: ToSocketAddrs>(bind_addr: T) -> Result<Self, NetworkError> {
+        let listener = citadel_wire::socket_helpers::get_tcp_listener(bind_addr)?;
+        Self::from_tokio_tcp_listener(listener)
+    }
+
     /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`std::net::TcpListener`]
-    pub fn from_tcp_listener(listener: TcpListener) -> Result<Self, NetworkError> {
+    pub fn from_std_tcp_listener(listener: TcpListener) -> Result<Self, NetworkError> {
         listener.set_nonblocking(true)?;
-        Ok(Self::Tcp(Some(Arc::new(Mutex::new(Some(
-            tokio::net::TcpListener::from_std(listener)?,
-        ))))))
+        Self::from_tokio_tcp_listener(tokio::net::TcpListener::from_std(listener)?)
     }
 
     /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`tokio::net::TcpListener`]

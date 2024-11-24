@@ -438,8 +438,8 @@ mod tests {
         .unwrap()
     }
 
-    #[should_panic]
     #[test]
+    #[should_panic]
     fn test_kyber_bad_psks() {
         citadel_logging::setup_log_no_panic_hook();
         run(

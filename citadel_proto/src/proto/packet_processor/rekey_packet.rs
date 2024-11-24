@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_rekey(
-    session: &HdpSession,
+    session: &CitadelSession,
     packet: HdpPacket,
     header_drill_vers: u32,
     proxy_cid_info: Option<(u64, u64)>,
@@ -25,7 +25,7 @@ pub fn process_rekey(
         return Ok(PrimaryProcessorResult::Void);
     }
 
-    let HdpSessionInner {
+    let CitadelSessionInner {
         state_container,
         time_tracker,
         ..

@@ -15,6 +15,7 @@ use crate::stacked_ratchet::StackedRatchet;
 use citadel_io::Mutex;
 use citadel_io::{BlockingSpawn, BlockingSpawnError};
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::prelude::ObjectId;
 use citadel_types::proto::TransferType;
 use futures::Future;
 use num_integer::Integer;
@@ -41,11 +42,14 @@ impl FixedSizedSource for std::fs::File {
 
 /// Generic function for inscribing headers on packets
 pub trait HeaderInscriberFn:
-    for<'a> Fn(&'a PacketVector, &'a EntropyBank, u64, u64, &'a mut BytesMut) + Send + Sync + 'static
+    for<'a> Fn(&'a PacketVector, &'a EntropyBank, ObjectId, u64, &'a mut BytesMut)
+    + Send
+    + Sync
+    + 'static
 {
 }
 impl<
-        T: for<'a> Fn(&'a PacketVector, &'a EntropyBank, u64, u64, &'a mut BytesMut)
+        T: for<'a> Fn(&'a PacketVector, &'a EntropyBank, ObjectId, u64, &'a mut BytesMut)
             + Send
             + Sync
             + 'static,
@@ -162,7 +166,7 @@ impl<T: Into<Vec<u8>>> From<T> for BytesSource {
 pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: usize>(
     mut source: S,
     max_group_size: Option<usize>,
-    object_id: u64,
+    object_id: ObjectId,
     group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
     stop: Receiver<()>,
     security_level: SecurityLevel,
@@ -266,7 +270,7 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     transfer_type: TransferType,
     file_len: usize,
     read_cursor: usize,
-    object_id: u64,
+    object_id: ObjectId,
     header_size_bytes: usize,
     target_cid: u64,
     group_id: u64,

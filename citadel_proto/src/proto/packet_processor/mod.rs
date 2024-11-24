@@ -18,7 +18,7 @@ pub mod includes {
     pub use crate::proto::node_result::NodeResult;
     pub(crate) use crate::proto::packet::packet_flags;
     pub use crate::proto::packet::{HdpHeader, HdpPacket};
-    pub use crate::proto::session::{HdpSession, HdpSessionInner, SessionState};
+    pub use crate::proto::session::{CitadelSession, CitadelSessionInner, SessionState};
     pub(crate) use crate::proto::{packet_crafter, validation};
 
     pub use super::super::state_container::VirtualConnectionType;

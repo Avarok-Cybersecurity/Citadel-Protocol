@@ -9,7 +9,7 @@ use crate::error::NetworkError;
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=this_implicated_cid, is_server=session.is_server, packet_len=packet.len())))]
 pub async fn process_raw_packet(
     this_implicated_cid: Option<u64>,
-    session: &HdpSession,
+    session: &CitadelSession,
     remote_peer: SocketAddr,
     local_primary_port: u16,
     packet: BytesMut,
@@ -129,7 +129,7 @@ pub(crate) fn check_proxy(
     cmd_aux: u8,
     header_session_cid: u64,
     target_cid: u64,
-    session: &HdpSession,
+    session: &CitadelSession,
     endpoint_cid_info: &mut Option<(u64, u64)>,
     recv_port_type: ReceivePortType,
     packet: HdpPacket,

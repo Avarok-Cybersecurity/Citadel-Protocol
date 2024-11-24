@@ -34,7 +34,6 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
         .collect())
 }
 
-use crate::serialization::bincode_config;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 
@@ -83,8 +82,7 @@ pub fn read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, AccountEr
     std::fs::File::open(path.as_ref())
         .map_err(|err| AccountError::IoError(err.to_string()))
         .and_then(|file| {
-            bincode_config()
-                .deserialize_from(std::io::BufReader::new(file))
+            bincode::deserialize_from(std::io::BufReader::new(file))
                 .map_err(|err| AccountError::IoError(err.to_string()))
         })
 }

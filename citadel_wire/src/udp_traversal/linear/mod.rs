@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use citadel_io::UdpSocket;
 use either::Either;
 use igd::PortMappingProtocol;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;
@@ -71,7 +72,7 @@ impl SingleUDPHolePuncher {
         &mut self,
         method: NatTraversalMethod,
         mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>,
-        post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>,
+        mut post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>,
     ) -> Result<HolePunchedUdpSocket, FirewallError> {
         match method {
             NatTraversalMethod::UPnP => {
@@ -112,6 +113,7 @@ impl SingleUDPHolePuncher {
                     socket: self.socket.take().ok_or_else(|| {
                         FirewallError::HolePunch("UDP socket not loaded".to_string())
                     })?,
+                    local_id: unique_id,
                 })
             }
 
@@ -148,27 +150,36 @@ impl SingleUDPHolePuncher {
                     res1 = kill_listener => Either::Left(res1)
                 };
 
+                async fn handle_rebuild_input(
+                    this: &mut SingleUDPHolePuncher,
+                    post_kill_rebuild: &mut UnboundedSender<Option<HolePunchedUdpSocket>>,
+                    id_opt: Option<(HolePunchID, HolePunchID)>,
+                ) -> Result<HolePunchedUdpSocket, FirewallError> {
+                    match id_opt {
+                        Some((_local_id, peer_id)) => {
+                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::HolePunch("Kill switch called, but no matching values were found internally".to_string()))?)).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                        }
+
+                        None => {
+                            log::trace!(target: "citadel", "Will end hole puncher {:?} since kill switch called", this.get_unique_id());
+                            post_kill_rebuild
+                                .send(None)
+                                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                        }
+                    }
+
+                    Err(FirewallError::Skip)
+                }
+
                 match res {
                     Either::Right(addr) => Ok(HolePunchedUdpSocket {
                         socket: self.socket.take().unwrap(),
                         addr,
+                        local_id: this_local_id,
                     }),
 
                     Either::Left(id_opt) => {
-                        match id_opt {
-                            Some((_local_id, peer_id)) => {
-                                post_kill_rebuild.send(Some(self.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::HolePunch("Kill switch called, but no matching values were found internally".to_string()))?)).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                            }
-
-                            None => {
-                                log::trace!(target: "citadel", "Will end hole puncher {:?} since kill switch called", self.get_unique_id());
-                                post_kill_rebuild
-                                    .send(None)
-                                    .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                            }
-                        }
-
-                        Err(FirewallError::Skip)
+                        handle_rebuild_input(self, &mut post_kill_rebuild, id_opt).await
                     }
                 }
             }
@@ -189,6 +200,7 @@ impl SingleUDPHolePuncher {
                         receive_address: self.peer_external_addr(),
                         unique_id,
                     },
+                    local_id: unique_id,
                 })
             }
         }
@@ -224,17 +236,19 @@ impl SingleUDPHolePuncher {
             .method3
             .1
             .get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
-        let socket = self.socket.take()?;
-        Some(HolePunchedUdpSocket { addr, socket })
+        self.recovery_mode_generate_socket_by_addr(addr)
     }
 
-    /// this should only be called when the adjacent node verified that the connection occurred
     pub fn recovery_mode_generate_socket_by_addr(
         &mut self,
         addr: TargettedSocketAddr,
     ) -> Option<HolePunchedUdpSocket> {
         let socket = self.socket.take()?;
-        Some(HolePunchedUdpSocket { addr, socket })
+        Some(HolePunchedUdpSocket {
+            addr,
+            socket,
+            local_id: self.unique_id,
+        })
     }
 }
 

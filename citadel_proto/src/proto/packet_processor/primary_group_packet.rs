@@ -17,6 +17,7 @@ use citadel_crypt::misc::CryptError;
 use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use citadel_crypt::stacked_ratchet::{Ratchet, RatchetType, StackedRatchet};
 use citadel_types::crypto::SecrecyMode;
+use citadel_types::prelude::ObjectId;
 use citadel_types::proto::UdpMode;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
@@ -30,14 +31,14 @@ use std::sync::atomic::Ordering;
 /// will be provided. In this case, we must use the virtual conn's crypto
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process_primary_packet(
-    session_ref: &HdpSession,
+    session_ref: &CitadelSession,
     cmd_aux: u8,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
 
-    let HdpSessionInner {
+    let CitadelSessionInner {
         time_tracker,
         state_container,
         state,
@@ -130,7 +131,7 @@ pub fn process_primary_packet(
                             if is_message {
                                 let (plaintext, transfer, object_id) = return_if_none!(
                                     validation::group::validate_message(&mut payload),
-                                    "Bad message packet"
+                                    "Bad GROUP HEADER packet"
                                 );
                                 log::trace!(target: "citadel", "Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
                                 // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
@@ -227,11 +228,11 @@ pub fn process_primary_packet(
                                                     if group.has_begun {
                                                         if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
                                                             if state_container.meta_expiry_state.expired() {
-                                                                log::error!(target: "citadel", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
+                                                                log::warn!(target: "citadel", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
                                                                 if let Some(group) = state_container.inbound_groups.remove(&key) {
-                                                                    if group.object_id != 0 {
+                                                                    if group.object_id != ObjectId::zero() {
                                                                         // belongs to a file. Delete file; stop transmission
-                                                                        let key = FileKey::new(peer_cid, group.object_id);
+                                                                        let key = FileKey::new(group.object_id);
                                                                         if let Some(_file) = state_container.inbound_files.remove(&key) {
                                                                             // dropping this will automatically drop the future streaming to HD
                                                                             log::warn!(target: "citadel", "File transfer expired");
@@ -675,7 +676,7 @@ impl ToolsetUpdate<'_> {
 /// target_cid: from header.target_cid
 /// Returns: Ok(latest_hyper_ratchet)
 pub(crate) fn attempt_kem_as_alice_finish(
-    session: &HdpSession,
+    session: &CitadelSession,
     base_session_secrecy_mode: SecrecyMode,
     peer_cid: u64,
     target_cid: u64,
@@ -786,7 +787,7 @@ pub(crate) fn attempt_kem_as_alice_finish(
 
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
 pub(crate) fn attempt_kem_as_bob(
-    session: &HdpSession,
+    session: &CitadelSession,
     resp_target_cid: u64,
     header: &Ref<&[u8], HdpHeader>,
     transfer: Option<AliceToBobTransferType>,

@@ -3,13 +3,6 @@ use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 
-/// Given an ip bind addr, finds an open socket at that ip addr
-pub fn get_unused_udp_socket_at_bind_ip(bind_addr: IpAddr) -> std::io::Result<UdpSocket> {
-    let socket = std::net::UdpSocket::bind((bind_addr, 0))?;
-    socket.set_nonblocking(true)?;
-    UdpSocket::from_std(socket)
-}
-
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
     Ok(socket2::Socket::new(domain, Type::DGRAM, None)?)
 }
@@ -30,7 +23,7 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
 
     socket.set_nonblocking(true)?;
 
-    if addr.is_ipv6() {
+    if !cfg!(windows) && addr.is_ipv6() {
         socket.set_only_v6(false)?;
     }
 
@@ -63,6 +56,9 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
+
+    let addr = windows_check(addr);
+
     log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() {
         Domain::IPV4
@@ -72,9 +68,22 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     let socket = get_udp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
     let std_socket: std::net::UdpSocket = socket.into();
-    std_socket.set_nonblocking(true)?;
     let tokio_socket = citadel_io::UdpSocket::from_std(std_socket)?;
     Ok(tokio_socket)
+}
+
+fn windows_check(addr: SocketAddr) -> SocketAddr {
+    // if feature "localhost-testing" is enabled, and, we are not on mac, then, we will bind to 127.0.0.1
+    if cfg!(feature = "localhost-testing") && !cfg!(target_os = "macos") {
+        log::warn!(target: "citadel", "Localhost testing is enabled on non-mac OS. Will ensure bind is 127.0.0.1");
+        if addr.is_ipv4() {
+            SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), addr.port())
+        } else {
+            SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), addr.port())
+        }
+    } else {
+        addr
+    }
 }
 
 fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
@@ -85,6 +94,9 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
+
+    let addr = windows_check(addr);
+
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
 
     let domain = if addr.is_ipv4() {
@@ -94,10 +106,9 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     };
     let socket = get_tcp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
-    let std_tcp_socket: std::net::TcpStream = socket.into();
-    std_tcp_socket.set_nonblocking(true)?;
-
-    Ok(citadel_io::TcpSocket::from_std_stream(std_tcp_socket).listen(1024)?)
+    socket.listen(1024)?;
+    let std_tcp_socket: std::net::TcpListener = socket.into();
+    Ok(citadel_io::TcpListener::from_std(std_tcp_socket)?)
 }
 
 async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
@@ -140,16 +151,7 @@ pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
 }
 
 pub fn get_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        get_udp_socket_inner(addr, false)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let std_socket = std::net::UdpSocket::bind(addr)?;
-        std_socket.set_nonblocking(true)?;
-        Ok(citadel_io::UdpSocket::from_std(std_socket)?)
-    }
+    get_udp_socket_inner(addr, false)
 }
 
 /// `backlog`: the max number of unprocessed TCP connections

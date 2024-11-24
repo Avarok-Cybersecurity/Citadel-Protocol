@@ -10,6 +10,8 @@ retries = { backoff = "exponential", count = 2, delay = "5s" }
 # the string "num-cpus". Can be overridden through the `--test-threads` option.
 test-threads = 1
 
+slow-timeout = { period = "80s", terminate-after = 3, grace-period = "0s" }
+
 # Show these test statuses in the output.
 #
 # The possible values this can take are:
@@ -25,10 +27,10 @@ test-threads = 1
 # failed and retried tests.
 #
 # Can be overridden through the `--status-level` flag.
-status-level = "pass"
+status-level = "all"
 
 # Similar to status-level, show these test statuses at the end of the run.
-final-status-level = "none"
+final-status-level = "all"
 
 # "failure-output" defines when standard output and standard error for failing tests are produced.
 # Accepted values are

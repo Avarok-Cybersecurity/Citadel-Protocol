@@ -17,12 +17,13 @@ pub fn server_test_node<'a, K: NetKernel + 'a>(
     opts: impl FnOnce(&mut NodeBuilder),
 ) -> (NodeFuture<'a, K>, SocketAddr) {
     let mut builder = NodeBuilder::default();
-    let tcp_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
+        .expect("Failed to create TCP listener");
     let bind_addr = tcp_listener.local_addr().unwrap();
     let builder = builder
         .with_node_type(NodeType::Server(bind_addr))
         .with_underlying_protocol(
-            ServerUnderlyingProtocol::from_tcp_listener(tcp_listener).unwrap(),
+            ServerUnderlyingProtocol::from_tokio_tcp_listener(tcp_listener).unwrap(),
         );
 
     (opts)(builder);
@@ -44,15 +45,15 @@ pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
-pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(
+pub fn server_info_reactive<'a, F, Fut>(
     f: F,
     opts: impl FnOnce(&mut NodeBuilder),
 ) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
-    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync + 'a,
+    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
 {
-    crate::test_common::server_test_node(
+    server_test_node(
         Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>,
         opts,
     )

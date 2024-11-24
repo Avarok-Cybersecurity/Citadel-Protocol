@@ -1,5 +1,5 @@
 use crate::misc::AccountError;
-use bincode2::BincodeRead;
+use bincode::BincodeRead;
 use bytes::BufMut;
 use bytes::BytesMut;
 use serde::de::DeserializeOwned;
@@ -28,8 +28,7 @@ pub trait SyncIO {
         Self: DeserializeOwned,
     {
         use bytes::Buf;
-        bincode_config()
-            .deserialize_from(input.reader())
+        bincode::deserialize_from(input.reader())
             .map_err(|err| AccountError::Generic(err.to_string()))
     }
 
@@ -39,8 +38,7 @@ pub trait SyncIO {
         T: serde::de::Deserialize<'a>,
         R: BincodeRead<'a>,
     {
-        bincode_config()
-            .deserialize_in_place(reader, place)
+        bincode::deserialize_in_place(reader, place)
             .map_err(|err| AccountError::Generic(err.to_string()))
     }
 
@@ -49,11 +47,10 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode_config()
-            .serialized_size(self)
+        bincode::serialized_size(self)
             .and_then(|amt| {
                 buf.reserve(amt as usize);
-                bincode2::serialize_into(buf.writer(), self)
+                bincode::serialize_into(buf.writer(), self)
             })
             .map_err(|_| AccountError::Generic("Bad ser".to_string()))
     }
@@ -63,9 +60,7 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode_config()
-            .serialize_into(slice, self)
-            .map_err(|err| AccountError::Generic(err.to_string()))
+        bincode::serialize_into(slice, self).map_err(|err| AccountError::Generic(err.to_string()))
     }
 
     /// Returns the expected size of the serialized objects
@@ -73,35 +68,18 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode_config()
-            .serialized_size(self)
-            .ok()
-            .map(|res| res as usize)
+        bincode::serialized_size(self).ok().map(|res| res as usize)
     }
 }
 
 impl<'a, T> SyncIO for T where T: Serialize + Deserialize<'a> + Sized {}
 
-/// A limited config. Helps prevent oversized allocations from occurring when deserializing incompatible
-/// objects
-#[inline(always)]
-#[allow(unused_results)]
-pub fn bincode_config() -> bincode2::Config {
-    let mut cfg = bincode2::config();
-    cfg.limit(1000 * 1000 * 1000 * 4);
-    cfg
-}
-
 /// Deserializes the bytes, T, into type D
 fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, AccountError> {
-    bincode_config()
-        .deserialize(bytes)
-        .map_err(|err| AccountError::IoError(err.to_string()))
+    bincode::deserialize(bytes).map_err(|err| AccountError::IoError(err.to_string()))
 }
 
 /// Converts a type, D to Vec<u8>
 fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, AccountError> {
-    bincode_config()
-        .serialize(&input)
-        .map_err(|err| AccountError::IoError(err.to_string()))
+    bincode::serialize(&input).map_err(|err| AccountError::IoError(err.to_string()))
 }

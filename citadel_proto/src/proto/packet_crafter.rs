@@ -12,6 +12,7 @@ use crate::proto::state_container::VirtualTargetType;
 use citadel_crypt::scramble::crypt_splitter::oneshot_unencrypted_group_unified;
 use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_types::prelude::ObjectId;
 
 #[derive(Debug)]
 /// A thin wrapper used for convenient creation of zero-copy outgoing buffers
@@ -63,7 +64,7 @@ pub struct GroupTransmitter {
     /// Contained within Self::group_transmitter, but is here for convenience
     group_config: GroupReceiverConfig,
     /// The ID of the object that is being transmitted
-    pub object_id: u64,
+    pub object_id: ObjectId,
     pub group_id: u64,
     /// For interfacing with the higher-level kernel
     ticket: Ticket,
@@ -98,7 +99,7 @@ impl GroupTransmitter {
         to_primary_stream: OutboundPrimaryStreamSender,
         group_sender: GroupSenderDevice<HDP_HEADER_BYTE_LEN>,
         hyper_ratchet: RatchetPacketCrafterContainer,
-        object_id: u64,
+        object_id: ObjectId,
         ticket: Ticket,
         security_level: SecurityLevel,
         time_tracker: TimeTracker,
@@ -126,7 +127,7 @@ impl GroupTransmitter {
     #[allow(clippy::too_many_arguments)]
     pub fn new_message(
         to_primary_stream: OutboundPrimaryStreamSender,
-        object_id: u64,
+        object_id: ObjectId,
         hyper_ratchet: RatchetPacketCrafterContainer,
         input_packet: SecureProtocolPacket,
         security_level: SecurityLevel,
@@ -241,6 +242,7 @@ pub(crate) mod group {
     use crate::proto::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
     use citadel_crypt::endpoint_crypto_container::KemTransferStatus;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_types::proto::ObjectId;
     use citadel_user::serialization::SyncIO;
     use std::ops::RangeInclusive;
 
@@ -296,7 +298,7 @@ pub(crate) mod group {
             packet
         };
 
-        packet.put_u64(processor.object_id);
+        packet.put_u128(processor.object_id.0);
 
         processor
             .hyper_ratchet_container
@@ -320,7 +322,7 @@ pub(crate) mod group {
         hyper_ratchet: &StackedRatchet,
         group_id: u64,
         target_cid: u64,
-        object_id: u64,
+        object_id: ObjectId,
         ticket: Ticket,
         initial_wave_window: Option<RangeInclusive<u32>>,
         fast_msg: bool,
@@ -367,7 +369,7 @@ pub(crate) mod group {
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
         scramble_drill: &EntropyBank,
-        object_id: u64,
+        object_id: ObjectId,
         target_cid: u64,
         mut buffer: &mut BytesMut,
     ) {
@@ -377,7 +379,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::GROUP_PAYLOAD,
             algorithm: 0,
             security_level: 0, // Irrelevant; supplied by the wave header anyways
-            context_info: U128::new(object_id as _),
+            context_info: U128::new(object_id.0),
             group: U64::new(coords.group_id),
             wave_id: U32::new(coords.wave_id),
             session_cid: U64::new(scramble_drill.get_cid()),
@@ -400,7 +402,7 @@ pub(crate) mod group {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_wave_ack(
         hyper_ratchet: &StackedRatchet,
-        object_id: u32,
+        object_id: ObjectId,
         target_cid: u64,
         group_id: u64,
         wave_id: u32,
@@ -414,7 +416,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::WAVE_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(object_id as _),
+            context_info: U128::new(object_id.0),
             group: U64::new(group_id),
             wave_id: U32::new(wave_id),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1598,7 +1600,7 @@ pub(crate) mod file {
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::prelude::TransferType;
-    use citadel_types::proto::VirtualObjectMetadata;
+    use citadel_types::proto::{ObjectId, VirtualObjectMetadata};
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
     use std::path::PathBuf;
@@ -1607,7 +1609,7 @@ pub(crate) mod file {
     #[derive(Serialize, Deserialize, Debug)]
     pub struct FileTransferErrorPacket {
         pub error_message: String,
-        pub object_id: u64,
+        pub object_id: ObjectId,
     }
 
     pub(crate) fn craft_file_error_packet(
@@ -1617,7 +1619,7 @@ pub(crate) mod file {
         virtual_target: VirtualTargetType,
         timestamp: i64,
         error_message: String,
-        object_id: u64,
+        object_id: ObjectId,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1704,7 +1706,7 @@ pub(crate) mod file {
     pub struct FileHeaderAckPacket {
         pub success: bool,
         pub virtual_target: VirtualTargetType,
-        pub object_id: u64,
+        pub object_id: ObjectId,
         pub transfer_type: TransferType,
     }
 
@@ -1712,7 +1714,7 @@ pub(crate) mod file {
     pub(crate) fn craft_file_header_ack_packet(
         hyper_ratchet: &StackedRatchet,
         success: bool,
-        object_id: u64,
+        object_id: ObjectId,
         target_cid: u64,
         ticket: Ticket,
         security_level: SecurityLevel,

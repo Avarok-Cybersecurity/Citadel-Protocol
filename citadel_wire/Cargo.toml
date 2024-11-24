@@ -23,7 +23,6 @@ std = [
     "serde/std"
 ]
 localhost-testing = ["tracing"]
-localhost-testing-loopback-only = []
 wasm = [
     "citadel_io/wasm",
     "netbeam/wasm"
@@ -39,9 +38,9 @@ citadel_io = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }
-bincode2 = { workspace = true }
+bincode = { workspace = true }
 async_ip = { workspace = true }
-itertools = { workspace = true, features = ["use_alloc"] }
+itertools = { workspace = true, features = ["use_alloc", "use_std"] }
 either = { workspace = true }
 netbeam = { workspace = true  }
 uuid = { workspace = true, features = ["v4", "serde"] }

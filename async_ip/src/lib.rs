@@ -121,17 +121,7 @@ pub async fn get_ip_from(client: Option<Client>, addr: &str) -> Result<IpAddr, I
         .text()
         .await
         .map_err(|err| IpRetrieveError::Error(err.to_string()))?;
-    IpAddr::from_str(text.as_str())
-        .map_err(|err| IpRetrieveError::Error(err.to_string()))
-        .and_then(|res| {
-            if res.is_ipv4() {
-                Err(IpRetrieveError::Error(
-                    "This node does not have an ipv6 addr".to_string(),
-                ))
-            } else {
-                Ok(res)
-            }
-        })
+    IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::Error(err.to_string()))
 }
 
 /// Gets the internal IP address using DNS

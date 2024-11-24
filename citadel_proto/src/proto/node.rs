@@ -33,7 +33,7 @@ use crate::proto::outbound_sender::{unbounded, BoundedReceiver, BoundedSender, U
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
-use crate::proto::session::{HdpSession, HdpSessionInitMode};
+use crate::proto::session::{CitadelSession, HdpSessionInitMode};
 use crate::proto::session_manager::HdpSessionManager;
 use citadel_wire::exports::tokio_rustls::rustls::{ClientConfig, ServerName};
 use citadel_wire::exports::Endpoint;
@@ -160,7 +160,7 @@ impl Node {
         let node_type = read.local_node_type;
 
         let (session_spawner_tx, session_spawner_rx) = unbounded();
-        let session_spawner = HdpSession::session_future_receiver(session_spawner_rx);
+        let session_spawner = CitadelSession::session_future_receiver(session_spawner_rx);
 
         let (outbound_send_request_tx, outbound_send_request_rx) =
             BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote

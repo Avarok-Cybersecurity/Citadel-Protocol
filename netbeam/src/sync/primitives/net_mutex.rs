@@ -82,7 +82,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
                 passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
                     .await
             {
-                log::error!(target: "citadel", "[NetMutex Passive Background Handler] Err: {:?}", err.to_string());
+                log::warn!(target: "citadel", "[NetMutex Passive Background Handler] Err: {:?}", err.to_string());
             }
 
             log::trace!(target: "citadel", "[NetMutex] Passive background handler ending")
@@ -150,6 +150,8 @@ impl<T: NetObject + 'static, S: Subscribable> Drop for NetMutexGuard<T, S> {
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             let future = NetMutexGuardDropCode::new::<T, S>(app, guard);
             rt.spawn(future);
+        } else {
+            log::warn!(target: "citadel", "Failed to spawn drop code for NetMutexGuard since no runtime was found");
         }
 
         // if the RT is down, then we are not interested in continuing the program's synchronization
@@ -240,9 +242,10 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(
     lock: LocalLockHolder<T>,
 ) -> Result<(), anyhow::Error> {
     log::trace!(target: "citadel", "[NetMutex] Drop code initialized for {:?}...", conn.node_type());
-    conn.send_serialized(UpdatePacket::Released(bincode2::serialize(
-        &lock.deref().0,
-    )?))
+    conn.send_serialized(UpdatePacket::Released(
+        bincode::serialize(&lock.deref().0)?,
+        true,
+    ))
     .await?;
 
     let mut adjacent_trying_to_acquire = false;
@@ -252,10 +255,13 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(
         log::trace!(target: "citadel", "[NetMutex] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
         match packet {
             UpdatePacket::ReleasedVerified => {
-                log::trace!(target: "citadel", "[NetMutex] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
+                log::trace!(target: "citadel", "[NetMutex] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock. Adjacent trying to acquire? {adjacent_trying_to_acquire}", conn.node_type());
 
                 if adjacent_trying_to_acquire {
-                    return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
+                    // Since we are holding the local lock, even if the local node tries to acquire
+                    // the lock again, it will be blocked until the adjacent node releases the lock
+                    // and the yield_lock subroutine finishes
+                    return yield_lock::<S, T>(&conn, lock, false).await.map(|_| ());
                 }
 
                 return Ok(());
@@ -279,7 +285,7 @@ pub struct NetMutexGuardAcquirer<'a, T: NetObject + 'static, S: Subscribable + '
 #[derive(Serialize, Deserialize, Debug)]
 enum UpdatePacket {
     TryAcquire(i64),
-    Released(Vec<u8>),
+    Released(Vec<u8>, bool),
     LockAcquired,
     Halt,
     ReleasedVerified,
@@ -329,8 +335,8 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
         // the adjacent side will return one of two packets. In the first case, we wait until it drops the adjacent lock, in which case,
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
         match packet {
-            UpdatePacket::Released(new_data) => {
-                let new_data = bincode2::deserialize::<T>(&new_data)?;
+            UpdatePacket::Released(new_data, _) => {
+                let new_data = bincode::deserialize::<T>(&new_data)?;
                 *value = new_data;
                 // now, send a LockAcquired packet
                 conn.send_serialized(UpdatePacket::LockAcquired).await?;
@@ -351,22 +357,28 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
                 let local_wins = if remote_request_time == local_request_time {
                     mutex.node_type() == RelativeNodeType::Initiator
                 } else {
-                    remote_request_time < local_request_time
+                    remote_request_time > local_request_time
                 };
 
-                if local_wins {
-                    // remote gets the lock. We send the local value first. Then, we must continue looping
-                    // yield the lock
-                    owned_local_lock = yield_lock::<S, T>(conn, owned_local_lock).await?;
-                    // the next time a conflict happens, the local node will win unconditionally since its time is lesser than the next possible adjacent request time
-                } else {
+                log::trace!(target: "citadel", "Local {:?} wins?: {} (remote time ({remote_request_time}) < local time ({local_request_time}))", mutex.node_type(), local_wins);
+
+                return if local_wins {
                     // we requested before the remote node; tell the remote node we took the value
                     conn.send_serialized(UpdatePacket::LockAcquired).await?;
-                    return Ok(NetMutexGuard {
+                    Ok(NetMutexGuard {
                         conn: mutex.app.clone(),
                         guard: Some(owned_local_lock),
-                    });
-                }
+                    })
+                } else {
+                    // remote gets the lock. We send the local value first. Then, we must continue looping
+                    // yield the lock
+                    owned_local_lock = yield_lock::<S, T>(conn, owned_local_lock, false).await?;
+                    log::trace!(target: "citadel", "{:?} finished yielding lock to remote, will now return the mutex to local", mutex.node_type());
+                    Ok(NetMutexGuard {
+                        conn: mutex.app.clone(),
+                        guard: Some(owned_local_lock),
+                    })
+                };
             }
 
             UpdatePacket::Halt => {
@@ -385,18 +397,23 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
 async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
     channel: &Arc<InnerChannel<S>>,
     mut lock: LocalLockHolder<T>,
+    send_release: bool,
 ) -> Result<LocalLockHolder<T>, anyhow::Error> {
-    channel
-        .send_serialized(UpdatePacket::Released(
-            bincode2::serialize(&lock.deref().0).unwrap(),
-        ))
-        .await?;
+    if send_release {
+        channel
+            .send_serialized(UpdatePacket::Released(
+                bincode::serialize(&lock.deref().0).unwrap(),
+                false,
+            ))
+            .await?;
+    }
 
     loop {
         let next_packet = channel.recv_serialized().await?;
+        log::trace!(target: "citadel", "[YIELD LOCK] {:?} received packet: {:?}", channel.node_type(), &next_packet);
         match next_packet {
-            UpdatePacket::Released(new_value) => {
-                lock.deref_mut().0 = bincode2::deserialize(&new_value)?;
+            UpdatePacket::Released(new_value, _) => {
+                lock.deref_mut().0 = bincode::deserialize(&new_value)?;
                 channel.send_serialized(UpdatePacket::LockAcquired).await?;
                 channel
                     .send_serialized(UpdatePacket::ReleasedVerified)
@@ -459,11 +476,19 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                             // we hold the lock locally, preventing local from sending any packets outbound from the active channel since the adjacent node is actively seeking to
                             // establish a lock
                             // we set "true" to the local lock holder to imply that the drop code won't alert the background (b/c we already are in BG)
-                            yield_lock::<S, T>(&channel, LocalLockHolder(Some(lock), true)).await?;
+                            yield_lock::<S, T>(&channel, LocalLockHolder(Some(lock), true), true)
+                                .await?;
                             // return on error
                         }
 
-                        UpdatePacket::Released(..)
+                        UpdatePacket::Released(_, true) => {
+                            // In the case that the local node has dropped the mutex, and,
+                            // the remote node has released the lock thereafter, this branch
+                            // may execute (mostly when latency is very low, e,g., on localhost-testing
+                            continue;
+                        }
+
+                        UpdatePacket::Released(_, false)
                         | UpdatePacket::ReleasedVerified
                         | UpdatePacket::LockAcquired => {
                             unreachable!("[BG] RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");

@@ -29,7 +29,7 @@ use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStre
 use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
-    NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
+    HyperNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::HdpSessionManager;
@@ -41,7 +41,7 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 /// HyperLAN client and the HyperLAN Server
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_peer_cmd(
-    session_orig: &HdpSession,
+    session_orig: &CitadelSession,
     aux_cmd: u8,
     packet: HdpPacket,
     header_drill_version: u32,
@@ -833,6 +833,8 @@ pub async fn process_peer_cmd(
                         _ => {}
                     }
 
+                    log::trace!(target: "citadel", "Forwarding signal {signal:?} to kernel");
+
                     session
                         .kernel_tx
                         .unbounded_send(NodeResult::PeerEvent(PeerEvent {
@@ -868,7 +870,7 @@ pub async fn process_peer_cmd(
 }
 
 async fn process_signal_command_as_server(
-    sess_ref: &HdpSession,
+    sess_ref: &CitadelSession,
     signal: PeerSignal,
     ticket: Ticket,
     sess_hyper_ratchet: StackedRatchet,
@@ -1005,7 +1007,7 @@ async fn process_signal_command_as_server(
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_register(implicated_cid, target_cid)
                         {
-                            log::trace!(target: "citadel", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
+                            log::info!(target: "citadel", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
                             peer_layer.insert_mapped_ticket(implicated_cid, ticket_new, ticket);
                             // route signal to peer
                             drop(peer_layer);
@@ -1055,7 +1057,6 @@ async fn process_signal_command_as_server(
                             let to_primary_stream =
                                 return_if_none!(session.to_primary_stream.clone());
                             let sess_mgr = session.session_manager.clone();
-                            drop(peer_layer);
                             route_signal_and_register_ticket_forwards(
                                 PeerSignal::PostRegister {
                                     peer_conn_type,
@@ -1073,6 +1074,7 @@ async fn process_signal_command_as_server(
                                 &sess_mgr,
                                 &sess_hyper_ratchet,
                                 security_level,
+                                &mut peer_layer,
                             )
                             .await
                         }
@@ -1253,7 +1255,6 @@ async fn process_signal_command_as_server(
                                 .await?;
                             Ok(PrimaryProcessorResult::Void)
                         } else {
-                            drop(peer_layer);
                             route_signal_and_register_ticket_forwards(
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
@@ -1272,6 +1273,7 @@ async fn process_signal_command_as_server(
                                 &sess_mgr,
                                 &sess_hyper_ratchet,
                                 security_level,
+                                &mut peer_layer,
                             )
                             .await
                         }
@@ -1663,12 +1665,13 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
     sess_mgr: &HdpSessionManager,
     sess_hyper_ratchet: &StackedRatchet,
     security_level: SecurityLevel,
+    peer_layer: &mut HyperNodePeerLayerInner,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_hyper_ratchet_2 = sess_hyper_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
     // Give the target_cid 10 seconds to respond
-    let res = sess_mgr.route_signal_primary(implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
+    let res = sess_mgr.route_signal_primary(peer_layer, implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
         packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
@@ -1708,9 +1711,9 @@ pub(crate) async fn route_signal_response(
     target_cid: u64,
     timestamp: i64,
     ticket: Ticket,
-    session: HdpSession,
+    session: CitadelSession,
     sess_hyper_ratchet: &StackedRatchet,
-    on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal),
+    on_route_finished: impl FnOnce(&CitadelSession, &CitadelSession, PeerSignal),
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     trace!(target: "citadel", "Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);

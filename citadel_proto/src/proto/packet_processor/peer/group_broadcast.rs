@@ -114,7 +114,7 @@ pub enum GroupBroadcast {
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
 pub async fn process_group_broadcast(
-    session_ref: &HdpSession,
+    session_ref: &CitadelSession,
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
     sess_hyper_ratchet: &StackedRatchet,
@@ -702,7 +702,7 @@ pub async fn process_group_broadcast(
 fn create_group_channel(
     ticket: Ticket,
     key: MessageGroupKey,
-    session: &HdpSession,
+    session: &CitadelSession,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
@@ -732,7 +732,7 @@ impl From<GroupBroadcast> for GroupBroadcastPayload {
 }
 
 fn forward_signal(
-    session: &HdpSession,
+    session: &CitadelSession,
     ticket: Ticket,
     key: Option<MessageGroupKey>,
     broadcast: GroupBroadcast,

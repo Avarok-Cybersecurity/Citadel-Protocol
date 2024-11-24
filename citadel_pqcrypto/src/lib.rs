@@ -528,13 +528,13 @@ impl PostQuantumContainer {
 
     /// Serializes the entire package to a vector
     pub fn serialize_to_vector(&self) -> Result<Vec<u8>, Error> {
-        bincode2::serialize(self).map_err(|_err| Error::Generic("Deserialization failure"))
+        bincode::serialize(self).map_err(|_err| Error::Generic("Deserialization failure"))
     }
 
     /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
     pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, Error> {
-        bincode2::deserialize::<PostQuantumContainer>(bytes.as_ref())
+        bincode::deserialize::<PostQuantumContainer>(bytes.as_ref())
             .map_err(|_err| Error::Generic("Deserialization failure"))
     }
 

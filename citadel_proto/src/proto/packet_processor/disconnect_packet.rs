@@ -9,7 +9,7 @@ pub const SUCCESS_DISCONNECT: &str = "Successfully Disconnected";
 /// Stage 1: Bob sends Alice an FINAL, whereafter Alice may disconnect
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub async fn process_disconnect(
-    session: &HdpSession,
+    session: &CitadelSession,
     packet: HdpPacket,
     header_drill_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

@@ -39,7 +39,7 @@ struct PeerContext {
 #[derive(Debug)]
 pub struct FileTransferHandleRx {
     pub inner: tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>,
-    pub peer_conn: PeerConnectionType,
+    pub conn_type: VirtualTargetType,
 }
 
 impl std::ops::Deref for FileTransferHandleRx {
@@ -58,7 +58,7 @@ impl std::ops::DerefMut for FileTransferHandleRx {
 
 impl Drop for FileTransferHandleRx {
     fn drop(&mut self) {
-        log::trace!(target: "citadel", "Dropping file transfer handle receiver {:?}", self.peer_conn);
+        log::trace!(target: "citadel", "Dropping file transfer handle receiver {:?}", self.conn_type);
     }
 }
 
@@ -364,7 +364,7 @@ where
                         }
 
                         let _reg_success = handle.register_to_peer().await?;
-                        log::trace!(target: "citadel", "Peer {:?} registered || success -> now connecting", id);
+                        log::info!(target: "citadel", "Peer {:?} registered || success -> now connecting", id);
                         handle
                     };
 
@@ -384,7 +384,7 @@ where
                             // add an incoming file transfer receiver
                             success.incoming_object_transfer_handles = Some(FileTransferHandleRx {
                                 inner: file_transfer_rx,
-                                peer_conn,
+                                conn_type: peer_conn.as_virtual_connection(),
                             });
                             let _ = shared
                                 .active_peer_conns
