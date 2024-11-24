@@ -1,6 +1,6 @@
 [package]
 name = "async_ip"
-version = "0.10.4"
+version = "0.11.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
 description = "An asynchronous client used to obtain one's global Ipv6 or Ipv4 address"
