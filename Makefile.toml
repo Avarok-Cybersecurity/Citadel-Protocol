@@ -267,19 +267,19 @@ args = ["workspaces", "version", "-y", "major"]
 [tasks.publish-patch]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "patch"]
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "patch", "${@}"]
 dependencies = ["publish-install-deps"]
 
 [tasks.publish-minor]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "minor"]
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "minor", "${@}"]
 dependencies = ["publish-install-deps"]
 
 [tasks.publish-major]
 command = "cargo"
 condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "major"]
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "major", "${@}"]
 dependencies = ["publish-install-deps"]
 
 [tasks.check-docs]
