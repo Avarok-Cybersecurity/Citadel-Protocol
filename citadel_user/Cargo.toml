@@ -1,6 +1,6 @@
 [package]
 name = "citadel_user"
-version = "0.10.3"
+version = "0.10.4"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "User backend library for the Citadel Protocol"
 edition = "2021"
@@ -37,7 +37,7 @@ itertools = { workspace = true, features = ["use_alloc"], optional = true }
 serde = { workspace = true, features=["rc", "derive"] }
 tokio = { workspace = true, features = ["io-util"] }
 async-trait = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["alloc", "executor"] }
 rand = { workspace = true }
 multimap = { workspace = true, features = ["serde_impl"] }
 parking_lot = { workspace = true, features = ["serde"] }
