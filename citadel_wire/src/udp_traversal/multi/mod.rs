@@ -164,6 +164,8 @@ async fn drive(
         .into_iter()
         .map(|r| (kill_signal_tx.subscribe(), r))
     {
+        // TODO: Consider spawning to ensure if the reader/future-processor fail,
+        // the background still can send its results to the background rebuilder
         futures.push(async move {
             let res = hole_puncher
                 .try_method(
@@ -439,9 +441,14 @@ async fn drive(
 
     log::trace!(target: "citadel", "[DualStack] Executing hole-puncher ....");
     let sender_reader_combo = async move {
-        let res = futures::future::join(futures_resolver, reader).await;
-        if res.0.is_err() && res.1.is_err() {
-            log::warn!(target: "citadel", "Both reader/resolver futures failed: {:?}, {:?}", res.0, res.1)
+        let res = futures::future::select_ok([
+            Box::pin(futures_resolver)
+                as Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send>>,
+            Box::pin(reader),
+        ])
+        .await;
+        if let Some(err) = res.as_ref().err() {
+            log::warn!(target: "citadel", "Both reader/resolver futures failed: {err:?}")
         }
 
         // Just wait for the background process to finish up
@@ -463,7 +470,8 @@ async fn drive(
     }
 
     if commanded_winner.lock().await.is_none() {
-        // we are the "winner"
+        // We are the "winner"
+        log::trace!(target: "citadel", "Winner: awaiting WinnerCanEnd signal");
         let mut conn_rx = conn_rx.lock().await;
         let signal = receive(&mut conn_rx).await?;
         if let DualStackCandidateSignal::WinnerCanEnd = signal {
@@ -472,7 +480,8 @@ async fn drive(
             log::warn!(target: "citadel", "Received unexpected signal: {:?}", signal);
         }
     } else {
-        // we are the "loser"
+        // We are the "loser"
+        log::trace!(target: "citadel", "Loser: sending WinnerCanEnd signal");
         send(DualStackCandidateSignal::WinnerCanEnd, conn_tx).await?;
     }
 
