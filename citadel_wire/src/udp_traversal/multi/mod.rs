@@ -1,7 +1,16 @@
+use crate::error::FirewallError;
+use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
+use crate::udp_traversal::linear::SingleUDPHolePuncher;
+use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
+use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use futures::future::select_ok;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
-use serde::de::DeserializeOwned;
+use netbeam::multiplex::MultiplexedConn;
+use netbeam::sync::channel::bi_channel::{ChannelRecvHalf, ChannelSendHalf};
+use netbeam::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::RelativeNodeType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -10,17 +19,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
-
-use crate::error::FirewallError;
-use crate::udp_traversal::hole_punch_config::HolePunchConfig;
-use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-use crate::udp_traversal::linear::SingleUDPHolePuncher;
-use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
-use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
-use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
-use netbeam::sync::network_endpoint::NetworkEndpoint;
-use netbeam::sync::subscription::Subscribable;
-use netbeam::sync::RelativeNodeType;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -31,7 +29,7 @@ pub(crate) struct DualStackUdpHolePuncher {
         Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'static>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 #[allow(variant_size_differences)]
 enum DualStackCandidateSignal {
     Winner(HolePunchID, HolePunchID),
@@ -123,7 +121,9 @@ async fn drive(
 
     log::trace!(target: "citadel", "Initiating subscription ...");
     // initiate a dedicated channel for sending packets for coordination
-    let conn = &(app.initiate_subscription().await?);
+    let conn = app.bi_channel::<DualStackCandidateSignal>().await?;
+    let (ref conn_tx, conn_rx) = conn.split();
+    let conn_rx = &tokio::sync::Mutex::new(conn_rx);
 
     log::trace!(target: "citadel", "Initiating NetMutex ...");
     // setup a mutex for handling contentions
@@ -133,8 +133,6 @@ async fn drive(
 
     let (final_candidate_tx, final_candidate_rx) =
         tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
-    let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let mut reader_done_rx_3 = reader_done_tx.subscribe();
 
     let (ref kill_signal_tx, _kill_signal_rx) =
         tokio::sync::broadcast::channel(hole_punchers.len());
@@ -202,7 +200,7 @@ async fn drive(
         let no_failure_yet = !failure_occurred.fetch_or(true, Ordering::SeqCst);
         if no_failure_yet {
             log::trace!(target: "citadel", "All hole-punchers have failed locally. Will send AllFailed signal");
-            send(DualStackCandidateSignal::AllFailed, conn).await?;
+            send(DualStackCandidateSignal::AllFailed, conn_tx).await?;
             Ok(())
         } else {
             // In this case, remote already set_failure_occurred, so we know that since they
@@ -308,30 +306,13 @@ async fn drive(
                 log::trace!(target: "citadel", "Selecting socket: {hole_punched_socket:?}");
                 let _ = hole_punched_socket.cleanse();
                 submit_final_candidate(hole_punched_socket)?;
-                // return here. The winner must exit last
-                send(DualStackCandidateSignal::WinnerCanEnd, conn).await?;
                 signal_done()
             }
         }
     };
 
-    let (winner_can_end_tx, winner_can_end_rx) = tokio::sync::oneshot::channel();
-    let (futures_tx, mut futures_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let futures_executor = async move {
-        while let Some(res) = futures.next().await {
-            futures_tx
-                .send(res)
-                .map_err(|_| anyhow::Error::msg("futures_tx send error"))?;
-        }
-
-        log::trace!(target: "citadel", "Finished polling all futures");
-        Ok(reader_done_rx_3.recv().await?) as Result<(), anyhow::Error>
-    };
-
-    // the goal of the sender is just to send results as local finishes, nothing else
     let futures_resolver = async move {
-        while let Some((res, hole_puncher)) = futures_rx.recv().await {
+        while let Some((res, hole_puncher)) = futures.next().await {
             log::trace!(target: "citadel", "[Future resolver loop] Received {:?}", res);
             *finished_count.lock() += 1;
 
@@ -352,7 +333,11 @@ async fn drive(
                     // the other end may say that the current result is valid, but, be unaccessible since
                     // we are blocked waiting for the mutex. As such, we need to set the enqueued field
                     log::trace!(target: "citadel", "*** [Future resolver loop] Acquiring NetMutex ....");
-                    let mut net_lock = net_mutex.lock().await?;
+                    let Ok(mut net_lock) = net_mutex.lock().await else {
+                        log::trace!(target: "citadel", "*** [Future resolver loop] Mutex failed to acquire. Likely dropped. Will continue ...");
+                        continue;
+                    };
+
                     log::trace!(target: "citadel", "*** [Future resolver loop] Mutex acquired. Local = {local_id:?}, Remote = {peer_unique_id:?}");
                     if let Some((local, remote)) = *net_lock {
                         log::trace!(target: "citadel", "*** The Mutex is already set! Will not claim winner status ...");
@@ -373,7 +358,7 @@ async fn drive(
                         // and thus prompts the background code to return the socket on the adjacent node.
                         send(
                             DualStackCandidateSignal::Winner(peer_unique_id, local_id),
-                            conn,
+                            conn_tx,
                         )
                         .await?;
                         while let Some(socket) = current_enqueued.lock().await.pop() {
@@ -388,7 +373,7 @@ async fn drive(
                             log::trace!(target: "citadel", "*** [winner] Awaiting the signal ...");
                             drop(net_lock);
                             // the winner will drop once the adjacent node sends a WinnerCanEnd signal
-                            winner_can_end_rx.await?;
+                            //winner_can_end_rx.await?;
                             log::trace!(target: "citadel", "*** [winner] received the signal");
                             return signal_done();
                         }
@@ -421,14 +406,14 @@ async fn drive(
             }
         }
 
-        // if we get here before the reader finishes, we need to wait for the reader to finish
-        Ok(reader_done_rx.recv().await?) as Result<(), anyhow::Error>
-        //Ok(()) as Result<(), anyhow::Error>
+        log::trace!(target: "citadel", "Finished polling all futures");
+        Ok(())
     };
 
     let reader = async move {
+        let mut conn_rx = conn_rx.lock().await;
         loop {
-            match receive::<DualStackCandidateSignal, _>(conn).await? {
+            match receive(&mut conn_rx).await? {
                 DualStackCandidateSignal::Winner(local_id, peer_id) => {
                     log::trace!(target: "citadel", "[READER] Remote commanded local to use peer={peer_id:?} and local={local_id:?}");
                     *commanded_winner.lock().await = Some((local_id, peer_id));
@@ -443,9 +428,9 @@ async fn drive(
                 }
 
                 DualStackCandidateSignal::WinnerCanEnd => {
-                    winner_can_end_tx.send(()).map_err(|_| {
+                    /*winner_can_end_tx.send(()).map_err(|_| {
                         anyhow::Error::msg("Unable to send through winner_can_end_tx")
-                    })?;
+                    })?;*/
                     return Ok::<_, anyhow::Error>(());
                 }
             }
@@ -453,25 +438,42 @@ async fn drive(
     };
 
     log::trace!(target: "citadel", "[DualStack] Executing hole-puncher ....");
-    let sender_reader_combo = futures::future::try_join(futures_resolver, reader);
+    let sender_reader_combo = async move {
+        let res = futures::future::join(futures_resolver, reader).await;
+        if res.0.is_err() && res.1.is_err() {
+            log::warn!(target: "citadel", "Both reader/resolver futures failed: {:?}, {:?}", res.0, res.1)
+        }
+
+        // Just wait for the background process to finish up
+        futures::future::pending().await
+    };
 
     tokio::select! {
-        res0 = sender_reader_combo => {
-            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished {res0:?}");
-            res0.map(|_| ())?
+        _res0 = sender_reader_combo => {
+            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished");
         },
         res1 = done_rx => {
             log::trace!(target: "citadel", "[DualStack] Done signal received {res1:?}");
             res1?
         },
-        res2 = futures_executor => {
-            log::trace!(target: "citadel", "[DualStack] Futures executor finished {res2:?}");
+        res2 = loser_rebuilder_task => {
+            log::trace!(target: "citadel", "[DualStack] Loser rebuilder task finished {res2:?}");
             res2?
-        },
-        res3 = loser_rebuilder_task => {
-            log::trace!(target: "citadel", "[DualStack] Loser rebuilder task finished {res3:?}");
-            res3?
         }
+    }
+
+    if commanded_winner.lock().await.is_none() {
+        // we are the "winner"
+        let mut conn_rx = conn_rx.lock().await;
+        let signal = receive(&mut conn_rx).await?;
+        if let DualStackCandidateSignal::WinnerCanEnd = signal {
+            log::trace!(target: "citadel", "Received WinnerCanEnd signal");
+        } else {
+            log::warn!(target: "citadel", "Received unexpected signal: {:?}", signal);
+        }
+    } else {
+        // we are the "loser"
+        send(DualStackCandidateSignal::WinnerCanEnd, conn_tx).await?;
     }
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
@@ -482,17 +484,17 @@ async fn drive(
     Ok(sock)
 }
 
-async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(
-    input: R,
-    conn: &V,
+async fn send(
+    input: DualStackCandidateSignal,
+    conn: &ChannelSendHalf<DualStackCandidateSignal, MultiplexedConn>,
 ) -> Result<(), anyhow::Error> {
-    Ok(conn
-        .send_to_peer(&bincode::serialize(&input).unwrap())
-        .await?)
+    conn.send_item(input).await
 }
 
-async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(
-    conn: &V,
-) -> Result<T, anyhow::Error> {
-    Ok(bincode::deserialize(&conn.recv().await?)?)
+async fn receive(
+    conn: &mut ChannelRecvHalf<DualStackCandidateSignal, MultiplexedConn>,
+) -> Result<DualStackCandidateSignal, anyhow::Error> {
+    conn.recv()
+        .await
+        .ok_or_else(|| anyhow::Error::msg("recv from bichannel failed: stream ended"))?
 }
