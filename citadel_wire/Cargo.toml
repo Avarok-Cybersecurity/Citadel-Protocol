@@ -1,6 +1,6 @@
 [package]
 name = "citadel_wire"
-version = "0.11.1"
+version = "0.11.3"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "NAT traversal and wire support for the Citadel Protocol"
 edition = "2021"
@@ -60,7 +60,7 @@ rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
 
 [dev-dependencies]
-citadel_logging = { path = "../citadel_logging" }
+citadel_logging = { workspace = true }
 rand = "0.8.5"
 tokio-util = "0.7.4"
 rstest = { workspace = true }
