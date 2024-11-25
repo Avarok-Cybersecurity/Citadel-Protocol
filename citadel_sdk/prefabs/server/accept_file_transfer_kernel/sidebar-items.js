@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["exhaust_file_transfer"],"struct":["AcceptFileTransferKernel"]};
