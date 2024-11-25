@@ -1,3 +1,5 @@
+![](./resources/logo.png)
+
 [![Website shields.io](https://img.shields.io/website-up-down-green-red/http/shields.io.svg)](https://avarok.net)
 [![Crates.io](https://img.shields.io/crates/v/citadel_sdk.svg)](https://crates.io/crates/citadel_sdk)
 [![codecov](https://codecov.io/gh/Avarok-Cybersecurity/Citadel-Protocol/branch/master/graph/badge.svg?token=J739KOHOZR)](https://app.codecov.io/gh/Avarok-Cybersecurity/Citadel-Protocol)
