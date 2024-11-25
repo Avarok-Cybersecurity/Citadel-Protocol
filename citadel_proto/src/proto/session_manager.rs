@@ -31,8 +31,7 @@ use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::{
-    HyperNodePeerLayer, HyperNodePeerLayerInner, MailboxTransfer, PeerConnectionType, PeerResponse,
-    PeerSignal,
+    HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
@@ -40,6 +39,7 @@ use crate::proto::session::{
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
@@ -50,7 +50,6 @@ use citadel_types::proto::{
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
-use tokio::sync::broadcast::Sender;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -1110,7 +1109,11 @@ impl HdpSessionManager {
 
             // get the target cid's session
             if let Some(ref sess_ref) = sess {
-                peer_layer
+                sess_ref
+                    .hypernode_peer_layer
+                    .inner
+                    .write()
+                    .await
                     .insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout)
                     .await;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();

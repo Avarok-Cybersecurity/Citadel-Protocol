@@ -83,8 +83,11 @@ mod tests {
     };
 
     use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::wait_for_peers;
+    use citadel_io::tokio;
+    use futures::StreamExt;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::path::PathBuf;
@@ -108,7 +111,7 @@ mod tests {
         SigAlgorithm::Falcon1024
     )]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_c2s_file_transfer_revfs(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -128,13 +131,16 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
-            |_success, remote| async move {
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .disable_udp()
+                .with_session_security_settings(session_security_settings)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
@@ -150,19 +156,18 @@ mod tests {
                 let save_dir = crate::fs::read(&remote, virtual_path).await?;
                 // now, compare bytes
                 log::info!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
-                let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
-                let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
+                let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
+                let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::info!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
-        let result = tokio::select! {
+        let result = citadel_io::tokio::select! {
             res0 = client => res0.map(|_| ()),
             res1 = server => res1.map(|_| ())
         };
@@ -179,7 +184,7 @@ mod tests {
         SigAlgorithm::None
     )]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_c2s_file_transfer_revfs_take(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -199,12 +204,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .disable_udp()
+                .with_session_security_settings(session_security_settings)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -221,8 +229,8 @@ mod tests {
                 let save_dir = crate::fs::take(&remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
-                let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
-                let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
+                let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
+                let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 // prove we can no longer read from this virtual file
@@ -230,12 +238,11 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
-        let result = tokio::select! {
+        let result = citadel_io::tokio::select! {
             res0 = client => res0.map(|_| ()),
             res1 = server => res1.map(|_| ())
         };
@@ -252,7 +259,7 @@ mod tests {
         SigAlgorithm::None
     )]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_c2s_file_transfer_revfs_delete(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -272,12 +279,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .disable_udp()
+                .with_session_security_settings(session_security_settings)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -294,8 +304,8 @@ mod tests {
                 let save_dir = crate::fs::read(&remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
-                let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
-                let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
+                let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
+                let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 crate::fs::delete(&remote, &virtual_path).await?;
@@ -304,12 +314,11 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
-        let result = tokio::select! {
+        let result = citadel_io::tokio::select! {
             res0 = client => res0.map(|_| ()),
             res1 = server => res1.map(|_| ())
         };
@@ -322,7 +331,7 @@ mod tests {
     #[rstest]
     #[case(SecrecyMode::BestEffort)]
     #[timeout(Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
@@ -347,15 +356,17 @@ mod tests {
 
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+                .disable_udp()
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
         // TODO: SinglePeerConnectionKernel
-        // to not hold up all conns
-        let client_kernel0 = PeerConnectionKernel::new_authless(
-            uuid0,
-            server_addr,
-            vec![uuid1.into()],
-            UdpMode::Disabled,
-            session_security,
-            None,
+        let client_kernel0 = PeerConnectionKernel::new(
+            server_connection_settings,
+            uuid1,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
@@ -391,16 +402,18 @@ mod tests {
                 client0_success.store(true, Ordering::Relaxed);
                 remote_outer.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
-        let client_kernel1 = PeerConnectionKernel::new_authless(
-            uuid1,
-            server_addr,
-            vec![uuid0.into()],
-            UdpMode::Disabled,
-            session_security,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+                .disable_udp()
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel1 = PeerConnectionKernel::new(
+            server_connection_settings,
+            uuid0,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
@@ -428,29 +441,28 @@ mod tests {
                 let save_dir = crate::fs::read(&remote, virtual_path).await?;
                 // now, compare bytes
                 log::info!(target: "citadel", "***CLIENT B {cid} REVFS PULL SUCCESS");
-                let original_bytes = tokio::fs::read(&source_dir).await.unwrap();
-                let revfs_pulled_bytes = tokio::fs::read(&save_dir).await.unwrap();
+                let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
+                let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::info!(target: "citadel", "***CLIENT B {cid} REVFS PULL COMPARE SUCCESS");
                 wait_for_peers().await;
                 client1_success.store(true, Ordering::Relaxed);
                 remote_outer.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
         let clients = futures::future::try_join(client0, client1);
 
         let task = async move {
-            tokio::select! {
+            citadel_io::tokio::select! {
                 server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
                 client_res = clients => client_res.map(|_| ())
             }
         };
 
-        let _ = tokio::time::timeout(Duration::from_secs(120), task)
+        let _ = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
             .await
             .unwrap();
 
@@ -459,7 +471,7 @@ mod tests {
     }
 
     fn accept_all(mut rx: FileTransferHandleRx) {
-        let handle = tokio::task::spawn(async move {
+        let handle = citadel_io::tokio::task::spawn(async move {
             while let Some(mut handle) = rx.recv().await {
                 if let Err(err) = handle.accept() {
                     log::error!(target: "citadel", "Failed to accept file transfer: {err:?}");

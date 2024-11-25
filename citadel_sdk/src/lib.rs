@@ -130,9 +130,11 @@
 //! ```
 //! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 //! use futures::StreamExt;
-//! use citadel_sdk::prelude::NodeBuilder;
+//! use citadel_sdk::prelude::*;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("John Doe", "john.doe", "password", "127.0.0.1:25021", |connect_success, remote| async move {
+//! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//!
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, remote| async move {
 //!     // handle program logic here
 //!     let (sink, mut stream) = connect_success.channel.split();
 //!     while let Some(message) = stream.next().await {
@@ -140,7 +142,7 @@
 //!     }
 //!
 //!     Ok(())
-//! })?;
+//! });
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
@@ -184,10 +186,11 @@
 //! ```
 //! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 //! use futures::StreamExt;
-//! use citadel_proto::prelude::*;
-//! use citadel_sdk::prelude::NodeBuilder;
+//! use citadel_sdk::prelude::*;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("John Doe", "john.doe", "password", "127.0.0.1:25021", |connect_success, mut remote| async move {
+//! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//!
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";
 //!     // write the contents with reinforced security.
 //!     citadel_sdk::fs::write_with_security_level(&mut remote, "../path/to/input.pdf", SecurityLevel::Reinforced, virtual_path).await?;
@@ -195,7 +198,7 @@
 //!     let stored_local_path = citadel_sdk::fs::read(&mut remote, virtual_path).await?;
 //!  
 //!     Ok(())
-//! })?;
+//! });
 //!
 //! let client = NodeBuilder::default().build(client_kernel)?;
 //! # async move {
@@ -233,6 +236,7 @@ pub mod prelude {
     pub use crate::builder::node_builder::*;
     pub use crate::prefabs::client::peer_connection::PeerConnectionSetupAggregator;
     pub use crate::prefabs::client::PrefabFunctions;
+    pub use crate::prefabs::client::{ServerConnectionSettings, ServerConnectionSettingsBuilder};
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;

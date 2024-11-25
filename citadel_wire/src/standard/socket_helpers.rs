@@ -1,4 +1,4 @@
-use citadel_io::{TcpListener, TcpStream, UdpSocket};
+use citadel_io::tokio::net::{TcpListener, TcpStream, UdpSocket};
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
@@ -44,8 +44,8 @@ async fn setup_connect(
     reuse: bool,
 ) -> Result<TcpStream, anyhow::Error> {
     setup_base_socket(connect_addr, &socket, reuse)?;
-    let socket = citadel_io::TcpSocket::from_std_stream(socket.into());
-    Ok(tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
+    let socket = citadel_io::tokio::net::TcpSocket::from_std_stream(socket.into());
+    Ok(citadel_io::tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
 }
 
 fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
@@ -68,7 +68,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     let socket = get_udp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
     let std_socket: std::net::UdpSocket = socket.into();
-    let tokio_socket = citadel_io::UdpSocket::from_std(std_socket)?;
+    let tokio_socket = citadel_io::tokio::net::UdpSocket::from_std(std_socket)?;
     Ok(tokio_socket)
 }
 
@@ -189,10 +189,11 @@ mod tests {
     use crate::socket_helpers::{
         get_tcp_listener, get_tcp_stream, get_udp_socket, is_ipv6_enabled,
     };
+    use citadel_io::tokio;
+    use citadel_io::tokio::io::{AsyncReadExt, AsyncWriteExt};
     use rstest::*;
     use std::net::SocketAddr;
     use std::time::Duration;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const TIMEOUT: Duration = Duration::from_millis(2000);
 
@@ -210,7 +211,7 @@ mod tests {
         let server = get_tcp_listener(addr).unwrap();
         let addr = server.local_addr().unwrap();
 
-        let server = citadel_io::spawn(async move {
+        let server = citadel_io::tokio::task::spawn(async move {
             log::trace!(target: "citadel", "Starting server @ {:?}", addr);
             let (mut conn, addr) = server.accept().await.unwrap();
             log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
@@ -219,12 +220,12 @@ mod tests {
             assert_eq!(buf, &[1, 2, 3]);
         });
 
-        let client = citadel_io::spawn(async move {
+        let client = citadel_io::tokio::task::spawn(async move {
             let mut client = get_tcp_stream(addr, TIMEOUT).await.unwrap();
             client.write_all(&[1, 2, 3]).await.unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         Ok(r0.and(r1)?)
     }
 
@@ -241,9 +242,9 @@ mod tests {
         }
         let server = get_udp_socket(addr).unwrap();
         let addr = server.local_addr().unwrap();
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (ready_tx, ready_rx) = citadel_io::tokio::sync::oneshot::channel();
 
-        let server = citadel_io::spawn(async move {
+        let server = citadel_io::tokio::task::spawn(async move {
             log::trace!(target: "citadel", "Starting server @ {:?}", addr);
             let buf = &mut [0u8; 3];
             ready_tx.send(()).unwrap();
@@ -258,14 +259,14 @@ mod tests {
             "127.0.0.1:0"
         };
 
-        let client = citadel_io::spawn(async move {
+        let client = citadel_io::tokio::task::spawn(async move {
             let client = get_udp_socket(client_bind_addr)?;
             ready_rx.await?;
             client.send_to(&[1, 2, 3], addr).await?;
             Ok(()) as Result<(), anyhow::Error>
         });
 
-        let (r0, r1) = tokio::try_join!(server, client)?;
+        let (r0, r1) = citadel_io::tokio::try_join!(server, client)?;
         log::trace!(target: "citadel", "Done with UDP test {:?}", addr);
         r0.and(r1)
     }

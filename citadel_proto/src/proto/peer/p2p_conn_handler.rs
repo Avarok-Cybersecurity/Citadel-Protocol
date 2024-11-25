@@ -1,5 +1,5 @@
-use tokio::sync::oneshot::{channel, Receiver, Sender};
-use tokio_stream::StreamExt;
+use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
+use citadel_io::tokio_stream::StreamExt;
 
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
@@ -217,7 +217,7 @@ fn handle_p2p_stream(
     std::mem::drop(state_container);
 
     let future = async move {
-        let res = tokio::select! {
+        let res = citadel_io::tokio::select! {
             res0 = writer_future => res0,
             res1 = reader_future => res1,
             res2 = stopper_future => res2
@@ -303,7 +303,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
     let v_conn = peer_connection_type.as_virtual_connection();
 
     let process = async move {
-        tokio::time::sleep_until(sync_time).await;
+        citadel_io::tokio::time::sleep_until(sync_time).await;
 
         let hole_punched_socket = app
             .begin_udp_hole_punch(encrypted_config_container)
@@ -320,10 +320,10 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
         if is_initiator {
             // give time for non-initiator to setup local bind
             // TODO: Replace with biconn channel logic
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
             let socket = hole_punched_socket.into_socket();
             let quic_endpoint =
-                citadel_wire::quic::QuicClient::new_with_config(socket, client_config.clone())
+                citadel_wire::quic::QuicClient::new_with_rustls_config(socket, client_config.clone())
                     .map_err(generic_error)?;
             let p2p_stream = Node::quic_p2p_connect_defaults(
                 quic_endpoint.endpoint,

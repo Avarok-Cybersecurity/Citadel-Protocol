@@ -1,10 +1,10 @@
 use crate::error::FirewallError;
+use citadel_io::tokio::time::Duration;
 use igd::aio::Gateway;
 use igd::{PortMappingProtocol, SearchOptions};
 use std::fmt::Formatter;
 use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
-use tokio::time::Duration;
 
 pub struct UPnPHandler {
     local_ip_address: Ipv4Addr,

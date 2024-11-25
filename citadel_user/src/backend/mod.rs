@@ -20,7 +20,7 @@ use citadel_types::user::MutualPeer;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
-#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+#[cfg(feature = "filesystem")]
 pub mod filesystem_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
@@ -44,7 +44,7 @@ pub enum BackendType {
     /// access
     InMemory,
     /// Synchronization will occur on the filesystem
-    #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+    #[cfg(feature = "filesystem")]
     Filesystem(String),
     #[cfg(all(feature = "sql", not(coverage)))]
     /// Synchronization will occur on a remote SQL database

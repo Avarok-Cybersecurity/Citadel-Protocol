@@ -3,7 +3,7 @@ use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
@@ -199,6 +199,7 @@ impl EndpointHolePunchExt for NetworkEndpoint {
 #[cfg(test)]
 mod tests {
     use crate::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
+    use citadel_io::tokio;
     use netbeam::sync::test_utils::create_streams_with_addrs_and_lag;
     use rstest::rstest;
 
@@ -224,9 +225,9 @@ mod tests {
             res.unwrap()
         };
 
-        let server = citadel_io::spawn(server);
-        let client = citadel_io::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
+        let server = citadel_io::tokio::task::spawn(server);
+        let client = citadel_io::tokio::task::spawn(client);
+        let (res0, res1) = citadel_io::tokio::join!(server, client);
         log::trace!(target: "citadel", "JOIN complete! {:?} | {:?}", res0, res1);
         let (_res0, _res1) = (res0.unwrap(), res1.unwrap());
 

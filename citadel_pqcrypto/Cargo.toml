@@ -35,6 +35,7 @@ std = [
 wasm = []
 
 [dependencies]
+citadel_io = { workspace = true }
 generic-array = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 bincode = { workspace = true }
@@ -52,7 +53,7 @@ zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-oqs = { workspace = true, features = ["serde", "falcon", "ntruprime"] }
+oqs = { workspace = true, features = ["serde", "falcon"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 pqcrypto-falcon-wasi = { workspace = true, features = ["serialization", "avx2"] }

@@ -112,7 +112,7 @@ pub struct ConnectionSuccess {
     /// An interface to send ordered, reliable, and encrypted messages
     pub channel: PeerChannel,
     /// Only available if UdpMode was enabled at the beginning of a session
-    pub udp_channel_rx: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub udp_channel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
     /// Contains the Google auth minted at the central server (if the central server enabled it), as well as any other services enabled by the central server
     pub services: ServicesObject,
     pub cid: u64,
@@ -288,7 +288,10 @@ pub trait ProtocolRemoteExt: Remote {
     /// ```
     /// use citadel_sdk::prelude::*;
     /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    /// # SingleClientServerConnectionKernel::new_connect_defaults("", "", |_, mut remote| async move {
+    ///
+    /// let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
+    ///
+    /// # SingleClientServerConnectionKernel::new(server_connection_settings, |_, mut remote| async move {
     /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
     /// // or: remote.find_target(1234, "my_peer").await? [...]
     /// # });
@@ -1185,8 +1188,8 @@ pub mod results {
     use crate::prefabs::client::peer_connection::FileTransferHandleRx;
     use crate::prelude::{PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
+    use citadel_io::tokio::sync::oneshot::Receiver;
     use citadel_proto::prelude::NetworkError;
-    use tokio::sync::oneshot::Receiver;
 
     #[derive(Debug)]
     pub struct PeerConnectSuccess {
@@ -1266,7 +1269,9 @@ pub mod remote_specialization {
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
+    use citadel_io::tokio;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1304,8 +1309,9 @@ mod tests {
                         ObjectTransferStatus::ReceptionComplete => {
                             log::trace!(target: "citadel", "Server has finished receiving the file!");
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
-                            let streamed_data =
-                                tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                            let streamed_data = citadel_io::tokio::fs::read(path.clone().unwrap())
+                                .await
+                                .unwrap();
                             assert_eq!(
                                 cmp,
                                 streamed_data.as_slice(),
@@ -1351,7 +1357,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    #[timeout(std::time::Duration::from_secs(90))]
+    #[citadel_io::timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer(
         #[case] enx: EncryptionAlgorithm,
@@ -1369,12 +1375,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                .with_session_security_settings(session_security_settings)
+                .disable_udp()
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote
@@ -1389,8 +1398,7 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 

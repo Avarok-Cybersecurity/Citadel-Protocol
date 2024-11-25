@@ -1,5 +1,6 @@
 use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
 use bytes::Bytes;
+use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_proto::prelude::NetworkError;
 use citadel_proto::re_imports::{StreamReader, UnboundedReceiverStream};
 use citadel_types::crypto::SecBuffer;
@@ -7,7 +8,6 @@ use futures::StreamExt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub async fn internal_service<F, Fut, R>(
     remote: R,
@@ -19,8 +19,8 @@ where
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
     R: TargetLockedRemote,
 {
-    let (tx_to_service, rx_from_kernel) = tokio::sync::mpsc::unbounded_channel();
-    let (tx_to_kernel, mut rx_from_service) = tokio::sync::mpsc::unbounded_channel();
+    let (tx_to_service, rx_from_kernel) = citadel_io::tokio::sync::mpsc::unbounded_channel();
+    let (tx_to_kernel, mut rx_from_service) = citadel_io::tokio::sync::mpsc::unbounded_channel();
 
     let internal_server_communicator = InternalServerCommunicator {
         tx_to_kernel,
@@ -51,7 +51,7 @@ where
         Ok(())
     };
 
-    let res = tokio::select! {
+    let res = citadel_io::tokio::select! {
         res0 = from_proto => {
             res0
         },
@@ -70,7 +70,7 @@ where
 }
 
 pub struct InternalServerCommunicator {
-    pub(crate) tx_to_kernel: tokio::sync::mpsc::UnboundedSender<SecBuffer>,
+    pub(crate) tx_to_kernel: citadel_io::tokio::sync::mpsc::UnboundedSender<SecBuffer>,
     pub(crate) rx_from_kernel:
         StreamReader<UnboundedReceiverStream<Result<Bytes, std::io::Error>>, Bytes>,
 }

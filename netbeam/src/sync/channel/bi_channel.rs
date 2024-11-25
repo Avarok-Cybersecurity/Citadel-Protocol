@@ -178,7 +178,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
         let chan = self.tx.take().unwrap();
         let recv_halt = self.recv_halt.clone();
 
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+        if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
                 log::trace!(target: "citadel", "[Drop] on {:?} | recv_halt: {}", chan.node_type(), recv_halt.load(Ordering::Relaxed));
                 // if we haven't yet received a halt signal, send signal to parallel side
@@ -222,6 +222,7 @@ impl<T: NetObject, S: Subscribable + 'static> Future for ChannelLoader<'_, T, S>
 #[cfg(test)]
 mod tests {
     use crate::sync::test_utils::create_streams;
+    use citadel_io::tokio;
     use futures::StreamExt;
 
     #[tokio::test]
@@ -229,7 +230,7 @@ mod tests {
         citadel_logging::setup_log();
         let (server, client) = create_streams().await;
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let mut channel = server.bi_channel::<u32>().await.unwrap();
 
             for x in 0..1000 {
@@ -243,7 +244,7 @@ mod tests {
             }
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let mut channel = client.bi_channel::<u32>().await.unwrap();
 
             for x in 0..1000 {
@@ -257,7 +258,7 @@ mod tests {
             }
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }
