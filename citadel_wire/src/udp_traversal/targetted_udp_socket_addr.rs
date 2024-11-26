@@ -1,5 +1,5 @@
 use crate::udp_traversal::HolePunchID;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, SocketAddr};
@@ -97,7 +97,7 @@ impl HolePunchedUdpSocket {
         let target_addr = SocketAddr::new(send_ip, addr.port());
         log::trace!(target: "citadel", "Sending packet from {bind_addr} to {target_addr}");
 
-        tokio::time::timeout(
+        citadel_io::tokio::time::timeout(
             Duration::from_secs(2),
             self.socket.send_to(buf, target_addr),
         )

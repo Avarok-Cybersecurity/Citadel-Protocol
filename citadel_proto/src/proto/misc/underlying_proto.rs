@@ -9,12 +9,32 @@ use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
 use std::sync::Arc;
 
-#[derive(Clone)]
 #[allow(variant_size_differences)]
 pub enum ServerUnderlyingProtocol {
-    Tcp(Option<Arc<Mutex<Option<tokio::net::TcpListener>>>>),
+    Tcp(Option<Arc<Mutex<Option<citadel_io::tokio::net::TcpListener>>>>),
     Tls(TLSQUICInterop, TlsDomain, bool),
-    Quic(Option<(Vec<Certificate>, PrivateKey)>, TlsDomain, bool),
+    Quic(
+        Option<(Vec<Certificate<'static>>, PrivateKey<'static>)>,
+        TlsDomain,
+        bool,
+    ),
+}
+
+impl Clone for ServerUnderlyingProtocol {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Tcp(listener) => Self::Tcp(listener.clone()),
+            Self::Tls(interop, domain, self_signed) => {
+                Self::Tls(interop.clone(), domain.clone(), *self_signed)
+            }
+            Self::Quic(keys, domain, self_signed) => Self::Quic(
+                keys.as_ref()
+                    .map(|(cert, key)| (cert.clone(), key.clone_key())),
+                domain.clone(),
+                *self_signed,
+            ),
+        }
+    }
 }
 
 impl ServerUnderlyingProtocol {
@@ -31,12 +51,12 @@ impl ServerUnderlyingProtocol {
     /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`std::net::TcpListener`]
     pub fn from_std_tcp_listener(listener: TcpListener) -> Result<Self, NetworkError> {
         listener.set_nonblocking(true)?;
-        Self::from_tokio_tcp_listener(tokio::net::TcpListener::from_std(listener)?)
+        Self::from_tokio_tcp_listener(citadel_io::tokio::net::TcpListener::from_std(listener)?)
     }
 
-    /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`tokio::net::TcpListener`]
+    /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`citadel_io::tokio::net::TcpListener`]
     pub fn from_tokio_tcp_listener(
-        listener: tokio::net::TcpListener,
+        listener: citadel_io::tokio::net::TcpListener,
     ) -> Result<Self, NetworkError> {
         Ok(Self::Tcp(Some(Arc::new(Mutex::new(Some(listener))))))
     }

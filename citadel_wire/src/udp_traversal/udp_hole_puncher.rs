@@ -3,7 +3,7 @@ use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
@@ -61,7 +61,7 @@ async fn driver(
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let mut retries = 0;
     loop {
-        let task = tokio::time::timeout(
+        let task = citadel_io::tokio::time::timeout(
             timeout,
             driver_inner(conn, encrypted_config_container.clone()),
         );
@@ -111,9 +111,9 @@ async fn driver_inner(
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
     let peer_internal_bind_addrs = conn.sync_exchange_payload(internal_addresses).await?;
-    log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
-    log::trace!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
-    log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n");
+    log::info!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
+    log::info!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
+    log::info!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
     let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);
@@ -199,6 +199,7 @@ impl EndpointHolePunchExt for NetworkEndpoint {
 #[cfg(test)]
 mod tests {
     use crate::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
+    use citadel_io::tokio;
     use netbeam::sync::test_utils::create_streams_with_addrs_and_lag;
     use rstest::rstest;
 
@@ -224,9 +225,9 @@ mod tests {
             res.unwrap()
         };
 
-        let server = citadel_io::spawn(server);
-        let client = citadel_io::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
+        let server = citadel_io::tokio::task::spawn(server);
+        let client = citadel_io::tokio::task::spawn(client);
+        let (res0, res1) = citadel_io::tokio::join!(server, client);
         log::trace!(target: "citadel", "JOIN complete! {:?} | {:?}", res0, res1);
         let (_res0, _res1) = (res0.unwrap(), res1.unwrap());
 

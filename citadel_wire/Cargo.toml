@@ -20,7 +20,9 @@ std = [
     "citadel_io/std",
     "openssl/default",
     "quinn/default",
-    "serde/std"
+    "serde/std",
+    "async_ip/std",
+    "rustls-pemfile/std",
 ]
 localhost-testing = ["tracing"]
 wasm = [
@@ -30,7 +32,6 @@ wasm = [
 vendored = ["openssl/vendored"]
 
 [dependencies]
-tokio = { workspace = true, features = ["net"] }
 futures = { workspace = true }
 async-trait-with-sync = { workspace = true }
 bytes = { workspace = true }
@@ -44,25 +45,26 @@ itertools = { workspace = true, features = ["use_alloc", "use_std"] }
 either = { workspace = true }
 netbeam = { workspace = true  }
 uuid = { workspace = true, features = ["v4", "serde"] }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true, features = ["attributes"] }
 lazy_static = { workspace = true }
+rustls = { workspace = true }
+socket2 = { workspace = true, features = ["all"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-socket2 = { workspace = true, features = ["all"] }
-rustls-native-certs = { workspace = true }
-igd = { workspace = true, features = ["aio"] }
 quinn = { workspace = true, features = ["rustls"] }
 openssl = { workspace = true }
+rustls-native-certs = { workspace = true }
+igd = { workspace = true, features = ["aio"] }
 stun = { workspace = true }
-rcgen = { workspace = true, features = ["pem"] }
-rustls = { workspace = true, features = ["quic", "dangerous_configuration"] }
+rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
 rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
 
 [dev-dependencies]
 citadel_logging = { workspace = true }
 rand = "0.8.5"
-tokio-util = "0.7.4"
 rstest = { workspace = true }
 
 [lib]

@@ -75,7 +75,7 @@ impl<'a, T: 'a> LockHolder<'a, T> {
         LockHolder::new(self.inner.as_ref())
     }
 
-    pub fn map<U: 'a, F: FnOnce(&'a T) -> U>(&'a self, transform: F) -> LockHolder<'_, U> {
+    pub fn map<U: 'a, F: FnOnce(&'a T) -> U>(&'a self, transform: F) -> LockHolder<'a, U> {
         LockHolder::new(self.inner.as_ref().map(transform))
     }
 }

@@ -1,15 +1,25 @@
+use crate::exports::{Certificate, PrivateKey};
 use crate::quic::generate_self_signed_cert;
-use rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore};
+use rustls::{ClientConfig, RootCertStore};
 use std::io::Error;
 use std::sync::Arc;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 /// Useful for allowing migration from a TLS config to a QUIC config in the citadel_proto crate
-#[derive(Clone)]
 pub struct TLSQUICInterop {
     pub tls_acceptor: TlsAcceptor,
-    pub quic_chain: Vec<Certificate>,
-    pub quic_priv_key: PrivateKey,
+    pub quic_chain: Vec<Certificate<'static>>,
+    pub quic_priv_key: PrivateKey<'static>,
+}
+
+impl Clone for TLSQUICInterop {
+    fn clone(&self) -> Self {
+        TLSQUICInterop {
+            tls_acceptor: self.tls_acceptor.clone(),
+            quic_chain: self.quic_chain.clone(),
+            quic_priv_key: self.quic_priv_key.clone_key(),
+        }
+    }
 }
 
 pub fn create_client_dangerous_config() -> TlsConnector {
@@ -27,7 +37,7 @@ pub fn create_rustls_client_config<T: AsRef<[u8]>>(
     cert_vec_to_secure_client_config(
         &allowed_certs
             .iter()
-            .map(|r| rustls::Certificate(r.as_ref().to_vec()))
+            .map(|r| crate::exports::Certificate::from(r.as_ref().to_vec()))
             .collect(),
     )
 }
@@ -43,7 +53,7 @@ pub fn cert_vec_to_secure_client_config(
 
     let mut root_store = RootCertStore::empty();
     for cert in certs {
-        root_store.add(cert)?;
+        root_store.add(cert.clone())?;
     }
 
     Ok(crate::quic::secure::client_config(root_store))
@@ -65,17 +75,32 @@ pub fn create_server_self_signed_config() -> Result<TLSQUICInterop, anyhow::Erro
         crate::misc::cert_and_priv_key_der_to_quic_keys(&cert_der, &priv_key_der)?;
     let quic_chain = vec![quic_chain];
 
-    // the server won't verify clients. The clients verify the server
-    let server_config =
-        crate::quic::secure::server_config(quic_chain.clone(), quic_priv_key.clone())?;
+    let rustls_server_config =
+        create_rustls_config_from_keys(quic_chain.clone(), quic_priv_key.clone_key())?;
 
     let ret = TLSQUICInterop {
-        tls_acceptor: TlsAcceptor::from(Arc::new(server_config)),
+        tls_acceptor: TlsAcceptor::from(Arc::new(rustls_server_config)),
         quic_chain,
         quic_priv_key,
     };
 
     Ok(ret)
+}
+
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::ServerConfig as RustlsServerConfig;
+
+fn create_rustls_config_from_keys(
+    cert_chain: Vec<CertificateDer<'static>>,
+    key_der: PrivateKeyDer<'static>,
+) -> Result<RustlsServerConfig, anyhow::Error> {
+    // Create a new RustlsServerConfig
+    let rustls_config =
+        RustlsServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, key_der)?;
+
+    Ok(rustls_config)
 }
 
 pub fn create_server_config(
@@ -87,7 +112,7 @@ pub fn create_server_config(
         crate::misc::pkcs_12_components_to_quic_keys(certs_stack.as_ref(), &cert, &priv_key)?;
 
     let server_config =
-        crate::quic::secure::server_config(quic_chain.clone(), quic_priv_key.clone())?;
+        create_rustls_config_from_keys(quic_chain.clone(), quic_priv_key.clone_key())?;
 
     let ret = TLSQUICInterop {
         tls_acceptor: TlsAcceptor::from(Arc::new(server_config)),
@@ -100,16 +125,19 @@ pub fn create_server_config(
 
 /// This can be an expensive operation, empirically lasting upwards of 200ms on some systems
 /// This should only be called once, preferably at init of the protocol
-pub async fn load_native_certs_async() -> Result<Vec<Certificate>, Error> {
-    citadel_io::spawn_blocking(load_native_certs)
+pub async fn load_native_certs_async() -> Result<Vec<Certificate<'static>>, Error> {
+    citadel_io::tokio::task::spawn_blocking(load_native_certs)
         .await
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err:?}")))?
 }
 
 /// Loads native certs. This is an expensive operation, and should be called once per node
-pub fn load_native_certs() -> Result<Vec<Certificate>, Error> {
-    rustls_native_certs::load_native_certs()
-        .map(|r| r.into_iter().map(|cert| Certificate(cert.0)).collect())
+pub fn load_native_certs() -> Result<Vec<Certificate<'static>>, Error> {
+    Ok(rustls_native_certs::load_native_certs()
+        .certs
+        .into_iter()
+        .map(Certificate::from)
+        .collect())
 }
 
 #[cfg(test)]

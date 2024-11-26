@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use bytes::{BufMut, BytesMut};
-    use rand::prelude::ThreadRng;
+    use citadel_io::ThreadRng;
     use rand::RngCore;
 
     use citadel_logging::setup_log;
@@ -438,8 +438,8 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
     #[should_panic]
+    #[test]
     fn test_kyber_bad_psks() {
         citadel_logging::setup_log_no_panic_hook();
         run(

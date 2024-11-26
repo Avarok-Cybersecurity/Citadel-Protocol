@@ -139,7 +139,8 @@ pub async fn process_peer_cmd(
                                             break;
                                         }
 
-                                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                                        citadel_io::tokio::time::sleep(Duration::from_millis(1500))
+                                            .await;
                                     }
 
                                     log::trace!(target: "citadel", "[Peer Vconn] No packets received in the last 1500ms; will drop the connection cleanly");
@@ -1009,8 +1010,8 @@ async fn process_signal_command_as_server(
                         {
                             log::info!(target: "citadel", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
                             peer_layer.insert_mapped_ticket(implicated_cid, ticket_new, ticket);
-                            // route signal to peer
                             drop(peer_layer);
+                            // route signal to peer
                             let _ =
                                 super::server::post_register::handle_response_phase_post_register(
                                     peer_conn_type,
@@ -1128,7 +1129,7 @@ async fn process_signal_command_as_server(
                                 peer_layer_lock
                                     .insert_tracked_posting(
                                         implicated_cid,
-                                        Duration::from_secs(60),
+                                        Duration::from_secs(60 * 60),
                                         ticket,
                                         PeerSignal::DeregistrationSuccess { peer_conn_type },
                                         |_| {},
@@ -1319,7 +1320,7 @@ async fn process_signal_command_as_server(
                                     break;
                                 }
 
-                                tokio::time::sleep(Duration::from_millis(1500)).await;
+                                citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
                             }
 
                             log::trace!(target: "citadel", "[Peer Vconn @ Server] No packets received in the last 1500ms; will drop the virtual connection cleanly");

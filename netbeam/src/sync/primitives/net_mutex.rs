@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::ScopedFutureResult;
+use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
+use citadel_io::tokio::sync::{Mutex, OwnedMutexGuard};
 use futures::Future;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::NetObject;
@@ -25,7 +25,7 @@ pub struct NetMutex<T: NetObject, S: Subscribable + 'static> {
     app: Arc<InnerChannel<S>>,
     // contains the background_to_active_rx
     shared_state: Arc<Mutex<InnerState<T>>>,
-    stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    stop_tx: Option<citadel_io::tokio::sync::oneshot::Sender<()>>,
     bg_stop_signaller: Sender<()>,
 }
 
@@ -52,7 +52,7 @@ impl<T> Drop for LocalLockHolder<T> {
             let this = self.0.take().unwrap();
             let sender = this.1.clone();
             std::mem::drop(this); // free the lock
-            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
                 rt.spawn(async move {
                     let _ = sender.send(()).await; // alert the bg
                 });
@@ -64,8 +64,8 @@ impl<T> Drop for LocalLockHolder<T> {
 impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
     async fn new_internal(conn: InnerChannel<S>, t: T) -> Result<Self, anyhow::Error> {
         // create a channel to listen here for incoming messages and alter the local state as needed
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-        let (active_to_bg_tx, active_to_bg_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (active_to_bg_tx, active_to_bg_rx) = citadel_io::tokio::sync::mpsc::channel::<()>(1);
 
         let this = Self {
             app: Arc::new(conn),
@@ -77,7 +77,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
         let shared_state = this.shared_state.clone();
         let channel = this.app.clone();
 
-        citadel_io::spawn(async move {
+        citadel_io::tokio::task::spawn(async move {
             if let Err(err) =
                 passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx)
                     .await
@@ -117,7 +117,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetMutex<T, S> {
         // stop the background task
         let _ = stop_tx.send(());
 
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+        if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
             rt.spawn(async move { conn.send_serialized(UpdatePacket::Halt).await });
         }
     }
@@ -147,7 +147,7 @@ impl<T: NetObject + 'static, S: Subscribable> Drop for NetMutexGuard<T, S> {
         let guard = self.guard.take().unwrap();
         let app = self.conn.clone();
 
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+        if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
             let future = NetMutexGuardDropCode::new::<T, S>(app, guard);
             rt.spawn(future);
         } else {
@@ -453,7 +453,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
 async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
     channel: Arc<InnerChannel<S>>,
     shared_state: Arc<Mutex<InnerState<T>>>,
-    stop_rx: tokio::sync::oneshot::Receiver<()>,
+    stop_rx: citadel_io::tokio::sync::oneshot::Receiver<()>,
     mut active_to_background_rx: Receiver<()>,
 ) -> Result<(), anyhow::Error> {
     let background_task = async move {
@@ -462,7 +462,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
             match shared_state.clone().try_lock_owned() {
                 Ok(lock) => {
                     // here, any local requests will be blocked until an external packet gets received OR local signals background to stop;
-                    let packet = tokio::select! {
+                    let packet = citadel_io::tokio::select! {
                         res0 = channel.recv_serialized::<UpdatePacket>() => res0?,
                         res1 = active_to_background_rx.recv() => {
                             // in the case local tries ot make an outgoing request, we will stop listening in the background
@@ -511,7 +511,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
         }
     };
 
-    tokio::select! {
+    citadel_io::tokio::select! {
         res0 = background_task => res0,
         _res1 = stop_rx => Ok(())
     }
@@ -520,6 +520,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
 #[cfg(test)]
 mod tests {
     use crate::sync::test_utils::create_streams_with_addrs_and_lag;
+    use citadel_io::tokio;
     use rstest::rstest;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
@@ -528,7 +529,7 @@ mod tests {
     #[case(0, 1000)]
     #[case(5, 50)]
     #[case(50, 10)]
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn test_net_mutex(#[case] lag: usize, #[case] count: u64) {
         citadel_logging::setup_log();
 
@@ -536,13 +537,13 @@ mod tests {
 
         let init_value = 1000u64;
         let final_value = 1001u64;
-        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
-        let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel::<()>();
+        let (client_done_tx, client_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let (server_done_tx, server_done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
         let server_ref = Arc::new(AtomicU64::new(init_value));
         let client_ref = server_ref.clone();
 
-        let server = tokio::spawn(async move {
+        let server = citadel_io::tokio::spawn(async move {
             let mutex = &server_stream.mutex(Some(init_value)).await.unwrap();
             log::trace!(target: "citadel", "Success establishing mutex on server");
             client_done_rx.await.unwrap();
@@ -564,7 +565,7 @@ mod tests {
             server_done_tx.send(()).unwrap();
         });
 
-        let client = tokio::spawn(async move {
+        let client = citadel_io::tokio::spawn(async move {
             let mutex = &client_stream.mutex::<u64>(None).await.unwrap();
             log::trace!(target: "citadel", "Success establishing mutex on client");
             let mut guard = mutex.lock().await.unwrap();
@@ -586,7 +587,7 @@ mod tests {
             server_done_rx.await.unwrap();
         });
 
-        let (r0, r1) = tokio::join!(server, client);
+        let (r0, r1) = citadel_io::tokio::join!(server, client);
         r0.unwrap();
         r1.unwrap();
     }

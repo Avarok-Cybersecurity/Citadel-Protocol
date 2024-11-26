@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
+use citadel_io::tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use citadel_io::tokio::sync::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::Mutex;
 
 #[async_trait]
 /// This represents a direct client to server or client->server->peer connection (usually just TCP) for establishing the hole-punching process
@@ -65,7 +65,7 @@ impl<T: ReliableOrderedStreamToTarget> ReliableOrderedStreamToTargetExt for T {}
 
 #[async_trait]
 #[cfg(not(target_family = "wasm"))]
-impl ReliableOrderedStreamToTarget for tokio::net::TcpStream {
+impl ReliableOrderedStreamToTarget for citadel_io::tokio::net::TcpStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         loop {
             self.writable().await?;
@@ -103,13 +103,13 @@ impl ReliableOrderedStreamToTarget for tokio::net::TcpStream {
 }
 
 #[cfg(not(target_family = "wasm"))]
-impl ConnAddr for tokio::net::TcpStream {
+impl ConnAddr for citadel_io::tokio::net::TcpStream {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        tokio::net::TcpStream::local_addr(self)
+        citadel_io::tokio::net::TcpStream::local_addr(self)
     }
 
     fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        tokio::net::TcpStream::peer_addr(self)
+        citadel_io::tokio::net::TcpStream::peer_addr(self)
     }
 }
 
@@ -159,10 +159,10 @@ pub mod simulator {
     };
     use async_trait::async_trait;
     use bytes::Bytes;
+    use citadel_io::tokio::sync::mpsc::UnboundedSender;
     use rand::Rng;
     use std::net::SocketAddr;
     use std::sync::Arc;
-    use tokio::sync::mpsc::UnboundedSender;
 
     pub struct NetworkConnSimulator<T> {
         inner: Arc<T>,
@@ -174,9 +174,9 @@ pub mod simulator {
         pub(crate) fn new(min_lag: usize, inner: T) -> Self {
             let inner = Arc::new(inner);
             let inner_fwd = inner.clone();
-            let (fwd, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+            let (fwd, mut rx) = citadel_io::tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
-            citadel_io::spawn(async move {
+            citadel_io::tokio::task::spawn(async move {
                 while let Some(packet) = rx.recv().await {
                     if min_lag != 0 {
                         let rnd = {
@@ -185,7 +185,10 @@ pub mod simulator {
                             rng.gen_range(min_lag..max) // 50 -> 150ms ping
                         };
 
-                        tokio::time::sleep(std::time::Duration::from_millis(rnd as u64)).await;
+                        citadel_io::tokio::time::sleep(std::time::Duration::from_millis(
+                            rnd as u64,
+                        ))
+                        .await;
                     }
 
                     inner_fwd.send_to_peer(&packet).await.unwrap();

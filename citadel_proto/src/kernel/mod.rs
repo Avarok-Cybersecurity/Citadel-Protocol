@@ -1,9 +1,9 @@
+use citadel_io::tokio::macros::support::Future;
+use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::ClientConfig;
 use citadel_wire::hypernode_type::NodeType;
 use std::sync::Arc;
-use tokio::macros::support::Future;
-use tokio::runtime::Handle;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;

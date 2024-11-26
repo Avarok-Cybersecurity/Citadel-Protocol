@@ -162,16 +162,11 @@ pub struct SessionSecuritySettings {
     pub crypto_params: CryptoParameters,
 }
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Default)]
 pub enum UdpMode {
     Enabled,
+    #[default]
     Disabled,
-}
-
-impl Default for UdpMode {
-    fn default() -> Self {
-        Self::Enabled
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

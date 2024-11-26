@@ -51,10 +51,7 @@ lazy_static = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 async-trait = { workspace = true }
-tokio-util = { workspace = true, features = ["net", "codec", "time", "io"] }
-tokio = { workspace = true, features = ["parking_lot"] }
 auto_impl = { workspace = true }
-tokio-stream = { workspace = true }
 zerocopy = { workspace = true, features = ["byteorder", "derive"] }
 bytes = { workspace = true, features = ["serde"] }
 byteorder = { workspace = true }
@@ -76,6 +73,7 @@ itertools = { workspace = true }
 tracing = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = ["derive"] }
 chrono = { workspace = true }
+sha256 = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

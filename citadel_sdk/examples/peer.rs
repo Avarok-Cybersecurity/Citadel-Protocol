@@ -1,3 +1,4 @@
+use citadel_io::tokio;
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -18,20 +19,23 @@ async fn main() {
         .ensure_registered()
         .add();
 
-    let finished = &AtomicBool::new(false);
-    let peer = citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel::new_register(
-        "dummy name",
-        my_peer_id,
-        "password",
-        agg,
+    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
         addr,
-        UdpMode::Enabled,
-        Default::default(),
-        None,
+        my_peer_id,
+        "dunny name",
+        "password",
+    )
+    .build()
+    .unwrap();
+
+    let finished = &AtomicBool::new(false);
+    let peer = citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel::new(
+        server_connection_settings,
+        agg,
         |mut connection, remote| async move {
             let mut connection = connection.recv().await.unwrap()?;
             let chan = connection.udp_channel_rx.take();
-            tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
+            citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                 UdpMode::Enabled,
                 chan,
             ))
@@ -43,8 +47,7 @@ async fn main() {
             }
             Ok(())
         },
-    )
-    .unwrap();
+    );
 
     let _ = NodeBuilder::default()
         .with_node_type(NodeType::Peer)

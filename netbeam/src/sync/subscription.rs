@@ -6,10 +6,10 @@ use crate::sync::network_application::{
 use crate::sync::RelativeNodeType;
 use async_trait::async_trait;
 use bytes::Bytes;
+use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
+use citadel_io::tokio::sync::Mutex;
 use citadel_io::RwLock;
 use std::collections::HashMap;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::Mutex;
 
 #[async_trait]
 pub trait SubscriptionBiStream: Send + Sync {
@@ -108,7 +108,7 @@ pub(crate) fn close_sequence_for_multiplexed_bistream<
     }
 
     // the runtime may not exist while dropping
-    if let Ok(rt) = tokio::runtime::Handle::try_current() {
+    if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
         rt.spawn(async move {
             if let Err(err) = PostActionSync::new(&ptr, id).await {
                 log::warn!(target: "citadel", "[MetaActionSync/close] error: {:?}", err.to_string())

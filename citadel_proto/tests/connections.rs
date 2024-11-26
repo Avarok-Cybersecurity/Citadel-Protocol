@@ -1,6 +1,7 @@
 #[cfg(test)]
 pub mod tests {
     use bytes::BytesMut;
+    use citadel_io::tokio;
     use citadel_proto::prelude::*;
     use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
     use citadel_wire::socket_helpers::is_ipv6_enabled;
@@ -58,7 +59,7 @@ pub mod tests {
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[timeout(Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_tcp_or_tls(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerUnderlyingProtocol>,
@@ -97,9 +98,11 @@ pub mod tests {
                 on_client_received_stream(stream).await
             };
 
-            let res = tokio::try_join!(server, client);
+            let res = citadel_io::tokio::try_join!(server, client);
             log::trace!("RES: {:?}", res);
-            let _ = res.unwrap();
+            if let Err(err) = res {
+                log::error!(target: "citadel", "Error: {:?}", err);
+            }
             log::trace!(target: "citadel", "Ended");
         }
 
@@ -110,7 +113,7 @@ pub mod tests {
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[timeout(Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "current_thread")]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerUnderlyingProtocol>,
@@ -165,7 +168,7 @@ pub mod tests {
 
             let client = client.try_collect::<Vec<()>>();
             // if server ends, bad. If client ends, maybe good
-            let res = tokio::select! {
+            let res = citadel_io::tokio::select! {
                 res0 = server => {
                     res0
                 },

@@ -33,7 +33,7 @@ impl NetKernel for AcceptFileTransferKernel {
 
 pub fn exhaust_file_transfer(mut handle: ObjectTransferHandler) {
     // Exhaust the stream
-    let handle = tokio::task::spawn(async move {
+    let handle = citadel_io::tokio::task::spawn(async move {
         while let Some(evt) = handle.next().await {
             log::info!(target: "citadel", "File Transfer Event: {evt:?}");
             if let ObjectTransferStatus::Fail(err) = &evt {
