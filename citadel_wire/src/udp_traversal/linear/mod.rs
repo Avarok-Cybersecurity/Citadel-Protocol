@@ -1,11 +1,10 @@
 use std::net::SocketAddr;
 
 use citadel_io::tokio::net::UdpSocket;
+use citadel_io::tokio::sync::mpsc::UnboundedSender;
 use citadel_io::tokio::time::Duration;
 use either::Either;
 use igd::PortMappingProtocol;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::time::Duration;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;

@@ -821,7 +821,6 @@ impl StateContainerInner {
         endpoint_crypto: PeerSessionCrypto,
         sess: &CitadelSession,
         file_transfer_compatible: bool,
-        file_transfer_compatible: bool,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -1150,7 +1149,7 @@ impl StateContainerInner {
             };
 
             let (start_recv_tx, start_recv_rx) = if !is_revfs_pull {
-                let (tx, rx) = tokio::sync::oneshot::channel();
+                let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
                 (Some(tx), Some(rx))
             } else {
                 (None, None)

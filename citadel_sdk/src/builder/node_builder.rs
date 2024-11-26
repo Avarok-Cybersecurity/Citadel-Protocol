@@ -260,6 +260,7 @@ impl NodeBuilder {
     }
 
     /// The file should be a DER formatted certificate
+    #[cfg(feature = "std")]
     pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
         let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
         let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der).collect::<Vec<_>>();

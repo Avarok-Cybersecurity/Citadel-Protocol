@@ -38,7 +38,6 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
         let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            server_password,
             |connect_success, remote| {
                 on_channel_received_fn::<_, Self>(
                     connect_success,

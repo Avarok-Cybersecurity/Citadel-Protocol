@@ -121,17 +121,9 @@ impl NatType {
                     *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
                 }),
 
-            Err(_elapsed) => {
-                log::warn!(target: "citadel", "Timeout on NAT identification occurred");
-                if cfg!(feature = "localhost-testing") {
-                    log::warn!(target: "citadel", "Will use default NatType for localhost-testing");
-                    Ok(NatType::offline())
-                } else {
-                    Err(FirewallError::HolePunch(
-                        "NAT identification elapsed".to_string(),
-                    ))
-                }
-            }
+            Err(_elapsed) => Err(FirewallError::HolePunch(
+                "NAT identification elapsed".to_string(),
+            )),
         }
     }
 

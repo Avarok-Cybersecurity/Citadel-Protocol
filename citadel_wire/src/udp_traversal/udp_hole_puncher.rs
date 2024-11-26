@@ -61,7 +61,7 @@ async fn driver(
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let mut retries = 0;
     loop {
-        let task = tokio::time::timeout(
+        let task = citadel_io::tokio::time::timeout(
             timeout,
             driver_inner(conn, encrypted_config_container.clone()),
         );
@@ -111,9 +111,9 @@ async fn driver_inner(
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
     let peer_internal_bind_addrs = conn.sync_exchange_payload(internal_addresses).await?;
-    log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
-    log::trace!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
-    log::trace!(target: "citadel", "\n~~~~~~~~~~~~\n");
+    log::info!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
+    log::info!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
+    log::info!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
     let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);

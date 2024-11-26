@@ -4,6 +4,7 @@ use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigCon
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
 use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
+use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use futures::future::select_ok;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
@@ -18,7 +19,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -123,7 +123,7 @@ async fn drive(
     // initiate a dedicated channel for sending packets for coordination
     let conn = app.bi_channel::<DualStackCandidateSignal>().await?;
     let (ref conn_tx, conn_rx) = conn.split();
-    let conn_rx = &tokio::sync::Mutex::new(conn_rx);
+    let conn_rx = &citadel_io::tokio::sync::Mutex::new(conn_rx);
 
     log::trace!(target: "citadel", "Initiating NetMutex ...");
     // setup a mutex for handling contentions
@@ -174,19 +174,19 @@ async fn drive(
             (res, hole_puncher)
         };
 
-        let task = tokio::task::spawn(task);
+        let task = citadel_io::tokio::task::spawn(task);
 
         futures.push(task);
     }
 
-    let current_enqueued: &tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
+    let current_enqueued: &citadel_io::tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
         &citadel_io::tokio::sync::Mutex::new(vec![]);
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
-    let commanded_winner = &tokio::sync::Mutex::new(None);
+    let commanded_winner = &citadel_io::tokio::sync::Mutex::new(None);
 
-    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+    let (done_tx, done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
     let done_tx = citadel_io::Mutex::new(Some(done_tx));
 
     let signal_done = || -> Result<(), anyhow::Error> {
@@ -226,7 +226,7 @@ async fn drive(
         drop(lock);
 
         let loser_poller = async move {
-            let mut ticker = tokio::time::interval(Duration::from_millis(100));
+            let mut ticker = citadel_io::tokio::time::interval(Duration::from_millis(100));
             loop {
                 ticker.tick().await;
 

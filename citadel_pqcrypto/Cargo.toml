@@ -17,7 +17,6 @@ exclude = [
 
 [features]
 default = ["std"]
-unordered = []
 std = [
     "serde/std",
     "aes-gcm/std",

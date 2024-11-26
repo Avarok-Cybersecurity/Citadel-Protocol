@@ -65,7 +65,7 @@ impl<'a, R: 'a> NetSyncStart<'a, R> {
     >(
         conn: &'a S,
         relative_node_type: RelativeNodeType,
-    ) -> NetSyncStart<()> {
+    ) -> NetSyncStart<'a, ()> {
         NetSyncStart::exchange_payload(conn, relative_node_type, ())
     }
 }

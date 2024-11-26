@@ -22,6 +22,7 @@ std = [
     "quinn/default",
     "serde/std",
     "async_ip/std",
+    "rustls-pemfile/std",
 ]
 localhost-testing = ["tracing"]
 wasm = [

@@ -4,3 +4,4 @@ rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+threads,+net"]
 [profile.wasix]
 opt-level = 3
 inherits = "dev"
+rustflags = ["-Z", "unstable-options"]

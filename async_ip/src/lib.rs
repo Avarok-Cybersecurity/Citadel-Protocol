@@ -14,7 +14,6 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Client;
-use std::fmt::Display;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 #[cfg(not(target_family = "wasm"))]

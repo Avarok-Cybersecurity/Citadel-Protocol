@@ -322,9 +322,11 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             // TODO: Replace with biconn channel logic
             citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
             let socket = hole_punched_socket.into_socket();
-            let quic_endpoint =
-                citadel_wire::quic::QuicClient::new_with_rustls_config(socket, client_config.clone())
-                    .map_err(generic_error)?;
+            let quic_endpoint = citadel_wire::quic::QuicClient::new_with_rustls_config(
+                socket,
+                client_config.clone(),
+            )
+            .map_err(generic_error)?;
             let p2p_stream = Node::quic_p2p_connect_defaults(
                 quic_endpoint.endpoint,
                 None,

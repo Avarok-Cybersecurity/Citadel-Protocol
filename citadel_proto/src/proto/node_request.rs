@@ -1,7 +1,6 @@
 use crate::auth::AuthenticationRequest;
 use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;
-use crate::re_imports::openssl::sha::sha256;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;

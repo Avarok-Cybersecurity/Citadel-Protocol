@@ -44,16 +44,8 @@ pub mod constructor_opts;
 
 pub mod wire;
 
-/// For debug purposes
-#[cfg(not(feature = "unordered"))]
 pub const fn build_tag() -> &'static str {
     "ordered"
-}
-
-/// For debug purposes
-#[cfg(feature = "unordered")]
-pub const fn build_tag() -> &'static str {
-    "unordered"
 }
 
 /// Returns the approximate size of each PQC. This is approximately true for the core NIST round-3 algorithms, but not necessarily true for the SIKE algos

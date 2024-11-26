@@ -1357,7 +1357,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    #[citadel_io::timeout(std::time::Duration::from_secs(90))]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer(
         #[case] enx: EncryptionAlgorithm,

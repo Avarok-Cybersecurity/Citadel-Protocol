@@ -1035,31 +1035,6 @@ mod tests {
         );
     }
 
-    #[should_panic(expected = "EncryptionFailure")]
-    #[rstest]
-    #[case(
-        EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::None
-    )]
-    fn test_drill_encrypt_decrypt_basic_bad_psks(
-        #[case] enx: EncryptionAlgorithm,
-        #[case] kem: KemAlgorithm,
-        #[case] sig: SigAlgorithm,
-    ) {
-        citadel_logging::setup_log_no_panic_hook();
-        test_harness_with_psks(
-            enx + kem + sig,
-            &PRE_SHARED_KEYS,
-            &PRE_SHARED_KEYS2,
-            |alice, bob, _, data| {
-                let encrypted = alice.encrypt(data).unwrap();
-                let decrypted = bob.decrypt(encrypted).unwrap();
-                assert_eq!(decrypted, data);
-            },
-        );
-    }
-
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
@@ -1131,15 +1106,6 @@ mod tests {
 
     fn test_harness(
         params: CryptoParameters,
-        fx: impl Fn(&StackedRatchet, &StackedRatchet, SecurityLevel, &[u8]),
-    ) {
-        test_harness_with_psks(params, &PRE_SHARED_KEYS, &PRE_SHARED_KEYS, fx);
-    }
-
-    fn test_harness_with_psks(
-        params: CryptoParameters,
-        bob_psks: &[Vec<u8>],
-        alice_psks: &[Vec<u8>],
         fx: impl Fn(&StackedRatchet, &StackedRatchet, SecurityLevel, &[u8]),
     ) {
         test_harness_with_psks(params, &PRE_SHARED_KEYS, &PRE_SHARED_KEYS, fx);

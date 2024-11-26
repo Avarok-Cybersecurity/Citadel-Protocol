@@ -108,7 +108,9 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
     setup_bind(addr, &socket, reuse)?;
     socket.listen(1024)?;
     let std_tcp_socket: std::net::TcpListener = socket.into();
-    Ok(citadel_io::TcpListener::from_std(std_tcp_socket)?)
+    Ok(citadel_io::tokio::net::TcpListener::from_std(
+        std_tcp_socket,
+    )?)
 }
 
 async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(

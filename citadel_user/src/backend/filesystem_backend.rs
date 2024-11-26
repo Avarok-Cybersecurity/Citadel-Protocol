@@ -12,7 +12,6 @@ use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio;
 use citadel_io::tokio_stream::StreamExt;
-use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;

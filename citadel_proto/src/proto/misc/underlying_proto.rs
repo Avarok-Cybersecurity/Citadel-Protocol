@@ -51,7 +51,7 @@ impl ServerUnderlyingProtocol {
     /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`std::net::TcpListener`]
     pub fn from_std_tcp_listener(listener: TcpListener) -> Result<Self, NetworkError> {
         listener.set_nonblocking(true)?;
-        Self::from_tokio_tcp_listener(tokio::net::TcpListener::from_std(listener)?)
+        Self::from_tokio_tcp_listener(citadel_io::tokio::net::TcpListener::from_std(listener)?)
     }
 
     /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`citadel_io::tokio::net::TcpListener`]

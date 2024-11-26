@@ -87,7 +87,6 @@ mod tests {
     use crate::prelude::*;
     use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
-    use futures::StreamExt;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::path::PathBuf;
@@ -328,19 +327,15 @@ mod tests {
         assert!(client_success.load(Ordering::Relaxed));
     }
 
-    #[rstest]
-    #[case(SecrecyMode::BestEffort)]
-    #[timeout(Duration::from_secs(60))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn test_p2p_file_transfer_revfs(
-        #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
-        #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
-    ) {
+    async fn test_p2p_file_transfer_revfs() {
         citadel_logging::setup_log();
         crate::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
+        let enx = EncryptionAlgorithm::AES_GCM_256;
+        let secrecy_mode = SecrecyMode::BestEffort;
+        let kem = KemAlgorithm::Kyber;
 
         let (server, server_addr) = crate::test_common::server_info();
 

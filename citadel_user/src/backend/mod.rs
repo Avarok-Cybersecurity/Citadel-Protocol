@@ -14,10 +14,10 @@ use crate::backend::sql_backend::SqlConnectionOptions;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user;
 use citadel_types::user::MutualPeer;
-use tokio::sync::mpsc::UnboundedSender;
 
 /// Implementation for the default filesystem backend
 #[cfg(feature = "filesystem")]
@@ -289,7 +289,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Streams an object to the backend
     async fn stream_object_to_backend(
         &self,
-        source: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+        source: UnboundedReceiver<Vec<u8>>,
         sink_metadata: &VirtualObjectMetadata,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError>;

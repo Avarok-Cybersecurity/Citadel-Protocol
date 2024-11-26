@@ -290,6 +290,11 @@ args = ["test", "--package", "citadel_sdk", "--doc"]
 command = "cargo"
 args = ["install", "cargo-wasix"]
 
+[tasks.wasix-fix]
+description = "If you have a wasix error, run this task to potentially fix it"
+command = "cargo"
+args = ["wasix", "download-toolchain"]
+
 [tasks.wasix]
 command = "cargo"
 args = ["--config=Cargo.wasix.toml", "wasix", "${@}", "--profile=wasix"]

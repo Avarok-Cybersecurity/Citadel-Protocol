@@ -23,7 +23,8 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
     remote: Option<NodeRemote>,
     server_password: Option<PreSharedKey>,
     rx_incoming_object_transfer_handle: Mutex<Option<FileTransferHandleRx>>,
-    tx_incoming_object_transfer_handle: tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
+    tx_incoming_object_transfer_handle:
+        citadel_io::tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
 }
@@ -52,10 +53,10 @@ where
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     fn generate_object_transfer_handle() -> (
-        tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
+        citadel_io::tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
         Mutex<Option<FileTransferHandleRx>>,
     ) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let rx = FileTransferHandleRx {
             inner: rx,
             conn_type: VirtualTargetType::LocalGroupServer { implicated_cid: 0 },
@@ -110,7 +111,6 @@ where
             tx_incoming_object_transfer_handle,
             server_password,
             remote: None,
-            server_password,
             _pd: Default::default(),
         }
     }
@@ -325,7 +325,6 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             client_settings,
-            None,
             |channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
