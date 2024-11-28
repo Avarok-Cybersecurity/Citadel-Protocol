@@ -78,15 +78,14 @@ pub async fn delete<R: Into<PathBuf> + Send>(
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prefabs::server::accept_file_transfer_kernel::{
-        exhaust_file_transfer, AcceptFileTransferKernel,
-    };
+    use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
     use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
     use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
+    use futures::StreamExt;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::path::PathBuf;
@@ -109,7 +108,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    #[timeout(std::time::Duration::from_secs(90))]
+    #[timeout(Duration::from_secs(90))]
     #[citadel_io::tokio::test]
     async fn test_c2s_file_transfer_revfs(
         #[case] enx: EncryptionAlgorithm,
@@ -131,7 +130,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .disable_udp()
                 .with_session_security_settings(session_security_settings)
                 .build()
@@ -204,7 +203,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .disable_udp()
                 .with_session_security_settings(session_security_settings)
                 .build()
@@ -279,7 +278,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .disable_udp()
                 .with_session_security_settings(session_security_settings)
                 .build()
@@ -327,15 +326,19 @@ mod tests {
         assert!(client_success.load(Ordering::Relaxed));
     }
 
+    #[rstest]
+    #[case(SecrecyMode::BestEffort)]
+    #[timeout(Duration::from_secs(60))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn test_p2p_file_transfer_revfs() {
+    async fn test_p2p_file_transfer_revfs(
+        #[case] secrecy_mode: SecrecyMode,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
+        #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
+    ) {
         citadel_logging::setup_log();
         crate::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
-        let enx = EncryptionAlgorithm::AES_GCM_256;
-        let secrecy_mode = SecrecyMode::BestEffort;
-        let kem = KemAlgorithm::Kyber;
 
         let (server, server_addr) = crate::test_common::server_info();
 
@@ -352,16 +355,23 @@ mod tests {
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
                 .disable_udp()
                 .with_session_security_settings(session_security)
                 .build()
                 .unwrap();
 
+        let peer_conn_0 = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid1)
+            .ensure_registered()
+            .with_session_security_settings(session_security)
+            .enable_udp()
+            .add();
+
         // TODO: SinglePeerConnectionKernel
         let client_kernel0 = PeerConnectionKernel::new(
             server_connection_settings,
-            uuid1,
+            peer_conn_0,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
@@ -400,15 +410,22 @@ mod tests {
         );
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
                 .disable_udp()
                 .with_session_security_settings(session_security)
                 .build()
                 .unwrap();
 
+        let peer_conn_1 = PeerConnectionSetupAggregator::default()
+            .with_peer_custom(uuid0)
+            .ensure_registered()
+            .with_session_security_settings(session_security)
+            .enable_udp()
+            .add();
+
         let client_kernel1 = PeerConnectionKernel::new(
             server_connection_settings,
-            uuid0,
+            peer_conn_1,
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
@@ -473,6 +490,24 @@ mod tests {
                 }
 
                 exhaust_file_transfer(handle);
+            }
+        });
+
+        drop(handle);
+    }
+
+    pub fn exhaust_file_transfer(mut handle: ObjectTransferHandler) {
+        // Exhaust the stream
+        let handle = citadel_io::tokio::task::spawn(async move {
+            while let Some(evt) = handle.next().await {
+                log::info!(target: "citadel", "File Transfer Event: {evt:?}");
+                if let ObjectTransferStatus::Fail(err) = &evt {
+                    log::error!(target: "citadel", "File Transfer Failed: {err:?}");
+                } else if let ObjectTransferStatus::TransferComplete = &evt {
+                    break;
+                } else if let ObjectTransferStatus::ReceptionComplete = &evt {
+                    break;
+                }
             }
         });
 

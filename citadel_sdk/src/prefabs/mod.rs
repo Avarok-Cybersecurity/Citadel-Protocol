@@ -71,7 +71,7 @@ impl TargetLockedRemote for ClientServerRemote {
     fn remote(&self) -> &NodeRemote {
         &self.inner
     }
-    fn target_username(&self) -> Option<&String> {
+    fn target_username(&self) -> Option<&str> {
         None
     }
     fn user_mut(&mut self) -> &mut VirtualTargetType {

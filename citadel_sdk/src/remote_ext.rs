@@ -41,7 +41,7 @@ pub(crate) mod user_ids {
     pub trait TargetLockedRemote: Send + Sync {
         fn user(&self) -> &VirtualTargetType;
         fn remote(&self) -> &NodeRemote;
-        fn target_username(&self) -> Option<&String>;
+        fn target_username(&self) -> Option<&str>;
         fn user_mut(&mut self) -> &mut VirtualTargetType;
         fn session_security_settings(&self) -> Option<&SessionSecuritySettings>;
     }
@@ -53,8 +53,8 @@ pub(crate) mod user_ids {
         fn remote(&self) -> &NodeRemote {
             self.remote
         }
-        fn target_username(&self) -> Option<&String> {
-            self.target_username.as_ref()
+        fn target_username(&self) -> Option<&str> {
+            self.target_username.as_deref()
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
@@ -72,8 +72,8 @@ pub(crate) mod user_ids {
         fn remote(&self) -> &NodeRemote {
             &self.remote
         }
-        fn target_username(&self) -> Option<&String> {
-            self.target_username.as_ref()
+        fn target_username(&self) -> Option<&str> {
+            self.target_username.as_deref()
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
@@ -555,22 +555,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(event) = stream.next().await {
             match map_errors(event)? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    while let Some(res) = handle.next().await {
-                        log::trace!(target: "citadel", "Client received RES {res:?}");
-                        match res {
-                            ObjectTransferStatus::TransferComplete => {
-                                return Ok(());
-                            }
-
-                            ObjectTransferStatus::Fail(err) => {
-                                return Err(NetworkError::Generic(format!(
-                                    "File transfer failed: {err:?}"
-                                )));
-                            }
-
-                            _ => {}
-                        }
-                    }
+                    return handle
+                        .transfer_file()
+                        .await
+                        .map_err(|err| NetworkError::Generic(err.into_string()));
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -656,28 +644,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(event) = stream.next().await {
             match map_errors(event)? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    let mut local_path = None;
-                    while let Some(res) = handle.next().await {
-                        match res {
-                            ObjectTransferStatus::ReceptionBeginning(path, _) => {
-                                local_path = Some(path)
-                            }
-                            ObjectTransferStatus::TransferComplete => {
-                                break;
-                            }
-
-                            ObjectTransferStatus::Fail(err) => {
-                                return Err(NetworkError::Generic(format!(
-                                    "File download failed: {err:?}"
-                                )));
-                            }
-
-                            _ => {}
-                        }
-                    }
-
-                    return local_path
-                        .ok_or(NetworkError::InternalError("Local path never loaded"));
+                    return handle
+                        .receive_file()
+                        .await
+                        .map_err(|err| NetworkError::Generic(err.into_string()));
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -717,10 +687,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(event) = stream.next().await {
             match map_errors(event)? {
                 NodeResult::ReVFS(result) => {
-                    if let Some(error) = result.error_message {
-                        return Err(NetworkError::Generic(error));
+                    return if let Some(error) = result.error_message {
+                        Err(NetworkError::Generic(error))
                     } else {
-                        return Ok(());
+                        Ok(())
                     }
                 }
 
@@ -765,7 +735,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     channel,
                     udp_rx_opt,
                 }) => {
-                    let username = self.target_username().cloned();
+                    let username = self.target_username().map(ToString::to_string);
                     let remote = PeerRemote {
                         inner: self.remote().clone(),
                         peer: peer_target.as_virtual_connection(),
@@ -823,7 +793,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .get_username_by_cid(implicated_cid)
             .await?
             .ok_or_else(|| NetworkError::msg("Unable to find username for local user"))?;
-        let peer_username_opt = self.target_username().cloned();
+        let peer_username_opt = self.target_username().map(ToString::to_string);
 
         let mut stream = self
             .remote()
@@ -1137,14 +1107,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             // where the username was provided, but the cid was 0 (unknown).
             let peer_username = self
                 .target_username()
-                .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?
-                .clone();
+                .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?;
             let implicated_cid = self.user().get_implicated_cid();
             let expected_peer_cid = self
                 .remote()
                 .account_manager()
                 .get_persistence_handler()
-                .get_cid_by_username(&peer_username);
+                .get_cid_by_username(peer_username);
             // get the peer cid from the account manager (implying the peers are already registered).
             // fallback to the mapped cid if the peer is not registered
             let peer_cid = self
@@ -1253,8 +1222,8 @@ pub mod remote_specialization {
         fn remote(&self) -> &NodeRemote {
             &self.inner
         }
-        fn target_username(&self) -> Option<&String> {
-            self.username.as_ref()
+        fn target_username(&self) -> Option<&str> {
+            self.username.as_deref()
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.peer
@@ -1376,7 +1345,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_session_security_settings(session_security_settings)
                 .disable_udp()
                 .build()

@@ -3,12 +3,13 @@ use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::tokio::sync::mpsc::{Receiver, UnboundedSender};
-use citadel_io::Mutex;
+use citadel_io::{tokio, Mutex};
 use citadel_proto::re_imports::async_trait;
 use citadel_user::hypernode_account::UserIdentifierExt;
 use futures::stream::FuturesUnordered;
-use futures::{Future, TryStreamExt};
+use futures::TryStreamExt;
 use std::collections::HashMap;
+use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -38,6 +39,27 @@ struct PeerContext {
 pub struct FileTransferHandleRx {
     pub inner: citadel_io::tokio::sync::mpsc::UnboundedReceiver<ObjectTransferHandler>,
     pub conn_type: VirtualTargetType,
+}
+
+impl FileTransferHandleRx {
+    /// Accepts all incoming file transfer handles and processes them in the background
+    pub fn accept_all(mut self) {
+        let task = tokio::task::spawn(async move {
+            let rx = &mut self.inner;
+            while let Some(mut handle) = rx.recv().await {
+                let task = tokio::task::spawn(async move {
+                    if let Err(err) = handle.exhaust_stream().await {
+                        let orientation = handle.orientation;
+                        log::warn!(target: "citadel", "Error background handling of file transfer for {orientation:?}: {err:?}");
+                    }
+                });
+
+                drop(task);
+            }
+        });
+
+        drop(task);
+    }
 }
 
 impl std::ops::Deref for FileTransferHandleRx {
@@ -192,6 +214,16 @@ impl AddedPeer {
     pub fn with_udp_mode(mut self, udp_mode: UdpMode) -> Self {
         self.udp_mode = Some(udp_mode);
         self
+    }
+
+    /// Disables the UDP mode for the client-to-server connection. The default setting is Disabled
+    pub fn disable_udp(self) -> Self {
+        self.with_udp_mode(UdpMode::Disabled)
+    }
+
+    /// Enables the UDP mode for the client-to-server connection. The default setting is Disabled
+    pub fn enable_udp(self) -> Self {
+        self.with_udp_mode(UdpMode::Enabled)
     }
 
     /// Sets the [`SessionSecuritySettings`] for this peer to peer connection
@@ -359,7 +391,7 @@ where
         for (mutually_registered, peer_to_connect) in
             peers_already_registered.into_iter().zip(peers_to_connect)
         {
-            // each task will be responsible for possibly registering to and connecting
+            // Each task will be responsible for possibly registering to and connecting
             // with the desired peer
             let remote = remote.clone();
             let PeerConnectionSettings {
@@ -378,6 +410,7 @@ where
                         remote.find_target(implicated_cid, id).await?
                     } else {
                         // TODO: optimize peer registration + connection in one go
+                        log::info!(target: "citadel", "{implicated_cid} proposing target {id:?} to central node");
                         let handle = remote.propose_target(implicated_cid, id.clone()).await?;
                         // if the peer is not yet registered to the central node, wait for it to become registered
                         // this is useful especially for testing purposes
@@ -393,8 +426,9 @@ where
                             }
                         }
 
+                        log::info!(target: "citadel", "{implicated_cid} registering to peer {id:?}");
                         let _reg_success = handle.register_to_peer().await?;
-                        log::info!(target: "citadel", "Peer {:?} registered || success -> now connecting", id);
+                        log::info!(target: "citadel", "{implicated_cid} registered to peer {id:?} registered || success -> now connecting");
                         handle
                     };
 
@@ -454,13 +488,16 @@ mod tests {
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
+    use crate::remote_ext::results::PeerConnectSuccess;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_io::tokio;
+    use citadel_io::tokio::sync::mpsc::{Receiver, UnboundedSender};
     use citadel_user::prelude::UserIdentifierExt;
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use rstest::rstest;
     use std::collections::HashMap;
+    use std::future::Future;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
     use uuid::Uuid;
@@ -505,6 +542,7 @@ mod tests {
             for peer in peers {
                 agg = agg
                     .with_peer_custom(peer)
+                    .ensure_registered()
                     .with_udp_mode(udp_mode)
                     .with_session_security_settings(SessionSecuritySettings::default())
                     .add();
@@ -520,31 +558,38 @@ mod tests {
                 .build()
                 .unwrap();
 
+            let username = username.clone();
+
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
                 agg.clone(),
-                move |mut results, mut remote| async move {
-                    let mut success = 0;
-                    let mut p2p_remotes = HashMap::new();
+                move |results, mut remote| async move {
+                    log::info!(target: "citadel", "***PEER {username} CONNECTED ***");
+                    let implicated_cid = remote.conn_type.get_implicated_cid();
+                    let check = move |conn: PeerConnectSuccess| async move {
+                        let implicated_cid = conn.channel.get_implicated_cid();
+                        let _mutual_peers = conn
+                            .remote
+                            .remote()
+                            .get_local_group_mutual_peers(implicated_cid)
+                            .await
+                            .unwrap();
+                        conn
+                    };
+                    let p2p_remotes = handle_peer_connect_successes(
+                        results,
+                        implicated_cid,
+                        peer_count,
+                        udp_mode,
+                        check,
+                    )
+                    .await
+                    .into_iter()
+                    .map(|r| (r.channel.get_peer_cid(), r.remote))
+                    .collect::<HashMap<_, _>>();
 
-                    while let Some(conn) = results.recv().await {
-                        log::trace!(target: "citadel", "User {} received {:?}", username, conn);
-                        let mut conn = conn?;
-                        crate::test_common::udp_mode_assertions(
-                            udp_mode,
-                            conn.udp_channel_rx.take(),
-                        )
-                        .await;
-                        success += 1;
-                        let _ =
-                            p2p_remotes.insert(conn.channel.get_peer_cid(), conn.remote.clone());
-                        if success == peer_count - 1 {
-                            break;
-                        }
-                    }
-
-                    // by now, all the network peers have been registered to
-                    // test that getting the peers (not necessarily mutual)
+                    // By now, all the network peers have been registered to.
+                    // Test that getting the peers (not necessarily mutual)
                     // show up
                     let network_peers = remote.get_peers(None).await.unwrap();
                     for user in agg.inner {
@@ -563,7 +608,7 @@ mod tests {
                         assert!(mutual_peers.iter().any(|r| r.cid == peer_cid))
                     }
 
-                    log::trace!(target: "citadel", "***PEER {} CONNECT RESULT: {}***", username, success);
+                    log::info!(target: "citadel", "***PEER {username} finished all checks***");
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
@@ -586,12 +631,13 @@ mod tests {
     #[case(3)]
     #[timeout(Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn peer_to_peer_connect_passwordless(
+    async fn peer_to_peer_connect_transient(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
+        let udp_mode = UdpMode::Enabled;
 
         let do_deregister = peer_count == 2;
 
@@ -612,33 +658,36 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
+            let mut agg = PeerConnectionSetupAggregator::default();
+
+            for peer in peers {
+                agg = agg
+                    .with_peer_custom(peer)
+                    .with_udp_mode(udp_mode)
+                    .ensure_registered()
+                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .add();
+            }
+
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
-                peers,
-                move |mut results, remote| async move {
-                    let mut success = 0;
+                agg,
+                move |results, remote| async move {
+                    log::info!(target: "citadel", "***PEER {uuid} CONNECTED***");
                     let implicated_cid = remote.conn_type.get_implicated_cid();
 
-                    while let Some(conn) = results.recv().await {
-                        log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let mut conn = conn?;
+                    let check = move |conn: PeerConnectSuccess| async move {
                         let peer_cid = conn.channel.get_peer_cid();
-
-                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
-
-                        crate::test_common::udp_mode_assertions(
-                            Default::default(),
-                            conn.udp_channel_rx.take(),
-                        )
-                        .await;
-
                         if do_deregister {
-                            conn.remote.deregister().await?;
+                            conn.remote
+                                .deregister()
+                                .await
+                                .expect("Deregistration failed");
                             assert!(!conn
                                 .remote
                                 .inner
@@ -648,21 +697,26 @@ mod tests {
                                 .await
                                 .unwrap());
                         }
+                        conn
+                    };
 
-                        success += 1;
-                        if success == peer_count - 1 {
-                            break;
-                        }
-                    }
+                    let _ = handle_peer_connect_successes(
+                        results,
+                        implicated_cid,
+                        peer_count,
+                        udp_mode,
+                        check,
+                    )
+                    .await;
 
-                    log::trace!(target: "citadel", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                    log::info!(target: "citadel", "***PEER {uuid} finished all checks***");
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
             );
 
-            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            let client = NodeBuilder::default().build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -681,16 +735,18 @@ mod tests {
 
     #[rstest]
     #[case(2)]
+    #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_file_transfer(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
+        let udp_mode = UdpMode::Enabled;
 
-        let client_success = &AtomicBool::new(false);
+        let sender_success = &AtomicBool::new(false);
         let receiver_success = &AtomicBool::new(false);
 
         let (server, server_addr) = server_info();
@@ -700,46 +756,59 @@ mod tests {
             .map(|_| Uuid::new_v4())
             .collect::<Vec<Uuid>>();
 
+        let sender_uuid = total_peers[0];
+
         for idx in 0..peer_count {
             let uuid = total_peers.get(idx).cloned().unwrap();
-            let peers = total_peers
+            let mut peers = total_peers
                 .clone()
                 .into_iter()
                 .filter(|r| r != &uuid)
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
+            // 0: [1, 2] <-- At idx 0, we want the sender to connect to all other peers
+            // 1: [0] <-- At idx 1, we want the receiver to connect to the sender
+            // 2: [0] <-- At idx 2, we want the receiver to connect to the sender
+            // ..
+            // n: [0] <-- At idx n, we want the receiver to connect to the sender
+            if idx != 0 {
+                peers = vec![sender_uuid.into()];
+            }
+
+            let mut agg = PeerConnectionSetupAggregator::default();
+
+            for peer in peers {
+                agg = agg
+                    .with_peer_custom(peer)
+                    .ensure_registered()
+                    .with_udp_mode(udp_mode)
+                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .add();
+            }
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
-                peers,
-                move |mut results, remote| async move {
-                    let mut success = 0;
+                agg,
+                move |results, remote| async move {
+                    log::info!(target: "citadel", "***PEER {uuid} CONNECTED***");
+                    wait_for_peers().await;
                     let implicated_cid = remote.conn_type.get_implicated_cid();
-
-                    while let Some(conn) = results.recv().await {
-                        log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        wait_for_peers().await;
-                        let mut conn = conn?;
-                        //let peer_cid = conn.channel.get_peer_cid();
-
-                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
-
-                        // one user will send the file, the other will receive the file
-                        if idx == 0 {
+                    let is_sender = idx == 0; // the first peer is the sender, the rest are receivers
+                    let check = move |mut conn: PeerConnectSuccess| async move {
+                        if is_sender {
                             conn.remote
                                 .send_file_with_custom_opts(
                                     "../resources/TheBridge.pdf",
                                     32 * 1024,
                                     TransferType::FileTransfer,
                                 )
-                                .await?;
-
-                            client_success.store(true, Ordering::Relaxed);
+                                .await
+                                .expect("Failed to send file");
                         } else {
                             // TODO: route file-transfer + other events to peer channel
                             let mut handle = conn
@@ -757,7 +826,6 @@ mod tests {
                             while let Some(status) = handle.next().await {
                                 match status {
                                     ObjectTransferStatus::ReceptionComplete => {
-                                        log::trace!(target: "citadel", "Peer has finished receiving the file!");
                                         let cmp =
                                             include_bytes!("../../../../resources/TheBridge.pdf");
                                         let streamed_data =
@@ -770,6 +838,7 @@ mod tests {
                                             "Original data and streamed data does not match"
                                         );
 
+                                        log::info!(target: "citadel", "Peer has finished receiving and verifying the file!");
                                         break;
                                     }
 
@@ -781,18 +850,31 @@ mod tests {
                                     _ => {}
                                 }
                             }
-
-                            receiver_success.store(true, Ordering::Relaxed);
                         }
 
-                        success += 1;
-                        if success == peer_count - 1 {
-                            break;
-                        }
+                        conn
+                    };
+                    // Use a peer count of two since we only have one sender and one receiver per pair
+                    // However, we need a way of ensuring we collect three results
+                    let peer_count = if idx == 0 { peer_count } else { 2 };
+                    let _ = handle_peer_connect_successes(
+                        results,
+                        implicated_cid,
+                        peer_count,
+                        udp_mode,
+                        check,
+                    )
+                    .await;
+
+                    if is_sender {
+                        sender_success.store(true, Ordering::Relaxed);
+                    } else {
+                        receiver_success.store(true, Ordering::Relaxed);
                     }
 
-                    log::trace!(target: "citadel", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                    log::info!(target: "citadel", "***PEER {uuid} (is_sender: {is_sender}) finished all checks***");
                     wait_for_peers().await;
+                    log::info!(target: "citadel", "***PEER {uuid} (is_sender: {is_sender}) shutting down***");
                     remote.shutdown_kernel().await
                 },
             );
@@ -810,7 +892,7 @@ mod tests {
             };
         }
 
-        assert!(client_success.load(Ordering::Relaxed));
+        assert!(sender_success.load(Ordering::Relaxed));
         assert!(receiver_success.load(Ordering::Relaxed));
         Ok(())
     }
@@ -818,13 +900,14 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_rekey(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
+        let udp_mode = UdpMode::Enabled;
 
         let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
@@ -843,36 +926,51 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
+            let mut agg = PeerConnectionSetupAggregator::default();
+
+            for peer in peers {
+                agg = agg
+                    .with_peer_custom(peer)
+                    .ensure_registered()
+                    .with_udp_mode(udp_mode)
+                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .add();
+            }
+
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
-                peers,
-                move |mut results, remote| async move {
-                    let mut success = 0;
+                agg,
+                move |results, remote| async move {
+                    log::info!(target: "citadel", "***PEER {uuid} CONNECTED***");
                     let implicated_cid = remote.conn_type.get_implicated_cid();
 
-                    while let Some(conn) = results.recv().await {
-                        log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let conn = conn?;
-                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
-
+                    let check = move |conn: PeerConnectSuccess| async move {
                         if idx == 0 {
                             for x in 1..10 {
-                                assert_eq!(conn.remote.rekey().await?, Some(x));
+                                assert_eq!(
+                                    conn.remote.rekey().await.expect("Failed to rekey"),
+                                    Some(x)
+                                );
                             }
                         }
 
-                        success += 1;
-                        if success == peer_count - 1 {
-                            break;
-                        }
-                    }
+                        conn
+                    };
+                    let _ = handle_peer_connect_successes(
+                        results,
+                        implicated_cid,
+                        peer_count,
+                        udp_mode,
+                        check,
+                    )
+                    .await;
 
-                    log::trace!(target: "citadel", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                    log::info!(target: "citadel", "***PEER {uuid} finished all checks***");
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
@@ -899,13 +997,14 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_disconnect(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
         TestBarrier::setup(peer_count);
+        let udp_mode = UdpMode::Enabled;
 
         let client_success = &AtomicUsize::new(0);
         let (server, server_addr) = server_info();
@@ -924,30 +1023,46 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
+            let mut agg = PeerConnectionSetupAggregator::default();
+
+            for peer in peers {
+                agg = agg
+                    .with_peer_custom(peer)
+                    .ensure_registered()
+                    .with_udp_mode(udp_mode)
+                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .add();
+            }
+
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
-                peers,
-                move |mut results, remote| async move {
-                    let mut success = 0;
+                agg,
+                move |results, remote| async move {
+                    log::info!(target: "citadel", "***PEER {uuid} CONNECTED***");
                     let implicated_cid = remote.conn_type.get_implicated_cid();
 
-                    while let Some(conn) = results.recv().await {
-                        log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
-                        let conn = conn?;
-                        crate::test_common::p2p_assertions(implicated_cid, &conn).await;
-                        conn.remote.disconnect().await?;
-                        success += 1;
-                        if success == peer_count - 1 {
-                            break;
-                        }
-                    }
+                    let check = move |conn: PeerConnectSuccess| async move {
+                        conn.remote
+                            .disconnect()
+                            .await
+                            .expect("Failed to p2p disconnect");
+                        conn
+                    };
+                    let _ = handle_peer_connect_successes(
+                        results,
+                        implicated_cid,
+                        peer_count,
+                        udp_mode,
+                        check,
+                    )
+                    .await;
+                    log::info!(target: "citadel", "***PEER {uuid} finished all checks***");
 
-                    log::trace!(target: "citadel", "***PEER {} CONNECT RESULT: {}***", uuid, success);
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
@@ -997,6 +1112,7 @@ mod tests {
 
         let mut peer0_agg = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid1)
+            .ensure_registered()
             .with_session_security_settings(session_security);
 
         if let Some(password) = p2p_password {
@@ -1007,6 +1123,7 @@ mod tests {
 
         let mut peer1_agg = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid0)
+            .ensure_registered()
             .with_session_security_settings(session_security);
 
         if let Some(_password) = p2p_password {
@@ -1016,14 +1133,14 @@ mod tests {
         let peer1_connection = peer1_agg.add();
 
         let server_connection_settings0 =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
                 .unwrap();
 
         let server_connection_settings1 =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -1077,5 +1194,84 @@ mod tests {
 
         assert!(!peer_0_error_received.load(Ordering::SeqCst));
         assert!(!peer_1_error_received.load(Ordering::SeqCst));
+    }
+
+    async fn handle_peer_connect_successes<F, Fut>(
+        mut conn_rx: Receiver<Result<PeerConnectSuccess, NetworkError>>,
+        implicated_cid: u64,
+        peer_count: usize,
+        udp_mode: UdpMode,
+        checks: F,
+    ) -> Vec<PeerConnectSuccess>
+    where
+        F: for<'a> Fn(PeerConnectSuccess) -> Fut + Send + Clone + 'static,
+        Fut: Future<Output = PeerConnectSuccess> + Send,
+    {
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+
+        let task = async move {
+            let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel();
+            let mut conns = vec![];
+            while let Some(conn) = conn_rx.recv().await {
+                conns.push(conn);
+                if conns.len() == peer_count - 1 {
+                    break;
+                }
+            }
+
+            for conn in conns {
+                let conn = conn.expect("Error receiving peer connection");
+                handle_peer_connect_success(
+                    conn,
+                    done_tx.clone(),
+                    implicated_cid,
+                    udp_mode,
+                    checks.clone(),
+                );
+            }
+
+            // Now, wait for all to finish
+            let mut ret = vec![];
+            while let Some(done) = done_rx.recv().await {
+                ret.push(done);
+                if ret.len() == peer_count - 1 {
+                    break;
+                }
+            }
+
+            finished_tx
+                .send(ret)
+                .expect("Error sending finished signal in handle_peer_connect_successes");
+        };
+
+        drop(tokio::task::spawn(task));
+        let ret = finished_rx
+            .await
+            .expect("Error receiving finished signal in handle_peer_connect_successes");
+
+        assert_eq!(ret.len(), peer_count - 1);
+        ret
+    }
+
+    fn handle_peer_connect_success<F, Fut>(
+        mut conn: PeerConnectSuccess,
+        done_tx: UnboundedSender<PeerConnectSuccess>,
+        implicated_cid: u64,
+        udp_mode: UdpMode,
+        checks: F,
+    ) where
+        F: Fn(PeerConnectSuccess) -> Fut + Send + Clone + 'static,
+        Fut: Future<Output = PeerConnectSuccess> + Send,
+    {
+        let task = async move {
+            crate::test_common::p2p_assertions(implicated_cid, &conn).await;
+            crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx.take()).await;
+            let conn = checks(conn).await;
+            done_tx
+                .send(conn)
+                .expect("Error sending done signal in handle_peer_connect_success");
+        };
+
+        drop(tokio::task::spawn(task));
     }
 }

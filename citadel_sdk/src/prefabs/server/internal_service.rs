@@ -133,7 +133,7 @@ mod test {
             });
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_bind_addr, Uuid::new_v4())
+            ServerConnectionSettingsBuilder::transient_with_id(server_bind_addr, Uuid::new_v4())
                 .build()
                 .unwrap();
 
@@ -214,7 +214,7 @@ mod test {
         });
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_bind_addr, Uuid::new_v4())
+            ServerConnectionSettingsBuilder::transient_with_id(server_bind_addr, Uuid::new_v4())
                 .build()
                 .unwrap();
 
@@ -262,7 +262,7 @@ mod test {
                         Ok(())
                     },
                 )
-                .await
+                    .await
             },
         );
 

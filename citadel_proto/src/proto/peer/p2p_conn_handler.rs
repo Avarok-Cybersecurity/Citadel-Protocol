@@ -18,6 +18,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_types::prelude::UdpMode;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -75,6 +76,7 @@ async fn setup_listener_non_initiator(
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
+    udp_mode: UdpMode,
 ) -> Result<(), NetworkError> {
     // TODO: use custom self-signed
     let (listener, _) = Node::create_listen_socket(
@@ -90,6 +92,7 @@ async fn setup_listener_non_initiator(
         v_conn,
         hole_punched_addr,
         ticket,
+        udp_mode,
     )
     .await
 }
@@ -101,6 +104,7 @@ async fn p2p_conn_handler(
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
+    udp_mode: UdpMode,
 ) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
     let implicated_cid = session.implicated_cid.clone();
@@ -115,12 +119,6 @@ async fn p2p_conn_handler(
             let session = CitadelSession::upgrade_weak(weak)
                 .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
 
-            /*
-            if p2p_stream.peer_addr()?.ip() != necessary_remote_addr.ip() {
-                log::warn!(target: "citadel", "Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
-                continue;
-            }*/
-
             handle_p2p_stream(
                 p2p_stream,
                 implicated_cid,
@@ -130,6 +128,7 @@ async fn p2p_conn_handler(
                 v_conn,
                 hole_punched_addr,
                 ticket,
+                udp_mode,
             )?;
             Ok(())
         }
@@ -159,6 +158,7 @@ fn handle_p2p_stream(
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
+    udp_mode: UdpMode,
 ) -> std::io::Result<()> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
     // logged-in. However, what if a malicious user decides to connect here?
@@ -205,14 +205,17 @@ fn handle_p2p_stream(
     state_container
         .insert_direct_p2p_connection(direct_p2p_remote, v_conn.get_target_cid())
         .map_err(|err| generic_error(err.into_string()))?;
-    CitadelSession::udp_socket_loader(
-        sess.clone(),
-        v_conn,
-        UdpSplittableTypes::Quic(udp_conn),
-        hole_punched_addr,
-        ticket,
-        None,
-    );
+
+    if udp_mode == UdpMode::Enabled {
+        CitadelSession::udp_socket_loader(
+            sess.clone(),
+            v_conn,
+            UdpSplittableTypes::Quic(udp_conn),
+            hole_punched_addr,
+            ticket,
+            None,
+        );
+    }
 
     std::mem::drop(state_container);
 
@@ -283,7 +286,15 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 }
 
 /// Both sides need to begin this process at `sync_time`
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid()
+    )
+))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn attempt_simultaneous_hole_punch(
     peer_connection_type: PeerConnectionType,
@@ -297,6 +308,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
     app: NetworkEndpoint,
     encrypted_config_container: HolePunchConfigContainer,
     client_config: Arc<rustls::ClientConfig>,
+    udp_mode: UdpMode,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
@@ -346,13 +358,14 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
                 v_conn,
                 addr,
                 ticket,
+                udp_mode,
             )
         } else {
             log::trace!(target: "citadel", "Non-initiator will begin listening immediately");
             drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
-            setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket)
+            setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket, udp_mode)
                 .await
-                .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
+                .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
         }
     };
 

@@ -77,13 +77,20 @@ pub struct ServerConnectionSettingsBuilder<T: ToSocketAddrs = String> {
     address: Option<T>,
     udp_mode: Option<UdpMode>,
     session_security_settings: Option<SessionSecuritySettings>,
-    authless_uuid: Option<Uuid>,
+    transient_uuid: Option<Uuid>,
     is_connect: bool,
 }
 
 impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
-    /// Creates a new connection to a central server that uses no credentialed authentication, only a secure channel
-    pub fn no_credentials(addr: T, id: Uuid) -> Self {
+    /// Creates a new connection to a central server that does not persist client metadata and account information
+    /// after the connection is dropped to the server. This is ideal for applications that do not require
+    /// persistence.
+    pub fn transient(addr: T) -> Self {
+        Self::transient_with_id(addr, Uuid::new_v4())
+    }
+
+    /// See docs for `transient`. This function allows you to specify a custom UUID for the transient connection.
+    pub fn transient_with_id(addr: T, id: impl Into<Uuid>) -> Self {
         Self {
             password: None,
             username: None,
@@ -91,7 +98,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             session_security_settings: None,
             name: None,
             psk: None,
-            authless_uuid: Some(id),
+            transient_uuid: Some(id.into()),
             address: Some(addr),
             is_connect: false,
         }
@@ -110,7 +117,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             username: Some(username.into()),
             name: Some(alias.into()),
             psk: None,
-            authless_uuid: None,
+            transient_uuid: None,
             address: Some(addr),
             udp_mode: None,
             session_security_settings: None,
@@ -129,7 +136,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             username: Some(username.into()),
             name: None,
             psk: None,
-            authless_uuid: None,
+            transient_uuid: None,
             address: Some(addr),
             udp_mode: None,
             session_security_settings: None,
@@ -154,6 +161,10 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
         self.with_udp_mode(UdpMode::Disabled)
     }
 
+    pub fn enable_udp(self) -> Self {
+        self.with_udp_mode(UdpMode::Enabled)
+    }
+
     /// Adds a session security settings to the client-to-server connection. This is necessary for the server to know how to handle the connection.
     pub fn with_session_security_settings<V: Into<SessionSecuritySettings>>(
         mut self,
@@ -176,8 +187,8 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             None
         };
 
-        if let Some(uuid) = self.authless_uuid {
-            Ok(ServerConnectionSettings::NoCredentials {
+        if let Some(uuid) = self.transient_uuid {
+            Ok(ServerConnectionSettings::Transient {
                 server_addr: server_addr
                     .ok_or(NetworkError::Generic("No address found".to_string()))?,
                 uuid,
@@ -220,7 +231,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
 
 /// The settings for a client-to-server connection
 pub enum ServerConnectionSettings {
-    NoCredentials {
+    Transient {
         server_addr: SocketAddr,
         uuid: Uuid,
         udp_mode: UdpMode,
@@ -248,7 +259,7 @@ pub enum ServerConnectionSettings {
 impl ServerConnectionSettings {
     pub(crate) fn udp_mode(&self) -> UdpMode {
         match self {
-            Self::NoCredentials { udp_mode, .. } => *udp_mode,
+            Self::Transient { udp_mode, .. } => *udp_mode,
             Self::CredentialedRegister { udp_mode, .. } => *udp_mode,
             Self::CredentialedConnect { udp_mode, .. } => *udp_mode,
         }
@@ -256,7 +267,7 @@ impl ServerConnectionSettings {
 
     pub(crate) fn session_security_settings(&self) -> SessionSecuritySettings {
         match self {
-            Self::NoCredentials {
+            Self::Transient {
                 session_security_settings,
                 ..
             } => *session_security_settings,
@@ -273,7 +284,7 @@ impl ServerConnectionSettings {
 
     pub(crate) fn pre_shared_key(&self) -> Option<&PreSharedKey> {
         match self {
-            Self::NoCredentials { pre_shared_key, .. } => pre_shared_key.as_ref(),
+            Self::Transient { pre_shared_key, .. } => pre_shared_key.as_ref(),
             Self::CredentialedRegister { pre_shared_key, .. } => pre_shared_key.as_ref(),
             Self::CredentialedConnect { pre_shared_key, .. } => pre_shared_key.as_ref(),
         }

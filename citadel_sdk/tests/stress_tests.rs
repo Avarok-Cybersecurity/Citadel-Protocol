@@ -243,7 +243,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -316,7 +316,7 @@ mod tests {
             .unwrap();
 
         let mut connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security);
 
@@ -402,7 +402,7 @@ mod tests {
         let peer1_connection = peer1_agg.add();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid0)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -425,7 +425,7 @@ mod tests {
         );
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid1)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -506,7 +506,7 @@ mod tests {
             };
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 

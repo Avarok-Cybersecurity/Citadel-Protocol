@@ -423,7 +423,7 @@ mod tests {
             };
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
@@ -505,7 +505,7 @@ mod tests {
                 .collect::<Vec<UserIdentifier>>();
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 

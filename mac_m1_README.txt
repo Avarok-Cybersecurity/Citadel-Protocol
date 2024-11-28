@@ -1,4 +1,4 @@
-Clang 13 is required to compile oqs + liboqs
+Clang 13+ is required to compile oqs + liboqs
 
 Install [rust](https://www.rust-lang.org/tools/install).
 

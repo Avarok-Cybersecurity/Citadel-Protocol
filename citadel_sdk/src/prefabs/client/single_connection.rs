@@ -41,7 +41,7 @@ pub(crate) enum ConnectionType {
         username: String,
         password: SecBuffer,
     },
-    Passwordless {
+    Transient {
         uuid: Uuid,
         server_addr: SocketAddr,
     },
@@ -78,11 +78,11 @@ where
                 username, password, ..
             } => ConnectionType::Connect { username, password },
 
-            ServerConnectionSettings::NoCredentials {
+            ServerConnectionSettings::Transient {
                 server_addr: address,
                 uuid,
                 ..
-            } => ConnectionType::Passwordless {
+            } => ConnectionType::Transient {
                 uuid,
                 server_addr: address,
             },
@@ -174,8 +174,8 @@ where
                 AuthenticationRequest::credentialed(username, password)
             }
 
-            ConnectionType::Passwordless { uuid, server_addr } => {
-                AuthenticationRequest::passwordless(uuid, server_addr)
+            ConnectionType::Transient { uuid, server_addr } => {
+                AuthenticationRequest::transient(uuid, server_addr)
             }
         };
 
@@ -289,7 +289,8 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_registered(
         #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode,
-        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap())]
+        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap()
+        )]
         underlying_protocol: ServerUnderlyingProtocol,
     ) {
         citadel_logging::setup_log();
@@ -350,7 +351,7 @@ mod tests {
     #[case(UdpMode::Enabled, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(90))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn test_single_connection_passwordless(
+    async fn test_single_connection_transient(
         #[case] udp_mode: UdpMode,
         #[case] server_password: Option<&'static str>,
     ) {
@@ -373,7 +374,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let mut server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode);
 
         if let Some(server_password) = server_password {
@@ -410,7 +411,7 @@ mod tests {
     #[case(UdpMode::Enabled, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_single_connection_passwordless_wrong_password(
+    async fn test_single_connection_transient_wrong_password(
         #[case] udp_mode: UdpMode,
         #[case] server_password: Option<&'static str>,
     ) {
@@ -429,7 +430,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .with_session_password("wrong-password")
                 .build()
@@ -461,7 +462,7 @@ mod tests {
     #[case(UdpMode::Disabled)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn test_single_connection_passwordless_deregister(#[case] udp_mode: UdpMode) {
+    async fn test_single_connection_transient_deregister(#[case] udp_mode: UdpMode) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
 
@@ -478,7 +479,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .build()
                 .unwrap();
@@ -527,7 +528,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .build()
                 .unwrap();
@@ -605,7 +606,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::no_credentials(server_addr, uuid)
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .build()
                 .unwrap();

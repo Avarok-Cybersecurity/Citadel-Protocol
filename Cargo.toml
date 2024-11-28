@@ -3,38 +3,41 @@ resolver = "2"
 
 members = [
     "citadel_sdk",
-	"citadel_wire",
-	"citadel_user",
-	"citadel_crypt",
-	"async_ip",
-	"citadel_pqcrypto",
-	"citadel_proto",
+    "citadel_wire",
+    "citadel_user",
+    "citadel_crypt",
+    "async_ip",
+    "citadel_pqcrypto",
+    "citadel_proto",
     "firebase-rtdb",
     "netbeam",
-	"citadel_logging",
+    "citadel_logging",
     "citadel_io",
     "citadel_types",
+    "example-library",
 ]
 
 exclude = [
     "./target/*",
-    "./examples"
 ]
 
 [workspace.dependencies]
 # workspace deps
-citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.11.2" }
-citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.11.2" }
-citadel_user = { path = "./citadel_user", default-features = false, version = "0.11.2" }
-citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.11.2" }
-citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, version = "0.11.2" }
-citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.11.2" }
-citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.11.2" }
-citadel_io = { path = "./citadel_io", default-features = false, version = "0.11.2" }
-citadel_types = { path = "./citadel_types", default-features = false, version = "0.11.2" }
-netbeam = { path = "./netbeam", default-features = false, version = "0.11.2" }
-firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.11.2" }
-async_ip = { path = "./async_ip", default-features = false, version = "0.11.2" }
+citadel_sdk = { path = "./citadel_sdk", default-features = false }
+citadel_wire = { path = "./citadel_wire", default-features = false }
+citadel_user = { path = "./citadel_user", default-features = false }
+citadel_crypt = { path = "./citadel_crypt", default-features = false }
+citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false }
+citadel_proto = { path = "./citadel_proto", default-features = false }
+citadel_logging = { path = "./citadel_logging", default-features = false }
+citadel_io = { path = "./citadel_io", default-features = false }
+citadel_types = { path = "./citadel_types", default-features = false }
+netbeam = { path = "./netbeam", default-features = false }
+firebase-rtdb = { path = "./firebase-rtdb", default-features = false }
+async_ip = { path = "./async_ip", default-features = false }
+
+# examples
+citadel-examples = { path = "./example-library", default-features = false }
 
 # ordinary deps
 generic-array = { version = "0.14.6" }
@@ -50,7 +53,7 @@ getrandom = { version = "0.2.8", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
 oqs = { version = "0.9.0", default-features = false }
-pqcrypto-falcon-wasi = { version = "0.2.14", default-features=false}
+pqcrypto-falcon-wasi = { version = "0.2.14", default-features = false }
 pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
 tracing-subscriber = { version = "0.3.16" }
 reqwest_wasi = { version = "0.11.16", default-features = false }
@@ -65,9 +68,9 @@ sync_wrapper = { default-features = false, version = "1.0.0" }
 async-recursion = { version = "1.0.4" }
 rstest = { version = "0.23.0" }
 bincode = { default-features = false, version = "1.3.3" }
-serde = { version="1.0.152", default-features = false }
+serde = { version = "1.0.152", default-features = false }
 futures = { version = "0.3.25", default-features = false }
-byteorder = { version = "1.4.3", default-features=false }
+byteorder = { version = "1.4.3", default-features = false }
 num-integer = { default-features = false, version = "0.1.45" }
 arrayvec = { version = "0.7.2", default-features = false }
 bitvec = { default-features = false, version = "1.0.1" }
@@ -112,7 +115,7 @@ embedded-semver = { version = "0.3.0", default-features = false }
 auto_impl = { default-features = false, version = "1.0.1" }
 zerocopy = { default-features = false, version = "0.7.7" }
 atomic = { default-features = false, version = "0.6.0" }
-bytemuck = { default-features = false, version = "1.13.1"}
+bytemuck = { default-features = false, version = "1.13.1" }
 either = { default-features = false, version = "1.8.0" }
 once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.8.0" }

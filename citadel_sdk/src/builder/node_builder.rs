@@ -190,7 +190,7 @@ impl NodeBuilder {
         self
     }
 
-    /// Attaches miscellaneous server settings (e.g., passwordless mode, credential requirements)
+    /// Attaches miscellaneous server settings (e.g., transient mode, credential requirements)
     pub fn with_server_misc_settings(&mut self, misc_settings: ServerMiscSettings) -> &mut Self {
         self.server_misc_settings = Some(misc_settings);
         self
@@ -354,11 +354,14 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(60))]
     #[allow(clippy::let_underscore_must_use)]
     async fn test_options(
-        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap())]
+        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap()
+        )]
         underlying_protocol: ServerUnderlyingProtocol,
-        #[values(NodeType::Peer, NodeType::Server(std::net::SocketAddr::from_str("127.0.0.1:9999").unwrap()))]
+        #[values(NodeType::Peer, NodeType::Server(std::net::SocketAddr::from_str("127.0.0.1:9999").unwrap()
+        ))]
         node_type: NodeType,
-        #[values(KernelExecutorSettings::default(), KernelExecutorSettings::default().with_max_concurrency(2))]
+        #[values(KernelExecutorSettings::default(), KernelExecutorSettings::default().with_max_concurrency(2)
+        )]
         kernel_settings: KernelExecutorSettings,
         #[values(BackendType::InMemory, BackendType::new("file:/hello_world/path/").unwrap())]
         backend_type: BackendType,

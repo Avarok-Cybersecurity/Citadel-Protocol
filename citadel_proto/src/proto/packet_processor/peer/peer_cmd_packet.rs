@@ -625,6 +625,12 @@ pub async fn process_peer_cmd(
                                         )
                                     };
 
+                                    let udp_mode = if udp_rx_opt.is_some() {
+                                        UdpMode::Enabled
+                                    } else {
+                                        UdpMode::Disabled
+                                    };
+
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: ticket_for_chan.unwrap_or(ticket),
@@ -660,6 +666,7 @@ pub async fn process_peer_cmd(
                                             app,
                                             encrypted_config_container,
                                             client_config,
+                                            udp_mode,
                                         )
                                         .await;
                                     }
@@ -762,6 +769,12 @@ pub async fn process_peer_cmd(
                                         )
                                     };
 
+                                    let udp_mode = if udp_rx_opt.is_some() {
+                                        UdpMode::Enabled
+                                    } else {
+                                        UdpMode::Disabled
+                                    };
+
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: ticket_for_chan.unwrap_or(ticket),
@@ -810,6 +823,7 @@ pub async fn process_peer_cmd(
                                             app,
                                             encrypted_config_container,
                                             client_config,
+                                            udp_mode,
                                         )
                                         .await;
                                     }
@@ -1136,6 +1150,7 @@ async fn process_signal_command_as_server(
                                     )
                                     .await;
                             }
+                            drop(peer_layer_lock);
                             let peer_alert_signal = PeerSignal::DeregistrationSuccess {
                                 peer_conn_type: peer_conn_type.reverse(),
                             };

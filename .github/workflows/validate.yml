@@ -18,7 +18,7 @@ jobs:
   core_libs:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
@@ -40,7 +40,7 @@ jobs:
         run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2; set global max_connections = 1000;'
       - name: Augment connection size for psql
         if: startsWith(matrix.os, 'ubuntu')
-        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
+        run: psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
       - name: Add sqlite databases
         if: startsWith(matrix.os, 'ubuntu')
         run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
@@ -127,21 +127,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
-#      - name: Install Valgrind
-#        run: |
-#          sudo apt-get update -y
-#          sudo apt-get install -y valgrind
-#      # Compile tests
-#      - name: cargo build secmem_bytes_test
-#        run: cargo build --bin secmem_bytes_test
+      #      - name: Install Valgrind
+      #        run: |
+      #          sudo apt-get update -y
+      #          sudo apt-get install -y valgrind
+      #      # Compile tests
+      #      - name: cargo build secmem_bytes_test
+      #        run: cargo build --bin secmem_bytes_test
       # Run with valgrind
-#      - name: Run valgrind secmem_bytes
-#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
-#      - name: cargo build secmem_string_test
-#        run: cargo build --bin secmem_string_test
+      #      - name: Run valgrind secmem_bytes
+      #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
+      #      - name: cargo build secmem_string_test
+      #        run: cargo build --bin secmem_string_test
       # Run with valgrind
-#      - name: Run valgrind secmem_string
-#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+      #      - name: Run valgrind secmem_string
+      #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
       - run: cargo install --locked cargo-deny && cargo deny check all
       - run: rustup component add clippy-preview
@@ -149,25 +149,25 @@ jobs:
       - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
       - run: cargo clippy --features=webrtc,sql,redis -- -D warnings
       - run: cargo clippy --features=webrtc,sql,redis --release -- -D warnings
-      - run: cargo clippy --tests -- -D warnings
+      - run: cargo clippy --tests --examples -- -D warnings
       - run: cargo fmt --check
       - run: RUSTDOCFLAGS="-D warnings" cargo make docs
       - run: cargo test --package citadel_sdk --doc
       #      - name: cargo build pq_kems
-#        run: cargo build --bin pq_kems_test
-#      # Run with valgrind
-#      - name: Run valgrind pq_kems
-#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
+  #        run: cargo build --bin pq_kems_test
+  #      # Run with valgrind
+  #      - name: Run valgrind pq_kems
+  #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
 
-#  features_check:
-#    name: check features
-#    runs-on: ubuntu-latest
-#    steps:
-#      - uses: Avarok-Cybersecurity/gh-actions-deps@master
-#      - name: Install features checker
-#        run: cargo install cargo-all-features
-#      - name: Check all feature combinations
-#        run: cargo check-all-features --package citadel_sdk
+  #  features_check:
+  #    name: check features
+  #    runs-on: ubuntu-latest
+  #    steps:
+  #      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+  #      - name: Install features checker
+  #        run: cargo install cargo-all-features
+  #      - name: Check all feature combinations
+  #        run: cargo check-all-features --package citadel_sdk
 
   coverage:
     runs-on: macos-latest
@@ -192,11 +192,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-          nat_type_client_a:
-              - "full_cone"
-              - "address_restricted"
-              - "port_restricted"
-              - "symmetric"
+        nat_type_client_a:
+          - "full_cone"
+          - "address_restricted"
+          - "port_restricted"
+          - "symmetric"
     timeout-minutes: 60
     env:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}

@@ -155,7 +155,7 @@ pub(crate) struct InboundFileTransfer {
     pub total_groups: usize,
     pub groups_rendered: usize,
     pub last_group_window_len: usize,
-    pub last_group_finish_time: Instant,
+    pub last_group_finish_time: i64,
     pub ticket: Ticket,
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualObjectMetadata,
@@ -1135,7 +1135,7 @@ impl StateContainerInner {
             let (reception_complete_tx, success_receiving_rx) =
                 citadel_io::tokio::sync::oneshot::channel();
             let entry = InboundFileTransfer {
-                last_group_finish_time: Instant::now(),
+                last_group_finish_time: tt.get_global_time_ns(),
                 last_group_window_len: 0,
                 object_id,
                 total_groups: metadata_orig.group_count,
@@ -1556,6 +1556,7 @@ impl StateContainerInner {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 let receiver = self.inbound_groups.remove(&group_key).unwrap().receiver;
                 let mut chunk = receiver.finalize();
+                let bytes_in_group = chunk.len();
                 log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
 
                 if let Some(local_encryption_level) = file_container.local_encryption_level {
@@ -1597,20 +1598,22 @@ impl StateContainerInner {
                             )
                         })?;
                 } else {
-                    let now = Instant::now();
-                    let bytes_per_sec = file_container.metadata.plaintext_length as f32
-                        / now
-                            .duration_since(file_container.last_group_finish_time)
-                            .as_secs_f32()
-                            .round();
-                    let mb_per_sec = bytes_per_sec / (1024.0f32 * 1024.0f32);
-                    log::info!(target: "citadel", "Sending reception tick for group {} of {} | {:.2} MB/s", group_id, file_container.total_groups, mb_per_sec);
+                    let now = self.time_tracker.get_global_time_ns();
+                    let elapsed_nanos =
+                        now.saturating_sub(file_container.last_group_finish_time) as f64;
+                    let bytes_per_ns = bytes_in_group as f64 / elapsed_nanos; // unit: bytes/ns
+                                                                              // convert bytes per period into MB/s
+                    let mb_per_sec = bytes_per_ns * 1_000_000_000f64; // unit: bytes/sec
+                    let mb_per_sec = mb_per_sec / 1_000_000f64; // unit: MB/sec
+                                                                // Only use 2 decimals
+                    let mb_per_sec = (mb_per_sec * 100.0).round() / 100.0;
+                    log::trace!(target: "citadel", "Sending reception tick for group {} of {} | {} MB/s", group_id, file_container.total_groups, mb_per_sec);
 
                     file_container.last_group_finish_time = now;
                     let status = ObjectTransferStatus::ReceptionTick(
                         group_id as usize,
                         file_container.total_groups,
-                        mb_per_sec,
+                        mb_per_sec as f32,
                     );
                     // sending the wave ack will complete the group on the initiator side
                     file_transfer_handle.unbounded_send(status).map_err(|err| {

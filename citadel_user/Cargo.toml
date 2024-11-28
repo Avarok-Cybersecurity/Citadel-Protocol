@@ -47,7 +47,7 @@ serde_json = { workspace = true, features = ["alloc"] }
 bytes = { workspace = true }
 bstr = { workspace = true, features = ["alloc", "unicode"] }
 sqlx = { workspace = true, features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
-redis-base = { package = "redis", workspace = true, features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
+redis-base = { workspace = true, features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
 mobc = { workspace = true, optional = true, features = ["tokio"] }
 firebase-rtdb = { workspace = true, optional = true }
 jwt = { workspace = true, features = ["openssl"], optional = true }
