@@ -321,7 +321,7 @@ impl<'a> PostActionSync<'a> {
     }
 }
 
-impl<'a> Future for PostActionSync<'a> {
+impl Future for PostActionSync<'_> {
     type Output = Result<(), anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
