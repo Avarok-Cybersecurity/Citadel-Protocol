@@ -17,6 +17,6 @@ secret:
   show_secrets: false
 
   ignore_known_secrets: true
-
-  ignored_detectors:
-    - Generic Password
+  
+ignore-policies:
+  - id: 2881463
