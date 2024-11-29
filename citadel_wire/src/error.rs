@@ -1,5 +1,5 @@
+use citadel_io::tokio::io::Error;
 use std::fmt::Formatter;
-use tokio::io::Error;
 
 #[derive(Debug)]
 pub enum FirewallError {

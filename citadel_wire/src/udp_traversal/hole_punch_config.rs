@@ -1,5 +1,5 @@
 use crate::nat_identification::NatType;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use itertools::Itertools;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 

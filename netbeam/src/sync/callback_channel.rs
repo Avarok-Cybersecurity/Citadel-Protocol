@@ -1,8 +1,8 @@
+use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Clone)]
 pub struct CallbackChannel<T, R> {
@@ -38,11 +38,11 @@ struct CallbackChannelInner<T, R> {
     to_channel: Sender<CallbackChannelPayload<T, R>>,
 }
 
-pub type CallbackChannelPayload<T, R> = (T, Option<tokio::sync::oneshot::Sender<R>>);
+pub type CallbackChannelPayload<T, R> = (T, Option<citadel_io::tokio::sync::oneshot::Sender<R>>);
 
 impl<T, R> CallbackChannel<T, R> {
     pub fn new(buffer: usize) -> (Self, CallbackReceiver<T, R>) {
-        let (to_channel, from_channel) = tokio::sync::mpsc::channel(buffer);
+        let (to_channel, from_channel) = citadel_io::tokio::sync::mpsc::channel(buffer);
         (
             Self {
                 inner: CallbackChannelInner { to_channel },
@@ -54,7 +54,7 @@ impl<T, R> CallbackChannel<T, R> {
     }
 
     pub async fn send(&self, payload: T) -> Result<R, CallbackError<T>> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         self.inner
             .to_channel
             .send((payload, Some(tx)))
@@ -87,6 +87,7 @@ impl<T, R> Stream for CallbackReceiver<T, R> {
 #[cfg(test)]
 mod tests {
     use crate::sync::callback_channel::CallbackChannel;
+    use citadel_io::tokio;
     use futures::StreamExt;
 
     #[tokio::test]
@@ -112,9 +113,9 @@ mod tests {
             }
         };
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
+        let server = citadel_io::tokio::spawn(server);
+        let client = citadel_io::tokio::spawn(client);
 
-        let (_, _) = tokio::join!(server, client);
+        let (_, _) = citadel_io::tokio::join!(server, client);
     }
 }

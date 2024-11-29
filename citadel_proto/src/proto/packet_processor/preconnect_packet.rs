@@ -24,7 +24,15 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::sync::atomic::Ordering;
 
 /// Handles preconnect packets. Handles the NAT traversal
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
 pub async fn process_preconnect(
     session_orig: &CitadelSession,
     packet: HdpPacket,
@@ -601,14 +609,16 @@ fn handle_success_as_receiver(
     if let Some(udp_splittable) = udp_splittable {
         let peer_addr = udp_splittable.peer_addr();
         // the UDP subsystem will automatically engage at this point
-        CitadelSession::udp_socket_loader(
-            session.clone(),
-            VirtualTargetType::LocalGroupServer { implicated_cid },
-            udp_splittable,
-            peer_addr,
-            session.kernel_ticket.get(),
-            Some(tcp_loaded_alerter_rx),
-        );
+        if state_container.udp_mode == UdpMode::Enabled {
+            CitadelSession::udp_socket_loader(
+                session.clone(),
+                VirtualTargetType::LocalGroupServer { implicated_cid },
+                udp_splittable,
+                peer_addr,
+                session.kernel_ticket.get(),
+                Some(tcp_loaded_alerter_rx),
+            );
+        }
     } else {
         log::warn!(target: "citadel", "No UDP splittable was specified. UdpMode: {:?}", state_container.udp_mode);
     }

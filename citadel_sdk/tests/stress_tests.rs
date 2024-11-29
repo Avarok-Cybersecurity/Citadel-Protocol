@@ -1,8 +1,12 @@
 #[cfg(test)]
 mod tests {
+    use citadel_io::tokio;
+    use citadel_io::tokio::sync::Barrier;
+    use citadel_io::tokio::task::JoinError;
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::{server_info, wait_for_peers};
     use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm};
@@ -18,14 +22,12 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::Barrier;
-    use tokio::task::JoinError;
     use uuid::Uuid;
 
     struct TestSpawner {
         // this may not be a real localset
         #[cfg(not(feature = "multi-threaded"))]
-        local_set: tokio::task::LocalSet,
+        local_set: citadel_io::tokio::task::LocalSet,
         #[cfg_attr(feature = "multi-threaded", allow(dead_code))]
         #[cfg(feature = "multi-threaded")]
         local_set: (),
@@ -39,7 +41,10 @@ mod tests {
         }
 
         #[cfg(not(feature = "multi-threaded"))]
-        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        pub fn spawn<T>(
+            &self,
+            future: T,
+        ) -> citadel_io::tokio::task::JoinHandle<<T as Future>::Output>
         where
             T: Future + 'static,
             T::Output: 'static,
@@ -48,12 +53,15 @@ mod tests {
         }
 
         #[cfg(feature = "multi-threaded")]
-        pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<<T as Future>::Output>
+        pub fn spawn<T>(
+            &self,
+            future: T,
+        ) -> citadel_io::tokio::task::JoinHandle<<T as Future>::Output>
         where
             T: Future + Send + 'static,
             T::Output: Send + 'static,
         {
-            tokio::task::spawn(future)
+            citadel_io::tokio::task::spawn(future)
         }
 
         #[cfg(not(feature = "multi-threaded"))]
@@ -195,11 +203,11 @@ mod tests {
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber, KemAlgorithm::Ntru)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
             EncryptionAlgorithm::ChaCha20Poly_1305,
@@ -208,11 +216,6 @@ mod tests {
         enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
-
-        if windows_pipeline_check(kem, secrecy_mode) {
-            return;
-        }
-
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -239,12 +242,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Enabled,
-            session_security,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -252,8 +258,7 @@ mod tests {
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
@@ -271,7 +276,7 @@ mod tests {
     #[case(100, SecrecyMode::Perfect, None)]
     #[case(100, SecrecyMode::BestEffort, Some("test-password"))]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -280,11 +285,6 @@ mod tests {
         #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
-
-        if windows_pipeline_check(kem, secrecy_mode) {
-            return;
-        }
-
         citadel_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -315,12 +315,19 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Enabled,
-            session_security,
-            server_password.map(|p| p.into()),
+        let mut connection_settings =
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security);
+
+        if let Some(password) = server_password {
+            connection_settings = connection_settings.with_session_password(password);
+        }
+
+        let connection_settings = connection_settings.build().unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            connection_settings,
             move |connection, remote| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
                 handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
@@ -328,8 +335,7 @@ mod tests {
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
@@ -347,7 +353,7 @@ mod tests {
     #[case(500, SecrecyMode::Perfect, None)]
     #[case(500, SecrecyMode::BestEffort, Some("test-p2p-password"))]
     #[timeout(std::time::Duration::from_secs(240))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
@@ -361,11 +367,6 @@ mod tests {
         enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
-
-        if windows_pipeline_check(kem, secrecy_mode) {
-            return;
-        }
-
         citadel_sdk::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
@@ -400,13 +401,16 @@ mod tests {
 
         let peer1_connection = peer1_agg.add();
 
-        let client_kernel0 = PeerConnectionKernel::new_authless(
-            uuid0,
-            server_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel0 = PeerConnectionKernel::new(
+            server_connection_settings,
             peer0_connection,
-            UdpMode::Enabled,
-            session_security,
-            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -418,16 +422,18 @@ mod tests {
                 client0_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
-        let client_kernel1 = PeerConnectionKernel::new_authless(
-            uuid1,
-            server_addr,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
+                .with_udp_mode(UdpMode::Enabled)
+                .with_session_security_settings(session_security)
+                .build()
+                .unwrap();
+
+        let client_kernel1 = PeerConnectionKernel::new(
+            server_connection_settings,
             peer1_connection,
-            UdpMode::Enabled,
-            session_security,
-            None,
             move |mut connection, remote| async move {
                 handle_send_receive_e2e(
                     get_barrier(),
@@ -439,21 +445,20 @@ mod tests {
                 client1_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
         let clients = futures::future::try_join(client0, client1);
 
         let task = async move {
-            tokio::select! {
+            citadel_io::tokio::select! {
                 server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
                 client_res = clients => client_res.map(|_| ())
             }
         };
 
-        let _ = tokio::time::timeout(Duration::from_secs(120), task)
+        let _ = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
             .await
             .unwrap();
 
@@ -464,7 +469,7 @@ mod tests {
     #[rstest]
     #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(peer_count);
@@ -500,9 +505,13 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = BroadcastKernel::new(
+                server_connection_settings,
                 request,
                 move |channel, remote| async move {
                     log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
@@ -514,7 +523,7 @@ mod tests {
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             let task = async move { client.await.map(|_| ()) };
@@ -538,19 +547,5 @@ mod tests {
         }
         assert!(res.is_ok());
         assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
-    }
-
-    /// This test is disabled by default because it is very slow and requires a lot of resources
-    fn windows_pipeline_check(kem: KemAlgorithm, secrecy_mode: SecrecyMode) -> bool {
-        if cfg!(windows)
-            && kem == KemAlgorithm::Ntru
-            && secrecy_mode == SecrecyMode::Perfect
-            && std::env::var("IN_CI").is_ok()
-        {
-            log::warn!(target: "citadel", "Skipping NTRU/Perfect forward secrecy test on Windows due to performance issues");
-            true
-        } else {
-            false
-        }
     }
 }

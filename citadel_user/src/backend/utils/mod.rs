@@ -1,9 +1,11 @@
 use futures::Stream;
 use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::misc::AccountError;
+use citadel_io::tokio;
 use citadel_types::proto::{
     ObjectTransferOrientation, ObjectTransferStatus, VirtualObjectMetadata,
 };
@@ -97,6 +99,70 @@ impl ObjectTransferHandler {
         };
 
         (this, tx)
+    }
+
+    /// Exhausts the steam, independently of the orientation
+    /// If the orientation is Sender, this will return no path
+    /// If the orientation is Receiver, this will return the path of the received file
+    pub async fn exhaust_stream(&mut self) -> Result<Option<PathBuf>, AccountError> {
+        self.accept()?;
+
+        let mut save_path = None;
+        while let Some(event) = self.inner.inner.recv().await {
+            match event {
+                ObjectTransferStatus::ReceptionBeginning(path, _) => {
+                    save_path = Some(path);
+                }
+                ObjectTransferStatus::ReceptionComplete => {
+                    return Ok(save_path);
+                }
+
+                ObjectTransferStatus::TransferComplete => {
+                    return Ok(None);
+                }
+
+                ObjectTransferStatus::Fail(err) => {
+                    return Err(AccountError::msg(err));
+                }
+
+                _ => {}
+            }
+        }
+
+        Err(AccountError::msg("Failed to receive file: stream ended"))
+    }
+
+    /// Receives the file, exhausting the underlying stream and returning the save path
+    /// after completion.
+    ///
+    /// If the orientation is Sender, this will return an error
+    pub async fn receive_file(&mut self) -> Result<PathBuf, AccountError> {
+        if !matches!(self.orientation, ObjectTransferOrientation::Receiver { .. }) {
+            return Err(AccountError::msg(
+                "Cannot receive file: orientation is not Receiver",
+            ));
+        }
+
+        let file = self.exhaust_stream().await?;
+        file.ok_or_else(|| AccountError::msg("Failed to receive file: no file path"))
+    }
+
+    /// Transfers the file, exhausting the underlying stream
+    ///
+    /// If the orientation is Receiver, this will return an error
+    pub async fn transfer_file(&mut self) -> Result<(), AccountError> {
+        if !matches!(self.orientation, ObjectTransferOrientation::Sender { .. }) {
+            return Err(AccountError::msg(
+                "Cannot transfer file: orientation is not Sender",
+            ));
+        }
+
+        let file = self.exhaust_stream().await?;
+        if file.is_some() {
+            Err(AccountError::msg("An unexpected error occurred: file transfer occurred, yet, returned a save path. Please report to developers"))
+        } else {
+            Ok(())
+        }
     }
 
     /// When the local handle type is for a Receiver,

@@ -135,17 +135,17 @@ pub mod macros {
 
     macro_rules! spawn {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn_local(
-                $future,
-            ))
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
+                citadel_io::tokio::task::spawn_local($future),
+            )
         };
     }
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn_local(
-                $future,
-            ))
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
+                citadel_io::tokio::task::spawn_local($future),
+            )
         };
     }
 
@@ -288,8 +288,8 @@ pub mod macros {
     #[allow(unused_results)]
     macro_rules! spawn {
     ($future:expr) => {
-        if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn($future)));
+        if citadel_io::tokio::runtime::Handle::try_current().is_ok() {
+            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::tokio::task::spawn($future)));
         } else {
             log::warn!(target: "citadel", "Unable to spawn future: {:?}", stringify!($future));
         }
@@ -298,7 +298,9 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::spawn($future))
+            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
+                citadel_io::tokio::task::spawn($future),
+            )
         };
     }
 
@@ -332,8 +334,9 @@ pub mod re_imports {
     pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
 
+    pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
+    pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
-    pub use citadel_wire::exports::openssl;
     pub use citadel_wire::exports::rustls_pemfile;
     pub use citadel_wire::exports::ClientConfig as RustlsClientConfig;
     pub use citadel_wire::hypernode_type::NodeType;
@@ -341,8 +344,6 @@ pub mod re_imports {
     pub use citadel_wire::tls::{
         cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
     };
-    pub use tokio_stream::wrappers::UnboundedReceiverStream;
-    pub use tokio_util::io::{SinkWriter, StreamReader};
 }
 
 pub mod prelude {

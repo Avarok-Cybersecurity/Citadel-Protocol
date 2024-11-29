@@ -38,7 +38,7 @@ pub async fn calculate_optimal_argon_params(
     let mut mem_cost = available_memory_kb;
 
     loop {
-        let init_time = tokio::time::Instant::now();
+        let init_time = citadel_io::tokio::time::Instant::now();
         let settings_this_round = ArgonSettings::new_gen_salt(
             vec![],
             lanes,
@@ -51,7 +51,7 @@ pub async fn calculate_optimal_argon_params(
 
         match AsyncArgon::hash(fake_password.clone(), settings_this_round)
             .await
-            .map_err(|err| CryptError::Encrypt(err.message))?
+            .map_err(|err| CryptError::Encrypt(err.to_string()))?
         {
             ArgonStatus::HashSuccess(_) => {
                 let elapsed = init_time.elapsed().as_millis();

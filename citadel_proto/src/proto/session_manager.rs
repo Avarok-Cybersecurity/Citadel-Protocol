@@ -40,6 +40,7 @@ use crate::proto::session::{
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
@@ -50,7 +51,6 @@ use citadel_types::proto::{
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
-use tokio::sync::broadcast::Sender;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -341,7 +341,15 @@ impl HdpSessionManager {
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
-    #[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=new_session.implicated_cid.get(), is_server=new_session.is_server, peer_addr=peer_addr.to_string())))]
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(
+        level = "trace",
+        target = "citadel",
+        skip_all,
+        ret,
+        err,
+        fields(implicated_cid=new_session.implicated_cid.get(), is_server=new_session.is_server, peer_addr=peer_addr.to_string()
+        )
+    ))]
     async fn execute_session_with_safe_shutdown(
         session_manager: HdpSessionManager,
         new_session: CitadelSession,
@@ -425,11 +433,11 @@ impl HdpSessionManager {
                                 log::trace!(target: "citadel", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
                                 let peer_conn_type = PeerConnectionType::LocalGroupPeer {
                                     implicated_cid,
-                                    peer_cid
+                                    peer_cid,
                                 };
                                 let signal = PeerSignal::Disconnect {
                                     peer_conn_type,
-                                    disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly")))
+                                    disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {implicated_cid} forcibly"))),
                                 };
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
@@ -1094,22 +1102,24 @@ impl HdpSessionManager {
             return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
 
-        let account_manager = { inner!(self).account_manager.clone() };
+        let (account_manager, peer_sess) = {
+            let this = inner!(self);
+            (
+                this.account_manager.clone(),
+                this.sessions.get(&target_cid).map(|r| r.1.clone()),
+            )
+        };
 
-        log::trace!(target: "citadel", "Checking if {} is registered locally ... {:?}", target_cid, signal);
+        log::trace!(target: "citadel", "Checking if {target_cid} is registered locally ... {signal:?}");
         if account_manager
             .hyperlan_cid_is_registered(target_cid)
             .await
             .map_err(|err| err.into_string())?
         {
-            let (sess, pers) = {
-                let this = inner!(self);
-                let sess = this.sessions.get(&target_cid).map(|r| r.1.clone());
-                (sess, this.account_manager.get_persistence_handler().clone())
-            };
+            let pers = account_manager.get_persistence_handler().clone();
 
             // get the target cid's session
-            if let Some(ref sess_ref) = sess {
+            if let Some(ref sess_ref) = peer_sess {
                 peer_layer
                     .insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout)
                     .await;

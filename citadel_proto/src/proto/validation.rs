@@ -438,7 +438,7 @@ pub(crate) mod aead {
         proper_hr: StackedRatchet,
         header: &'b H,
         mut payload: BytesMut,
-    ) -> Option<AeadValidationResult> {
+    ) -> Option<AeadValidationResult<'b>> {
         let header_bytes = header.as_ref();
         let header = Ref::new(header_bytes)? as Ref<&[u8], HdpHeader>;
         proper_hr

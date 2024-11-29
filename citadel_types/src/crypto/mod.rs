@@ -1,6 +1,6 @@
 use crate::utils;
 use crate::utils::validate_crypto_params;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use packed_struct::derive::{PackedStruct, PrimitiveEnum_u8};
 use packed_struct::{PackedStruct, PrimitiveEnum};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -90,7 +90,7 @@ impl Default for SecrecyMode {
 
 /// A memory-secure wrapper for shipping around Bytes
 pub struct SecBuffer {
-    inner: BytesMut,
+    pub inner: BytesMut,
 }
 
 impl SecBuffer {
@@ -133,6 +133,10 @@ impl SecBuffer {
 
     fn slice(&self) -> &[u8] {
         &self.inner[..]
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.inner.reserve(additional)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -185,7 +189,7 @@ impl AsMut<[u8]> for SecBuffer {
 
 impl From<Vec<u8>> for SecBuffer {
     fn from(inner: Vec<u8>) -> Self {
-        Self::from(&inner[..])
+        Self::from(BytesMut::from(Bytes::from(inner)))
     }
 }
 
@@ -348,7 +352,6 @@ pub enum KemAlgorithm {
     #[strum(ascii_case_insensitive)]
     #[default]
     Kyber = 0,
-    Ntru = 1,
 }
 
 #[derive(

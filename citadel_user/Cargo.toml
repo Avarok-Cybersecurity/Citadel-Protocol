@@ -17,15 +17,14 @@ license = "MIT OR Apache-2.0"
 default = ["filesystem", "std"]
 redis = ["redis-base", "mobc"]
 sql = ["sqlx", "itertools"]
-filesystem = ["citadel_crypt/filesystem", "tokio-util", "tokio-stream"]
+filesystem = ["citadel_crypt/filesystem"]
 std = [
     "citadel_crypt/std",
-    "tokio/fs",
     "rand/std",
     "sha3/std",
     "bstr/std"
 ]
-wasm = ["citadel_crypt/wasm"]
+wasm = ["citadel_crypt/wasm", "citadel_io/wasm"]
 google-services = ["openssl", "jwt", "firebase-rtdb"]
 vendored = ["openssl/vendored"]
 
@@ -33,9 +32,9 @@ localhost-testing = []
 jwt-testing = []
 
 [dependencies]
+citadel_io = { workspace = true }
 itertools = { workspace = true, features = ["use_alloc"], optional = true }
 serde = { workspace = true, features=["rc", "derive"] }
-tokio = { workspace = true, features = ["io-util"] }
 async-trait = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
 rand = { workspace = true }
@@ -48,7 +47,7 @@ serde_json = { workspace = true, features = ["alloc"] }
 bytes = { workspace = true }
 bstr = { workspace = true, features = ["alloc", "unicode"] }
 sqlx = { workspace = true, features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
-redis-base = { package = "redis", workspace = true, features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
+redis-base = { workspace = true, features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
 mobc = { workspace = true, optional = true, features = ["tokio"] }
 firebase-rtdb = { workspace = true, optional = true }
 jwt = { workspace = true, features = ["openssl"], optional = true }
@@ -56,12 +55,9 @@ openssl = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["v4"] }
 bincode = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
-tokio-util = { workspace = true, features = ["io"], optional = true }
-tokio-stream = { workspace = true, optional = true }
 citadel_types = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
 citadel_logging = { workspace = true }
 citadel_io = { workspace = true }
 dirs2 = { workspace = true }

@@ -21,7 +21,7 @@ impl GoogleAuth {
     pub async fn load_from_google_services_file<P: AsRef<Path>>(
         path: P,
     ) -> Result<Self, AccountError> {
-        let string = tokio::fs::read_to_string(path)
+        let string = citadel_io::tokio::fs::read_to_string(path)
             .await
             .map_err(|err| AccountError::Generic(err.to_string()))?;
         let mut map: HashMap<String, String> = serde_json::from_str(string.as_str())

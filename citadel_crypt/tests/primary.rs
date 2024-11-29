@@ -1,15 +1,20 @@
 #[cfg(test)]
 mod tests {
     use bytes::{BufMut, BytesMut};
+    #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::argon::argon_container::{
         ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
     };
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+    #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::entropy_bank::EntropyBank;
+    #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use citadel_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
+    #[cfg(not(target_family = "wasm"))]
+    use citadel_io::tokio;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::{
@@ -18,7 +23,6 @@ mod tests {
     };
     use citadel_types::proto::{ObjectId, TransferType};
     use rstest::rstest;
-    #[cfg(not(target_family = "wasm"))]
     use std::path::PathBuf;
 
     lazy_static::lazy_static! {
@@ -39,6 +43,7 @@ mod tests {
         log::trace!(target: "citadel", "{:?}", final_cfg)
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
     async fn argon() {
         citadel_logging::setup_log();
@@ -764,7 +769,9 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     const HEADER_LEN: usize = 52;
+    #[cfg(not(target_family = "wasm"))]
     fn header_inscribe(
         _: &PacketVector,
         _: &EntropyBank,
@@ -777,6 +784,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[cfg(feature = "filesystem")]
     #[rstest]
     #[case(
@@ -818,6 +826,7 @@ mod tests {
         assert_eq!(bytes, bytes_ret);
     }
 
+    #[cfg(not(target_family = "wasm"))]
     #[cfg(feature = "filesystem")]
     #[rstest]
     #[case(
@@ -865,6 +874,7 @@ mod tests {
         assert!(sa_bob.local_decrypt(&bytes_ret, security_level).is_err());
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn test_file_transfer_inner(
         transfer_type: TransferType,
         enx: EncryptionAlgorithm,

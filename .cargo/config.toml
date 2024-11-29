@@ -1,2 +1,7 @@
 [target.wasm32-wasi]
-rustflags = ["--cfg", "tokio_unstable", "-C", "target-feature=+atomics,+bulk-memory"]
+rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+threads,+net"]
+
+[profile.wasix]
+opt-level = 3
+inherits = "dev"
+rustflags = ["-Z", "unstable-options"]

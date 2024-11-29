@@ -8,7 +8,7 @@ mod tests {
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use std::collections::HashMap;
 
-    #[tokio::test]
+    #[citadel_io::tokio::test]
     async fn jwt() {
         citadel_logging::setup_log();
         const USER: u64 = 999;
@@ -17,8 +17,8 @@ mod tests {
             citadel_user::external_services::google_auth::GoogleAuth::load_from_google_services_file(
                 "/Users/nologik/googlesvc.json",
             )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
         let jwt = auth.sign_new_custom_jwt_auth(USER).unwrap();
         log::trace!(target: "citadel", "JWT: {}", jwt);
 

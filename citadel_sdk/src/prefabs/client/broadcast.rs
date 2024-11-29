@@ -1,13 +1,13 @@
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
+use citadel_io::tokio::sync::Mutex;
 use citadel_user::prelude::UserIdentifierExt;
 use futures::{Future, StreamExt};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 /// A kernel that streamlines creating, connecting, and interacting with groups
@@ -23,8 +23,9 @@ pub struct BroadcastKernel<'a, F, Fut> {
 
 pub struct BroadcastShared {
     route_registers: AtomicBool,
-    register_rx: citadel_io::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<PeerSignal>>>,
-    register_tx: tokio::sync::mpsc::UnboundedSender<PeerSignal>,
+    register_rx:
+        citadel_io::Mutex<Option<citadel_io::tokio::sync::mpsc::UnboundedReceiver<PeerSignal>>>,
+    register_tx: citadel_io::tokio::sync::mpsc::UnboundedSender<PeerSignal>,
 }
 
 /// Before running the [`BroadcastKernel`], each peer must send this request
@@ -73,7 +74,7 @@ where
         self.shared.clone()
     }
 
-    #[allow(unreachable_code)]
+    #[allow(unreachable_code, clippy::blocks_in_conditions)]
     #[cfg_attr(
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
@@ -175,7 +176,10 @@ where
                     if owned_groups.contains(&expected_message_group_key) {
                         break;
                     } else {
-                        tokio::time::sleep(std::time::Duration::from_secs(2u64.pow(retries))).await;
+                        citadel_io::tokio::time::sleep(std::time::Duration::from_secs(
+                            2u64.pow(retries),
+                        ))
+                        .await;
 
                         retries += 1;
                         if retries > 4 {
@@ -213,7 +217,7 @@ where
                 // Merge the reg_rx stream and the subscription stream
                 let mut count_registered = 0;
                 loop {
-                    let post_register = tokio::select! {
+                    let post_register = citadel_io::tokio::select! {
                         reg_request = reg_rx.recv() => {
                             reg_request.ok_or_else(|| NetworkError::InternalError("reg_rx ended unexpectedly"))?
                         },
@@ -297,7 +301,7 @@ where
                     // Drop the lock to allow the acceptor task to gain access to the subscription
                     drop(lock);
                     return if is_owner {
-                        tokio::try_join!(fx(channel, remote), acceptor_task).map(|_| ())
+                        citadel_io::tokio::try_join!(fx(channel, remote), acceptor_task).map(|_| ())
                     } else {
                         fx(channel, remote).await.map(|_| ())
                     };
@@ -321,7 +325,7 @@ where
     }
 
     fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         Self {
             shared: Arc::new(BroadcastShared {
                 route_registers: AtomicBool::new(false),
@@ -372,15 +376,17 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 mod tests {
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
+    use citadel_io::tokio;
     use futures::prelude::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use uuid::Uuid;
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn group_connect_list_members() -> Result<(), Box<dyn std::error::Error>> {
         let peer_count = 3;
         assert!(peer_count > 1);
@@ -416,9 +422,13 @@ mod tests {
                 }
             };
 
-            let client_kernel = BroadcastKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = BroadcastKernel::new(
+                server_connection_settings,
                 request,
                 move |channel, remote| async move {
                     wait_for_peers().await;
@@ -439,7 +449,7 @@ mod tests {
                     drop(channel);
                     remote.shutdown_kernel().await
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
 
@@ -463,7 +473,7 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_manual_group_connect(
         #[case] peer_count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -494,9 +504,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_authless_defaults(
-                uuid,
-                server_addr,
+            let server_connection_settings =
+                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
                     let _sender = remote.conn_type.get_implicated_cid();
@@ -524,20 +538,21 @@ mod tests {
                                 NodeResult::GroupEvent(GroupEvent {
                                     implicated_cid: _,
                                     ticket: _,
-                                    event: GroupBroadcast::Invitation { sender: _, key: _key },
+                                    event:
+                                        GroupBroadcast::Invitation {
+                                            sender: _,
+                                            key: _key,
+                                        },
                                 }) => {
-                                    let _ = crate::responses::group_invite(
-                                        evt,
-                                        true,
-                                        &remote.inner,
-                                    )
-                                    .await?;
+                                    let _ =
+                                        crate::responses::group_invite(evt, true, &remote.inner)
+                                            .await?;
                                 }
 
                                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                                     ticket: _,
                                     channel: _chan,
-                                    implicated_cid: _
+                                    implicated_cid: _,
                                 }) => {
                                     receiver_success.store(true, Ordering::Relaxed);
                                     log::trace!(target: "citadel", "***PEER {} CONNECT***", uuid);
@@ -556,7 +571,7 @@ mod tests {
                         "signals_recv ended unexpectedly",
                     ))
                 },
-            ).unwrap();
+            );
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });

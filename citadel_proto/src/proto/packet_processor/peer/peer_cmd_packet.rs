@@ -139,7 +139,8 @@ pub async fn process_peer_cmd(
                                             break;
                                         }
 
-                                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                                        citadel_io::tokio::time::sleep(Duration::from_millis(1500))
+                                            .await;
                                     }
 
                                     log::trace!(target: "citadel", "[Peer Vconn] No packets received in the last 1500ms; will drop the connection cleanly");
@@ -624,6 +625,12 @@ pub async fn process_peer_cmd(
                                         )
                                     };
 
+                                    let udp_mode = if udp_rx_opt.is_some() {
+                                        UdpMode::Enabled
+                                    } else {
+                                        UdpMode::Disabled
+                                    };
+
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: ticket_for_chan.unwrap_or(ticket),
@@ -659,6 +666,7 @@ pub async fn process_peer_cmd(
                                             app,
                                             encrypted_config_container,
                                             client_config,
+                                            udp_mode,
                                         )
                                         .await;
                                     }
@@ -761,6 +769,12 @@ pub async fn process_peer_cmd(
                                         )
                                     };
 
+                                    let udp_mode = if udp_rx_opt.is_some() {
+                                        UdpMode::Enabled
+                                    } else {
+                                        UdpMode::Disabled
+                                    };
+
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: ticket_for_chan.unwrap_or(ticket),
@@ -809,6 +823,7 @@ pub async fn process_peer_cmd(
                                             app,
                                             encrypted_config_container,
                                             client_config,
+                                            udp_mode,
                                         )
                                         .await;
                                     }
@@ -1009,8 +1024,8 @@ async fn process_signal_command_as_server(
                         {
                             log::info!(target: "citadel", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
                             peer_layer.insert_mapped_ticket(implicated_cid, ticket_new, ticket);
-                            // route signal to peer
                             drop(peer_layer);
+                            // route signal to peer
                             let _ =
                                 super::server::post_register::handle_response_phase_post_register(
                                     peer_conn_type,
@@ -1128,13 +1143,14 @@ async fn process_signal_command_as_server(
                                 peer_layer_lock
                                     .insert_tracked_posting(
                                         implicated_cid,
-                                        Duration::from_secs(60),
+                                        Duration::from_secs(60 * 60),
                                         ticket,
                                         PeerSignal::DeregistrationSuccess { peer_conn_type },
                                         |_| {},
                                     )
                                     .await;
                             }
+                            drop(peer_layer_lock);
                             let peer_alert_signal = PeerSignal::DeregistrationSuccess {
                                 peer_conn_type: peer_conn_type.reverse(),
                             };
@@ -1319,7 +1335,7 @@ async fn process_signal_command_as_server(
                                     break;
                                 }
 
-                                tokio::time::sleep(Duration::from_millis(1500)).await;
+                                citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
                             }
 
                             log::trace!(target: "citadel", "[Peer Vconn @ Server] No packets received in the last 1500ms; will drop the virtual connection cleanly");

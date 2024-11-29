@@ -41,7 +41,7 @@ pub(crate) mod user_ids {
     pub trait TargetLockedRemote: Send + Sync {
         fn user(&self) -> &VirtualTargetType;
         fn remote(&self) -> &NodeRemote;
-        fn target_username(&self) -> Option<&String>;
+        fn target_username(&self) -> Option<&str>;
         fn user_mut(&mut self) -> &mut VirtualTargetType;
         fn session_security_settings(&self) -> Option<&SessionSecuritySettings>;
     }
@@ -53,8 +53,8 @@ pub(crate) mod user_ids {
         fn remote(&self) -> &NodeRemote {
             self.remote
         }
-        fn target_username(&self) -> Option<&String> {
-            self.target_username.as_ref()
+        fn target_username(&self) -> Option<&str> {
+            self.target_username.as_deref()
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
@@ -72,8 +72,8 @@ pub(crate) mod user_ids {
         fn remote(&self) -> &NodeRemote {
             &self.remote
         }
-        fn target_username(&self) -> Option<&String> {
-            self.target_username.as_ref()
+        fn target_username(&self) -> Option<&str> {
+            self.target_username.as_deref()
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.user
@@ -112,7 +112,7 @@ pub struct ConnectionSuccess {
     /// An interface to send ordered, reliable, and encrypted messages
     pub channel: PeerChannel,
     /// Only available if UdpMode was enabled at the beginning of a session
-    pub udp_channel_rx: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub udp_channel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
     /// Contains the Google auth minted at the central server (if the central server enabled it), as well as any other services enabled by the central server
     pub services: ServicesObject,
     pub cid: u64,
@@ -288,7 +288,10 @@ pub trait ProtocolRemoteExt: Remote {
     /// ```
     /// use citadel_sdk::prelude::*;
     /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    /// # SingleClientServerConnectionKernel::new_connect_defaults("", "", |_, mut remote| async move {
+    ///
+    /// let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
+    ///
+    /// # SingleClientServerConnectionKernel::new(server_connection_settings, |_, mut remote| async move {
     /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
     /// // or: remote.find_target(1234, "my_peer").await? [...]
     /// # });
@@ -552,22 +555,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(event) = stream.next().await {
             match map_errors(event)? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    while let Some(res) = handle.next().await {
-                        log::trace!(target: "citadel", "Client received RES {res:?}");
-                        match res {
-                            ObjectTransferStatus::TransferComplete => {
-                                return Ok(());
-                            }
-
-                            ObjectTransferStatus::Fail(err) => {
-                                return Err(NetworkError::Generic(format!(
-                                    "File transfer failed: {err:?}"
-                                )));
-                            }
-
-                            _ => {}
-                        }
-                    }
+                    return handle
+                        .transfer_file()
+                        .await
+                        .map_err(|err| NetworkError::Generic(err.into_string()));
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -653,28 +644,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(event) = stream.next().await {
             match map_errors(event)? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    let mut local_path = None;
-                    while let Some(res) = handle.next().await {
-                        match res {
-                            ObjectTransferStatus::ReceptionBeginning(path, _) => {
-                                local_path = Some(path)
-                            }
-                            ObjectTransferStatus::TransferComplete => {
-                                break;
-                            }
-
-                            ObjectTransferStatus::Fail(err) => {
-                                return Err(NetworkError::Generic(format!(
-                                    "File download failed: {err:?}"
-                                )));
-                            }
-
-                            _ => {}
-                        }
-                    }
-
-                    return local_path
-                        .ok_or(NetworkError::InternalError("Local path never loaded"));
+                    return handle
+                        .receive_file()
+                        .await
+                        .map_err(|err| NetworkError::Generic(err.into_string()));
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -714,10 +687,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         while let Some(event) = stream.next().await {
             match map_errors(event)? {
                 NodeResult::ReVFS(result) => {
-                    if let Some(error) = result.error_message {
-                        return Err(NetworkError::Generic(error));
+                    return if let Some(error) = result.error_message {
+                        Err(NetworkError::Generic(error))
                     } else {
-                        return Ok(());
+                        Ok(())
                     }
                 }
 
@@ -762,7 +735,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                     channel,
                     udp_rx_opt,
                 }) => {
-                    let username = self.target_username().cloned();
+                    let username = self.target_username().map(ToString::to_string);
                     let remote = PeerRemote {
                         inner: self.remote().clone(),
                         peer: peer_target.as_virtual_connection(),
@@ -820,7 +793,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .get_username_by_cid(implicated_cid)
             .await?
             .ok_or_else(|| NetworkError::msg("Unable to find username for local user"))?;
-        let peer_username_opt = self.target_username().cloned();
+        let peer_username_opt = self.target_username().map(ToString::to_string);
 
         let mut stream = self
             .remote()
@@ -1134,14 +1107,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             // where the username was provided, but the cid was 0 (unknown).
             let peer_username = self
                 .target_username()
-                .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?
-                .clone();
+                .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?;
             let implicated_cid = self.user().get_implicated_cid();
             let expected_peer_cid = self
                 .remote()
                 .account_manager()
                 .get_persistence_handler()
-                .get_cid_by_username(&peer_username);
+                .get_cid_by_username(peer_username);
             // get the peer cid from the account manager (implying the peers are already registered).
             // fallback to the mapped cid if the peer is not registered
             let peer_cid = self
@@ -1185,8 +1157,8 @@ pub mod results {
     use crate::prefabs::client::peer_connection::FileTransferHandleRx;
     use crate::prelude::{PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
+    use citadel_io::tokio::sync::oneshot::Receiver;
     use citadel_proto::prelude::NetworkError;
-    use tokio::sync::oneshot::Receiver;
 
     #[derive(Debug)]
     pub struct PeerConnectSuccess {
@@ -1250,8 +1222,8 @@ pub mod remote_specialization {
         fn remote(&self) -> &NodeRemote {
             &self.inner
         }
-        fn target_username(&self) -> Option<&String> {
-            self.username.as_ref()
+        fn target_username(&self) -> Option<&str> {
+            self.username.as_deref()
         }
         fn user_mut(&mut self) -> &mut VirtualTargetType {
             &mut self.peer
@@ -1266,7 +1238,9 @@ pub mod remote_specialization {
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::prefabs::client::ServerConnectionSettingsBuilder;
     use crate::prelude::*;
+    use citadel_io::tokio;
     use rstest::rstest;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1304,8 +1278,9 @@ mod tests {
                         ObjectTransferStatus::ReceptionComplete => {
                             log::trace!(target: "citadel", "Server has finished receiving the file!");
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
-                            let streamed_data =
-                                tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                            let streamed_data = citadel_io::tokio::fs::read(path.clone().unwrap())
+                                .await
+                                .unwrap();
                             assert_eq!(
                                 cmp,
                                 streamed_data.as_slice(),
@@ -1369,12 +1344,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_authless(
-            uuid,
-            server_addr,
-            UdpMode::Disabled,
-            session_security_settings,
-            None,
+        let server_connection_settings =
+            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                .with_session_security_settings(session_security_settings)
+                .disable_udp()
+                .build()
+                .unwrap();
+
+        let client_kernel = SingleClientServerConnectionKernel::new(
+            server_connection_settings,
             |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 remote
@@ -1389,8 +1367,7 @@ mod tests {
                 client_success.store(true, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             },
-        )
-        .unwrap();
+        );
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 

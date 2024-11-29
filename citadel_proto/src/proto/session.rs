@@ -6,8 +6,8 @@ use std::sync::Arc;
 //use async_std::prelude::*;
 use crate::proto::packet_processor::includes::Instant;
 use bytes::{Bytes, BytesMut};
+use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
-use tokio_util::codec::LengthDelimitedCodec;
 
 use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use citadel_crypt::stacked_ratchet::Ratchet;
@@ -20,43 +20,44 @@ use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use netbeam::time_tracker::TimeTracker;
 
+//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
+use crate::auth::AuthenticationRequest;
 use crate::constants::{
     DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS,
     HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS,
     KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME,
 };
 use crate::error::NetworkError;
-use crate::proto::packet::{packet_flags, HdpPacket};
-use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
-use citadel_types::proto::VirtualObjectMetadata;
-//use futures_codec::Framed;
-use crate::proto::misc;
-use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
-use crate::proto::misc::dual_rwlock::DualRwLock;
-use crate::proto::misc::net::GenericNetworkStream;
-use crate::proto::packet_processor::includes::{Duration, SocketAddr};
-use crate::proto::packet_processor::{self, PrimaryProcessorResult};
-use crate::proto::session_manager::HdpSessionManager;
-use citadel_types::proto::ConnectMode;
-use citadel_types::proto::SessionSecuritySettings;
-//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
-use crate::auth::AuthenticationRequest;
 use crate::kernel::RuntimeFuture;
 use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, PreSharedKey, SecureProtocolPacket};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
+//use futures_codec::Framed;
+use crate::proto::misc;
+use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
+use crate::proto::misc::dual_rwlock::DualRwLock;
+use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
+//use futures_codec::Framed;
+use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::outbound_sender::{
     channel, unbounded, SendError, UnboundedReceiver, UnboundedSender,
 };
 use crate::proto::outbound_sender::{
     OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender, OutboundUdpSender,
 };
+use crate::proto::packet::{packet_flags, HdpPacket};
+use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
+use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
+use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
+use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
 use crate::proto::peer::peer_layer::{HyperNodePeerLayer, PeerSignal};
+use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::session_manager::HdpSessionManager;
 use crate::proto::session_queue_handler::{
     QueueWorkerResult, QueueWorkerTicket, SessionQueueWorker, SessionQueueWorkerHandle,
     DRILL_REKEY_WORKER, FIREWALL_KEEP_ALIVE, KEEP_ALIVE_CHECKER, PROVISIONAL_CHECKER,
@@ -70,9 +71,14 @@ use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSen
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
 use crate::proto::transfer_stats::TransferStats;
 use atomic::Atomic;
+use bytemuck::NoUninit;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
 use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::ConnectMode;
+use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
+use citadel_types::proto::VirtualObjectMetadata;
 use citadel_user::backend::PersistenceHandler;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::Connection;
@@ -81,12 +87,6 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
-//use futures_codec::Framed;
-use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
-use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
-use crate::proto::remote::{NodeRemote, Ticket};
-use bytemuck::NoUninit;
-use citadel_types::crypto::SecurityLevel;
 
 //use crate::define_struct;
 
@@ -197,7 +197,7 @@ pub struct CitadelSessionInner {
     pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
     pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult>>>,
     pub(super) is_server: bool,
-    pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
+    pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
     pub(super) primary_stream_quic_conn: DualRwLock<Option<Connection>>,
@@ -276,8 +276,8 @@ pub(crate) struct ClientOnlySessionInitSettings {
 impl CitadelSession {
     pub(crate) fn new(
         session_init_params: SessionInitParams,
-    ) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
-        let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
+    ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+        let (stopper_tx, _stopper_rx) = citadel_io::tokio::sync::broadcast::channel(10);
         let client_only_settings = &session_init_params.client_only_settings;
         let is_server = client_only_settings.is_none();
         let (cnac, state, implicated_cid) =
@@ -473,7 +473,7 @@ impl CitadelSession {
             );
 
             let session_future = spawn_handle!(async move {
-                tokio::select! {
+                citadel_io::tokio::select! {
                     res0 = writer_future => res0,
                     res1 = reader_future => res1,
                     res2 = stopper_future => res2
@@ -521,7 +521,7 @@ impl CitadelSession {
     }
 
     async fn stopper(
-        mut receiver: tokio::sync::broadcast::Receiver<()>,
+        mut receiver: citadel_io::tokio::sync::broadcast::Receiver<()>,
     ) -> Result<(), NetworkError> {
         receiver
             .recv()
@@ -687,6 +687,8 @@ impl CitadelSession {
 
         if udp_mode == UdpMode::Enabled {
             state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
+        } else {
+            state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::empty();
         }
 
         // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
@@ -721,7 +723,7 @@ impl CitadelSession {
         udp_conn: UdpSplittableTypes,
         addr: TargettedSocketAddr,
         ticket: Ticket,
-        tcp_conn_awaiter: Option<tokio::sync::oneshot::Receiver<()>>,
+        tcp_conn_awaiter: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
     ) {
         let this_weak = this.as_weak();
         std::mem::drop(this);
@@ -747,7 +749,7 @@ impl CitadelSession {
                     hole_punched_socket,
                     needs_manual_ka,
                 );
-                let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
+                let (stopper_tx, stopper_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
                 let is_server = sess.is_server;
                 std::mem::drop(sess);
@@ -868,7 +870,7 @@ impl CitadelSession {
                     .map_err(|err| NetworkError::Generic(err.to_string()))
             };
 
-            tokio::select! {
+            citadel_io::tokio::select! {
                 res0 = listener => res0,
                 res1 = udp_sender_future => res1,
                 res2 = stopper => res2
@@ -1423,8 +1425,9 @@ impl CitadelSession {
         let time_tracker = this.time_tracker;
         let timestamp = this.time_tracker.get_global_time_ns();
         let (group_sender, group_sender_rx) = channel(5);
-        let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let mut group_sender_rx =
+            citadel_io::tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
+        let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
         // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
         let mut state_container = inner_mut_state!(this.state_container);
@@ -1553,7 +1556,6 @@ impl CitadelSession {
                     .as_ref()
                     .map(|r| r.object_id)
                     .unwrap_or_else(|| endpoint_container.endpoint_crypto.get_next_object_id());
-
                 // reserve group ids
                 let start_group_id = endpoint_container
                     .endpoint_crypto
@@ -1653,8 +1655,8 @@ impl CitadelSession {
         let kernel_tx = state_container.kernel_tx.clone();
         let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
         let mut next_gs_alerter_rx =
-            tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
-        let (start, start_rx) = tokio::sync::oneshot::channel();
+            citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
+        let (start, start_rx) = citadel_io::tokio::sync::oneshot::channel();
         let outbound_file_transfer_container = OutboundFileTransfer {
             stop_tx: Some(stop_tx),
             metadata,
@@ -1879,7 +1881,7 @@ impl CitadelSession {
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
         this: CitadelSession,
-        mut rx: tokio::sync::mpsc::Receiver<SessionRequest>,
+        mut rx: citadel_io::tokio::sync::mpsc::Receiver<SessionRequest>,
     ) {
         let task = async move {
             let this = &this;
@@ -1945,7 +1947,7 @@ impl CitadelSession {
                 Ok(())
             };
 
-            tokio::select! {
+            citadel_io::tokio::select! {
                 res0 = stopper => res0,
                 res1 = receiver => res1
             }
@@ -2109,7 +2111,8 @@ impl CitadelSession {
         mut sink: S,
         peer_session_accessor: EndpointCryptoAccessor,
     ) -> Result<(), NetworkError> {
-        let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
+        let mut receiver =
+            citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
         while let Some((cmd_aux, packet)) = receiver.next().await {

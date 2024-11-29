@@ -1,0 +1,61 @@
+[package]
+name = "citadel-examples"
+description = "Example library for educational purposes"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+workspace = ".."
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[example]]
+name = "server_echo"
+path = "examples/c2s/server_echo.rs"
+
+[[example]]
+name = "client_echo"
+path = "examples/c2s/client_echo.rs"
+
+[[example]]
+name = "server_basic"
+path = "examples/c2s/server_basic.rs"
+
+[[example]]
+name = "server_basic_with_password"
+path = "examples/c2s/server_basic_with_password.rs"
+
+[[example]]
+name = "client_basic_with_password"
+path = "examples/c2s/client_basic_with_server_password.rs"
+
+[[example]]
+name = "client_basic_transient_connection"
+path = "examples/c2s/client_basic_transient_connection.rs"
+
+[[example]]
+name = "p2p_chat"
+path = "examples/p2p/chat.rs"
+
+[[example]]
+name = "file_transfer"
+path = "examples/p2p/file_transfer.rs"
+
+[[example]]
+name = "p2p_refvs_read_write"
+path = "examples/p2p/revfs_read_write.rs"
+
+[[example]]
+name = "p2p_refvs_take"
+path = "examples/p2p/revfs_take.rs"
+
+[[example]]
+name = "p2p_refvs_delete"
+path = "examples/p2p/revfs_delete.rs"
+
+[dependencies]
+citadel_sdk = { path = "../citadel_sdk" }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"

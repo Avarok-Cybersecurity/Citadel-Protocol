@@ -3,9 +3,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use citadel_io::tokio::sync::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio::sync::Mutex;
 
 use crate::multiplex::{MultiplexedConn, MultiplexedConnKey, MultiplexedPacket};
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
@@ -26,13 +26,13 @@ pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
 pub(crate) const INITIAL_CAPACITY: usize = 32;
 
 pub struct PreActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
-    tx: tokio::sync::mpsc::Sender<K>,
-    rx: Mutex<tokio::sync::mpsc::Receiver<K>>,
+    tx: citadel_io::tokio::sync::mpsc::Sender<K>,
+    rx: Mutex<citadel_io::tokio::sync::mpsc::Receiver<K>>,
 }
 
 impl<K: MultiplexedConnKey> PreActionChannel<K> {
     pub(crate) fn new() -> Self {
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::channel(1);
         Self {
             tx,
             rx: Mutex::new(rx),
@@ -41,8 +41,8 @@ impl<K: MultiplexedConnKey> PreActionChannel<K> {
 }
 
 pub struct PostActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
-    tx: Mutex<HashMap<K, tokio::sync::oneshot::Sender<()>>>,
-    rx: Mutex<HashMap<K, tokio::sync::oneshot::Receiver<()>>>,
+    tx: Mutex<HashMap<K, citadel_io::tokio::sync::oneshot::Sender<()>>>,
+    rx: Mutex<HashMap<K, citadel_io::tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl<K: MultiplexedConnKey> PostActionChannel<K> {
@@ -67,7 +67,7 @@ impl<K: MultiplexedConnKey> PostActionChannel<K> {
     }
 
     pub(crate) async fn setup_channel(&self, id: K) {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         self.tx.lock().await.insert(id, tx);
         self.rx.lock().await.insert(id, rx);
     }
@@ -77,7 +77,7 @@ impl<K: MultiplexedConnKey> PostActionChannel<K> {
     pub(crate) fn new(initial_ids: &Vec<K>) -> Self {
         let (mut tx, mut rx) = (HashMap::new(), HashMap::new());
         for id in initial_ids {
-            let (tx_s, rx_s) = tokio::sync::oneshot::channel();
+            let (tx_s, rx_s) = citadel_io::tokio::sync::oneshot::channel();
             tx.insert(*id, tx_s);
             rx.insert(*id, rx_s);
         }
@@ -108,7 +108,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         let this = Self::new(relative_node_type, t);
         let conn_task = this.clone();
 
-        citadel_io::spawn(async move {
+        citadel_io::tokio::task::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
                     log::trace!(target: "citadel", "Unable to forward packet: {:?}", err);
@@ -321,7 +321,7 @@ impl<'a> PostActionSync<'a> {
     }
 }
 
-impl<'a> Future for PostActionSync<'a> {
+impl Future for PostActionSync<'_> {
     type Output = Result<(), anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

@@ -111,7 +111,7 @@ impl NodeBuilder {
             _pd: Default::default(),
             inner: Box::pin(async move {
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
-                let rt = tokio::runtime::Handle::try_current()
+                let rt = citadel_io::tokio::runtime::Handle::try_current()
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(
@@ -190,7 +190,7 @@ impl NodeBuilder {
         self
     }
 
-    /// Attaches miscellaneous server settings (e.g., passwordless mode, credential requirements)
+    /// Attaches miscellaneous server settings (e.g., transient mode, credential requirements)
     pub fn with_server_misc_settings(&mut self, misc_settings: ServerMiscSettings) -> &mut Self {
         self.server_misc_settings = Some(misc_settings);
         self
@@ -260,11 +260,17 @@ impl NodeBuilder {
     }
 
     /// The file should be a DER formatted certificate
+    #[cfg(feature = "std")]
     pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
-        let mut der = std::io::Cursor::new(tokio::fs::read(path).await?);
-        let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der)?;
+        let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
+        let certs = citadel_proto::re_imports::rustls_pemfile::certs(&mut der).collect::<Vec<_>>();
+        // iter certs and try collecting on the results
+        let mut filtered_certs = Vec::new();
+        for cert in certs {
+            filtered_certs.push(cert?);
+        }
         self.client_tls_config = Some(citadel_proto::re_imports::create_rustls_client_config(
-            &certs,
+            &filtered_certs,
         )?);
         Ok(self)
     }
@@ -311,6 +317,7 @@ mod tests {
     use crate::builder::node_builder::NodeBuilder;
     use crate::prefabs::server::empty::EmptyKernel;
     use crate::prelude::{BackendType, NodeType};
+    use citadel_io::tokio;
     use citadel_proto::prelude::{KernelExecutorSettings, ServerUnderlyingProtocol};
     use rstest::rstest;
     use std::str::FromStr;
@@ -347,11 +354,14 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(60))]
     #[allow(clippy::let_underscore_must_use)]
     async fn test_options(
-        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap())]
+        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap()
+        )]
         underlying_protocol: ServerUnderlyingProtocol,
-        #[values(NodeType::Peer, NodeType::Server(std::net::SocketAddr::from_str("127.0.0.1:9999").unwrap()))]
+        #[values(NodeType::Peer, NodeType::Server(std::net::SocketAddr::from_str("127.0.0.1:9999").unwrap()
+        ))]
         node_type: NodeType,
-        #[values(KernelExecutorSettings::default(), KernelExecutorSettings::default().with_max_concurrency(2))]
+        #[values(KernelExecutorSettings::default(), KernelExecutorSettings::default().with_max_concurrency(2)
+        )]
         kernel_settings: KernelExecutorSettings,
         #[values(BackendType::InMemory, BackendType::new("file:/hello_world/path/").unwrap())]
         backend_type: BackendType,

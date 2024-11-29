@@ -1,0 +1,22 @@
+version: 2
+
+exit_zero: false
+verbose: false
+instance: https://dashboard.gitguardian.com
+max_commits_for_hook: 50
+allow_self_signed: true
+
+secret:
+  ignored_paths:
+    - '**/README.md'
+    - 'LICENSE'
+  ignored_matches:
+    - name: test-password
+      match: notsecurepassword
+
+  show_secrets: false
+
+  ignore_known_secrets: true
+  
+ignore-policies:
+  - id: 2881463

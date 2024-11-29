@@ -4,11 +4,12 @@ use quinn::{
     ServerConfig, TokioRuntime,
 };
 
+use crate::exports::{Certificate, PrivateKey};
 use async_trait_with_sync::async_trait;
-use citadel_io::UdpSocket;
+use citadel_io::tokio::net::UdpSocket;
 use either::Either;
+use quinn::crypto::rustls::QuicClientConfig;
 use quinn::TransportConfig;
-use rustls::{Certificate, PrivateKey};
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -129,7 +130,7 @@ impl QuicClient {
     /// - trusted_certs: If None, won't verify certs. NOTE: this implies is Some(&[]) is passed, no verification will work.
     pub fn create(
         socket: UdpSocket,
-        client_config: Option<Arc<rustls::ClientConfig>>,
+        client_config: Option<ClientConfig>,
     ) -> Result<QuicNode, anyhow::Error> {
         let endpoint = make_client_endpoint(socket, client_config)?;
         Ok(QuicNode {
@@ -146,16 +147,24 @@ impl QuicClient {
     /// Creates a new client that verifies certificates
     pub fn new_with_config(
         socket: UdpSocket,
-        client_config: Arc<rustls::ClientConfig>,
+        client_config: ClientConfig,
     ) -> Result<QuicNode, anyhow::Error> {
         Self::create(socket, Some(client_config))
+    }
+
+    pub fn new_with_rustls_config(
+        socket: UdpSocket,
+        client_config: Arc<rustls::ClientConfig>,
+    ) -> Result<QuicNode, anyhow::Error> {
+        let quinn_config = rustls_client_config_to_quinn_config(client_config)?;
+        Self::new_with_config(socket, quinn_config)
     }
 }
 
 impl QuicServer {
     pub fn create(
         socket: UdpSocket,
-        crypt: Option<(Vec<Certificate>, PrivateKey)>,
+        crypt: Option<(Vec<Certificate<'static>>, PrivateKey<'static>)>,
     ) -> Result<QuicNode, anyhow::Error> {
         let endpoint = make_server_endpoint(socket, crypt)?;
         Ok(QuicNode {
@@ -189,10 +198,10 @@ impl QuicServer {
 
 fn make_server_endpoint(
     socket: UdpSocket,
-    crypt: Option<(Vec<Certificate>, PrivateKey)>,
+    crypt: Option<(Vec<Certificate<'static>>, PrivateKey<'static>)>,
 ) -> Result<Endpoint, anyhow::Error> {
     let mut server_cfg = match crypt {
-        Some((certs, key)) => configure_server_with_crypto(certs, key)?,
+        Some((certs, key)) => secure::server_config(certs, key)?,
         None => configure_server_self_signed()?.0,
     };
 
@@ -210,12 +219,9 @@ fn make_server_endpoint(
 
 fn make_client_endpoint(
     socket: UdpSocket,
-    client_config: Option<Arc<rustls::ClientConfig>>,
+    client_config: Option<ClientConfig>,
 ) -> Result<Endpoint, anyhow::Error> {
-    let mut client_cfg = match client_config {
-        Some(cfg) => quinn::ClientConfig::new(cfg),
-        None => insecure::configure_client(),
-    };
+    let mut client_cfg = client_config.unwrap_or_else(insecure::configure_client);
 
     let socket = socket.into_std()?; // Quinn handles setting nonblocking to true
     load_hole_punch_friendly_quic_transport_config(Either::Right(&mut client_cfg));
@@ -257,42 +263,34 @@ pub const SELF_SIGNED_DOMAIN: &str = "localhost";
 /// domain is always SELF_SIGNED_DOMAIN (localhost)
 pub fn generate_self_signed_cert() -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
     let cert = rcgen::generate_simple_self_signed(vec![SELF_SIGNED_DOMAIN.into()])?;
-    let cert_der = cert.serialize_der()?;
-    let priv_key_der = cert.serialize_private_key_der();
+    let cert_der = cert.cert.der().as_ref().to_vec();
+    let priv_key_der = cert.key_pair.serialize_der();
     Ok((cert_der, priv_key_der))
 }
 
-fn configure_server_self_signed() -> Result<(ServerConfig, Vec<u8>), anyhow::Error> {
+fn configure_server_self_signed() -> Result<(quinn::ServerConfig, Vec<u8>), anyhow::Error> {
     let (cert_der, priv_key) = generate_self_signed_cert()?;
-    let priv_key = rustls::PrivateKey(priv_key);
-    let cert_chain = vec![rustls::Certificate(cert_der.clone())];
+    let priv_key = crate::exports::PrivateKey::try_from(priv_key)
+        .map_err(|err| anyhow::Error::msg(format!("Failed to create private key: {err}")))?;
+    let cert_chain = vec![crate::exports::Certificate::from(cert_der.clone())];
 
-    let server_config =
-        quinn::ServerConfig::with_crypto(Arc::new(secure::server_config(cert_chain, priv_key)?));
+    let server_config = secure::server_config(cert_chain, priv_key)?;
 
     Ok((server_config, cert_der))
 }
 
-fn configure_server_with_crypto(
-    cert_chain: Vec<rustls::Certificate>,
-    private_key: rustls::PrivateKey,
-) -> Result<ServerConfig, anyhow::Error> {
-    let server_crypto = secure::server_config(cert_chain, private_key)?;
-    let server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
-    Ok(server_config)
-}
-
-pub fn rustls_client_config_to_quinn_config(cfg: Arc<rustls::ClientConfig>) -> ClientConfig {
-    ClientConfig::new(cfg)
+pub fn rustls_client_config_to_quinn_config(
+    cfg: Arc<rustls::ClientConfig>,
+) -> std::io::Result<ClientConfig> {
+    Ok(ClientConfig::new(Arc::new(
+        QuicClientConfig::try_from(cfg)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?,
+    )))
 }
 
 pub mod secure {
     pub fn client_config(roots: rustls::RootCertStore) -> rustls::ClientConfig {
         let mut cfg = rustls::ClientConfig::builder()
-            .with_safe_default_cipher_suites()
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .unwrap()
             .with_root_certificates(roots)
             .with_no_client_auth();
         cfg.enable_early_data = true;
@@ -306,17 +304,15 @@ pub mod secure {
     /// `u32::MAX`. Advanced users can use any [`rustls::ServerConfig`] that satisfies these
     /// requirements.
     pub fn server_config(
-        cert_chain: Vec<rustls::Certificate>,
-        key: rustls::PrivateKey,
-    ) -> Result<rustls::ServerConfig, anyhow::Error> {
-        let mut cfg = rustls::ServerConfig::builder()
-            .with_safe_default_cipher_suites()
-            .with_safe_default_kx_groups()
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(cert_chain, key)?;
-        cfg.max_early_data_size = u32::MAX;
+        cert_chain: Vec<crate::exports::Certificate<'static>>,
+        key: crate::exports::PrivateKey<'static>,
+    ) -> Result<quinn::ServerConfig, anyhow::Error> {
+        let mut cfg = quinn::ServerConfig::with_single_cert(cert_chain, key)
+            .map_err(|err| anyhow::Error::msg(err.to_string()))?;
+
+        cfg.migration(true);
+        cfg.max_incoming(u32::MAX as usize);
+
         Ok(cfg)
     }
 }
@@ -324,42 +320,86 @@ pub mod secure {
 pub mod insecure {
     use std::sync::Arc;
 
+    use quinn::crypto::rustls::QuicClientConfig;
     use quinn::ClientConfig;
+    use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+    use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+    use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 
-    pub(crate) struct SkipServerVerification;
+    #[derive(Debug)]
+    struct NoServerCertVerification;
 
-    impl SkipServerVerification {
-        pub(crate) fn new() -> Arc<Self> {
-            Arc::new(Self)
-        }
-    }
-
-    impl rustls::client::ServerCertVerifier for SkipServerVerification {
+    impl ServerCertVerifier for NoServerCertVerification {
         fn verify_server_cert(
             &self,
-            _end_entity: &rustls::Certificate,
-            _intermediates: &[rustls::Certificate],
-            _server_name: &rustls::ServerName,
-            _scts: &mut dyn Iterator<Item = &[u8]>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
             _ocsp_response: &[u8],
-            _now: std::time::SystemTime,
-        ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-            Ok(rustls::client::ServerCertVerified::assertion())
+            _now: UnixTime,
+        ) -> Result<ServerCertVerified, Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            vec![
+                SignatureScheme::RSA_PKCS1_SHA1,
+                SignatureScheme::ECDSA_SHA1_Legacy,
+                SignatureScheme::RSA_PKCS1_SHA256,
+                SignatureScheme::ECDSA_NISTP256_SHA256,
+                SignatureScheme::RSA_PKCS1_SHA384,
+                SignatureScheme::ECDSA_NISTP384_SHA384,
+                SignatureScheme::RSA_PKCS1_SHA512,
+                SignatureScheme::ECDSA_NISTP521_SHA512,
+                SignatureScheme::RSA_PSS_SHA256,
+                SignatureScheme::RSA_PSS_SHA384,
+                SignatureScheme::RSA_PSS_SHA512,
+                SignatureScheme::ED25519,
+                SignatureScheme::ED448,
+            ]
         }
     }
 
     pub fn rustls_client_config() -> rustls::ClientConfig {
-        let mut cfg = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(SkipServerVerification::new())
+        let versions = &rustls::version::TLS13;
+        let mut rustls_config = rustls::ClientConfig::builder_with_protocol_versions(&[versions])
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoServerCertVerification))
             .with_no_client_auth();
 
-        cfg.enable_sni = true;
-        cfg
+        // Add requirements for TryFrom to succeed
+        rustls_config.enable_sni = true;
+        rustls_config.enable_early_data = true;
+
+        //QuicClientConfig::try_from(rustls_config).expect("Failed to create QuicClientConfig")
+        rustls_config
+    }
+
+    pub fn get_quic_client_config() -> QuicClientConfig {
+        QuicClientConfig::try_from(rustls_client_config())
+            .expect("Failed to create QuicClientConfig")
     }
 
     pub fn configure_client() -> ClientConfig {
-        ClientConfig::new(Arc::new(rustls_client_config()))
+        ClientConfig::new(Arc::new(get_quic_client_config()))
     }
 }
 
@@ -369,6 +409,7 @@ mod tests {
         QuicClient, QuicEndpointConnector, QuicEndpointListener, QuicServer, SELF_SIGNED_DOMAIN,
     };
     use crate::socket_helpers::is_ipv6_enabled;
+    use citadel_io::tokio;
     use rstest::*;
     use std::net::SocketAddr;
 
@@ -385,11 +426,12 @@ mod tests {
             return Ok(());
         }
         let mut server =
-            QuicServer::new_self_signed(citadel_io::UdpSocket::bind(addr).await?).unwrap();
+            QuicServer::new_self_signed(citadel_io::tokio::net::UdpSocket::bind(addr).await?)
+                .unwrap();
         let client_bind_addr = SocketAddr::from((addr.ip(), 0));
-        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
-        let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
-        let addr = server.endpoint.local_addr().unwrap();
+        let (start_tx, start_rx) = citadel_io::tokio::sync::oneshot::channel();
+        let (end_tx, end_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
+        let addr = server.endpoint.local_addr()?;
 
         let server = async move {
             log::trace!(target: "citadel", "Starting server @ {:?}", addr);
@@ -406,7 +448,9 @@ mod tests {
         let client = async move {
             start_rx.await.unwrap();
             let client = QuicClient::new_no_verify(
-                citadel_io::UdpSocket::bind(client_bind_addr).await.unwrap(),
+                citadel_io::tokio::net::UdpSocket::bind(client_bind_addr)
+                    .await
+                    .unwrap(),
             )
             .unwrap();
             let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;
@@ -416,7 +460,7 @@ mod tests {
             end_rx.await.unwrap();
         };
 
-        let (_r0, _r1) = tokio::join!(server, client);
+        let (_r0, _r1) = citadel_io::tokio::join!(server, client);
         Ok(())
     }
 }
