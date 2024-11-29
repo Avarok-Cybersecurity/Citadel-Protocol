@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["map_errors"],"mod":["remote_specialization","results"],"struct":["ConnectionSuccess","RegisterSuccess"],"trait":["ProtocolRemoteExt","ProtocolRemoteTargetExt"]};
