@@ -8,7 +8,7 @@ pub struct InternalServiceKernel<'a, F, Fut> {
     _pd: PhantomData<fn() -> (&'a F, Fut)>,
 }
 
-impl<'a, F, Fut> InternalServiceKernel<'a, F, Fut>
+impl<F, Fut> InternalServiceKernel<'_, F, Fut>
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
@@ -33,7 +33,7 @@ where
 }
 
 #[async_trait]
-impl<'a, F, Fut> NetKernel for InternalServiceKernel<'a, F, Fut> {
+impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }
