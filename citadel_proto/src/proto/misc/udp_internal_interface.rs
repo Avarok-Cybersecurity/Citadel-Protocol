@@ -1,3 +1,32 @@
+//! UDP Internal Interface
+//!
+//! This module provides the internal interface for UDP communication in the Citadel Protocol.
+//! It handles UDP packet processing, hole punching, and NAT traversal operations.
+//!
+//! # Features
+//!
+//! - UDP packet handling
+//! - NAT traversal support
+//! - Hole punching operations
+//! - Connection management
+//! - Error handling
+//! - Packet encryption
+//!
+//! # Important Notes
+//!
+//! - Requires proper NAT configuration
+//! - Handles both IPv4 and IPv6
+//! - Supports multiple UDP streams
+//! - Manages connection timeouts
+//! - Handles packet fragmentation
+//!
+//! # Related Components
+//!
+//! - `net.rs`: Network operations
+//! - `session.rs`: Session management
+//! - `underlying_proto.rs`: Protocol implementation
+//! - `node.rs`: Node management
+
 use crate::constants::CODEC_BUFFER_CAPACITY;
 use crate::error::NetworkError;
 use crate::functional::PairMap;

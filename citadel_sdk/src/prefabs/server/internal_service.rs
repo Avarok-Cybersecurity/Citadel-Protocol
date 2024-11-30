@@ -1,3 +1,68 @@
+//! Internal Service Integration
+//!
+//! This module provides a network kernel that enables integration of internal services,
+//! such as HTTP servers, within the Citadel Protocol network. It's particularly useful
+//! for implementing web services that need to communicate over secure Citadel channels.
+//!
+//! # Features
+//! - Internal service integration
+//! - HTTP server support
+//! - Custom service handlers
+//! - Asynchronous processing
+//! - Type-safe communication
+//! - Automatic channel management
+//! - Service lifecycle handling
+//!
+//! # Example
+//! ```rust
+//! use std::convert::Infallible;
+//! use std::net::SocketAddr;
+//! use citadel_sdk::prelude::*;
+//! use hyper::{Response, Body, Server, Request};
+//! use hyper::server::conn::AddrStream;
+//! use hyper::service::{make_service_fn, service_fn};
+//! use citadel_sdk::prefabs::server::internal_service::InternalServiceKernel;
+//!
+//! // Create a kernel with an HTTP server
+//! let kernel = InternalServiceKernel::new(|comm| async move {
+//!
+//!     let make_svc = make_service_fn(|socket: &AddrStream| {
+//!         let remote_addr = socket.remote_addr();
+//!         async move {
+//!             Ok::<_, Infallible>(service_fn(move |_: Request<Body>| async move {
+//!                 Ok::<_, Infallible>(
+//!                     Response::new(Body::from(format!("Hello, {}!", remote_addr)))
+//!                 )
+//!             }))
+//!         }
+//!     });
+//!     
+//!     // Start the HTTP server
+//!     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+//!     let server = Server::bind(&addr).serve(make_svc);
+//!     // Run this server indefinitely
+//!     if let Err(e) = server.await {
+//!         eprintln!("server error: {}", e);
+//!     }
+//!
+//!    Ok(())
+//! });
+//! ```
+//!
+//! # Important Notes
+//! - Services run in isolated contexts
+//! - Communication is bidirectional
+//! - Supports HTTP/1.1 and HTTP/2
+//! - Automatic error handling
+//! - Resource cleanup on shutdown
+//!
+//! # Related Components
+//! - [`NetKernel`]: Base trait for network kernels
+//! - [`InternalServerCommunicator`]: Service communication
+//! - [`ClientConnectListenerKernel`]: Connection handling
+//! - [`NodeResult`]: Network event handling
+//!
+
 use crate::prefabs::shared::internal_service::InternalServerCommunicator;
 use crate::prelude::*;
 use std::future::Future;
@@ -8,7 +73,7 @@ pub struct InternalServiceKernel<'a, F, Fut> {
     _pd: PhantomData<fn() -> (&'a F, Fut)>,
 }
 
-impl<'a, F, Fut> InternalServiceKernel<'a, F, Fut>
+impl<F, Fut> InternalServiceKernel<'_, F, Fut>
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
@@ -33,7 +98,7 @@ where
 }
 
 #[async_trait]
-impl<'a, F, Fut> NetKernel for InternalServiceKernel<'a, F, Fut> {
+impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }

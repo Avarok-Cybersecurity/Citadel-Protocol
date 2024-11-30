@@ -1,3 +1,55 @@
+//! Primary Group Packet Processor for Citadel Protocol
+//!
+//! This module handles the processing of group packets in the Citadel Protocol network.
+//! It manages secure group communication, including message distribution, file transfers,
+//! and cryptographic operations for group sessions.
+//!
+//! # Features
+//!
+//! - Group packet validation and processing
+//! - Secure message distribution
+//! - File transfer management
+//! - Group session cryptography
+//! - Proxy packet handling
+//! - UDP and TCP transport support
+//! - KEM (Key Encapsulation Mechanism) operations
+//!
+//! # Important Notes
+//!
+//! - Group packets require an established session
+//! - Supports both direct and proxied communication
+//! - Handles TCP-only mode for group payloads
+//! - Implements automatic group expiry
+//! - Manages cryptographic state for group sessions
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages group session state
+//! - `StackedRatchet`: Provides cryptographic primitives
+//! - `PeerSessionCrypto`: Handles peer-to-peer encryption
+//! - `VirtualConnection`: Manages group connections
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::primary_group_packet;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! fn handle_group_packet(session: &CitadelSession, packet: HdpPacket) {
+//!     let cmd_aux = 0; // Command auxiliary value
+//!     let proxy_info = None; // No proxy information
+//!     match primary_group_packet::process_primary_packet(session, cmd_aux, packet, proxy_info) {
+//!         Ok(result) => {
+//!             // Handle successful group packet processing
+//!         }
+//!         Err(err) => {
+//!             // Handle group packet error
+//!         }
+//!     }
+//! }
+//! ```
+
 use super::includes::*;
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;

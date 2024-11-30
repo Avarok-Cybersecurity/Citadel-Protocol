@@ -1,3 +1,43 @@
+//! Backend Storage and Persistence Layer
+//!
+//! This module provides the persistence and storage infrastructure for the Citadel Protocol,
+//! supporting multiple backend types including filesystem, in-memory, Redis, and SQL databases.
+//!
+//! # Features
+//!
+//! * **Multiple Backend Support**
+//!   - In-memory storage for ephemeral data
+//!   - Filesystem persistence
+//!   - Redis database integration
+//!   - SQL database support (PostgreSQL, MySQL, SQLite)
+//!
+//! * **Common Interface**
+//!   - Unified backend connection trait
+//!   - Consistent error handling
+//!   - Async operation support
+//!   - Transaction management
+//!
+//! * **Data Management**
+//!   - Account persistence
+//!   - Virtual filesystem operations
+//!   - Peer relationship storage
+//!   - Object transfer handling
+//!
+//! # Important Notes
+//!
+//! * Backend selection is feature-gated at compile time
+//! * In-memory backend does not persist between restarts
+//! * Database connections are managed automatically
+//! * All operations are thread-safe
+//! * Backends implement automatic reconnection
+//!
+//! # Related Components
+//!
+//! * `AccountManager` - Primary user of backend services
+//! * `ClientNetworkAccount` - Stored account data
+//! * `VirtualObjectMetadata` - File transfer metadata
+//! * `PersistenceHandler` - Backend connection management
+
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;

@@ -1,3 +1,42 @@
+//! # Subscription Stream Implementation
+//!
+//! Provides bidirectional subscription-based streaming capabilities for multiplexed
+//! network connections, enabling reliable ordered communication between nodes.
+//!
+//! ## Features
+//!
+//! - **Bidirectional Streaming**:
+//!   - Reliable ordered message delivery
+//!   - Automatic stream management
+//!   - Multiplexed connections
+//!   - Stream identification
+//!
+//! - **Subscription Management**:
+//!   - Stream subscription handling
+//!   - Connection lifecycle management
+//!   - Node type awareness
+//!   - Resource cleanup
+//!
+//! - **Multiplexing Support**:
+//!   - Stream multiplexing
+//!   - Connection sharing
+//!   - Stream isolation
+//!   - Connection pooling
+//!
+//! ## Important Notes
+//!
+//! - Implements async/await patterns
+//! - Ensures thread-safety
+//! - Handles connection cleanup
+//! - Maintains message ordering
+//!
+//! ## Related Components
+//!
+//! - [`MultiplexedConn`]: Connection multiplexing
+//! - [`ReliableOrderedStreamToTarget`]: Stream reliability
+//! - [`network_application`]: Application integration
+//! - [`RelativeNodeType`]: Node type management
+
 use crate::multiplex::{MemorySender, MultiplexedConn, MultiplexedConnKey, MultiplexedPacket};
 use crate::reliable_conn::ReliableOrderedStreamToTarget;
 use crate::sync::network_application::{

@@ -1,3 +1,45 @@
+//! Wire Protocol for Post-Quantum Cryptographic Parameter Transfer
+//!
+//! This module implements the secure wire protocol for parameter transfer between
+//! Alice and Bob nodes in the post-quantum cryptographic protocol. It provides:
+//!
+//! # Features
+//!
+//! - Secure parameter transfer structures for key exchange
+//! - Data scrambling for additional security and obfuscation
+//! - Support for both symmetric and asymmetric encryption modes
+//! - Memory-safe handling of sensitive cryptographic parameters
+//! - Zero-copy buffer operations where possible
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_pqcrypto::wire::{AliceToBobTransferParameters, ScramCryptDictionary};
+//!
+//! // Create a scrambling dictionary for secure data transfer
+//! let dict = ScramCryptDictionary::<32>::new().unwrap();
+//!
+//! // Example data buffer
+//! let mut data = vec![0u8; 32];
+//!
+//! // Scramble the data for secure transfer
+//! dict.scramble_in_place(&mut data).unwrap();
+//! ```
+//!
+//! # Security Considerations
+//!
+//! - All sensitive parameters are automatically zeroized when dropped
+//! - Scrambling provides additional protection against side-channel attacks
+//! - Parameter signatures ensure authenticity and integrity
+//! - Memory safety is enforced through Rust's ownership system
+//! - Buffer operations are bounds-checked to prevent overflows
+//!
+//! # Related Components
+//!
+//! - [`citadel_types::crypto`] - Core cryptographic types and parameters
+//! - [`citadel_pqcrypto::bytes_in_place`] - In-place buffer operations
+//! - [`citadel_pqcrypto::key_store`] - Secure key storage functionality
+
 use aes_gcm::aead::Buffer;
 use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
 use citadel_types::errors::Error;

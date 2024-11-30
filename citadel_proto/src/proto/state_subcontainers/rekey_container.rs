@@ -1,3 +1,41 @@
+//! # Rekey State Container
+//!
+//! Manages cryptographic key rotation and ratchet updates in the Citadel Protocol.
+//! Provides security level-based key update scheduling and state management.
+//!
+//! ## Features
+//! - Manages stacked ratchet construction for key rotation
+//! - Supports peer-to-peer key updates
+//! - Handles local rekey requests and notifications
+//! - Provides configurable security levels
+//! - Implements adaptive update frequency based on security needs
+//!
+//! ## Example Usage
+//! ```rust
+//! use citadel_proto::proto::state_subcontainers::RatchetUpdateState;
+//! use citadel_proto::proto::transfer_stats::TransferStats;
+//!
+//! // Create new ratchet update state
+//! let mut state = RatchetUpdateState::default();
+//!
+//! // Calculate update frequency based on security level
+//! let stats = TransferStats::default();
+//! let frequency = calculate_update_frequency(2, &stats);
+//! ```
+//!
+//! ## Important Notes
+//! - Security levels range from 0 (low) to 4 (divine)
+//! - Update frequencies are in nanoseconds
+//! - P2P updates are tracked per connection
+//! - Manual mode requires kernel notification
+//! - Completion status is reported for local requests
+//!
+//! ## Related Components
+//! - `stacked_ratchet`: Core cryptographic ratchet implementation
+//! - `session`: Uses rekey state for session security
+//! - `peer`: Manages peer-to-peer rekey operations
+//! - `kernel`: Receives rekey completion notifications
+
 use citadel_io::tokio::time::Duration;
 
 use crate::constants::{

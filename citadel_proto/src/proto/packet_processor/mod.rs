@@ -1,3 +1,99 @@
+//! # Packet Processor Module
+//!
+//! Core packet processing infrastructure for the Citadel Protocol, handling all aspects
+//! of packet lifecycle from creation to processing.
+//!
+//! ## Features
+//!
+//! - **Packet Type Management**: Handles various packet types including:
+//!   - Connection establishment packets
+//!   - Authentication packets
+//!   - Data transfer packets
+//!   - Keep-alive packets
+//!   - Group communication packets
+//!
+//! - **Processing Pipeline**:
+//!   - Packet validation and verification
+//!   - State management during processing
+//!   - Error handling and recovery
+//!   - Packet queueing and ordering
+//!
+//! - **Security**:
+//!   - Cryptographic verification
+//!   - Replay attack prevention
+//!   - Packet integrity checks
+//!
+//! ## Important Notes
+//!
+//! - All packet processors implement proper error handling
+//! - Processors maintain packet ordering guarantees
+//! - Implements backpressure mechanisms
+//! - Handles partial packet reconstruction
+//!
+//! ## Related Components
+//!
+//! - [`connect_packet`]: Connection establishment
+//! - [`register_packet`]: Node registration
+//! - [`primary_group_packet`]: Group communication
+//! - [`peer_cmd_packet`]: Peer commands
+//! - [`file_packet`]: File transfer
+//! - [`keep_alive_packet`]: Connection maintenance
+
+//! # Citadel Protocol Packet Processing
+//!
+//! This module implements the core packet processing functionality for the Citadel Protocol.
+//! It handles various types of packets including connection establishment, data transfer,
+//! group communication, and connection maintenance.
+//!
+//! ## Packet Types
+//!
+//! The protocol supports several types of packets:
+//!
+//! - **Connection Packets**: Handle connection establishment and termination
+//!   - `connect_packet`: Connection establishment
+//!   - `disconnect_packet`: Connection termination
+//!   - `preconnect_packet`: Initial connection setup
+//!
+//! - **Authentication Packets**:
+//!   - `register_packet`: User registration
+//!   - `deregister_packet`: User deregistration
+//!
+//! - **Data Transfer Packets**:
+//!   - `file_packet`: File transfer operations
+//!   - `primary_group_packet`: Group communication
+//!   - `raw_primary_packet`: Raw data transfer
+//!
+//! - **Maintenance Packets**:
+//!   - `keep_alive_packet`: Connection maintenance
+//!   - `rekey_packet`: Key rotation
+//!   - `hole_punch`: NAT traversal
+//!
+//! ## Processing Flow
+//!
+//! 1. Incoming packets are validated and decrypted
+//! 2. Packet type is determined from header
+//! 3. Packet is processed by appropriate handler
+//! 4. Response is generated if needed
+//!
+//! ## Security
+//!
+//! - All packets are encrypted using post-quantum cryptography
+//! - Headers are protected against tampering
+//! - Replay attacks are prevented through sequence numbers
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use citadel_proto::packet_processor::{PrimaryProcessorResult, HdpPacket};
+//!
+//! // Process an incoming packet
+//! match process_packet(packet) {
+//!     PrimaryProcessorResult::Void => { /* No response needed */ }
+//!     PrimaryProcessorResult::ReplyToSender(response) => { /* Send response */ }
+//!     PrimaryProcessorResult::EndSession(reason) => { /* Handle session end */ }
+//! }
+//! ```
+
 use crate::proto::packet::HdpHeader;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::state_container::VirtualConnectionType;
@@ -40,13 +136,16 @@ pub mod udp_packet;
 //
 pub mod hole_punch;
 
-/// Allows the [HdpSession] to read results from the packet processor herein
+/// Represents the result of processing a primary packet in the Citadel Protocol.
+/// This enum is used to communicate the outcome of packet processing back to the
+/// session handler.
 #[derive(PartialEq)]
 pub enum PrimaryProcessorResult {
-    /// Do nothing
+    /// No action needed after processing the packet
     Void,
+    /// Session should be terminated with the given reason
     EndSession(&'static str),
-    /// Returns some data to the sender
+    /// A response packet should be sent back to the sender
     ReplyToSender(BytesMut),
 }
 

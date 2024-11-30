@@ -1,3 +1,52 @@
+/*!
+# Hole Punch Compatibility Stream Module
+
+This module implements a compatibility layer for UDP hole punching in the Citadel Protocol, providing a reliable ordered stream interface for NAT traversal.
+
+## Features
+- **Stream Abstraction**: Implements `ReliableOrderedStreamToTarget` for hole punching
+- **Compatibility Layer**: Bridges between different network protocols
+- **Security Integration**: Incorporates stacked ratchet encryption
+- **Packet Routing**: Supports both client-server and peer-to-peer routing
+- **State Management**: Maintains connection state and packet ordering
+
+## Core Components
+- `ReliableOrderedCompatStream`: Main stream implementation for hole punching
+- `ConnAddr`: Address management for connection endpoints
+- `StackedRatchet`: Encryption layer for secure communication
+
+## Example Usage
+```rust
+// Create a new compatibility stream
+let compat_stream = ReliableOrderedCompatStream::new(
+    primary_stream,
+    state_container,
+    target_cid,
+    stacked_ratchet,
+    security_level
+);
+
+// Send data through the stream
+compat_stream.send_to_peer(&data)?;
+
+// Receive data from the stream
+let received = compat_stream.recv()?;
+```
+
+## Important Notes
+1. Supports both client-server and peer-to-peer modes
+2. Requires pre-loaded ratchets for P2P communication
+3. Uses central node for packet routing in P2P mode
+4. Maintains packet ordering and reliability
+
+## Related Components
+- `peer_crypt`: Handles encryption and key exchange
+- `p2p_conn_handler`: Manages peer connections
+- `state_container`: Tracks connection state
+- `packet_processor`: Handles packet routing
+
+*/
+
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, UnboundedReceiver};
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::state_container::StateContainerInner;

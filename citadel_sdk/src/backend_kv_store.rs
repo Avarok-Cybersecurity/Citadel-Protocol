@@ -1,3 +1,42 @@
+//! Connection-Specific Key-Value Storage
+//!
+//! This module provides a trait for persistent key-value storage that is unique to each
+//! connection in the Citadel Protocol. It allows applications to store and retrieve
+//! arbitrary data associated with specific peer connections.
+//!
+//! # Features
+//! - Connection-scoped storage (unique per session and peer)
+//! - Basic key-value operations (get, set, remove)
+//! - Bulk operations for managing multiple key-value pairs
+//! - Automatic error handling and conversion
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//!
+//! async fn store_data<T: BackendHandler>(handler: &T) -> Result<(), NetworkError> {
+//!     // Store a value
+//!     handler.set("my_key", b"my_value".to_vec()).await?;
+//!
+//!     // Retrieve the value
+//!     if let Some(value) = handler.get("my_key").await? {
+//!         println!("Retrieved value: {:?}", value);
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Storage is tied to the connection's session and peer IDs
+//! - All operations are asynchronous and may fail
+//! - Values are stored as raw bytes (Vec<u8>)
+//!
+//! # Related Components
+//! - [`TargetLockedRemote`]: Trait for accessing connection-specific information
+//! - [`PersistenceHandler`]: Backend storage implementation
+//!
+
 use crate::prelude::*;
 use std::collections::HashMap;
 

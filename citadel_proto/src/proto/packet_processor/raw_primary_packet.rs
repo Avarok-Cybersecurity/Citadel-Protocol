@@ -1,3 +1,42 @@
+//! # Raw Primary Packet Processor
+//!
+//! Low-level packet processing implementation for primary data packets in the
+//! Citadel Protocol, handling raw packet operations and transformations.
+//!
+//! ## Features
+//!
+//! - **Packet Operations**:
+//!   - Raw packet parsing
+//!   - Header processing
+//!   - Payload handling
+//!   - Packet validation
+//!
+//! - **Data Management**:
+//!   - Zero-copy processing
+//!   - Buffer management
+//!   - Memory safety
+//!   - Efficient allocation
+//!
+//! - **Security**:
+//!   - Header integrity
+//!   - Payload verification
+//!   - Length validation
+//!   - Type checking
+//!
+//! ## Important Notes
+//!
+//! - Implements memory-safe operations
+//! - Handles packet boundaries correctly
+//! - Validates packet structure
+//! - Ensures data integrity
+//!
+//! ## Related Components
+//!
+//! - [`primary_group_packet`]: Group packet processing
+//! - [`peer_cmd_packet`]: Peer command packets
+//! - [`file_packet`]: File transfer packets
+//! - [`session_manager`]: Session management
+
 use bytes::BytesMut;
 
 use crate::proto::packet_processor::peer::peer_cmd_packet;
@@ -6,7 +45,14 @@ use super::includes::*;
 use crate::error::NetworkError;
 
 /// For primary-port packet types. NOT for wave ports
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(implicated_cid=this_implicated_cid, is_server=session.is_server, packet_len=packet.len())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(implicated_cid=this_implicated_cid, is_server=session.is_server, packet_len=packet.len())
+))]
 pub async fn process_raw_packet(
     this_implicated_cid: Option<u64>,
     session: &CitadelSession,
@@ -120,7 +166,27 @@ pub(crate) enum ReceivePortType {
     UnorderedUnreliable,
 }
 
-// returns None if the packet should finish being processed. Inlined for slightly faster TURN proxying
+/// Checks if the packet should be proxied or not.
+///
+/// If the packet should be proxied, it will be sent to the target CID and the function will return `None`.
+/// If the packet should not be proxied, it will be returned as is.
+///
+/// # Parameters
+///
+/// - `this_implicated_cid`: The implicated CID of the current session.
+/// - `cmd_primary`: The primary command of the packet.
+/// - `cmd_aux`: The auxiliary command of the packet.
+/// - `header_session_cid`: The session CID of the packet.
+/// - `target_cid`: The target CID of the packet.
+/// - `session`: The current session.
+/// - `endpoint_cid_info`: The endpoint CID information.
+/// - `recv_port_type`: The type of the receive port.
+/// - `packet`: The packet to be checked.
+///
+/// # Returns
+///
+/// - `Some(packet)`: The packet if it should not be proxied.
+/// - `None`: If the packet should be proxied.
 #[allow(clippy::too_many_arguments)]
 #[inline]
 pub(crate) fn check_proxy(

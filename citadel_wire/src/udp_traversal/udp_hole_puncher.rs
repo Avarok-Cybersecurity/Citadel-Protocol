@@ -1,3 +1,60 @@
+//! UDP Hole Punching Implementation
+//!
+//! This module implements the core UDP hole punching algorithm for NAT traversal,
+//! enabling peer-to-peer connections between nodes behind different NATs. It handles
+//! the complexities of coordinated connection establishment and socket management.
+//!
+//! # Features
+//!
+//! - Asynchronous hole punching implementation
+//! - Dual-stack IPv4/IPv6 support
+//! - Automatic retry mechanism
+//! - Configurable timeouts
+//! - NAT-aware socket binding
+//! - Encrypted configuration exchange
+//! - Network endpoint integration
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
+//! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
+//! use citadel_wire::nat_identification::NatType;
+//! use citadel_wire::error::FirewallError;
+//! use citadel_io::tokio::net::UdpSocket;
+//! use std::net::SocketAddr;
+//! use anyhow::Result;
+//!
+//! async fn example() -> Result<()> {
+//!     // Create socket and config
+//!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
+//!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
+//!     let peer_nat = NatType::identify(None).await?;
+//!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], vec![socket]);
+//!     
+//!     // Create hole puncher
+//!     let hole_puncher = UdpHolePuncher::new(config);
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Requires coordinated peer configuration
+//! - Default timeout includes NAT identification time
+//! - Multiple retries on failure (max 3)
+//! - Socket binding optimized for NAT type
+//! - IPv6 support depends on peer capability
+//!
+//! # Related Components
+//!
+//! - [`crate::nat_identification`] - NAT behavior analysis
+//! - [`crate::udp_traversal::hole_punch_config`] - Configuration
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//! - [`crate::udp_traversal::targetted_udp_socket_addr`] - Socket management
+//!
+
 use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;

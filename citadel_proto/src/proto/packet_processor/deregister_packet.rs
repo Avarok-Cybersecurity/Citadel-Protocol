@@ -1,3 +1,52 @@
+//! Deregistration Packet Processor for Citadel Protocol
+//!
+//! This module handles the deregistration process for clients in the Citadel Protocol
+//! network. It manages the secure removal of client accounts and cleanup of associated
+//! resources from both the client and server sides.
+//!
+//! # Features
+//!
+//! - Secure client deregistration
+//! - Resource cleanup
+//! - Session state validation
+//! - Ticket-based tracking
+//! - Success/failure handling
+//!
+//! # Important Notes
+//!
+//! - Client must be connected to deregister
+//! - Process is irreversible
+//! - Handles both client and server-side cleanup
+//! - Maintains security during account removal
+//! - Requires valid session state
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages deregistration state
+//! - `AccountManager`: Handles account removal
+//! - `SessionManager`: Manages session cleanup
+//! - `KernelInterface`: Reports deregistration results
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::deregister_packet;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! async fn handle_deregister(session: &CitadelSession, packet: HdpPacket) {
+//!     let header_drill_vers = 1;
+//!     match deregister_packet::process_deregister(session, packet, header_drill_vers).await {
+//!         Ok(result) => {
+//!             // Handle successful deregistration
+//!         }
+//!         Err(err) => {
+//!             // Handle deregistration error
+//!         }
+//!     }
+//! }
+//! ```
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::DeRegistration;

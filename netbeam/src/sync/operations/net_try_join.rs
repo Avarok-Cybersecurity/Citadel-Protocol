@@ -1,3 +1,51 @@
+/*!
+ * # Network Try-Join Operation
+ *
+ * Implements a network-aware try-join operation that synchronizes fallible futures
+ * across two network endpoints. Similar to `futures::try_join`, but operates over
+ * a network connection.
+ *
+ * ## Features
+ * - Synchronizes fallible futures between network endpoints
+ * - Returns when both endpoints complete successfully
+ * - Early termination on first error
+ * - Type-safe with generic value and error types
+ * - State synchronization between nodes
+ * - Network-aware relative node types
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::operations::net_try_join::NetTryJoin;
+ * use netbeam::sync::RelativeNodeType;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable>(connection: &S) -> Result<()> {
+ *     // Create a try-join operation
+ *     let join = NetTryJoin::new(
+ *         connection,
+ *         RelativeNodeType::Initiator,
+ *         async { Ok::<_, anyhow::Error>(42) }
+ *     );
+ *
+ *     // Wait for both endpoints
+ *     let result = join.await?;
+ *     println!("Got result: {:?}", result);
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Important Notes
+ * - Both endpoints must complete successfully
+ * - Handles errors with Result type
+ * - State is synchronized between nodes
+ * - Uses multiplexed connections
+ *
+ * ## Related Components
+ * - `net_join.rs`: Basic join operation without error handling
+ * - `net_select.rs`: Select operation for multiple futures
+ */
+
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::subscription::{Subscribable, SubscriptionBiStream};

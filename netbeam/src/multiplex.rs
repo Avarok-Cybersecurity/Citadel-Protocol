@@ -1,3 +1,37 @@
+//! # Network Stream Multiplexing
+//!
+//! Provides a robust multiplexing system for network streams, allowing multiple logical connections
+//! to share a single underlying network connection. This module implements connection multiplexing
+//! with automatic stream management and bi-directional communication support.
+//!
+//! ## Features
+//!
+//! * Dynamic stream multiplexing over a single connection
+//! * Automatic stream ID generation and management
+//! * Bi-directional communication channels
+//! * Thread-safe subscription management
+//! * Pre-action and post-action hooks for stream lifecycle
+//! * Support for custom connection key types
+//! * Reliable ordered message delivery
+//! * Automatic cleanup of dropped streams
+//!
+//! ## Important Notes
+//!
+//! * Streams are automatically cleaned up when dropped
+//! * All operations are thread-safe and async-aware
+//! * Messages within each multiplexed stream maintain order
+//! * Custom key types must implement MultiplexedConnKey trait
+//! * Pre-action signals ensure proper stream initialization
+//! * Post-action signals handle graceful stream closure
+//!
+//! ## Related Components
+//!
+//! * `reliable_conn`: Underlying reliable stream implementation
+//! * `sync::subscription`: Stream subscription management
+//! * `sync::network_application`: Network action handling
+//! * `sync::RelativeNodeType`: Node type identification
+//!
+
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::network_application::{PostActionChannel, PreActionChannel, INITIAL_CAPACITY};
 use crate::sync::subscription::{
@@ -18,6 +52,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// A trait representing a multiplexed connection key.
 pub trait MultiplexedConnKey:
     Debug + Eq + Hash + Copy + Send + Sync + Serialize + DeserializeOwned + IDGen<Self>
 {
@@ -27,10 +62,15 @@ impl<T: Debug + Eq + Hash + Copy + Send + Sync + Serialize + DeserializeOwned + 
 {
 }
 
+/// A trait for generating IDs for multiplexed connections.
 pub trait IDGen<Key: MultiplexedConnKey> {
+    /// The type of container used to generate IDs.
     type Container: Send + Sync;
+    /// Generates a new container for ID generation.
     fn generate_container() -> Self::Container;
+    /// Generates the next ID in the sequence.
     fn generate_next(container: &Self::Container) -> Self;
+    /// Gets the proposed next ID in the sequence.
     fn get_proposed_next(container: &Self::Container) -> Key;
 }
 
@@ -50,22 +90,34 @@ impl IDGen<SymmetricConvID> for SymmetricConvID {
     }
 }
 
+/// A multiplexed connection.
 pub struct MultiplexedConn<K: MultiplexedConnKey = SymmetricConvID> {
     inner: Arc<MultiplexedConnInner<K>>,
 }
 
+/// The inner implementation of a multiplexed connection.
 pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
+    /// The underlying reliable connection.
     pub(crate) conn: Arc<dyn ReliableOrderedStreamToTarget>,
+    /// A map of subscribers.
     subscribers: RwLock<HashMap<K, MemorySender>>,
+    /// A channel for pre-action signals.
     pre_open_container: PreActionChannel<K>,
+    /// A channel for post-action signals.
     post_close_container: PostActionChannel<K>,
+    /// The ID generator.
     id_gen: K::Container,
+    /// The current latest subscribed ID.
     current_latest_subscribed: K::Container,
+    /// The node type.
     node_type: RelativeNodeType,
 }
 
+/// A memory sender.
 pub struct MemorySender {
+    /// The sender.
     tx: UnboundedSender<Vec<u8>>,
+    /// The pre-reserved receiver.
     pre_reserved_rx: Option<UnboundedReceiver<Vec<u8>>>,
 }
 
@@ -85,16 +137,22 @@ impl<K: MultiplexedConnKey> Deref for MultiplexedConn<K> {
     }
 }
 
+/// A multiplexed packet.
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub(crate) enum MultiplexedPacket<K: MultiplexedConnKey> {
+    /// An application layer packet.
     ApplicationLayer { id: K, payload: Vec<u8> },
+    /// A post-drop packet.
     PostDrop { id: K },
+    /// A pre-create packet.
     PreCreate { id: K },
+    /// A greeter packet.
     Greeter,
 }
 
 impl<K: MultiplexedConnKey> MultiplexedConn<K> {
+    /// Creates a new multiplexed connection.
     pub fn new<T: ReliableOrderedStreamToTarget + 'static>(
         node_type: RelativeNodeType,
         conn: T,
@@ -142,9 +200,13 @@ impl<K: MultiplexedConnKey> Clone for MultiplexedConn<K> {
     }
 }
 
+/// A multiplexed subscription.
 pub struct MultiplexedSubscription<'a, K: MultiplexedConnKey = SymmetricConvID> {
+    /// A reference to the multiplexed connection.
     ptr: &'a MultiplexedConn<K>,
+    /// The receiver.
     receiver: Option<Mutex<UnboundedReceiver<Vec<u8>>>>,
+    /// The ID.
     id: K,
 }
 
@@ -185,9 +247,13 @@ impl<K: MultiplexedConnKey> From<MultiplexedSubscription<'_, K>>
     }
 }
 
+/// An owned multiplexed subscription.
 pub struct OwnedMultiplexedSubscription<K: MultiplexedConnKey + 'static = SymmetricConvID> {
+    /// The multiplexed connection.
     ptr: MultiplexedConn<K>,
+    /// The receiver.
     receiver: Mutex<UnboundedReceiver<Vec<u8>>>,
+    /// The ID.
     id: K,
 }
 

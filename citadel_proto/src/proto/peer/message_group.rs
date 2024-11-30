@@ -1,3 +1,53 @@
+/*!
+# Message Group Module
+
+This module implements the group messaging framework for the Citadel Protocol, providing a consent-based group communication model.
+
+## Features
+- **Axis of Consent Model**: Implements a centralized consent model around the group initiator
+- **Peer Management**: Handles both concurrent and pending peer states
+- **Group Lifecycle**: Manages group creation, membership, and termination
+- **Permission System**: Supports group options and peer-specific permissions
+- **Short-lived Messaging Frames**: Optimized for temporary group communications
+
+## Core Components
+- `MessageGroup`: Main structure managing group state and peer membership
+- `MessageGroupPeer`: Represents individual peer state and metadata
+- `MessageGroupOptions`: Configures group behavior and permissions
+
+## Example Usage
+```rust
+// Create a new message group with options
+let group = MessageGroup {
+    concurrent_peers: HashMap::new(),
+    pending_peers: HashMap::new(),
+    options: message_group_options,
+};
+
+// Add a peer to the pending list
+let peer = MessageGroupPeer { peer_cid: peer_id };
+group.pending_peers.insert(peer_id, peer);
+
+// Upgrade a peer from pending to concurrent
+if let Some(peer) = group.pending_peers.remove(&peer_id) {
+    group.concurrent_peers.insert(peer_id, peer);
+}
+```
+
+## Important Notes
+1. Groups are centered around an "axis of consent" (the initiator)
+2. Consent is not transitive - all members must connect directly to the initiator
+3. Groups are short-lived and terminate when the initiator disconnects
+4. Local message history persists after group termination
+
+## Related Components
+- `peer_layer`: Manages peer-to-peer networking
+- `group_channel`: Implements group communication channels
+- `session`: Manages connection sessions
+- `state_container`: Tracks connection state
+
+*/
+
 use citadel_types::proto::MessageGroupOptions;
 use std::collections::HashMap;
 

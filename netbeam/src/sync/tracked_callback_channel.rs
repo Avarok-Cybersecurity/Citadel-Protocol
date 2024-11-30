@@ -1,3 +1,44 @@
+/*!
+ * # Tracked Callback Channel
+ *
+ * An enhanced version of the callback channel that provides tracking and monitoring
+ * capabilities for request-response patterns.
+ *
+ * ## Features
+ * - All features of the base CallbackChannel
+ * - Request tracking with unique identifiers
+ * - Response correlation with original requests
+ * - Thread-safe response tracking
+ * - Support for response timeouts
+ * - Atomic operation tracking
+ *
+ * ## Usage Example
+ * ```rust,no_run
+ * use netbeam::sync::tracked_callback_channel::TrackedCallbackChannel;
+ *
+ * # fn example() {
+ *  // Create a new tracked channel with buffer size 10
+ *  let (channel, receiver) = TrackedCallbackChannel::<String, bool>::new(10);
+ *
+ *  // Send with tracked callback
+ *  let result = channel.send("request".to_string());
+ *
+ *  // Send without callback
+ *  channel.send_no_callback("notification".to_string());
+ * # }
+ * ```
+ *
+ * ## Related Components
+ * - `callback_channel.rs`: Base implementation without tracking
+ * - `bi_channel.rs`: Bidirectional channel implementation
+ *
+ * ## Important Notes
+ * - Each request gets a unique tracking ID
+ * - Responses are correlated with requests using tracking IDs
+ * - Thread-safe tracking using atomic operations
+ * - Memory-efficient response tracking with cleanup
+ */
+
 use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
 use citadel_io::Mutex;
 use futures::Stream;
@@ -9,11 +50,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+/// A tracked callback channel that provides request-response tracking and monitoring.
 pub struct TrackedCallbackChannel<T, R> {
+    /// The inner implementation of the tracked callback channel.
     inner: Arc<TrackedCallbackChannelInner<T, R>>,
 }
 
 impl<T, R> Clone for TrackedCallbackChannel<T, R> {
+    /// Clones the tracked callback channel.
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -21,13 +65,18 @@ impl<T, R> Clone for TrackedCallbackChannel<T, R> {
     }
 }
 
+/// An error that can occur when using the tracked callback channel.
 pub enum TrackedCallbackError<T> {
+    /// An error occurred while sending a request.
     SendError(T),
+    /// An error occurred while receiving a response.
     RecvError,
+    /// An internal error occurred.
     InternalError(&'static str),
 }
 
 impl<T> TrackedCallbackError<T> {
+    /// Returns the payload of the error, if any.
     pub fn payload(self) -> Option<T> {
         match self {
             Self::SendError(payload) => Some(payload),
@@ -36,9 +85,11 @@ impl<T> TrackedCallbackError<T> {
     }
 }
 
+/// A constant representing no response.
 const NO_RESPONSE: u64 = 0;
 
 impl<T> Debug for TrackedCallbackError<T> {
+    /// Formats the error for debugging.
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SendError(_) => {
@@ -56,19 +107,28 @@ impl<T> Debug for TrackedCallbackError<T> {
     }
 }
 
+/// The inner implementation of the tracked callback channel.
 struct TrackedCallbackChannelInner<T, R> {
+    /// A map of tracking IDs to response senders.
     map: Mutex<HashMap<u64, citadel_io::tokio::sync::oneshot::Sender<R>>>,
+    /// The sender for the tracked callback channel.
     to_channel: Sender<TrackedCallbackChannelPayload<T, R>>,
+    /// The atomic ID generator.
     id: AtomicU64,
 }
 
+/// A payload for the tracked callback channel.
 pub struct TrackedCallbackChannelPayload<T, R> {
+    /// The tracking ID of the payload.
     id: u64,
+    /// The payload data.
     pub payload: T,
+    /// A phantom data marker for the response type.
     _pd: PhantomData<R>,
 }
 
 impl<T, R> TrackedCallbackChannelPayload<T, R> {
+    /// Creates a new payload with the given tracking ID and data.
     pub fn new(&self, payload: R) -> TrackedCallbackChannelPayload<R, T> {
         TrackedCallbackChannelPayload {
             id: self.id,
@@ -77,12 +137,14 @@ impl<T, R> TrackedCallbackChannelPayload<T, R> {
         }
     }
 
+    /// Returns whether the payload expects a response.
     pub fn expects_response(&self) -> bool {
         self.id != NO_RESPONSE
     }
 }
 
 impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
+    /// Creates a new tracked callback channel with the given buffer size.
     pub fn new(buffer: usize) -> (Self, CallbackReceiver<T, R>) {
         let (to_channel, from_channel) = citadel_io::tokio::sync::mpsc::channel(buffer);
         (
@@ -99,6 +161,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
         )
     }
 
+    /// Sends a request with a tracked callback.
     pub async fn send(&self, payload: T) -> Result<R, TrackedCallbackError<T>> {
         let (rx, id) = {
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
@@ -120,6 +183,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
         rx.await.map_err(|_| TrackedCallbackError::RecvError)
     }
 
+    /// Sends a request without a tracked callback.
     pub async fn send_no_callback(&self, payload: T) -> Result<(), TrackedCallbackError<T>> {
         self.inner
             .to_channel
@@ -132,6 +196,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
             .map_err(|err| TrackedCallbackError::SendError(err.0.payload))
     }
 
+    /// Tries to reply to a tracked request.
     pub fn try_reply(
         &self,
         payload: TrackedCallbackChannelPayload<R, T>,
@@ -149,13 +214,16 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
     }
 }
 
+/// A receiver for the tracked callback channel.
 pub struct CallbackReceiver<T, R> {
+    /// The inner receiver.
     inner: Receiver<TrackedCallbackChannelPayload<T, R>>,
 }
 
 impl<T, R> Stream for CallbackReceiver<T, R> {
     type Item = TrackedCallbackChannelPayload<T, R>;
 
+    /// Polls the receiver for the next item.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_recv(cx)
     }

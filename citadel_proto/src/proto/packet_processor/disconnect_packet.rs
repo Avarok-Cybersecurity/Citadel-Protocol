@@ -1,3 +1,52 @@
+//! Disconnect Packet Processor for Citadel Protocol
+//!
+//! This module handles the graceful disconnection process between nodes in the
+//! Citadel Protocol network. It implements a two-stage handshake to ensure both
+//! parties properly close their connection.
+//!
+//! # Features
+//!
+//! - Two-stage disconnect handshake
+//! - Secure packet validation
+//! - Session state management
+//! - Ticket tracking
+//! - Kernel notification
+//!
+//! # Important Notes
+//!
+//! - Requires connected session state
+//! - All packets must be authenticated
+//! - Implements brief delay for packet delivery
+//! - Manages session state transitions
+//! - Notifies kernel of disconnection
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages session state
+//! - `KernelInterface`: Handles disconnect signals
+//! - `SessionManager`: Tracks session lifecycle
+//! - `PrimaryStream`: Handles packet transmission
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::disconnect_packet;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! async fn handle_disconnect(session: &CitadelSession, packet: HdpPacket) {
+//!     let header_drill_vers = 1;
+//!     match disconnect_packet::process_disconnect(session, packet, header_drill_vers).await {
+//!         Ok(result) => {
+//!             // Handle successful disconnection
+//!         }
+//!         Err(err) => {
+//!             // Handle disconnection error
+//!         }
+//!     }
+//! }
+//! ```
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;

@@ -1,3 +1,42 @@
+//! # Network Application Core
+//!
+//! Core implementation of network applications in netbeam, providing high-level
+//! abstractions for synchronized network operations and communication primitives.
+//!
+//! ## Features
+//!
+//! - **Synchronization Primitives**:
+//!   - Mutex implementation
+//!   - RwLock implementation
+//!   - Channel creation
+//!   - Operation coordination
+//!
+//! - **Network Operations**:
+//!   - Select operations
+//!   - Join operations
+//!   - Try-join operations
+//!   - Synchronized execution
+//!
+//! - **Communication Channels**:
+//!   - Bidirectional channels
+//!   - Action channels
+//!   - Pre/post synchronization
+//!   - Connection multiplexing
+//!
+//! ## Important Notes
+//!
+//! - Implements async/await patterns
+//! - Ensures operation synchronization
+//! - Handles connection multiplexing
+//! - Manages node coordination
+//!
+//! ## Related Components
+//!
+//! - [`MultiplexedConn`]: Connection multiplexing
+//! - [`NetMutex`]: Network mutex implementation
+//! - [`NetRwLock`]: Network read-write lock
+//! - [`bi_channel`]: Bidirectional channels
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -321,7 +360,7 @@ impl<'a> PostActionSync<'a> {
     }
 }
 
-impl<'a> Future for PostActionSync<'a> {
+impl Future for PostActionSync<'_> {
     type Output = Result<(), anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

@@ -1,3 +1,35 @@
+//! # Citadel Protocol Packet Structure
+//!
+//! This module defines the core packet structure and handling for the Citadel Protocol.
+//! It implements the Hypernode Data Protocol (HDP) packet format, which provides secure
+//! and efficient data transmission between nodes.
+//!
+//! ## Features
+//!
+//! * Packet header definition and handling
+//! * Command type classification (primary and auxiliary)
+//! * Packet size management
+//! * Buffer trait implementation for different types
+//! * Zero-copy header parsing
+//! * Socket address tracking
+//! * Packet decomposition and composition
+//!
+//! ## Important Notes
+//!
+//! * Headers are fixed-size and aligned
+//! * Commands are hierarchically organized
+//! * Supports both BytesMut and Vec<u8> buffers
+//! * Implements zero-copy parsing for efficiency
+//! * Maintains packet integrity checks
+//!
+//! ## Related Components
+//!
+//! * `packet_processor`: Processes different packet types
+//! * `packet_crafter`: Creates protocol packets
+//! * `validation`: Validates packet structure
+//! * `state_container`: Manages packet state
+//! * `session`: Handles packet sessions
+//!
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use bytes::{BufMut, Bytes, BytesMut};
 use std::net::SocketAddr;

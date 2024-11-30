@@ -1,3 +1,34 @@
+//! Post-Connection Handler for Server-Side Peer Operations
+//!
+//! This module handles the post-connection phase of peer-to-peer communication on
+//! the server side. It manages virtual connection establishment, security settings,
+//! and UDP channel setup between connected peers.
+//!
+//! # Features
+//!
+//! - Virtual connection establishment
+//! - Security level configuration
+//! - UDP channel management
+//! - Peer signal routing
+//! - Session state synchronization
+//! - Connection table management
+//!
+//! # Important Notes
+//!
+//! - Server-side operations only
+//! - Requires established peer sessions
+//! - Handles both TCP and UDP channels
+//! - Manages bidirectional connections
+//! - TODO: Implement disconnect cleanup
+//!
+//! # Related Components
+//!
+//! - `CitadelSession`: Session management
+//! - `StateContainer`: Connection state
+//! - `PeerSignal`: Signal processing
+//! - `VirtualConnectionType`: Connection types
+//! - `SecurityLevel`: Security settings
+
 use crate::error::NetworkError;
 use crate::prelude::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::packet_processor::includes::VirtualConnectionType;

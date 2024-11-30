@@ -1,3 +1,74 @@
+//! # Citadel Protocol State Management
+//!
+//! This module implements the state management system for the Citadel Protocol.
+//! It handles connection states, virtual connections, group messaging, file transfers,
+//! and maintains the overall protocol state machine.
+//!
+//! ## State Management
+//!
+//! The state container manages several types of states:
+//!
+//! - **Connection States**: Pre-connect, connect, register, and deregister states
+//! - **Virtual Connections**: Peer-to-peer and client-server connections
+//! - **Group Management**: Group channels and broadcast messaging
+//! - **File Transfers**: Both inbound and outbound file transfers
+//!
+//! ## Features
+//!
+//! - **Virtual Connections**: Manages peer-to-peer and client-server connections
+//! - **State Machine**: Handles protocol state transitions
+//! - **Group Messaging**: Supports secure group communication
+//! - **File Transfer**: Manages secure file transfers with progress tracking
+//! - **UDP Support**: Optional UDP connectivity for performance
+//!
+//! ## Implementation Details
+//!
+//! The state container is split into several components:
+//!
+//! 1. **State Container**: Main state management interface
+//! 2. **Virtual Connections**: Connection management
+//! 3. **Group Management**: Group messaging and channels
+//! 4. **File Transfer**: File transfer state tracking
+//!
+//! ## Security
+//!
+//! - All state transitions are cryptographically verified
+//! - Connection states are protected against replay attacks
+//! - Group keys are securely managed
+//! - File transfers are encrypted end-to-end
+//!
+//! ## Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::state_container::{StateContainer, VirtualConnectionType};
+//!
+//! // Create a new state container
+//! let container = StateContainer::create(
+//!     kernel_tx,
+//!     remote,
+//!     timeout,
+//!     state,
+//!     account,
+//!     tracker,
+//!     settings,
+//!     is_server,
+//!     stats,
+//!     udp_mode,
+//! );
+//!
+//! // Handle a virtual connection
+//! container.insert_new_peer_virtual_connection_as_endpoint(
+//!     peer_addr,
+//!     settings,
+//!     ticket,
+//!     target_cid,
+//!     conn_type,
+//!     crypto,
+//!     session,
+//!     true,
+//! )?;
+//! ```
+
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::RangeInclusive;

@@ -1,3 +1,46 @@
+//! # Citadel Protocol Remote Communication
+//!
+//! This module implements remote communication functionality for the Citadel Protocol.
+//! It provides a high-level interface for nodes to communicate with each other and
+//! with the server in a secure and efficient manner.
+//!
+//! ## Features
+//!
+//! - **Asynchronous Communication**: Non-blocking request/response patterns
+//! - **Ticket Management**: Unique identifiers for tracking requests and responses
+//! - **Callback Support**: Subscription-based callbacks for event handling
+//! - **Error Handling**: Comprehensive error handling for network operations
+//! - **Account Management**: Integration with account management system
+//!
+//! ## Components
+//!
+//! - **NodeRemote**: Main interface for node communication
+//! - **Remote Trait**: Core functionality definition
+//! - **Ticket System**: Request tracking and correlation
+//!
+//! ## Security
+//!
+//! All communication is secured using:
+//! - Post-quantum cryptography
+//! - Secure ticket generation
+//! - Protected channel establishment
+//!
+//! ## Usage Example
+//!
+//! ```no_run
+//! use citadel_proto::remote::NodeRemote;
+//! use citadel_proto::prelude::NodeRequest;
+//!
+//! // Create a request
+//! let request = NodeRequest::new();
+//!
+//! // Send request and get ticket
+//! let ticket = remote.send(request)?;
+//!
+//! // Or use callback subscription
+//! let subscription = remote.send_callback_subscription(request)?;
+//! ```
+
 use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::{
     CallbackKey, KernelAsyncCallbackHandler, KernelStreamSubscription,
@@ -23,6 +66,7 @@ pub struct NodeRemote {
 #[async_trait::async_trait]
 #[auto_impl::auto_impl(Box, &mut, &, Arc)]
 pub trait Remote: Clone + Send {
+    /// Sends a request to the server and returns a ticket for tracking the response.
     async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_with_custom_ticket(ticket, request)
@@ -30,16 +74,23 @@ pub trait Remote: Clone + Send {
             .map(|_| ticket)
     }
 
+    /// Sends a request to the server with a custom ticket.
     async fn send_with_custom_ticket(
         &self,
         ticket: Ticket,
         request: NodeRequest,
     ) -> Result<(), NetworkError>;
+
+    /// Sends a request to the server and returns a subscription for callback events.
     async fn send_callback_subscription(
         &self,
         request: NodeRequest,
     ) -> Result<KernelStreamSubscription, NetworkError>;
+
+    /// Returns the account manager instance.
     fn account_manager(&self) -> &AccountManager;
+
+    /// Returns the next available ticket.
     fn get_next_ticket(&self) -> Ticket;
 }
 
@@ -80,7 +131,7 @@ impl Debug for NodeRemote {
 }
 
 impl NodeRemote {
-    /// Creates a new [`NodeRemote`]
+    /// Creates a new [`NodeRemote`] instance.
     pub(crate) fn new(
         outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
         callback_handler: KernelAsyncCallbackHandler,
@@ -98,7 +149,7 @@ impl NodeRemote {
         }
     }
 
-    /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
+    /// Sends a request to the server with a custom ticket.
     pub async fn send_with_custom_ticket(
         &self,
         ticket: Ticket,
@@ -116,8 +167,7 @@ impl NodeRemote {
             })
     }
 
-    /// Sends a request to the HDP server. This should always be used to communicate with the server
-    /// in order to obtain a ticket
+    /// Sends a request to the server and returns a ticket for tracking the response.
     pub async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_with_custom_ticket(ticket, request)

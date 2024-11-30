@@ -1,3 +1,52 @@
+//! # Firebase Realtime Database Integration
+//!
+//! This module provides integration with Firebase Realtime Database (RTDB), enabling
+//! real-time data synchronization between clients and servers. It handles authentication,
+//! connection management, and data transfer operations.
+//!
+//! ## Features
+//!
+//! * Firebase RTDB client integration
+//! * JWT-based authentication
+//! * Automatic token expiration handling
+//! * Connection refresh support
+//! * Real-time data synchronization
+//! * Client configuration management
+//!
+//! ## Usage Example
+//!
+//! ```rust,no_run
+//! use citadel_user::external_services::rtdb::{RtdbClientConfig, RtdbInstance};
+//!
+//! // Create client configuration
+//! let config = RtdbClientConfig {
+//!     url: "https://your-db.firebaseio.com".to_string(),
+//!     api_key: "your-api-key".to_string(),
+//!     // ... other fields ...
+//! };
+//!
+//! // Initialize RTDB instance
+//! let mut rtdb = RtdbInstance::new(&config)?;
+//!
+//! // Refresh connection if needed
+//! rtdb.refresh()?;
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Requires valid Firebase configuration
+//! * Handles token expiration automatically
+//! * Supports connection refresh for long-running instances
+//! * Implements efficient data synchronization
+//!
+//! ## Related Components
+//!
+//! * `FirebaseRTDB`: Underlying RTDB client
+//! * `ExternalServiceChannel`: Data transfer interface
+//! * `RawExternalPacket`: Data packet format
+//! * `JsonWebToken`: Authentication token type
+//!
+
 use crate::external_services::service_interface::{ExternalServiceChannel, RawExternalPacket};
 use crate::external_services::JsonWebToken;
 use crate::misc::AccountError;

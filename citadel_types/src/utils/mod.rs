@@ -65,20 +65,18 @@ pub fn const_time_compare(this: &[u8], other: &[u8]) -> bool {
 }
 
 pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
-    if params.encryption_algorithm == EncryptionAlgorithm::Kyber
-        && params.kem_algorithm != KemAlgorithm::Kyber
-    {
+    let uses_kyber_kem = params.kem_algorithm == KemAlgorithm::Kyber;
+    if params.encryption_algorithm == EncryptionAlgorithm::Kyber && !uses_kyber_kem {
         return Err(Error::Generic(
             "Invalid crypto parameter combination. Kyber encryption must be paired with Kyber KEM",
         ));
     }
 
     if params.encryption_algorithm == EncryptionAlgorithm::Kyber
-        && params.kem_algorithm == KemAlgorithm::Kyber
         && params.sig_algorithm == SigAlgorithm::None
     {
         return Err(Error::Generic(
-            "A post-quantum signature scheme must be selected when using Kyber encryption + KEM",
+            "A post-quantum signature scheme must be selected when using Kyber encryption",
         ));
     }
 

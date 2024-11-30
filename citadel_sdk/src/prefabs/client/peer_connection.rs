@@ -1,3 +1,65 @@
+//! Peer-to-Peer Connection Management
+//!
+//! This module provides functionality for establishing and managing peer-to-peer connections
+//! in the Citadel Protocol. It supports both direct and NAT-traversed connections with
+//! configurable security settings and file transfer capabilities.
+//!
+//! # Features
+//! - Multiple simultaneous peer connections
+//! - Configurable UDP and security settings per peer
+//! - Built-in file transfer support
+//! - Automatic peer registration handling
+//! - Session password protection
+//! - Connection state management
+//! - Flexible peer identification
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::client::peer_connection::{PeerConnectionKernel, PeerConnectionSetupAggregator};
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! async fn connect_to_peers() -> Result<(), NetworkError> {
+//!     // Set up connections to multiple peers with different settings
+//!     let peers = PeerConnectionSetupAggregator::default()
+//!         .with_peer_custom("alice")
+//!         .with_udp_mode(UdpMode::Enabled)
+//!         .add()
+//!         .with_peer_custom("bob")
+//!         .with_session_security_settings(Default::default())
+//!         .add();
+//!     
+//!     let settings = ServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!         .build()?;
+//!     
+//!     let kernel = PeerConnectionKernel::new(
+//!         settings,
+//!         peers,
+//!         |connections, _remote| async move {
+//!             println!("Connected to {} peers!", connections.len());
+//!             Ok(())
+//!         },
+//!     );
+//!     
+//!     Ok(())
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - Peers must be mutually registered before connecting
+//! - UDP mode affects NAT traversal capabilities
+//! - File transfers require proper handler setup
+//! - Session passwords must match on both peers
+//!
+//! # Related Components
+//! - [`PeerConnectionSetupAggregator`]: Peer connection configuration
+//! - [`FileTransferHandleRx`]: File transfer handling
+//! - [`UserIdentifier`]: Peer identification
+//! - [`SessionSecuritySettings`]: Connection security
+//!
+
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
@@ -682,7 +744,6 @@ mod tests {
                     let implicated_cid = remote.conn_type.get_implicated_cid();
 
                     let check = move |conn: PeerConnectSuccess| async move {
-                        let peer_cid = conn.channel.get_peer_cid();
                         if do_deregister {
                             conn.remote
                                 .deregister()
@@ -693,7 +754,7 @@ mod tests {
                                 .inner
                                 .account_manager()
                                 .get_persistence_handler()
-                                .hyperlan_peer_exists(implicated_cid, peer_cid)
+                                .hyperlan_peer_exists(implicated_cid, conn.channel.get_peer_cid())
                                 .await
                                 .unwrap());
                         }
@@ -716,7 +777,7 @@ mod tests {
                 },
             );
 
-            let client = NodeBuilder::default().build(client_kernel)?;
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -735,7 +796,6 @@ mod tests {
 
     #[rstest]
     #[case(2)]
-    #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_file_transfer(

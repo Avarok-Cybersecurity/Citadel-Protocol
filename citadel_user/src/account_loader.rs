@@ -1,3 +1,52 @@
+//! Account Loading and File Management
+//!
+//! This module provides functionality for loading and managing serialized client network accounts (CNACs)
+//! and other file-based data structures in the Citadel network.
+//!
+//! # Features
+//!
+//! * Load client network accounts from filesystem
+//! * Support for both personal and impersonal accounts
+//! * Generic file type loading by extension
+//! * Efficient deserialization of stored data
+//! * Error handling for IO and deserialization operations
+//!
+//! # Example
+//!
+//! ```rust
+//! use citadel_user::account_loader;
+//! use citadel_user::directory_store::DirectoryStore;
+//! use citadel_crypt::stacked_ratchet::DefaultRatchet;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create a directory store for account management
+//! let store = DirectoryStore::new("./accounts")?;
+//!
+//! // Load all client network accounts
+//! let accounts = account_loader::load_cnac_files::<DefaultRatchet, DefaultRatchet>(&store)?;
+//!
+//! // Process loaded accounts
+//! for (cid, account) in accounts {
+//!     println!("Loaded account with CID: {}", cid);
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//!
+//! * Account loading is performed non-recursively within specified directories
+//! * Failed deserialization attempts are logged but do not halt the loading process
+//! * Both personal and impersonal accounts are loaded and merged into a single collection
+//! * File operations use buffered I/O for efficiency
+//!
+//! # Related Components
+//!
+//! * [`DirectoryStore`] - Manages filesystem paths for account storage
+//! * [`ClientNetworkAccount`] - The primary account structure being loaded
+//! * [`AccountError`] - Error handling for account operations
+//! * [`Ratchet`] - Cryptographic operations for account security
+
 use crate::client_account::ClientNetworkAccountInner;
 use crate::directory_store::*;
 use crate::hypernode_account::CNAC_SERIALIZED_EXTENSION;

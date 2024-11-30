@@ -1,3 +1,48 @@
+/*!
+ * # Network Select Operation
+ *
+ * Implements a network-aware select operation that races futures across two network
+ * endpoints. Similar to `futures::select`, but operates over a network connection
+ * with built-in conflict resolution.
+ *
+ * ## Features
+ * - Races futures between two network endpoints
+ * - First endpoint to complete wins
+ * - Built-in conflict resolution
+ * - Type-safe with generic result type
+ * - Network-aware relative node types
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::operations::net_select::NetSelect;
+ * use netbeam::sync::RelativeNodeType;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable + 'static>(connection: &S) -> Result<()> {
+ *     // Create a select operation
+ *     let select = NetSelect::new(
+ *         connection,
+ *         RelativeNodeType::Initiator,
+ *         async { Ok::<_, anyhow::Error>(42) }
+ *     );
+ *
+ *     // Wait for first endpoint to complete
+ *     let result = select.await?;
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Important Notes
+ * - First endpoint to complete wins
+ * - Includes conflict resolution
+ * - Uses multiplexed connections
+ *
+ * ## Related Components
+ * - `net_select_ok.rs`: Select operation for fallible futures
+ * - `net_join.rs`: Join operation for synchronization
+ */
+
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::ReliableOrderedStreamToTarget;
 use crate::sync::operations::net_select_ok::NetSelectOk;

@@ -1,3 +1,54 @@
+/*!
+ * # Bidirectional Channel
+ *
+ * A bidirectional channel implementation that enables two-way communication between
+ * network endpoints. This serves as the base abstraction for other channel types
+ * in the netbeam framework.
+ *
+ * ## Features
+ * - Two-way communication with send and receive halves
+ * - Support for reliable ordered streaming
+ * - Graceful channel shutdown with halt verification
+ * - Async/await support with Future and Stream implementations
+ * - Thread-safe operation
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::channel::bi_channel::Channel;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable + 'static>(connection: &S) -> Result<()> {
+ *     // Create a new channel
+ *     let channel = Channel::create(connection).await?;
+ *
+ *     // Split into send and receive halves
+ *     let (sender, mut receiver) = channel.split();
+ *
+ *     // Send data (replace with your data type)
+ *     sender.send_item("hello".to_string()).await?;
+ *
+ *     // Receive data
+ *     if let Some(data) = receiver.recv().await {
+ *         if let Ok(msg) = data {
+ *             println!("Received: {:?}", msg);
+ *         }
+ *     }
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Related Components
+ * - `callback_channel.rs`: Channel with callback support
+ * - `tracked_callback_channel.rs`: Channel with request tracking
+ *
+ * ## Important Notes
+ * - Channels implement graceful shutdown
+ * - Send and receive halves can be used independently
+ * - Supports reliable ordered streaming
+ * - Thread-safe with atomic operations
+ */
+
 use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
@@ -12,39 +63,54 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use sync_wrapper::SyncWrapper;
 
+/// Inner channel type for a given subscribable type `S`.
 pub(crate) type InnerChannel<S> = <S as Subscribable>::SubscriptionType;
 
+/// Enum representing different types of packets that can be sent over the channel.
 #[derive(Serialize, Deserialize, Debug)]
 enum ChannelPacket<T> {
+    /// A packet containing a value of type `T`.
     Packet(T),
+    /// A halt signal indicating that no more packets will be sent.
     Halt,
+    /// A verified halt signal indicating that the halt signal has been received.
     HaltVerified,
 }
 
-/// Allows two-way communication. The base abstraction for other types of channels
+/// A bidirectional channel that enables two-way communication between network endpoints.
 pub struct Channel<T: NetObject, S: Subscribable + 'static> {
+    /// The receive half of the channel.
     recv: ChannelRecvHalf<T, S>,
+    /// The send half of the channel.
     send: ChannelSendHalf<T, S>,
 }
 
+/// The receive half of a bidirectional channel.
 pub struct ChannelRecvHalf<T: NetObject, S: Subscribable + 'static> {
+    /// The receiver stream for the channel.
     receiver: ChannelRecvHalfReceiver<T>,
+    /// A flag indicating whether the receive half has been halted.
     recv_halt: Arc<AtomicBool>,
+    /// The inner channel for the receive half.
     tx: Option<Arc<InnerChannel<S>>>,
 }
 
+/// Type alias for a receiver stream.
 type ChannelRecvHalfReceiver<T> =
     SyncWrapper<Pin<Box<dyn Stream<Item = Result<ChannelPacket<T>, anyhow::Error>> + Send>>>;
 
-//impl<T: NetObject, S: Subscribable + 'static> Unpin for ChannelRecvHalf<T, S> {}
-
+/// The send half of a bidirectional channel.
 pub struct ChannelSendHalf<T: NetObject, S: Subscribable + 'static> {
+    /// A flag indicating whether the receive half has been halted.
     recv_halt: Arc<AtomicBool>,
+    /// The inner channel for the send half.
     tx: Option<Arc<InnerChannel<S>>>,
+    /// A phantom data marker for the type `T`.
     _pd: PhantomData<T>,
 }
 
 impl<T: NetObject, S: Subscribable + 'static> ChannelSendHalf<T, S> {
+    /// Sends an item over the channel.
     pub async fn send_item(&self, t: T) -> Result<(), anyhow::Error> {
         if self.recv_halt.load(Ordering::Relaxed) {
             Err(anyhow::Error::msg(
@@ -58,17 +124,20 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelSendHalf<T, S> {
         }
     }
 
+    /// Gets a reference to the inner channel.
     fn get_chan(&self) -> &InnerChannel<S> {
         self.tx.as_ref().unwrap()
     }
 }
 
 impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
+    /// Receives an item from the channel.
     pub async fn recv(&mut self) -> Option<Result<T, anyhow::Error>> {
         let packet = Pin::new(&mut self.receiver).get_pin_mut().next().await?;
         Some(self.process_packet(packet))
     }
 
+    /// Processes a packet received from the channel.
     fn process_packet(
         &mut self,
         packet: Result<ChannelPacket<T>, anyhow::Error>,
@@ -85,6 +154,7 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
 }
 
 impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
+    /// Creates a new channel.
     pub fn create(conn: &S) -> ChannelLoader<T, S> {
         ChannelLoader {
             inner: Box::pin(
@@ -94,14 +164,17 @@ impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
         }
     }
 
+    /// Sends an item over the channel.
     pub async fn send_item(&self, t: T) -> Result<(), anyhow::Error> {
         self.send.send_item(t).await
     }
 
+    /// Receives an item from the channel.
     pub async fn recv(&mut self) -> Option<Result<T, anyhow::Error>> {
         self.recv.recv().await
     }
 
+    /// Creates a new internal channel.
     fn new_internal(chan: InnerChannel<S>) -> Self {
         let chan = Arc::new(chan);
         let chan_stream = chan.clone();
@@ -135,6 +208,7 @@ impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
         }
     }
 
+    /// Splits the channel into send and receive halves.
     pub fn split(self) -> (ChannelSendHalf<T, S>, ChannelRecvHalf<T, S>) {
         (self.send, self.recv)
     }
@@ -207,6 +281,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
     }
 }
 
+/// A loader for a channel.
 pub struct ChannelLoader<'a, T: NetObject, S: Subscribable + 'static> {
     inner: ScopedFutureResult<'a, Channel<T, S>>,
 }

@@ -1,3 +1,52 @@
+//! # Citadel Protocol Session Management
+//!
+//! This module implements the core session management functionality for the Citadel Protocol.
+//! A session represents an active connection between two peers and handles all aspects of
+//! communication, including encryption, packet processing, and state management.
+//!
+//! ## Session Lifecycle
+//!
+//! 1. **Initialization**: A session is created with [`CitadelSession::new`]
+//! 2. **Authentication**: The session performs initial authentication and key exchange
+//! 3. **Active State**: Handles packet processing and maintains connection state
+//! 4. **Termination**: Clean shutdown with proper resource cleanup
+//!
+//! ## Features
+//!
+//! - **State Management**: Tracks session state transitions and handles reconnection
+//! - **Packet Processing**: Efficient handling of protocol packets
+//! - **File Transfer**: Secure file transfer with configurable security levels
+//! - **UDP Support**: Optional UDP connectivity for performance-critical operations
+//! - **Clean Shutdown**: Proper resource cleanup and connection termination
+//! - **Security**: Post-quantum cryptographic primitives for all session data
+//! - **Perfect Forward Secrecy**: Maintained through the stacked ratchet protocol
+//! - **Session Key Rotation**: Automatic rotation based on configurable parameters
+//! - **Memory Security**: Sensitive data is securely zeroed when dropped
+//!
+//! ## Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::session::{CitadelSession, SessionInitParams};
+//!
+//! // Create session parameters
+//! let params = SessionInitParams::new()
+//!     .with_node_type(NodeType::Client)
+//!     .with_protocol(ConnectProtocol::Tcp);
+//!
+//! // Initialize the session
+//! let (shutdown_tx, session) = CitadelSession::new(params)?;
+//!
+//! // Execute the session with a network stream
+//! session.execute(stream, peer_addr)?;
+//! ```
+//!
+//! ## Security Considerations
+//!
+//! - All session data is encrypted using post-quantum cryptographic primitives
+//! - Perfect forward secrecy is maintained through the stacked ratchet protocol
+//! - Session keys are automatically rotated based on configurable parameters
+//! - Memory containing sensitive data is securely zeroed when dropped
+
 use std::fs::File;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
@@ -15,7 +64,6 @@ use citadel_types::proto::UdpMode;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::client_account::ClientNetworkAccount;
-use citadel_user::network_account::ConnectProtocol;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use netbeam::time_tracker::TimeTracker;
@@ -57,7 +105,7 @@ use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
 use crate::proto::peer::peer_layer::{HyperNodePeerLayer, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
-use crate::proto::session_manager::HdpSessionManager;
+use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::session_queue_handler::{
     QueueWorkerResult, QueueWorkerTicket, SessionQueueWorker, SessionQueueWorkerHandle,
     DRILL_REKEY_WORKER, FIREWALL_KEEP_ALIVE, KEEP_ALIVE_CHECKER, PROVISIONAL_CHECKER,
@@ -80,6 +128,7 @@ use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::VirtualObjectMetadata;
 use citadel_user::backend::PersistenceHandler;
+use citadel_user::prelude::ConnectProtocol;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::Connection;
 use citadel_wire::nat_identification::NatType;
@@ -87,7 +136,6 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
-
 //use crate::define_struct;
 
 // Defines the primary structure which wraps the inner device
@@ -186,7 +234,7 @@ pub struct CitadelSessionInner {
     pub(super) kernel_tx: UnboundedSender<NodeResult>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
-    pub(super) session_manager: HdpSessionManager,
+    pub(super) session_manager: CitadelSessionManager,
     pub(super) state: Arc<Atomic<SessionState>>,
     pub(super) state_container: StateContainer,
     pub(super) account_manager: AccountManager,
@@ -244,11 +292,11 @@ pub enum HdpSessionInitMode {
 pub(crate) struct SessionInitParams {
     pub on_drop: UnboundedSender<()>,
     pub local_nat_type: NatType,
-    pub hdp_remote: NodeRemote,
+    pub citadel_remote: NodeRemote,
     pub local_bind_addr: SocketAddr,
     pub local_node_type: NodeType,
     pub kernel_tx: UnboundedSender<NodeResult>,
-    pub session_manager: HdpSessionManager,
+    pub session_manager: crate::proto::session_manager::CitadelSessionManager,
     pub account_manager: AccountManager,
     pub time_tracker: TimeTracker,
     pub remote_peer: SocketAddr,
@@ -340,7 +388,7 @@ impl CitadelSession {
         let kernel_ticket = session_init_params.init_ticket;
         let remote_peer = session_init_params.remote_peer;
         let session_manager = session_init_params.session_manager;
-        let hdp_remote = session_init_params.hdp_remote;
+        let hdp_remote = session_init_params.citadel_remote;
         let session_security_settings = client_only_settings.as_ref().map(|r| r.security_settings);
         let udp_mode = client_only_settings
             .as_ref()

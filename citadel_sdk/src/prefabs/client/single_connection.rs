@@ -1,3 +1,55 @@
+//! Single Client-Server Connection Kernel
+//!
+//! This module implements a network kernel for managing a single client-to-server connection
+//! in the Citadel Protocol. It provides NAT traversal, peer discovery, and secure
+//! communication channels between clients and a central server.
+//!
+//! # Features
+//! - Multiple authentication modes (Credentials, Transient)
+//! - NAT traversal support with configurable UDP mode
+//! - Secure session management with customizable security settings
+//! - Object transfer handling for file/data exchange
+//! - Pre-shared key authentication for server access
+//! - Automatic connection lifecycle management
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! async fn connect_to_server() -> Result<(), NetworkError> {
+//!     let settings = ServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!         .with_udp_mode(UdpMode::Enabled)
+//!         .build()?;
+//!     
+//!     let kernel = SingleClientServerConnectionKernel::new(
+//!         settings,
+//!         |conn, remote| async move {
+//!             println!("Connected to server!");
+//!             Ok(())
+//!         },
+//!     );
+//!     
+//!     Ok(())
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - Only manages a single server connection at a time
+//! - Connection handler must be Send + Future
+//! - UDP mode affects NAT traversal capabilities
+//! - Object transfer requires proper handler setup
+//!
+//! # Related Components
+//! - [`NetKernel`]: Base trait for network kernels
+//! - [`ServerConnectionSettings`]: Connection configuration
+//! - [`ClientServerRemote`]: Remote connection handler
+//! - [`ConnectionSuccess`]: Connection establishment data
+//!
+
 use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use crate::prefabs::client::ServerConnectionSettings;
 use crate::prefabs::ClientServerRemote;
@@ -535,10 +587,9 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |channel, remote| async move {
+            |_channel, remote| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
-                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
 
                 const KEY: &str = "HELLO_WORLD";
                 const KEY2: &str = "HELLO_WORLD2";

@@ -1,3 +1,67 @@
+//! Peer Command Packet Processor for Citadel Protocol
+//!
+//! This module handles the processing of peer command packets in the Citadel Protocol
+//! network. It manages peer-to-peer communication, signal routing, and secure key
+//! exchange between peers through the HyperLAN server.
+//!
+//! # Features
+//!
+//! - Peer command processing
+//! - Signal routing and forwarding
+//! - Secure key exchange
+//! - Group broadcast handling
+//! - Session state management
+//! - Ticket tracking
+//! - Error propagation
+//!
+//! # Important Notes
+//!
+//! - Requires server mediation
+//! - All packets must be authenticated
+//! - Handles both client and server roles
+//! - Manages peer session states
+//! - Supports group operations
+//! - Implements error handling
+//!
+//! # Related Components
+//!
+//! - `CitadelSession`: Session management
+//! - `PeerSignal`: Signal processing
+//! - `HyperNodePeerLayerInner`: Peer layer
+//! - `StackedRatchet`: Cryptographic operations
+//! - `StateContainer`: State management
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::peer::peer_cmd_packet;
+//! use citadel_proto::proto::peer::peer_layer::PeerSignal;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! async fn handle_peer_cmd(
+//!     session: &CitadelSession,
+//!     packet: HdpPacket,
+//!     header_version: u32,
+//! ) {
+//!     let aux_cmd = 0;
+//!     let endpoint_info = None;
+//!     match peer_cmd_packet::process_peer_cmd(
+//!         session,
+//!         aux_cmd,
+//!         packet,
+//!         header_version,
+//!         endpoint_info,
+//!     ).await {
+//!         Ok(result) => {
+//!             // Handle successful peer command
+//!         }
+//!         Err(err) => {
+//!             // Handle peer command error
+//!         }
+//!     }
+//! }
+//! ```
+
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -32,7 +96,7 @@ use crate::proto::peer::peer_layer::{
     HyperNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::Ticket;
-use crate::proto::session_manager::HdpSessionManager;
+use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 
@@ -1018,7 +1082,6 @@ async fn process_signal_command_as_server(
                         };
 
                         let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
-
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_register(implicated_cid, target_cid)
                         {
@@ -1678,7 +1741,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(
     timestamp: i64,
     ticket: Ticket,
     to_primary_stream: &OutboundPrimaryStreamSender,
-    sess_mgr: &HdpSessionManager,
+    sess_mgr: &CitadelSessionManager,
     sess_hyper_ratchet: &StackedRatchet,
     security_level: SecurityLevel,
     peer_layer: &mut HyperNodePeerLayerInner,

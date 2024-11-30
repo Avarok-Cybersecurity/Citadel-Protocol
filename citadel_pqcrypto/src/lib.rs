@@ -1,5 +1,50 @@
 #![allow(non_camel_case_types)]
 #![forbid(unsafe_code)]
+//! Post-quantum cryptographic library for secure communication.
+//!
+//! This crate provides a comprehensive implementation of post-quantum cryptographic
+//! primitives and protocols, designed to be resistant to attacks from both classical
+//! and quantum computers. It supports various encryption algorithms, key exchange
+//! mechanisms, and signature schemes.
+//!
+//! # Features
+//! - Post-quantum key exchange using NIST Round 3 algorithms
+//! - Hybrid classical/post-quantum encryption
+//! - Authenticated encryption with associated data (AEAD)
+//! - Anti-replay attack protection
+//! - Zero-knowledge proofs
+//! - Secure serialization and deserialization
+//!
+//! # Security Considerations
+//! - All sensitive data is wrapped in `Zeroizing` to ensure secure cleanup
+//! - No unsafe code is allowed (enforced by `forbid(unsafe_code)`)
+//! - Anti-replay attack protection is enabled by default
+//! - Cryptographic operations are constant-time where possible
+//!
+//! # Examples
+//! ```
+//! use citadel_pqcrypto::prelude::*;
+//! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+//! use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
+//!
+//! // Define the cryptographic parameters
+//! let opts = ConstructorOpts::default();
+//!
+//! // Create a new Alice instance
+//! let mut alice = PostQuantumContainer::new_alice(
+//!     opts.clone(),
+//! ).unwrap();
+//!
+//! // Create a new Bob instance using Alice's parameters
+//! let params = alice.generate_alice_to_bob_transfer().unwrap();
+//! let bob = PostQuantumContainer::new_bob(opts, params, &[]).unwrap();
+//!
+//! // Complete the key exchange
+//! let bob_params = bob.generate_bob_to_alice_transfer().unwrap();
+//! alice.alice_on_receive_ciphertext(bob_params, &[]).unwrap();
+//!
+//! // Now both parties can communicate securely
+//! ```
 
 use crate::bytes_in_place::{EzBuffer, InPlaceBuffer};
 use crate::constructor_opts::{ConstructorOpts, RecursiveChain};

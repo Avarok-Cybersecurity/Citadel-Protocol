@@ -1,3 +1,48 @@
+//! Post-Quantum Cryptography Construction Options
+//!
+//! This module provides configuration and initialization options for post-quantum
+//! cryptographic (PQC) operations in the Citadel Protocol. It includes structures for:
+//!
+//! - Configuring PQC instance parameters
+//! - Managing recursive key derivation chains
+//! - Handling shared secrets between participants
+//!
+//! # Features
+//!
+//! - Flexible cryptographic parameter configuration
+//! - Secure recursive key derivation chain management
+//! - Support for multi-round key exchanges
+//! - Memory-safe secret handling
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
+//! use citadel_types::crypto::CryptoParameters;
+//!
+//! // Create initial constructor options
+//! let opts = ConstructorOpts::new_init(Some(CryptoParameters::default()));
+//!
+//! // Create chain for key derivation
+//! let chain = [1u8; 32];
+//! let alice = [2u8; 32];
+//! let bob = [3u8; 32];
+//! let chain = RecursiveChain::new(chain, alice, bob, true).unwrap();
+//! ```
+//!
+//! # Security Considerations
+//!
+//! - All cryptographic parameters should be chosen based on security requirements
+//! - Chain values must be protected and never exposed outside secure contexts
+//! - Previous shared secrets should be carefully managed and zeroized after use
+//! - Memory safety is critical for protecting sensitive key material
+//!
+//! # Related Components
+//!
+//! - [`citadel_types::crypto`] - Core cryptographic types and parameters
+//! - [`citadel_pqcrypto::wire`] - Wire protocol for PQC operations
+//! - [`citadel_pqcrypto::key_store`] - Secure key storage functionality
+
 use citadel_types::crypto::CryptoParameters;
 use serde::{Deserialize, Serialize};
 

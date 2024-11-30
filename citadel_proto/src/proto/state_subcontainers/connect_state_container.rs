@@ -1,3 +1,43 @@
+//! # Connect State Container
+//!
+//! Manages the state of active connections in the Citadel Protocol, tracking connection stages,
+//! credentials, and timing information.
+//!
+//! ## Features
+//! - Stage-based connection management with transition tracking
+//! - Credential handling for authentication processes
+//! - Connection timing and failure monitoring
+//! - Support for different connection modes
+//! - State recovery mechanisms for connection resilience
+//!
+//! ## Example Usage
+//! ```rust
+//! use citadel_proto::proto::state_subcontainers::ConnectState;
+//!
+//! // Create new connection state
+//! let mut state = ConnectState::default();
+//!
+//! // Handle successful connection
+//! state.on_success();
+//! state.on_connect_packet_received();
+//!
+//! // Handle connection failure
+//! state.on_fail();
+//! state.on_connect_packet_received();
+//! ```
+//!
+//! ## Important Notes
+//! - State transitions must update both local and global session state
+//! - Packet timing is tracked for timeout management
+//! - Connection modes affect behavior and security settings
+//! - Failure states include timing information for recovery
+//!
+//! ## Related Components
+//! - `packet_processor`: Uses connection states for packet handling
+//! - `session`: Manages overall session state
+//! - `peer`: Uses connection states for peer management
+//! - `remote`: Handles remote connection states
+
 use citadel_io::tokio::time::Instant;
 
 use crate::proto::packet::packet_flags;

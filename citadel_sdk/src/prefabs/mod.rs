@@ -1,3 +1,49 @@
+//! Pre-built Network Components
+//!
+//! This module provides a collection of pre-built network components for both client
+//! and server implementations in the Citadel Protocol. These components offer ready-to-use
+//! functionality for common networking patterns and use cases.
+//!
+//! # Features
+//! - Client-side networking components
+//! - Server-side networking components
+//! - Remote connection management
+//! - File transfer handling
+//! - Signal and event processing
+//! - Connection security management
+//! - Peer discovery and listing
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::ClientServerRemote;
+//!
+//! async fn handle_remote(mut remote: ClientServerRemote) -> Result<(), NetworkError> {
+//!     // Get list of connected peers
+//!     let peers = remote.get_peers(None).await?;
+//!     
+//!     // Handle file transfers
+//!     if let Ok(transfer_handle) = remote.get_incoming_file_transfer_handle() {
+//!         transfer_handle.accept_all();
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - File transfer handlers can only be obtained once
+//! - Signal receivers are single-use
+//! - Remote shutdown is graceful and asynchronous
+//! - Connection types determine available operations
+//!
+//! # Related Components
+//! - [`client`]: Client-side networking implementations
+//! - [`server`]: Server-side networking implementations
+//! - [`ClientServerRemote`]: Remote connection handler
+//! - [`FileTransferHandleRx`]: File transfer processing
+//!
+
 use crate::impl_remote;
 use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
@@ -10,7 +56,8 @@ use std::sync::Arc;
 pub mod client;
 /// Kernels for servers
 pub mod server;
-pub(crate) mod shared;
+/// Shared utilities between client and server kernels
+pub mod shared;
 use crate::prelude::user_ids::TargetLockedRemote;
 use crate::remote_ext::results::LocalGroupPeer;
 use crate::remote_ext::ProtocolRemoteExt;

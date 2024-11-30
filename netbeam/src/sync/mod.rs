@@ -1,3 +1,35 @@
+/*!
+ * # Netbeam Synchronization Module
+ *
+ * Core synchronization primitives and networking components for the Netbeam framework.
+ * This module provides the foundation for building reliable, bidirectional network
+ * communication channels with advanced synchronization capabilities.
+ *
+ * ## Features
+ * - Network endpoint management and addressing
+ * - Bidirectional channels with callback support
+ * - Request-response tracking and correlation
+ * - Network application synchronization
+ * - Symmetric conversation tracking
+ * - Reliable ordered streaming
+ *
+ * ## Module Structure
+ * - `operations/`: Network operation implementations (select, join)
+ * - `primitives/`: Core synchronization primitives (mutex, rwlock)
+ * - `channel/`: Channel implementations for network communication
+ * - `subscription/`: Subscription and event handling
+ *
+ * ## Important Notes
+ * - All network operations are async/await compatible
+ * - Implements reliable ordered streaming by default
+ * - Thread-safe with atomic operations
+ * - Supports symmetric conversations across nodes
+ *
+ * ## Related Components
+ * - `reliable_conn/`: Reliable connection handling
+ * - `proto/`: Protocol implementation details
+ */
+
 use serde::{Deserialize, Serialize};
 
 pub mod operations;

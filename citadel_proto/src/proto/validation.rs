@@ -1,3 +1,35 @@
+//! # Citadel Protocol Packet Validation
+//!
+//! This module provides packet validation functionality for the Citadel Protocol.
+//! It ensures packet integrity, authenticity, and proper formatting across different
+//! packet types and protocol stages.
+//!
+//! ## Features
+//!
+//! - **Connection Validation**: Validates connection establishment packets
+//! - **Group Packet Validation**: Validates group messaging and file transfer packets
+//! - **Registration Validation**: Validates user registration process packets
+//! - **AEAD Validation**: Ensures packet integrity using AEAD cryptography
+//! - **Header Validation**: Validates packet headers and structure
+//! - **Drill Update Validation**: Validates key rotation packets
+//! - **File Transfer Validation**: Validates file transfer protocol packets
+//!
+//! ## Important Notes
+//!
+//! - All validation functions are security-critical
+//! - Failed validation results in packet rejection
+//! - Uses AEAD for packet integrity verification
+//! - Implements zero-copy validation where possible
+//! - Maintains protocol state consistency
+//!
+//! ## Related Components
+//!
+//! - [`packet`]: Core packet structure definitions
+//! - [`packet_crafter`]: Packet creation functionality
+//! - [`state_container`]: Protocol state management
+//! - [`session`]: Session management
+//! - [`crypto`]: Cryptographic operations
+//!
 pub(crate) mod do_connect {
     use citadel_user::client_account::ClientNetworkAccount;
 
@@ -186,7 +218,6 @@ pub(crate) mod do_register {
 }
 
 pub(crate) mod do_drill_update {
-
     use crate::proto::packet_crafter::do_drill_update::{
         Stage1UpdatePacket, TruncateAckPacket, TruncatePacket,
     };
@@ -220,7 +251,7 @@ pub(crate) mod pre_connect {
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
-    use crate::proto::session_manager::HdpSessionManager;
+    use crate::proto::session_manager::CitadelSessionManager;
     use citadel_crypt::stacked_ratchet::constructor::{
         BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
     };
@@ -246,7 +277,7 @@ pub(crate) mod pre_connect {
     pub(crate) fn validate_syn(
         cnac: &ClientNetworkAccount,
         packet: HdpPacket,
-        session_manager: &HdpSessionManager,
+        session_manager: &CitadelSessionManager,
         session_password: &PreSharedKey,
     ) -> Result<SynValidationResult, NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode

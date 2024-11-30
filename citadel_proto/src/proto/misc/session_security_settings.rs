@@ -1,3 +1,31 @@
+//! Session Security Settings
+//!
+//! This module defines the security configuration options for Citadel Protocol sessions.
+//! It provides settings for encryption, authentication, and other security-related
+//! parameters that control how sessions operate.
+//!
+//! # Features
+//!
+//! - Encryption configuration
+//! - Authentication settings
+//! - Key management options
+//! - Security level control
+//! - Protocol version settings
+//!
+//! # Important Notes
+//!
+//! - Settings affect session security
+//! - Some options require specific features
+//! - Default settings are secure
+//! - Settings are immutable after session start
+//!
+//! # Related Components
+//!
+//! - `session.rs`: Session management
+//! - `underlying_proto.rs`: Protocol implementation
+//! - `node.rs`: Node configuration
+//! - `error.rs`: Error handling
+
 use citadel_types::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
 use citadel_types::proto::SessionSecuritySettings;
 

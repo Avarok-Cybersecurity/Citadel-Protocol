@@ -1,3 +1,60 @@
+//! Entropy Bank: Dynamic Cryptographic State Management
+//!
+//! This module implements a secure entropy bank system that provides dynamic,
+//! evolving cryptographic states for packet protection and nonce generation.
+//! It ensures replay attack prevention and maintains secure packet ordering.
+//!
+//! # Features
+//!
+//! - Dynamic nonce generation and management
+//! - Packet encryption and decryption
+//! - Replay attack prevention
+//! - Ordered packet delivery enforcement
+//! - Random scrambling of ciphertext bytes
+//! - Post-quantum cryptography support
+//! - Transient counter management
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::entropy_bank::EntropyBank;
+//! use citadel_pqcrypto::PostQuantumContainer;
+//!
+//! fn protect_data() -> Result<(), CryptError<String>> {
+//!     // Create new entropy bank
+//!     let bank = EntropyBank::new(
+//!         1234,  // Client ID
+//!         1,     // Version
+//!         EncryptionAlgorithm::default()
+//!     )?;
+//!     
+//!     // Create quantum container
+//!     let container = PostQuantumContainer::new();
+//!     
+//!     // Encrypt data
+//!     let ciphertext = bank.encrypt(&container, b"secret data")?;
+//!     
+//!     // Decrypt data
+//!     let plaintext = bank.decrypt(&container, &ciphertext)?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Nonce reuse is prevented by design
+//! - Ordered packet delivery is mandatory
+//! - Port mappings are randomized for security
+//! - Thread-safe transient counter handling
+//! - Serialization support for persistence
+//!
+//! # Related Components
+//!
+//! - [`citadel_pqcrypto::PostQuantumContainer`] - Post-quantum crypto operations
+//! - [`crate::misc::CryptError`] - Error handling
+//! - [`crate::misc::create_port_mapping`] - Port scrambling
+
 use crate::misc::{create_port_mapping, CryptError};
 use byteorder::{BigEndian, ByteOrder};
 use rand::{thread_rng, Rng, RngCore};
@@ -10,7 +67,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
 use rand::prelude::ThreadRng;
 
-pub const PORT_RANGE: usize = 14;
+pub const DRILL_RANGE: usize = 14;
 pub const BYTES_PER_STORE: usize = LARGEST_NONCE_LEN;
 
 /// The default endianness for byte storage
@@ -23,7 +80,7 @@ impl EntropyBank {
         version: u32,
         algorithm: EncryptionAlgorithm,
     ) -> Result<Self, CryptError<String>> {
-        Self::generate_raw_3d_array().map(|bytes| {
+        Self::generate_random_array().map(|bytes| {
             let port_mappings = create_port_mapping();
             let transient_counter = Default::default();
             EntropyBank {
@@ -231,17 +288,12 @@ impl EntropyBank {
     }
 
     /// Downloads the data necessary to create a drill
-    fn generate_raw_3d_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
+    fn generate_random_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
         let mut bytes: [u8; BYTES_PER_STORE] = [0u8; BYTES_PER_STORE];
         let mut trng = thread_rng();
         trng.fill_bytes(&mut bytes);
 
         Ok(bytes)
-    }
-
-    /// Gets randmonized port mappings which contain the true information. Other ports may get bogons
-    pub fn get_port_mapping(&self) -> &Vec<(u16, u16)> {
-        &self.scramble_mappings
     }
 
     /// Serializes self to a vector
@@ -277,7 +329,7 @@ pub struct EntropyBank {
 
 /// Returns the approximate number of bytes needed to serialize a Drill
 pub const fn get_approx_serialized_drill_len() -> usize {
-    4 + 8 + BYTES_PER_STORE + (PORT_RANGE * 16 * 2)
+    4 + 8 + BYTES_PER_STORE + (DRILL_RANGE * 16 * 2)
 }
 
 impl Debug for EntropyBank {

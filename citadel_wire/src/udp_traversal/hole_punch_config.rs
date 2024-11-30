@@ -1,3 +1,84 @@
+//! Hole punch configuration module.
+//!
+//! This module provides the configuration structures for UDP hole punching.
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
+//! use citadel_wire::nat_identification::NatType;
+//! use citadel_wire::error::FirewallError;
+//! use citadel_io::tokio::net::UdpSocket;
+//! use std::net::SocketAddr;
+//!
+//! async fn example() -> Result<(), FirewallError> {
+//!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
+//!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
+//!     let peer_nat = NatType::identify(None).await?;
+//!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], vec![socket]);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! UDP Hole Punching Configuration
+//!
+//! This module provides configuration structures and utilities for UDP hole punching,
+//! a NAT traversal technique that enables peer-to-peer connections between nodes
+//! behind different NATs. It handles address prediction and socket preparation.
+//!
+//! # Features
+//!
+//! - NAT-aware address band configuration
+//! - Port prediction for different NAT types
+//! - Socket preparation for traversal
+//! - IPv4 and IPv6 support
+//! - Localhost testing capabilities
+//! - Iterator-based address generation
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
+//! use citadel_wire::nat_identification::NatType;
+//! use citadel_io::tokio::net::UdpSocket;
+//! use std::net::SocketAddr;
+//!
+//! async fn setup_hole_punch() -> Result<(), anyhow::Error> {
+//!     let peer_nat = NatType::identify(None)?;
+//!     let peer_addr = "192.168.1.2:8080".parse()?;
+//!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
+//!     
+//!     let config = HolePunchConfig::new(
+//!         &peer_nat,
+//!         &[peer_addr],
+//!         vec![socket]
+//!     );
+//!     
+//!     for addrs in config {
+//!         // Try connecting to predicted addresses
+//!         println!("Trying addresses: {:?}", addrs);
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Address prediction depends on NAT type
+//! - Multiple sockets may be required
+//! - Port ranges are NAT-behavior specific
+//! - Local sockets must be pre-bound
+//! - IPv6 requires system configuration
+//!
+//! # Related Components
+//!
+//! - [`crate::nat_identification`] - NAT behavior analysis
+//! - [`crate::udp_traversal::udp_hole_puncher`] - Hole punching implementation
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//! - [`crate::standard::upnp_handler`] - Alternative NAT traversal
+//!
+
 use crate::nat_identification::NatType;
 use citadel_io::tokio::net::UdpSocket;
 use itertools::Itertools;

@@ -1,3 +1,45 @@
+//! Client-Side Network Components
+//!
+//! This module provides pre-built client-side networking components for the Citadel Protocol.
+//! It includes implementations for various connection patterns including single server
+//! connections, peer-to-peer networking, and broadcast capabilities.
+//!
+//! # Features
+//! - Connection builders with flexible configuration
+//! - Multiple authentication methods (Transient, Credentials)
+//! - UDP support for NAT traversal
+//! - Session security customization
+//! - Pre-shared key authentication
+//! - Connection lifecycle management
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use std::net::SocketAddr;
+//! use std::str::FromStr;
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! // Create transient connection settings
+//! let settings = ServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     .with_udp_mode(UdpMode::Enabled)
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - Connection settings must be built before use
+//! - UDP mode affects NAT traversal capabilities
+//! - Pre-shared keys must match server configuration
+//! - Transient connections do not persist data
+//!
+//! # Related Components
+//! - [`broadcast`]: Group communication support
+//! - [`peer_connection`]: Peer-to-peer networking
+//! - [`single_connection`]: Single server connections
+//! - [`PrefabFunctions`]: Base trait for prefab implementations
+//!
+
 use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;

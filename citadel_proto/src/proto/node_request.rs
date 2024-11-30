@@ -1,3 +1,29 @@
+//! Node Request Management
+//!
+//! This module defines the request types and structures used for communication between nodes
+//! in the Citadel Protocol. It provides a comprehensive set of request types for managing
+//! node connections, authentication, file transfers, and peer-to-peer communication.
+//!
+//! # Features
+//! - Node registration and connection management
+//! - Secure file transfer operations
+//! - Peer-to-peer command handling
+//! - Group broadcast functionality
+//! - Session security and authentication
+//! - Key rotation and rekeying operations
+//!
+//! # Important Notes
+//! - All requests support ticket tracking for asynchronous response handling
+//! - Security settings are configurable per session
+//! - File operations support configurable security levels
+//! - Password-based authentication uses SHA-256 hashing
+//!
+//! # Related Components
+//! - `SessionManager`: Handles request processing and session management
+//! - `AuthenticationRequest`: Manages authentication credentials
+//! - `VirtualConnectionType`: Defines connection types between nodes
+//! - `SecurityLevel`: Specifies encryption and security parameters
+//!
 use crate::auth::AuthenticationRequest;
 use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;

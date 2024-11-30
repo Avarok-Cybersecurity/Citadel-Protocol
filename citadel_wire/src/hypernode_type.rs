@@ -1,3 +1,46 @@
+//! Node Type Configuration for Network Topology
+//!
+//! This module defines the network node types and their behaviors in the Citadel
+//! Protocol. It supports both traditional client-server and peer-to-peer network
+//! topologies.
+//!
+//! # Features
+//!
+//! - Server configuration with static IP addresses
+//! - Peer configuration for residential NAT environments
+//! - Automatic UPnP handling for peer nodes
+//! - Fallback to NAT traversal when UPnP is unavailable
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::hypernode_type::NodeType;
+//! use std::net::SocketAddr;
+//!
+//! // Configure a server with static IP
+//! let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+//! let server = NodeType::server(addr).unwrap();
+//! assert!(server.is_server());
+//!
+//! // Configure a peer node (residential NAT)
+//! let peer = NodeType::default();
+//! assert!(peer.is_peer());
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Server nodes must have stable, reachable IP addresses
+//! - Peer nodes automatically attempt UPnP port forwarding
+//! - Fallback to NAT traversal for symmetric NATs
+//! - Socket addresses are validated during construction
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal`] - NAT traversal functionality
+//! - [`crate::standard::upnp_handler`] - UPnP port forwarding
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//!
+
 use std::net::{SocketAddr, ToSocketAddrs};
 
 /// Used for determining the proper action when loading the server

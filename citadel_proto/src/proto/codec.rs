@@ -1,3 +1,44 @@
+//! Bytes Codec Implementation for Citadel Protocol
+//!
+//! This module provides a basic bytes codec implementation for raw data transmission in the Citadel Protocol.
+//! The codec handles efficient encoding and decoding of raw bytes with configurable buffer capacity.
+//!
+//! # Features
+//! - Configurable buffer capacity for memory efficiency
+//! - Zero-copy split operations for optimal performance
+//! - Automatic buffer resizing when capacity is insufficient
+//! - Implementation of tokio_util's Encoder and Decoder traits
+//!
+//! # Usage
+//! ```rust
+//! use citadel_proto::proto::codec::BytesCodec;
+//! use bytes::{Bytes, BytesMut};
+//! use citadel_io::tokio_util::codec::{Decoder, Encoder};
+//!
+//! // Create a new codec with specified buffer capacity
+//! let mut codec = BytesCodec::new(8192);
+//! let mut buf = BytesMut::new();
+//!
+//! // Encode some bytes
+//! let data = Bytes::from("Hello");
+//! codec.encode(data, &mut buf).unwrap();
+//!
+//! // Decode the bytes
+//! if let Ok(Some(decoded)) = codec.decode(&mut buf) {
+//!     assert_eq!(decoded, "Hello");
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - The codec maintains a minimum buffer size defined by `CODEC_MIN_BUFFER`
+//! - Buffer capacity is automatically increased if it falls below the minimum
+//! - The codec performs best with buffer sizes optimized for your use case
+//!
+//! # Related Components
+//! - `citadel_io::tokio_util::codec` - Provides the core codec traits
+//! - `crate::constants` - Defines important buffer size constants
+//! - Network transport layers that utilize this codec for raw byte transmission
+
 use std::io;
 
 use bytes::BufMut;

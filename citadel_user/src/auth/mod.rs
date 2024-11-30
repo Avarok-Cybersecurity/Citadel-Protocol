@@ -1,3 +1,36 @@
+//! Authentication Mode Management
+//!
+//! This module provides authentication mode handling for Citadel Network Accounts (CNACs),
+//! supporting both password-based and passwordless authentication methods.
+//!
+//! # Features
+//!
+//! * **Authentication Modes**
+//!   - Argon2id password-based authentication
+//!   - Passwordless authentication
+//!   - Username management
+//!   - Full name handling
+//!
+//! * **Security Features**
+//!   - Secure password hashing
+//!   - Mode-specific data storage
+//!   - Authentication state management
+//!
+//! # Important Notes
+//!
+//! * All authentication modes require unique usernames
+//! * Argon2id is used for secure password hashing
+//! * Passwordless mode still maintains user identity
+//! * Authentication data is serializable for storage
+//! * Mode can be determined at runtime
+//!
+//! # Related Components
+//!
+//! * `proposed_credentials` - Credential validation
+//! * `ArgonContainerType` - Password hashing
+//! * `ClientNetworkAccount` - Uses authentication modes
+//! * `AccountManager` - Manages authentication
+
 #![allow(missing_docs, dead_code)]
 use citadel_crypt::argon::argon_container::ArgonContainerType;
 use serde::{Deserialize, Serialize};

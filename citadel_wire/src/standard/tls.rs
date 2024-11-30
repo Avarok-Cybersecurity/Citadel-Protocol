@@ -1,3 +1,55 @@
+//! TLS Configuration and Certificate Management
+//!
+//! This module provides TLS (Transport Layer Security) configuration utilities with
+//! support for both traditional TLS and QUIC protocols. It handles certificate
+//! management, validation, and secure connection establishment with flexible
+//! security options.
+//!
+//! # Features
+//!
+//! - TLS and QUIC configuration interoperability
+//! - Self-signed certificate generation
+//! - PKCS#12 certificate support
+//! - Native system certificate loading
+//! - Custom certificate validation
+//! - Async/await support with Tokio
+//! - Rustls-based implementation
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::standard::tls;
+//!
+//! async fn setup_tls() -> Result<(), anyhow::Error> {
+//!     // Create self-signed server config
+//!     let server_config = tls::create_server_self_signed_config()?;
+//!     
+//!     // Load system certificates
+//!     let certs = tls::load_native_certs_async().await?;
+//!     
+//!     // Create secure client config
+//!     let client_config = tls::create_client_config(&[&certs])?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Native cert loading is expensive (~200ms)
+//! - Self-signed certs use 'localhost' domain
+//! - PKCS#12 passwords must be UTF-8
+//! - Supports TLS 1.2 and 1.3
+//! - Certificate chain validation is configurable
+//!
+//! # Related Components
+//!
+//! - [`crate::standard::quic`] - QUIC protocol support
+//! - [`crate::exports::Certificate`] - Certificate types
+//! - [`crate::exports::PrivateKey`] - Key management
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//!
+
 use crate::exports::{Certificate, PrivateKey};
 use crate::quic::generate_self_signed_cert;
 use rustls::{ClientConfig, RootCertStore};

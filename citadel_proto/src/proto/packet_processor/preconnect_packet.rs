@@ -1,3 +1,52 @@
+//! Preconnect packet processor for the Citadel Protocol
+//!
+//! This module handles the initial connection establishment and NAT traversal process
+//! between peers in the Citadel Protocol network. It implements the preconnect handshake
+//! which establishes secure communication channels between nodes.
+//!
+//! # Features
+//!
+//! - NAT traversal and hole punching for P2P connections
+//! - Protocol version compatibility checking
+//! - Session state validation and management
+//! - Security level negotiation
+//! - UDP and QUIC transport support
+//! - Cryptographic ratchet initialization
+//!
+//! # Important Notes
+//!
+//! - The preconnect process must complete before any other protocol operations
+//! - NAT traversal uses configurable STUN servers for hole punching
+//! - Protocol version mismatches are currently warned but not enforced
+//! - Sessions must be in provisional state to process preconnect packets
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages connection state during preconnect
+//! - `StackedRatchet`: Provides cryptographic primitives for secure channels
+//! - `UdpHolePuncher`: Handles NAT traversal operations
+//! - `SessionManager`: Tracks active protocol sessions
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::preconnect_packet;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! async fn handle_preconnect(session: &CitadelSession, packet: HdpPacket) {
+//!     let header_drill_vers = 1;
+//!     match preconnect_packet::process_preconnect(session, packet, header_drill_vers).await {
+//!         Ok(result) => {
+//!             // Handle successful preconnect processing
+//!         }
+//!         Err(err) => {
+//!             // Handle preconnect error
+//!         }
+//!     }
+//! }
+//! ```
+
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
@@ -478,7 +527,7 @@ pub async fn process_preconnect(
 
             // the client gets this. The client must now begin the connect process
             packet_flags::cmd::aux::do_preconnect::BEGIN_CONNECT => {
-                log::trace!(target: "citadel", "RECV STAGE BEGIN_CONNECT PRE CONNECT PACKET");
+                log::trace!(target: "citadel", "RECV STAGE BEGIN_CONNECT PRE_CONNECT PACKET");
                 let mut state_container = inner_mut_state!(session.state_container);
                 let hr = return_if_none!(
                     get_proper_hyper_ratchet(header_drill_vers, &state_container, None),

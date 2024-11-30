@@ -1,3 +1,58 @@
+//! Dual-Stack UDP Hole Punching Framework
+//!
+//! This module implements a concurrent UDP hole punching framework that supports
+//! both IPv4 and IPv6. It manages multiple hole punching attempts across different
+//! ports and protocols, coordinating between them to select the most successful
+//! connection path.
+//!
+//! # Features
+//!
+//! - Concurrent IPv4/IPv6 traversal
+//! - Multi-port hole punching
+//! - Winner selection protocol
+//! - Failure recovery handling
+//! - Multiplexed connections
+//! - Asynchronous coordination
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::udp_traversal::multi::DualStackUdpHolePuncher;
+//! use netbeam::sync::RelativeNodeType;
+//!
+//! async fn establish_connection(
+//!     node_type: RelativeNodeType,
+//!     config: HolePunchConfigContainer,
+//!     hole_punch_config: HolePunchConfig,
+//!     network: NetworkEndpoint
+//! ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+//!     let puncher = DualStackUdpHolePuncher::new(
+//!         node_type,
+//!         config,
+//!         hole_punch_config,
+//!         network
+//!     )?;
+//!     
+//!     puncher.await
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - IPv6 preferred for traversal
+//! - Concurrent attempts coordinated
+//! - Winner selection is atomic
+//! - Failures trigger fallbacks
+//! - Network multiplexing required
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal::linear::SingleUDPHolePuncher`] - Linear punching
+//! - [`crate::hole_punch_config`] - Configuration
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`netbeam::multiplex`] - Connection multiplexing
+//!
+
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;

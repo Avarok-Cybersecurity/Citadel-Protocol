@@ -1,3 +1,49 @@
+//! Remote Encrypted Virtual Filesystem (RE-VFS)
+//!
+//! This module provides high-level operations for interacting with the Remote Encrypted
+//! Virtual Filesystem in the Citadel Protocol. RE-VFS enables secure storage and
+//! retrieval of files with end-to-end encryption.
+//!
+//! # Features
+//! - Secure file storage and retrieval
+//! - Configurable security levels
+//! - Automatic encryption handling
+//! - Virtual path management
+//! - File deletion support
+//! - Take operations for atomic reads
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::fs;
+//!
+//! async fn store_file(remote: &impl TargetLockedRemote) -> Result<(), NetworkError> {
+//!     // Write a file to RE-VFS
+//!     fs::write(remote, "/local/file.txt", "/virtual/file.txt").await?;
+//!     
+//!     // Read the file back
+//!     let local_path = fs::read(remote, "/virtual/file.txt").await?;
+//!     
+//!     // Delete the file
+//!     fs::delete(remote, "/virtual/file.txt").await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - All operations are end-to-end encrypted
+//! - Security levels are configurable per operation
+//! - Take operations atomically read and delete
+//! - Virtual paths are independent of local paths
+//!
+//! # Related Components
+//! - [`TargetLockedRemote`]: Remote connection interface
+//! - [`SecurityLevel`]: Encryption strength configuration
+//! - [`ObjectSource`]: File source abstraction
+//! - [`NetworkError`]: Error handling
+//!
+
 use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, TargetLockedRemote};
 
 use citadel_proto::prelude::NetworkError;

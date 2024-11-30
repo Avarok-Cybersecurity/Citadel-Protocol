@@ -1,3 +1,31 @@
+//! Network Node Implementation
+//!
+//! This module implements the core networking functionality for Citadel Protocol nodes.
+//! It provides the foundation for both server and peer nodes, handling connection
+//! establishment, protocol negotiation, and secure communication.
+//!
+//! # Features
+//!
+//! - **Flexible Transport**: Supports TCP, TLS, and QUIC protocols
+//! - **NAT Traversal**: Implements hole punching for P2P connections
+//! - **Session Management**: Handles multiple concurrent sessions
+//! - **Security**: Post-quantum cryptography and pre-shared key authentication
+//! - **Dual Mode**: Supports both client-server and peer-to-peer architectures
+//!
+//! # Important Notes
+//!
+//! - Server nodes require proper bind address configuration
+//! - Client nodes automatically handle protocol negotiation
+//! - Pre-shared keys are required for server authentication
+//! - QUIC support requires valid TLS certificates
+//!
+//! # Related Components
+//!
+//! - `SessionManager`: Manages active network sessions
+//! - `NodeRemote`: Provides remote control interface
+//! - `KernelCommunicator`: Handles kernel message passing
+//! - `NetworkListener`: Manages network socket listeners
+//!
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -38,7 +66,7 @@ use crate::proto::packet_processor::includes::Duration;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{CitadelSession, HdpSessionInitMode};
-use crate::proto::session_manager::HdpSessionManager;
+use crate::proto::session_manager::CitadelSessionManager;
 
 pub type TlsDomain = Option<String>;
 
@@ -50,7 +78,7 @@ define_outer_struct_wrapper!(Node, NodeInner);
 pub struct NodeInner {
     primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
-    session_manager: HdpSessionManager,
+    session_manager: CitadelSessionManager,
     to_kernel: UnboundedSender<NodeResult>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
@@ -92,9 +120,9 @@ impl Node {
         };
 
         if let Some(local_bind_addr) = bind_addr {
-            log::trace!(target: "citadel", "HdpServer established on {}", local_bind_addr);
+            log::info!(target: "citadel", "Citadel server established on {}", local_bind_addr);
         } else {
-            log::trace!(target: "citadel", "HdpClient Established")
+            log::info!(target: "citadel", "Citadel client established")
         }
 
         let client_config = if let Some(config) = client_config {
@@ -108,7 +136,7 @@ impl Node {
         };
 
         let time_tracker = TimeTracker::new();
-        let session_manager = HdpSessionManager::new(
+        let session_manager = CitadelSessionManager::new(
             local_node_type,
             to_kernel.clone(),
             account_manager.clone(),
@@ -206,7 +234,7 @@ impl Node {
                 } else {
                     None
                 };
-                let peer_container = HdpSessionManager::run_peer_container(session_manager);
+                let peer_container = CitadelSessionManager::run_peer_container(session_manager);
                 let localset_opt = None;
                 (
                     outbound_kernel_request_handler,
@@ -236,7 +264,7 @@ impl Node {
                 } else {
                     None
                 };
-                let peer_container = HdpSessionManager::run_peer_container(session_manager);
+                let peer_container = CitadelSessionManager::run_peer_container(session_manager);
                 (
                     outbound_kernel_request_handler,
                     primary_stream_listener,
@@ -623,7 +651,7 @@ impl Node {
     async fn primary_session_creator_loop(
         to_kernel: UnboundedSender<NodeResult>,
         local_nat_type: NatType,
-        session_manager: HdpSessionManager,
+        session_manager: CitadelSessionManager,
         mut socket: DualListener,
         server_session_password: PreSharedKey,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,

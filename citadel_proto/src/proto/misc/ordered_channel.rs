@@ -1,3 +1,32 @@
+//! Ordered Channel Implementation
+//!
+//! This module provides an implementation of a channel that maintains message ordering
+//! guarantees. It ensures that messages are delivered in the same order they were sent,
+//! which is crucial for protocol operations.
+//!
+//! # Features
+//!
+//! - Strict message ordering
+//! - Asynchronous operation
+//! - Backpressure support
+//! - Error propagation
+//! - Channel state tracking
+//!
+//! # Important Notes
+//!
+//! - Messages are delivered in order
+//! - Supports multiple producers
+//! - Single consumer design
+//! - Thread-safe operation
+//! - Handles channel closure
+//!
+//! # Related Components
+//!
+//! - `kernel_communicator.rs`: Message handling
+//! - `session.rs`: Session management
+//! - `clean_shutdown.rs`: Resource cleanup
+//! - `net.rs`: Network operations
+
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::UnboundedSender;
 use citadel_types::crypto::SecBuffer;

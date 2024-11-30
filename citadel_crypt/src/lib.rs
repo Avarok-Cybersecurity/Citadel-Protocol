@@ -1,4 +1,33 @@
-//! Hyxe Cryptography is a crypto crate designed for use in the Lusna Protocol
+//! # Citadel Cryptographic Core (citadel_crypt)
+//!
+//! A comprehensive cryptographic framework providing secure communication primitives for the Citadel Protocol.
+//! This crate serves as the cryptographic backbone, implementing various security mechanisms including
+//! post-quantum cryptography, perfect forward secrecy, and anti-replay protection.
+//!
+//! ## Features
+//!
+//! * **Post-Quantum Security**: Integration with quantum-resistant cryptographic algorithms
+//! * **Perfect Forward Secrecy**: Implemented through stacked ratchet mechanisms
+//! * **Secure Memory Management**: Zero-copy secure buffer implementations for sensitive data
+//! * **Entropy Management**: Sophisticated entropy banking system for secure key derivation
+//! * **Network Security**: Packet vectorization and port scrambling for enhanced communication security
+//! * **FCM (Forward Chain Messaging)**: Cryptographic primitives for secure message forwarding
+//! * **Argon2 Integration**: Memory-hard key derivation with auto-tuning capabilities
+//!
+//! ## Important Notes
+//!
+//! * All cryptographic operations are designed to be thread-safe and memory-efficient
+//! * The crate implements defense-in-depth with multiple layers of security
+//! * Zero-copy operations are used where possible to minimize exposure of sensitive data
+//! * Automatic memory zeroing is implemented for sensitive data structures
+//!
+//! ## Related Components
+//!
+//! * `citadel_pqcrypto`: Post-quantum cryptographic primitives
+//! * `citadel_types`: Common type definitions used across the Citadel Protocol
+//! * `citadel_wire`: Network protocol implementation
+//!
+
 #![deny(
     trivial_numeric_casts,
     unused_extern_crates,

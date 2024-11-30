@@ -1,3 +1,92 @@
+//! # Client Network Account Management
+//!
+//! This module provides comprehensive client account management functionality for the Citadel Protocol.
+//! It handles both personal and impersonal connection modes, secure credential management, and peer relationships
+//! within HyperLAN and HyperWAN networks.
+//!
+//! ## Features
+//!
+//! * **Connection Modes**
+//!   - Personal mode with full authentication and encryption
+//!   - Impersonal mode for temporary or anonymous connections
+//!
+//! * **Security**
+//!   - Secure credential storage and validation
+//!   - Ratchet-based cryptographic state management
+//!   - Immutable critical security fields
+//!
+//! * **Network Management**
+//!   - HyperLAN and HyperWAN peer relationship handling
+//!   - Peer list synchronization
+//!   - P2P connection support
+//!   - Connection endpoint configuration
+//!
+//! * **Thread Safety**
+//!   - All operations are thread-safe through RwLock
+//!   - Concurrent access to shared resources
+//!
+//! ## Important Notes
+//!
+//! 1. Always use strong passwords and proper credential management
+//! 2. Keep cryptographic state synchronized between peers
+//! 3. Handle connection errors and implement proper retry logic
+//! 4. Regularly clean up stale peer connections
+//! 5. Monitor connection quality and implement appropriate fallbacks
+//!
+//! ## Related Components
+//!
+//! * `NetworkMode` - Defines the network operation mode
+//! * `PeerConnection` - Manages individual peer connections
+//! * `SecurityState` - Handles cryptographic state
+//! * `EndpointConfig` - Configures connection endpoints
+//!
+//! Manages individual client connections within the Citadel Protocol network. Each ClientNetworkAccount
+//! represents a unique connection endpoint, handling authentication, peer relationships, and cryptographic
+//! state for both personal and impersonal connection modes.
+//!
+//! ## Features
+//!
+//! * **Connection Management**:
+//!   - Personal and impersonal connection modes
+//!   - HyperLAN and HyperWAN peer management
+//!   - Connection state tracking
+//!   - Network endpoint configuration
+//!
+//! * **Authentication**:
+//!   - Secure credential management
+//!   - Password-based authentication
+//!   - Passwordless authentication support
+//!   - Credential validation and generation
+//!
+//! * **Cryptographic Operations**:
+//!   - Ratchet-based key management
+//!   - Session crypto state handling
+//!   - Static and dynamic key management
+//!   - Forward secrecy support
+//!
+//! * **Peer Management**:
+//!   - HyperLAN peer registration
+//!   - Peer list synchronization
+//!   - Mutual peer relationship tracking
+//!   - P2P connection support
+//!
+//!
+//! ## Important Notes
+//!
+//! * Each account represents a unique connection endpoint
+//! * Thread-safe operations through RwLock protection
+//! * Supports both personal and impersonal connection modes
+//! * Automatic peer list synchronization with HyperLAN server
+//! * Critical fields (cid, adjacent_nid, is_personal) are immutable
+//!
+//! ## Related Components
+//!
+//! * `auth`: Authentication and credential management
+//! * `network_account`: Network node configuration
+//! * `hypernode_account`: Base account functionality
+//! * `citadel_crypt`: Cryptographic operations
+//!
+
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

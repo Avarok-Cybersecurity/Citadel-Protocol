@@ -1,8 +1,62 @@
+//! Packet Vector: Secure Packet Sequencing and Port Mapping
+//!
+//! This module provides secure packet sequencing and port mapping functionality
+//! through wave-based packet organization and scrambled port assignments. It ensures
+//! ordered packet delivery while obscuring true sequence information.
+//!
+//! # Features
+//!
+//! - Wave-based packet organization
+//! - Scrambled port assignments
+//! - Secure sequence tracking
+//! - Port mapping coordination
+//! - Zero-knowledge sequence hiding
+//! - Automatic memory zeroing
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::packet_vector::{PacketVector, generate_packet_vector};
+//! use citadel_crypt::entropy_bank::EntropyBank;
+//!
+//! fn coordinate_packets() -> Result<(), anyhow::Error> {
+//!     // Create entropy bank for port scrambling
+//!     let bank = EntropyBank::new(1234, 1, Default::default())?;
+//!     
+//!     // Generate packet vector for sequence 0
+//!     let vector = generate_packet_vector(0, 5678, &bank);
+//!     
+//!     // Access vector properties
+//!     println!("Wave ID: {}", vector.wave_id);
+//!     println!("Local Port: {}", vector.local_port);
+//!     println!("Remote Port: {}", vector.remote_port);
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Port assignments are cryptographically scrambled
+//! - True sequence numbers are never transmitted
+//! - Memory is automatically zeroed on drop
+//! - Wave IDs wrap around at u32::MAX
+//! - Port ranges must be non-repeating
+//!
+//! # Related Components
+//!
+//! - [`EntropyBank`] - Provides port scrambling
+//! - [`crate::secure_buffer::sec_packet`] - Packet buffer implementation
+//!
+
 use crate::entropy_bank::EntropyBank;
+use num_integer::Integer;
 use zeroize::ZeroizeOnDrop;
+
 /// The `scrambled_sequence` that is returned by `get_packet_coordinates` is scrambled; the true value of the sequence
 /// is NOT given, because it is expected that the values be imprinted upon the packet header and thus are public-facing
 #[derive(Debug, Default, Clone, ZeroizeOnDrop)]
+/// Represents a packet vector with secure sequencing and port mapping information.
 pub struct PacketVector {
     /// The group ID of this packet
     pub group_id: u64,
@@ -21,9 +75,17 @@ pub struct PacketVector {
     pub true_sequence: usize,
 }
 
-use num_integer::Integer;
-
-/// The true sequence should just be the exact order of the data without any consideration of sequence nor wave-ID
+/// Generates a packet vector with secure sequencing and port mapping information.
+///
+/// # Parameters
+///
+/// * `true_sequence`: The original true sequence number.
+/// * `group_id`: The group ID of the packet.
+/// * `drill`: The entropy bank used for port scrambling.
+///
+/// # Returns
+///
+/// A `PacketVector` instance with secure sequencing and port mapping information.
 pub fn generate_packet_vector(
     true_sequence: usize,
     group_id: u64,
@@ -44,7 +106,18 @@ pub fn generate_packet_vector(
     }
 }
 
-/// This will return None if the values are invalid
+/// Generates packet coordinates from wave ID, source port, local port, and scramble drill.
+///
+/// # Parameters
+///
+/// * `wave_id`: The wave ID of the packet.
+/// * `src_port`: The source port of the packet.
+/// * `local_port`: The local port of the packet.
+/// * `scramble_drill`: The entropy bank used for port scrambling.
+///
+/// # Returns
+///
+/// The true sequence number if the values are valid, otherwise `None`.
 #[inline]
 pub fn generate_packet_coordinates_inv(
     wave_id: u32,

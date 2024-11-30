@@ -1,3 +1,33 @@
+//! Post-Registration Handler for Server-Side Peer Operations
+//!
+//! This module handles the post-registration phase of peer-to-peer communication on
+//! the server side. It manages peer registration responses, HyperLAN P2P setup,
+//! and registration state management between peers.
+//!
+//! # Features
+//!
+//! - Peer registration response handling
+//! - HyperLAN P2P registration
+//! - Username validation
+//! - Signal routing
+//! - Ticket management
+//! - Response processing
+//!
+//! # Important Notes
+//!
+//! - Server-side operations only
+//! - Handles registration declines
+//! - Asynchronous registration
+//! - TODO: Implement error routing
+//!
+//! # Related Components
+//!
+//! - `CitadelSession`: Session management
+//! - `AccountManager`: Registration handling
+//! - `PeerSignal`: Signal processing
+//! - `PeerResponse`: Response types
+//! - `SecurityLevel`: Security settings
+
 use crate::error::NetworkError;
 use crate::prelude::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;

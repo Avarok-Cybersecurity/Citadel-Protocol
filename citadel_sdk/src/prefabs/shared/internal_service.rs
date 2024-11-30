@@ -1,3 +1,43 @@
+//! Internal Service Communication Layer
+//!
+//! This module provides the core functionality for integrating internal services
+//! within the Citadel Protocol network. It enables bidirectional communication
+//! between network services and the protocol layer.
+//!
+//! # Features
+//! - Asynchronous communication channels
+//! - Bidirectional message passing
+//! - Automatic protocol conversion
+//! - Error propagation
+//! - Resource cleanup on shutdown
+//! - Stream-based I/O interface
+//!
+//! # Example
+//! ```rust,no_run
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::shared::internal_service::InternalServerCommunicator;
+//! use futures::Future;
+//!
+//! async fn my_service(comm: InternalServerCommunicator) -> Result<(), NetworkError> {
+//!     // Service implementation
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Services run in isolated contexts
+//! - Communication is fully asynchronous
+//! - Implements AsyncRead and AsyncWrite
+//! - Automatic cleanup on drop
+//! - Thread-safe message passing
+//!
+//! # Related Components
+//! - [`ConnectionSuccess`]: Connection event data
+//! - [`TargetLockedRemote`]: Remote target interface
+//! - [`NetworkError`]: Error handling
+//! - [`SecBuffer`]: Secure data handling
+//!
+
 use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};

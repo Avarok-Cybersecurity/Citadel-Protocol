@@ -1,3 +1,48 @@
+//! Group Broadcast Handler for Citadel Protocol
+//!
+//! This module implements the group messaging and management functionality in the
+//! Citadel Protocol network. It handles group creation, membership management,
+//! message broadcasting, and group state synchronization.
+//!
+//! # Features
+//!
+//! - Group creation and termination
+//! - Membership management (add, remove, kick)
+//! - Message broadcasting
+//! - Permission control
+//! - Group state tracking
+//! - Invitation handling
+//! - Group listing
+//!
+//! # Important Notes
+//!
+//! - All group operations require authentication
+//! - Group owners have special permissions
+//! - Messages are securely encrypted
+//! - Supports group state persistence
+//! - Handles member disconnections
+//!
+//! # Related Components
+//!
+//! - `CitadelSession`: Session management
+//! - `MessageGroupKey`: Group identification
+//! - `GroupBroadcastPayload`: Message handling
+//! - `MessageGroupOptions`: Group configuration
+//! - `MemberState`: Member status tracking
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+//! use citadel_types::proto::MessageGroupOptions;
+//!
+//! // Create a new group broadcast message
+//! let broadcast = GroupBroadcast::Create {
+//!     initial_invitees: vec![1, 2, 3], // CIDs of initial members
+//!     options: MessageGroupOptions::default(),
+//! };
+//! ```
+
 use super::super::includes::*;
 use crate::error::NetworkError;
 use crate::functional::*;
@@ -13,106 +58,178 @@ use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+/// Enum representing different types of group broadcast messages
 pub enum GroupBroadcast {
-    // contains the set of peers that will receive an initial invitation (must be connected)
+    /// Create a new group with initial invitees
     Create {
+        /// CIDs of initial members
         initial_invitees: Vec<u64>,
+        /// Group configuration options
         options: MessageGroupOptions,
     },
+    /// Leave a group
     LeaveRoom {
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Response to leaving a group
     LeaveRoomResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// Success status
         success: bool,
+        /// Response message
         message: String,
     },
+    /// End a group
     End {
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Response to ending a group
     EndResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// Success status
         success: bool,
     },
+    /// Disconnected from a group
     Disconnected {
+        /// Group key
         key: MessageGroupKey,
     },
-    // sender cid, key, message
+    /// Message broadcast to a group
     Message {
+        /// Sender CID
         sender: u64,
+        /// Group key
         key: MessageGroupKey,
+        /// Message payload
         message: SecBuffer,
     },
-    // not actually a "response message", but rather, just like the other response types, just what the server sends to the requesting client
+    /// Response to a message broadcast
     MessageResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// Success status
         success: bool,
     },
+    /// Add members to a group
     Add {
+        /// Group key
         key: MessageGroupKey,
+        /// CIDs of members to add
         invitees: Vec<u64>,
     },
+    /// Response to adding members to a group
     AddResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// List of failed invitations
         failed_to_invite_list: Option<Vec<u64>>,
     },
+    /// Accept membership in a group
     AcceptMembership {
+        /// Target CID
         target: u64,
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Decline membership in a group
     DeclineMembership {
+        /// Target CID
         target: u64,
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Response to accepting membership in a group
     AcceptMembershipResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// Success status
         success: bool,
     },
+    /// Response to declining membership in a group
     DeclineMembershipResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// Success status
         success: bool,
     },
+    /// Kick members from a group
     Kick {
+        /// Group key
         key: MessageGroupKey,
+        /// CIDs of members to kick
         kick_list: Vec<u64>,
     },
+    /// Response to kicking members from a group
     KickResponse {
+        /// Group key
         key: MessageGroupKey,
+        /// Success status
         success: bool,
     },
+    /// List groups for a user
     ListGroupsFor {
+        /// User CID
         cid: u64,
     },
+    /// Response to listing groups for a user
     ListResponse {
+        /// List of group keys
         groups: Vec<MessageGroupKey>,
     },
-    /// When relayed to a group owner, the owner is expected to send an
-    /// AcceptMembership signal
+    /// Request to join a group
     RequestJoin {
+        /// Sender CID
         sender: u64,
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Invitation to join a group
     Invitation {
+        /// Sender CID
         sender: u64,
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Response to creating a group
     CreateResponse {
+        /// Group key (optional)
         key: Option<MessageGroupKey>,
     },
+    /// Member state changed
     MemberStateChanged {
+        /// Group key
         key: MessageGroupKey,
+        /// New member state
         state: MemberState,
     },
+    /// Group does not exist
     GroupNonExists {
+        /// Group key
         key: MessageGroupKey,
     },
+    /// Request to join a group is pending
     RequestJoinPending {
+        /// Result of the request
         result: Result<(), String>,
+        /// Group key
         key: MessageGroupKey,
     },
 }
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get()
+    )
+))]
+/// Process a group broadcast message
 pub async fn process_group_broadcast(
     session_ref: &CitadelSession,
     header: Ref<&[u8], HdpHeader>,
@@ -699,6 +816,7 @@ pub async fn process_group_broadcast(
     }
 }
 
+/// Create a group channel
 fn create_group_channel(
     ticket: Ticket,
     key: MessageGroupKey,
@@ -719,6 +837,7 @@ fn create_group_channel(
 }
 
 impl From<GroupBroadcast> for GroupBroadcastPayload {
+    /// Convert GroupBroadcast to GroupBroadcastPayload
     fn from(broadcast: GroupBroadcast) -> Self {
         match broadcast {
             GroupBroadcast::Message {
@@ -731,6 +850,7 @@ impl From<GroupBroadcast> for GroupBroadcastPayload {
     }
 }
 
+/// Forward a signal to the kernel or a group channel
 fn forward_signal(
     session: &CitadelSession,
     ticket: Ticket,
@@ -764,8 +884,7 @@ fn forward_signal(
     Ok(PrimaryProcessorResult::Void)
 }
 
-/// Returns None if the implicated_cid is NOT the key's cid.
-/// Passing the permission gate requires that the implicated_cid is the key's owning cid
+/// Permission gate for group operations
 fn permission_gate(implicated_cid: u64, key: MessageGroupKey) -> Option<()> {
     if implicated_cid != key.cid {
         None

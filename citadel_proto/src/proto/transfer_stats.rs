@@ -1,3 +1,39 @@
+//! Transfer Statistics Tracking Module
+//!
+//! This module provides functionality for tracking and calculating network transfer statistics
+//! including transfer rates, jitter, and total bytes transferred.
+//!
+//! # Features
+//! - Tracks transfer rates with nanosecond precision
+//! - Calculates transfer rate jitter (rate of change in transfer speed)
+//! - Maintains running totals of plaintext bytes sent
+//! - Thread-safe statistics accumulation
+//!
+//! # Usage
+//! ```rust
+//! use citadel_proto::proto::transfer_stats::TransferStats;
+//!
+//! // Create initial stats
+//! let mut stats = TransferStats::new(current_timestamp_ns, bytes_sent);
+//!
+//! // Update stats with new measurement
+//! let new_stats = TransferStats::new(new_timestamp_ns, new_bytes_sent);
+//! stats += new_stats;
+//!
+//! // Access calculated statistics
+//! println!("Transfer rate: {} bytes/sec", stats.transfer_rate);
+//! println!("Total bytes sent: {}", stats.total_plaintext_bytes_sent);
+//! ```
+//!
+//! # Important Notes
+//! - Timestamps are in nanoseconds for high precision rate calculations
+//! - Transfer rates are calculated in bytes per second
+//! - Uses wrapping addition for total bytes to handle potential overflows
+//!
+//! # Related Components
+//! - Used in conjunction with packet handling and session management modules
+//! - Integral part of the protocol's performance monitoring system
+
 use std::fmt::{Display, Formatter};
 use std::ops::AddAssign;
 

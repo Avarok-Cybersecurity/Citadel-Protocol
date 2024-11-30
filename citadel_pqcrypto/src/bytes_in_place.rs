@@ -1,3 +1,38 @@
+//! In-place buffer operations with window-based access control.
+//!
+//! This module provides utilities for performing memory-efficient and secure
+//! in-place buffer operations. It features:
+//!
+//! - Window-based buffer access control
+//! - Zero-copy buffer manipulation
+//! - Support for both `Vec<u8>` and `BytesMut` types
+//! - Memory-safe buffer operations
+//!
+//! # Examples
+//!
+//! ```
+//! use citadel_pqcrypto::bytes_in_place::{InPlaceBuffer, EzBuffer};
+//! use aes_gcm::aead::Buffer;
+//!
+//! // Create a buffer with window-based access
+//! let mut data = vec![0u8; 32];
+//! let window = 0..16;
+//! let mut buffer = InPlaceBuffer::new(&mut data, window).unwrap();
+//!
+//! // Perform operations only on the windowed portion
+//! Buffer::extend_from_slice(&mut buffer, &[1, 2, 3]).unwrap();
+//!
+//! // Use EzBuffer trait for efficient operations
+//! let mut buf = vec![0u8; 32];
+//! let second_half = buf.split_off(16);
+//! ```
+//!
+//! # Security Considerations
+//!
+//! - All buffer operations are bounds-checked
+//! - Window-based access prevents buffer overflow
+//! - In-place operations minimize data copying
+//! - Memory is properly managed to prevent leaks
 use std::ops::Range;
 
 use aes_gcm::aead::{Buffer, Error as AesError};

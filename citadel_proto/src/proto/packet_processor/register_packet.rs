@@ -1,3 +1,57 @@
+//! Registration Packet Processor for Citadel Protocol
+//!
+//! This module handles the registration process for new clients in the Citadel Protocol
+//! network. It implements a secure multi-stage handshake that establishes client
+//! identity and sets up initial cryptographic parameters.
+//!
+//! # Features
+//!
+//! - Multi-stage registration handshake
+//! - Secure key exchange
+//! - Passwordless registration support
+//! - Session state management
+//! - Cryptographic parameter negotiation
+//! - Registration failure handling
+//!
+//! # Important Notes
+//!
+//! - Requires specific session states (NeedsRegister, SocketJustOpened, NeedsConnect)
+//! - Supports both password-based and passwordless registration
+//! - Implements post-quantum cryptography
+//! - Manages registration state transitions
+//! - Validates registration parameters
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages registration state
+//! - `AccountManager`: Handles account creation
+//! - `StackedRatchet`: Provides cryptographic primitives
+//! - `SessionManager`: Tracks registration process
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::register_packet;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//! use std::net::SocketAddr;
+//!
+//! async fn handle_register(
+//!     session: &CitadelSession,
+//!     packet: HdpPacket,
+//!     remote_addr: SocketAddr
+//! ) {
+//!     match register_packet::process_register(session, packet, remote_addr).await {
+//!         Ok(result) => {
+//!             // Handle successful registration
+//!         }
+//!         Err(err) => {
+//!             // Handle registration error
+//!         }
+//!     }
+//! }
+//! ```
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};

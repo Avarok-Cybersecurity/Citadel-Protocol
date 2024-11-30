@@ -1,3 +1,64 @@
+//! Advanced UDP Hole Punching Implementation
+//!
+//! This module implements Method 3 UDP hole punching as described in the paper
+//! "NAT Traversal Techniques in Peer-to-Peer Applications". The technique uses
+//! variable TTL values to optimize NAT traversal success rates, with a fallback
+//! recovery mode for asymmetric failures.
+//!
+//! # Features
+//!
+//! - Progressive TTL packet transmission
+//! - Asymmetric failure recovery
+//! - Dual-stack IPv4/IPv6 support
+//! - Encrypted configuration exchange
+//! - Connection state tracking
+//! - Mutual exclusion for UDP sockets
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use citadel_wire::udp_traversal::linear::method3::Method3;
+//! use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
+//! use citadel_wire::nat_identification::NatType;
+//! use citadel_wire::error::FirewallError;
+//! use citadel_io::tokio::net::UdpSocket;
+//! use std::net::SocketAddr;
+//! use netbeam::sync::RelativeNodeType;
+//! use anyhow::Result;
+//!
+//! async fn example() -> Result<(), FirewallError> {
+//!     // Create socket and config
+//!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
+//!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
+//!     let config = HolePunchConfigContainer::default();
+//!     
+//!     // Create method3 instance
+//!     let method = Method3::new(
+//!         RelativeNodeType::Initiator,
+//!         config,
+//!         Default::default()
+//!     );
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Requires pre-process stage completion
+//! - TTL values affect traversal success
+//! - Recovery mode handles asymmetric failures
+//! - Thread-safe socket operations
+//! - Encrypted packet exchange
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal::linear::encrypted_config_container`] - Config encryption
+//! - [`crate::socket_helpers`] - Socket utilities
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`crate::standard::upnp_handler`] - UPnP support
+//!
+
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::net::SocketAddr;

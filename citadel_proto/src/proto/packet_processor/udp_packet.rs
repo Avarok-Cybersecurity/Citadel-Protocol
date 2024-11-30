@@ -1,3 +1,32 @@
+//! UDP Packet Processor for Citadel Protocol
+//!
+//! This module handles the processing of UDP packets in the Citadel Protocol network.
+//! It provides secure, unordered data transmission over UDP while maintaining the
+//! protocol's security guarantees.
+//!
+//! # Features
+//!
+//! - Secure UDP packet processing
+//! - Unordered data channel management
+//! - Packet validation and authentication
+//! - Channel state monitoring
+//! - Automatic channel cleanup
+//!
+//! # Important Notes
+//!
+//! - Requires an established session
+//! - All packets must be authenticated
+//! - Handles unordered data transmission
+//! - Automatically closes inactive channels
+//! - Validates packet headers and payloads
+//!
+//! # Related Components
+//!
+//! - `EndpointCryptoAccessor`: Provides cryptographic operations
+//! - `StateContainer`: Manages UDP channel state
+//! - `SecBuffer`: Handles secure data buffering
+//! - `HdpPacket`: Base packet structure
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;

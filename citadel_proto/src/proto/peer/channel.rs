@@ -1,3 +1,64 @@
+//! # Peer Channel Management
+//!
+//! This module implements the communication channels between peers in the Citadel Protocol.
+//! It provides both TCP and UDP channel implementations with support for secure message passing
+//! and WebRTC compatibility.
+//!
+//! ## Features
+//!
+//! - **Split Channel Architecture**: Separate send and receive halves for async operations
+//! - **Security Level Control**: Configurable security levels for message encryption
+//! - **UDP Support**: Dedicated UDP channel implementation for performance
+//! - **WebRTC Compatibility**: Optional WebRTC support via feature flag
+//! - **Resource Cleanup**: Automatic cleanup on channel drop
+//! - **Stream Interface**: Implements Stream trait for async message reception
+//! - **Virtual Connection Management**: Supports multiple virtual connections per peer
+//!
+//! ## Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::peer::channel::PeerChannel;
+//! use citadel_types::crypto::SecurityLevel;
+//!
+//! // Create a new peer channel
+//! let channel = PeerChannel::new(
+//!     server_remote,
+//!     target_cid,
+//!     vconn_type,
+//!     channel_id,
+//!     SecurityLevel::Standard,
+//!     is_alive,
+//!     receiver,
+//!     outbound_stream
+//! );
+//!
+//! // Split into send and receive halves
+//! let (send_half, recv_half) = channel.split();
+//!
+//! // Send a message
+//! send_half.send_message(secure_packet)?;
+//!
+//! // Receive messages asynchronously
+//! while let Some(message) = recv_half.next().await {
+//!     // Process received message
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! - Channel drops trigger automatic peer disconnection for P2P connections
+//! - WebRTC support requires the "webrtc" feature flag
+//! - Channels maintain their own security level settings
+//! - UDP channels provide optional WebRTC compatibility layer
+//!
+//! ## Related Components
+//!
+//! - [`peer_layer`]: Manages peer connections and routing
+//! - [`session`]: Handles session state and management
+//! - [`state_container`]: Maintains virtual connection state
+//! - [`packet_processor`]: Processes incoming and outgoing packets
+//!
+
 use crate::error::NetworkError;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, Sender, UnboundedReceiver};

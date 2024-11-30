@@ -1,3 +1,57 @@
+//! # Firebase Cloud Messaging (FCM) Ratchet
+//!
+//! This module implements a specialized cryptographic ratchet optimized for Firebase Cloud
+//! Messaging (FCM) communication. It provides a lightweight, size-constrained implementation
+//! that adheres to FCM's 4KB message limit while maintaining strong security guarantees.
+//!
+//! ## Features
+//! - Compact ratchet implementation for FCM messages
+//! - Size-optimized cryptographic operations
+//! - Post-quantum cryptography support
+//! - Secure key evolution and management
+//! - Message protection and validation
+//! - Support for local encryption/decryption
+//!
+//! ## Usage Example
+//! ```rust
+//! use citadel_crypt::fcm::fcm_ratchet::{ThinRatchet, ThinRatchetConstructor};
+//! use citadel_crypt::stacked_ratchet::Ratchet;
+//! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+//! use citadel_types::crypto::SecurityLevel;
+//!
+//! // Create a new ratchet for Alice
+//! let cid = 12345;
+//! let version = 0;
+//! let opts = ConstructorOpts::new_default();
+//! let constructor = ThinRatchetConstructor::new_alice(
+//!     cid,
+//!     version,
+//!     opts,
+//! ).unwrap();
+//!
+//! // Build the ratchet
+//! let ratchet = constructor.finish().unwrap();
+//!
+//! // Use the ratchet for encryption/decryption
+//! let message = b"Hello FCM!";
+//! let encrypted = ratchet.encrypt(message).unwrap();
+//! let decrypted = ratchet.decrypt(&encrypted).unwrap();
+//! assert_eq!(message.as_ref(), decrypted.as_slice());
+//! ```
+//!
+//! ## Important Notes
+//! - Optimized for FCM's 4KB message size limit
+//! - Uses FireSaber for post-quantum security
+//! - Implements the Ratchet trait for compatibility
+//! - Supports both synchronous and asynchronous operations
+//! - Maintains perfect forward secrecy
+//!
+//! ## Related Components
+//! - [`FcmKeys`](super::keys::FcmKeys): FCM credential management
+//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Entropy source
+//! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): PQ crypto operations
+//! - [`Ratchet`](crate::stacked_ratchet::Ratchet): Base ratchet trait
+
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;

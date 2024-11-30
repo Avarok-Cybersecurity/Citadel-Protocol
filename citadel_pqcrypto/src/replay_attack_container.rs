@@ -1,3 +1,56 @@
+//! Replay Attack Prevention for Secure Communications
+//!
+//! This module provides protection against replay attacks in cryptographic
+//! communications by tracking and validating packet identifiers (PIDs).
+//!
+//! # Features
+//!
+//! - Thread-safe packet ID generation and tracking
+//! - Circular buffer for efficient history management
+//! - Support for out-of-order packet delivery
+//! - Protection against delayed replay attacks
+//! - Automatic state reset on re-keying
+//!
+//! # How It Works
+//!
+//! 1. Each outgoing packet is assigned a unique, monotonically increasing PID
+//! 2. PIDs are encrypted along with packet payloads
+//! 3. Received PIDs are checked against a history window
+//! 4. Duplicate or out-of-window PIDs are rejected as replay attacks
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_pqcrypto::replay_attack_container::AntiReplayAttackContainer;
+//!
+//! // Create a new container
+//! let container = AntiReplayAttackContainer::default();
+//!
+//! // Generate PID for outgoing packet
+//! let pid = container.get_next_pid();
+//!
+//! // Check incoming packet's PID
+//! if container.on_pid_received(pid) {
+//!     // Process packet - it's valid
+//! } else {
+//!     // Reject packet - potential replay attack
+//! }
+//! ```
+//!
+//! # Security Considerations
+//!
+//! - Window size affects protection against out-of-order delivery
+//! - PIDs must be encrypted to prevent tampering
+//! - State should be reset when re-keying occurs
+//! - Thread-safety is critical for concurrent access
+//! - Memory usage scales with window size
+//!
+//! # Related Components
+//!
+//! - [`citadel_pqcrypto::wire`] - Wire protocol implementation
+//! - [`citadel_pqcrypto::key_store`] - Key management
+//! - [`citadel_types::crypto`] - Cryptographic types
+
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

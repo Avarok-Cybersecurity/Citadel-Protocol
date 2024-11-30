@@ -1,3 +1,43 @@
+//! Kernel Executor Implementation
+//!
+//! This module provides the runtime execution environment for the Citadel Protocol kernel.
+//! It manages concurrent operations, handles protocol message routing, and coordinates
+//! between different components of the system.
+//!
+//! # Features
+//!
+//! - Asynchronous task execution
+//! - Configurable concurrency limits
+//! - Message routing and dispatch
+//! - Resource cleanup management
+//! - Session state tracking
+//! - Protocol type handling
+//!
+//! # Usage Example
+//!
+//! ```rust
+//! use citadel_proto::kernel::KernelExecutorSettings;
+//!
+//! // Configure execution settings
+//! let settings = KernelExecutorSettings::default()
+//!     .with_max_concurrency(Some(10));
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Executor runs on Tokio runtime
+//! - Handles both client and server operations
+//! - Maintains thread safety through message passing
+//! - Performs automatic resource cleanup
+//! - Manages protocol version compatibility
+//!
+//! # Related Components
+//!
+//! - `kernel_trait.rs`: Core trait definitions
+//! - `kernel_communicator.rs`: Message handling
+//! - `mod.rs`: Module coordination
+//! - `AccountManager`: User session management
+
 use std::pin::Pin;
 
 use citadel_io::tokio::runtime::Handle;
@@ -88,7 +128,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         let shutdown_alerter_rx = self.shutdown_alerter_rx.take().unwrap();
         let callback_handler = self.callback_handler.take().unwrap();
 
-        let (_rt, hdp_server, _localset_opt) = self.context.take().unwrap();
+        let (_rt, citadel_server, _localset_opt) = self.context.take().unwrap();
 
         log::trace!(target: "citadel", "KernelExecutor::execute is now executing ...");
 
@@ -104,21 +144,21 @@ impl<K: NetKernel> KernelExecutor<K> {
             #[cfg(feature = "multi-threaded")]
             {
                 use crate::proto::misc::panic_future::ExplicitPanicFuture;
-                let hdp_server_future = ExplicitPanicFuture::new(_rt.spawn(hdp_server));
+                let citadel_server_future = ExplicitPanicFuture::new(_rt.spawn(citadel_server));
                 citadel_io::tokio::select! {
                     ret0 = kernel_future => ret0,
-                    ret1 = hdp_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
+                    ret1 = citadel_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
                 }
             }
             #[cfg(not(feature = "multi-threaded"))]
             {
                 let localset = _localset_opt.unwrap();
-                //let _ = localset.spawn_local(hdp_server);
-                let hdp_server_future = localset.run_until(hdp_server);
-                //let hdp_server_future = localset;
+                //let _ = localset.spawn_local(citadel_server);
+                let citadel_server_future = localset.run_until(citadel_server);
+                //let citadel_server_future = localset;
                 citadel_io::tokio::select! {
                     ret0 = kernel_future => ret0,
-                    ret1 = hdp_server_future => ret1
+                    ret1 = citadel_server_future => ret1
                 }
             }
         };
@@ -131,16 +171,16 @@ impl<K: NetKernel> KernelExecutor<K> {
     async fn kernel_inner_loop(
         kernel: &mut K,
         mut server_to_kernel_rx: UnboundedReceiver<NodeResult>,
-        hdp_server_remote: NodeRemote,
+        citadel_server_remote: NodeRemote,
         shutdown: citadel_io::tokio::sync::oneshot::Receiver<()>,
         callback_handler: KernelAsyncCallbackHandler,
         kernel_settings: KernelExecutorSettings,
     ) -> Result<(), NetworkError> {
-        let hdp_server_remote = &hdp_server_remote;
+        let citadel_server_remote = &citadel_server_remote;
         let callback_handler = &callback_handler;
         log::trace!(target: "citadel", "Kernel multithreaded environment executed ...");
         // Load the remote into the kernel
-        kernel.load_remote(hdp_server_remote.clone())?;
+        kernel.load_remote(citadel_server_remote.clone())?;
 
         let (ref clean_stop_tx, mut clean_stop_rx) =
             citadel_io::tokio::sync::mpsc::channel::<()>(1);
@@ -169,7 +209,7 @@ impl<K: NetKernel> KernelExecutor<K> {
                             if let Err(err) = kernel_ref.on_node_event_received(message).await {
                                 log::error!(target: "citadel", "Kernel threw an error: {:?}. Will end", &err);
                                 // calling this will cause server_to_kernel_rx to receive a shutdown message
-                                hdp_server_remote.clone().shutdown().await?;
+                                citadel_server_remote.clone().shutdown().await?;
                                 Err(err)
                             } else {
                                 Ok(())

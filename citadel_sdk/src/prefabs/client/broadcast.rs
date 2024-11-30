@@ -1,3 +1,65 @@
+//! Group Broadcasting and Management
+//!
+//! This module provides functionality for creating and managing group-based communication
+//! channels in the Citadel Protocol. It implements an owner-based trust model where one
+//! peer acts as the group administrator and trust anchor.
+//!
+//! # Features
+//! - Group creation and management
+//! - Owner-based trust model
+//! - Public and private group support
+//! - Automatic member registration
+//! - Group invitation system
+//! - Dynamic peer discovery
+//! - Concurrent group participation
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
+//! use uuid::Uuid;
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! async fn create_group(local_user: UserIdentifier) -> Result<(), NetworkError> {
+//!     let request = GroupInitRequestType::Create {
+//!         local_user,
+//!         invite_list: vec![],
+//!         group_id: Uuid::new_v4(),
+//!         accept_registrations: true,
+//!     };
+//!     
+//!     let settings = ServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!         .build()?;
+//!     
+//!     let kernel = BroadcastKernel::new(
+//!         settings,
+//!         request,
+//!         |group, _remote| async move {
+//!             println!("Group created with ID: {}", group.cid());
+//!             Ok(())
+//!         },
+//!     );
+//!     
+//!     Ok(())
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - Each group must have exactly one owner
+//! - Members must be registered with the owner
+//! - Trust flows transitively through the owner
+//! - Group IDs must be unique per owner
+//! - Public groups allow automatic registration
+//!
+//! # Related Components
+//! - [`GroupChannel`]: Group communication channel
+//! - [`UserIdentifier`]: User identification
+//! - [`GroupInitRequestType`]: Group initialization
+//! - [`PrefabFunctions`]: Base prefab functionality
+//!
+
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;

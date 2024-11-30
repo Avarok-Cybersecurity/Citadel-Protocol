@@ -1,3 +1,35 @@
+//! # SQL Backend
+//!
+//! The SQL backend provides relational database storage for Citadel client accounts and data.
+//! It implements the `BackendConnection` trait and supports multiple SQL database variants
+//! including MySQL, PostgreSQL, and SQLite.
+//!
+//! ## Features
+//!
+//! * Support for multiple SQL database variants
+//! * Connection pooling for efficient resource management
+//! * Configurable connection options
+//! * Automatic schema creation and migration
+//! * Atomic database operations
+//! * Peer relationship management
+//! * Byte map storage functionality
+//!
+//! ## Important Notes
+//!
+//! * Requires a running SQL database server (except for SQLite)
+//! * Handles database-specific SQL syntax differences
+//! * Implements connection pooling and timeouts
+//! * Provides automatic schema management
+//! * Supports both blob and text storage
+//!
+//! ## Related Components
+//!
+//! * `BackendConnection`: The trait implemented for backend storage
+//! * `SqlConnectionOptions`: Configuration for SQL connections
+//! * `SqlVariant`: Enum for supported SQL database types
+//! * `ClientNetworkAccount`: The core data structure being stored
+//!
+
 use crate::backend::memory::no_backend_streaming;
 use crate::backend::{BackendConnection, BackendType};
 use crate::client_account::ClientNetworkAccount;
@@ -21,7 +53,18 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 use std::time::Duration;
 
-/// A container for handling db conns
+/// Backend implementation that stores client data in SQL databases, supporting multiple
+/// database variants including MySQL, PostgreSQL, and SQLite. This backend provides
+/// relational storage with ACID properties and efficient querying capabilities.
+///
+/// The SQL backend manages a connection pool for efficient resource utilization and
+/// handles database-specific SQL syntax differences automatically. It supports both
+/// blob and text storage formats for different data types.
+///
+/// # Type Parameters
+///
+/// * `R`: The ratchet type used for encryption
+/// * `Fcm`: The ratchet type used for FCM (Firebase Cloud Messaging)
 pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     url: String,
     conn: Option<AnyPool>,
@@ -30,17 +73,28 @@ pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     _pd: PhantomData<(R, Fcm)>,
 }
 
+/// The supported SQL database variants.
+/// Each variant requires specific connection string formatting and SQL syntax.
 #[derive(Eq, PartialEq)]
 enum SqlVariant {
+    /// MySQL/MariaDB database
     MySQL,
+    /// PostgreSQL database
     Postgre,
+    /// SQLite database
     Sqlite,
 }
 
+/// Default value for the CAR (Connection Auto-Reconnect) mode
 const CAR_MODE_DEFAULT: bool = false;
 
+/// Configuration options for SQL database connections. These options allow fine-tuning
+/// of connection management, pooling behavior, and timeouts.
+///
+/// The connection pool helps manage database connections efficiently by maintaining
+/// a pool of reusable connections, reducing the overhead of creating new connections
+/// for each operation.
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-/// Custom connection options
 pub struct SqlConnectionOptions {
     /// The maximum number of connections to keep
     pub max_connections: Option<usize>,
@@ -426,7 +480,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         implicated_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError> {
         let conn = &(self.get_conn().await?);
-        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid))
         let query = self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1");
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid)
             .fetch_optional(conn)
@@ -454,7 +508,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         limit: Option<i32>,
     ) -> Result<Vec<CNACMetadata>, AccountError> {
         let conn = &(self.get_conn().await?);
-        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid))
         let query = if let Some(limit) = limit {
             format!(
                 "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {limit}",

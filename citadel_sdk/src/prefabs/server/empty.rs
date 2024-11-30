@@ -1,3 +1,40 @@
+//! Minimal Network Kernel
+//!
+//! This module provides a minimal network kernel implementation that performs no
+//! additional processing on network events. It's useful for servers that need to
+//! accept connections but don't require custom event handling.
+//!
+//! # Features
+//! - Zero overhead processing
+//! - Automatic event acceptance
+//! - Minimal resource usage
+//! - No state management
+//! - Simple implementation
+//!
+//! # Example:
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::server::empty::EmptyKernel;
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! let kernel = Box::new(EmptyKernel::default());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - No event processing
+//! - No connection handling
+//! - No channel interaction
+//! - Suitable for basic servers
+//! - Not suitable for interactive servers
+//!
+//! # Related Components
+//! - [`NetKernel`]: Base trait for network kernels
+//! - [`NodeRemote`]: Server remote interface
+//! - [`NodeResult`]: Network event handling
+//!
+
 use citadel_proto::prelude::*;
 
 /// A kernel that does nothing to events in the protocol, nor does it cause any requests. A server that allows any and all connections with no special handlers would benefit from the use of this kernel.

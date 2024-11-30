@@ -1,6 +1,73 @@
+//! # Citadel Protocol Core Implementation
+//!
+//! The `citadel_proto` crate provides the core implementation of the Citadel Protocol, a secure and
+//! efficient networking protocol designed for peer-to-peer communication with post-quantum cryptographic
+//! security guarantees.
+//!
+//! ## Key Features
+//!
+//! - **Post-Quantum Security**: Built with resistance against both classical and quantum attacks
+//! - **Peer-to-Peer Communication**: Direct peer connections with NAT traversal capabilities
+//! - **Session Management**: Robust session handling with automatic reconnection and state management
+//! - **Secure File Transfer**: Built-in support for secure file transfers with configurable security levels
+//! - **Group Communication**: Support for secure group messaging and broadcasts
+//! - **UDP/TCP Support**: Flexible transport layer with support for both UDP and TCP connections
+//! - **Zero-Copy Design**: Optimized for performance with minimal memory overhead
+//! - **Async/Await Support**: Built on modern Rust async primitives
+//! - **Cross-Platform**: Works on all major platforms including mobile
+//!
+//! ## Architecture
+//!
+//! The protocol is built around several key components:
+//!
+//! - **Kernel Layer**: Core event loop and task scheduling via [`kernel`] module
+//! - **Protocol Layer**: Protocol implementation and packet handling in [`proto`] module
+//! - **Session Management**: Connection lifecycle via [`CitadelSession`]
+//! - **Security Layer**: Cryptographic operations and security settings
+//! - **Network Layer**: Transport abstraction and connection management
+//!
+//! ## Module Organization
+//!
+//! - [`kernel`]: Core event loop and task scheduling
+//! - [`proto`]: Protocol implementation and packet handling
+//! - [`prelude`]: Common imports for working with the crate
+//! - [`error`]: Error types and handling
+//!
+//! ## Security Considerations
+//!
+//! - All sensitive data is automatically zeroed when dropped
+//! - The crate forbids unsafe code by default
+//! - Implements defense-in-depth with multiple security layers
+//! - Uses post-quantum cryptographic primitives
+//! - Provides configurable security levels
+//!
+//! ## Performance
+//!
+//! The crate is designed for high performance with:
+//! - Zero-copy packet handling where possible
+//! - Efficient memory management
+//! - Optimized async/await implementations
+//! - Minimal allocations in hot paths
+//!
+//! ## Examples
+//!
+//! See the `examples/` directory in the repository for complete usage examples.
+//! For quick start guides and tutorials, visit the official documentation.
+//!
+//! ## Feature Flags
+//!
+//! - `multi-threaded`: Enables multi-threaded support (default)
+//! - `compression`: Enables packet compression
+//! - `file-transfer`: Enables secure file transfer support
+//! - `group-chat`: Enables group communication features
+//!
+//! ## Version Compatibility
+//!
+//! This crate maintains semantic versioning and documents breaking changes
+//! in the changelog. It is recommended to specify exact version requirements
+//! in your `Cargo.toml`.
 #![doc(html_no_source)]
 #![forbid(unsafe_code)]
-//! Core networking components for SatoriNET
 #![deny(
     trivial_numeric_casts,
     unused_extern_crates,

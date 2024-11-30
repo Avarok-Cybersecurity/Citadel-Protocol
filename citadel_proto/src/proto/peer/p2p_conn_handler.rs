@@ -1,3 +1,64 @@
+/*!
+# P2P Connection Handler Module
+
+This module implements direct peer-to-peer connection handling and NAT traversal functionality for the Citadel Protocol, enabling secure direct connections between peers.
+
+## Features
+- **Direct P2P Connections**: Manages direct peer-to-peer connections with support for both TCP and UDP
+- **NAT Traversal**: Implements UDP hole punching for NAT traversal
+- **Connection Management**: Handles connection setup, teardown, and error recovery
+- **WebRTC Support**: Compatible with WebRTC for web-based peer connections
+- **Security**: Integrates with Citadel's security infrastructure for encrypted communications
+
+## Core Components
+- `DirectP2PRemote`: Manages direct P2P connection state and lifecycle
+- `P2PInboundHandle`: Handles incoming P2P connections and related state
+- `attempt_simultaneous_hole_punch`: Implements NAT traversal via UDP hole punching
+
+## Example Usage
+```rust
+// Setup a non-initiator listener
+setup_listener_non_initiator(
+    local_bind_addr,
+    remote_addr,
+    session,
+    v_conn,
+    hole_punched_addr,
+    ticket,
+    udp_mode
+)?;
+
+// Attempt NAT traversal
+attempt_simultaneous_hole_punch(
+    peer_connection_type,
+    ticket,
+    session,
+    peer_nat_info,
+    implicated_cid,
+    kernel_tx,
+    channel_signal,
+    sync_time,
+    app,
+    encrypted_config_container,
+    client_config,
+    udp_mode
+)?;
+```
+
+## Important Notes
+1. Supports both TCP and UDP connections with automatic fallback
+2. Implements symmetric NAT traversal through coordinated hole punching
+3. Handles connection cleanup and resource management
+4. Integrates with Citadel's session and security infrastructure
+
+## Related Components
+- `peer_layer`: High-level peer networking abstraction
+- `peer_crypt`: Handles peer-to-peer encryption
+- `session`: Manages connection sessions
+- `state_container`: Tracks connection state
+
+*/
+
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_io::tokio_stream::StreamExt;
 

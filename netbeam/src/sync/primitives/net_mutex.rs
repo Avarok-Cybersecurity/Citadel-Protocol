@@ -1,3 +1,50 @@
+/*!
+ * # Network Mutex
+ *
+ * A distributed mutex implementation that provides synchronized access to shared
+ * state across network endpoints. Similar to std::sync::Mutex, but operates over
+ * a network connection.
+ *
+ * ## Features
+ * - Distributed mutual exclusion
+ * - Network-aware locking mechanism
+ * - Automatic lock release on drop
+ * - State synchronization between nodes
+ * - Deadlock prevention with timeouts
+ * - Support for passive background handlers
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::primitives::net_mutex::NetMutex;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable + 'static>(connection: &S) -> Result<()> {
+ *     // Create a network-aware mutex
+ *     let mutex = NetMutex::create(connection, Some(0)).await?;
+ *
+ *     // Acquire the lock
+ *     let mut guard = mutex.lock().await?;
+ *
+ *     // Modify the protected data
+ *     *guard = 42;
+ *
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Important Notes
+ * - Lock acquisition is asynchronous
+ * - State is synchronized on lock release
+ * - Implements deadlock prevention
+ * - Uses multiplexed connections
+ * - Background handlers manage state
+ *
+ * ## Related Components
+ * - `net_rwlock.rs`: Network-aware read-write lock
+ * - `subscription.rs`: Subscription system for network events
+ */
+
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::Arc;

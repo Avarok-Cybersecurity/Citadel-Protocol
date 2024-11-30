@@ -1,3 +1,40 @@
+//! Miscellaneous Utilities and Error Handling
+//!
+//! This module provides common utilities, error types, and helper functions used
+//! throughout the Citadel user management system.
+//!
+//! # Features
+//!
+//! * **Error Handling**
+//!   - Account-specific error types
+//!   - Detailed error messages
+//!   - Error type conversion
+//!
+//! * **Metadata Management**
+//!   - Client Network Account (CNAC) metadata
+//!   - Timestamp formatting
+//!   - Account identification
+//!
+//! * **Path Management**
+//!   - Virtual path validation
+//!   - Cross-platform path formatting
+//!   - Directory structure validation
+//!
+//! # Important Notes
+//!
+//! * Error messages are designed to be user-friendly and descriptive
+//! * Path validation enforces platform-specific requirements
+//! * Timestamps use ISO 8601/RFC 3339 format for consistency
+//! * CNAC metadata includes essential account information
+//! * Virtual paths must follow specific formatting rules
+//!
+//! # Related Components
+//!
+//! * `AccountManager` - Uses error handling and metadata
+//! * `DirectoryStore` - Uses path management utilities
+//! * `ClientNetworkAccount` - Uses metadata structures
+//! * `PersistenceHandler` - Uses error types
+
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 

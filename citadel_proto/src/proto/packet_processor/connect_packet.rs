@@ -1,3 +1,36 @@
+//! # Connection Packet Processing
+//!
+//! This module implements the connection establishment protocol for Citadel.
+//! It handles the secure handshake process between nodes, including authentication,
+//! capability negotiation, and secure channel establishment.
+//!
+//! # Protocol Flow
+//!
+//! 1. **Stage 0**: Initial connection request
+//!    - Client sends encrypted credentials
+//!    - Server validates and processes request
+//!    - Capability negotiation (filesystem, UDP support)
+//!
+//! 2. **Success Stage**:
+//!    - Secure channel establishment
+//!    - Virtual connection initialization
+//!    - Session security settings configuration
+//!    - UDP channel setup (if supported)
+//!
+//! # Security Features
+//!
+//! - Post-quantum cryptographic handshake
+//! - Secure credential transmission
+//! - Session-specific security settings
+//! - State validation at each stage
+//!
+//! # Related Components
+//!
+//! - `PreConnectPacket`: Handles pre-connection setup
+//! - `StateContainer`: Manages connection state
+//! - `VirtualConnection`: Manages established connections
+//! - `SessionSecuritySettings`: Configures connection security
+//!
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
@@ -8,7 +41,15 @@ use citadel_user::external_services::ServicesObject;
 use std::sync::atomic::Ordering;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
 pub async fn process_connect(
     sess_ref: &CitadelSession,
     packet: HdpPacket,
@@ -158,7 +199,7 @@ pub async fn process_connect(
                                     welcome_message: format!("Client {cid} successfully established a connection to the local HyperNode"),
                                     channel,
                                     udp_rx_opt: udp_channel_rx,
-                                    session_security_settings
+                                    session_security_settings,
                                 });
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container)

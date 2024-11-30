@@ -1,3 +1,42 @@
+//! # Network Endpoint Implementation
+//!
+//! Provides a network endpoint abstraction that combines network application
+//! functionality with socket address management for peer-to-peer communication.
+//!
+//! ## Features
+//!
+//! - **Address Management**:
+//!   - Local address handling
+//!   - Peer address handling
+//!   - Address resolution
+//!   - Socket management
+//!
+//! - **Network Integration**:
+//!   - Application binding
+//!   - Connection registration
+//!   - Node type awareness
+//!   - Connection tracking
+//!
+//! - **Connection Management**:
+//!   - Connection establishment
+//!   - Address resolution
+//!   - Connection state
+//!   - Role determination
+//!
+//! ## Important Notes
+//!
+//! - Implements ConnAddr trait
+//! - Manages socket addresses
+//! - Tracks connection roles
+//! - Handles address resolution
+//!
+//! ## Related Components
+//!
+//! - [`NetworkApplication`]: Core application functionality
+//! - [`ConnAddr`]: Address management interface
+//! - [`Subscribable`]: Subscription management
+//! - [`RelativeNodeType`]: Node role management
+
 use crate::reliable_conn::{ConnAddr, ReliableOrderedConnectionToTarget};
 use crate::sync::network_application::NetworkApplication;
 use crate::sync::subscription::Subscribable;

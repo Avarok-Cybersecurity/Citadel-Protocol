@@ -10,6 +10,10 @@ args = ["clean"]
 command = "cargo"
 args = ["clippy", "--all"]
 
+[tasks.check]
+command = "cargo"
+args = ["clippy", "--tests", "--examples", "--all", "--", "-D", "warnings"]
+
 [tasks.clippy-tests]
 command = "cargo"
 args = ["clippy", "--all", "--tests", "--features=localhost-testing,multi-threaded"]
@@ -53,7 +57,7 @@ dependencies = ["install-nextest"]
 [tasks.test]
 command = "cargo"
 description = "Tests all available unit/integration tests locally using SQL/redis backends and appropriate localhost network settings"
-condition = { env_set = [ "TESTING_SQL_SERVER_ADDR_CLIENT", "TESTING_SQL_SERVER_ADDR_SERVER" ], env_not_set = ["SKIP_EXT_BACKENDS"] }
+condition = { env_set = ["TESTING_SQL_SERVER_ADDR_CLIENT", "TESTING_SQL_SERVER_ADDR_SERVER"], env_not_set = ["SKIP_EXT_BACKENDS"] }
 args = ["nextest", "run", "--features", "localhost-testing"]
 dependencies = ["install-nextest"]
 
@@ -250,41 +254,41 @@ run_task = [
 install_crate = { crate_name = "cargo-workspaces", binary = "cargo", test_arg = ["workspaces", "--help"] }
 
 [tasks.publish-bump-version-patch]
-condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 command = "cargo"
 args = ["workspaces", "version", "-y", "minor"]
 
 [tasks.publish-bump-version-minor]
-condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 command = "cargo"
 args = ["workspaces", "version", "-y", "minor"]
 
 [tasks.publish-bump-version-major]
-condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 command = "cargo"
 args = ["workspaces", "version", "-y", "major"]
 
 [tasks.publish-patch]
 command = "cargo"
-condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "patch", "${@}"]
 dependencies = ["publish-install-deps"]
 
 [tasks.publish-minor]
 command = "cargo"
-condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "minor", "${@}"]
 dependencies = ["publish-install-deps"]
 
 [tasks.publish-major]
 command = "cargo"
-condition = { env_set = [ "CARGO_REGISTRY_TOKEN" ] }
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "major", "${@}"]
 dependencies = ["publish-install-deps"]
 
 [tasks.check-docs]
 command = "cargo"
-args = ["test", "--package", "citadel_sdk", "--doc"]
+args = ["test", "--package", "citadel_sdk", "--doc", "${@}"]
 
 [tasks.install-cargo-wasix]
 command = "cargo"

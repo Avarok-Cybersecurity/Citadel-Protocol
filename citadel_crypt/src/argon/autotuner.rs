@@ -1,3 +1,55 @@
+//! # Argon2 Parameter Auto-tuner
+//!
+//! Automatically determines optimal Argon2 parameters for password hashing based on system capabilities
+//! and performance requirements. This module implements the recommendations from ORY's Argon2 parameter
+//! selection guidelines.
+//!
+//! ## Features
+//!
+//! * Dynamic parameter tuning based on available system memory
+//! * Multi-threaded optimization using available CPU cores
+//! * Memory-first tuning strategy for optimal security
+//! * Iterative time-cost adjustment
+//! * Configurable minimum execution time
+//! * Support for custom hash lengths and secret keys
+//!
+//! ## Usage Example
+//!
+//! ```rust
+//! use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
+//!
+//! async fn configure_argon() -> Result<(), CryptError<String>> {
+//!     // Configure Argon2 to take at least 500ms
+//!     let optimal_params = calculate_optimal_argon_params(
+//!         500,                    // minimum milliseconds
+//!         None,                   // use default hash length
+//!         Some(b"secret".to_vec()) // optional secret key
+//!     ).await?;
+//!     
+//!     println!("Optimal parameters:");
+//!     println!("Memory cost: {} KB", optimal_params.mem_cost);
+//!     println!("Time cost: {}", optimal_params.time_cost);
+//!     println!("Parallelism: {}", optimal_params.lanes);
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Should be run in release mode for accurate results
+//! * Memory cost is automatically capped at available system memory
+//! * Parameters are tuned for the specific CPU running the autotuner
+//! * Memory-cost is prioritized over time-cost for better security
+//! * Results may vary between runs due to system load
+//!
+//! ## Related Components
+//!
+//! * `argon_container`: Core Argon2 implementation and settings
+//! * `SecBuffer`: Secure memory management for passwords
+//! * `CryptError`: Error handling for cryptographic operations
+//!
+
 use crate::argon::argon_container::{
     ArgonDefaultServerSettings, ArgonSettings, ArgonStatus, AsyncArgon, DEFAULT_HASH_LENGTH,
 };

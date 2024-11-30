@@ -1,3 +1,61 @@
+//! # Cryptographic Packet Splitting and Scrambling
+//!
+//! This module implements secure packet splitting and scrambling for encrypted data transmission.
+//! It provides mechanisms to split large messages into smaller encrypted packets that can be
+//! transmitted securely and reassembled at the destination.
+//!
+//! ## Features
+//! - Splits large messages into smaller encrypted packets
+//! - Implements wave-based packet organization for efficient transmission
+//! - Provides packet scrambling for enhanced security
+//! - Supports dynamic packet sizing based on security level
+//! - Implements timeout mechanisms for both individual waves and entire groups
+//! - Handles packet reconstruction with missing packet detection
+//!
+//! ## Usage Example
+//! ```rust
+//! use citadel_crypt::scramble::crypt_splitter::{
+//!     GroupSenderDevice, GroupReceiver, GroupReceiverConfig,
+//!     SecurityLevel, TransferType
+//! };
+//!
+//! // Create sender configuration
+//! let cfg = GroupReceiverConfig::new_refresh(
+//!     group_id,           // Unique group identifier
+//!     object_id,         // Object being transferred
+//!     header_size,       // Size of packet headers
+//!     plaintext_length,  // Length of data to send
+//!     max_packet_size,   // Maximum size per packet
+//!     full_waves,        // Number of full waves
+//!     partial_waves,     // Number of partial waves
+//!     max_bytes_per_wave,// Maximum bytes per wave
+//!     last_wave_bytes,   // Bytes in last wave
+//!     packets_per_wave,  // Packets per wave
+//!     last_cipher_len,   // Last wave ciphertext length
+//!     &transfer_type,    // Transfer type
+//!     false,             // Empty transfer flag
+//! );
+//!
+//! // Create receiver
+//! let mut receiver = GroupReceiver::new(
+//!     cfg.clone(),
+//!     wave_timeout_ms,   // Wave timeout in milliseconds
+//!     group_timeout_ms,  // Group timeout in milliseconds
+//! );
+//! ```
+//!
+//! ## Important Notes
+//! - Maximum packet size is determined by the security level and encryption algorithm
+//! - Wave-based transmission allows for efficient packet organization and retransmission
+//! - Implements timeout mechanisms to prevent indefinite waiting for missing packets
+//! - Supports both encrypted and unencrypted packet transmission
+//!
+//! ## Related Components
+//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Provides cryptographic entropy
+//! - [`PacketVector`](crate::packet_vector::PacketVector): Handles packet orientation
+//! - [`Ratchet`](crate::stacked_ratchet::Ratchet): Manages encryption keys
+//! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): Post-quantum cryptography
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::{Range, RangeBounds};
@@ -436,7 +494,7 @@ pub struct GroupReceiverConfig {
     pub header_size_bytes: u64,
     pub group_id: u64,
     pub object_id: ObjectId,
-    // only relevant for files. Note: if transfer type is RemoteVirtualFileystem, then,
+    // only relevant for files. Note: if transfer type is RemoteVirtualFilesystem, then,
     // the receiving endpoint won't decrypt the first level of encryption since the goal
     // is to keep the file remotely encrypted
     pub transfer_type: Option<TransferType>,

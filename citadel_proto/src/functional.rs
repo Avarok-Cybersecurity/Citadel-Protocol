@@ -1,3 +1,47 @@
+//! Functional Programming Utilities for Citadel Protocol
+//!
+//! This module provides functional programming utilities and extensions to enhance
+//! code readability and maintainability. It implements monadic-style operations
+//! and conditional chaining for Rust's native types.
+//!
+//! # Features
+//!
+//! - Method chaining with `Then` trait
+//! - Conditional branching with `IfEq` and `IfTrue`
+//! - Tuple mapping with `PairMap`
+//! - Lazy evaluation support
+//! - Type-safe conditional operations
+//!
+//! # Usage Example
+//!
+//! ```rust
+//! use citadel_proto::functional::Then;
+//! use citadel_proto::functional::IfTrueConditional;
+//!
+//! // Method chaining
+//! let result = 42.then(|x| x * 2)
+//!               .then(|x| x.to_string());
+//!
+//! // Conditional operations
+//! let value = true.if_true(1)
+//!                 .if_false(0);
+//! assert_eq!(value, 1);
+//! ```
+//!
+//! # Important Notes
+//!
+//! - All operations are zero-cost abstractions
+//! - Implements `FnOnce` for lazy evaluation
+//! - Preserves type safety through generics
+//! - Supports both eager and lazy evaluation
+//!
+//! # Related Components
+//!
+//! - Used throughout the codebase for functional patterns
+//! - Integrates with error handling and option types
+//! - Supports protocol state management
+//! - Enhances packet processing readability
+
 pub trait Then<U, F: Fn(Self) -> U>
 where
     Self: Sized,

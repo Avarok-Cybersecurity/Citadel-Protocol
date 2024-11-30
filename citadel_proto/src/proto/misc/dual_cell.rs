@@ -1,3 +1,29 @@
+//! Dual-Mode Cell Implementation
+//!
+//! This module provides a thread-safe cell type that can operate in both single-threaded
+//! and multi-threaded contexts. It automatically selects the appropriate implementation
+//! based on compile-time feature flags.
+//!
+//! # Features
+//!
+//! - Compile-time thread safety selection
+//! - Interior mutability
+//! - Zero-cost abstraction
+//! - Automatic feature detection
+//!
+//! # Important Notes
+//!
+//! - Uses std::cell::Cell in single-threaded mode
+//! - Uses atomic types in multi-threaded mode
+//! - No runtime overhead for thread safety checks
+//! - Requires Send + Sync for multi-threaded use
+//!
+//! # Related Components
+//!
+//! - `dual_rwlock.rs`: Read-write lock implementation
+//! - `dual_late_init.rs`: Late initialization
+//! - `lock_holder.rs`: Resource locking
+
 use crate::macros::ContextRequirements;
 use bytemuck::NoUninit;
 

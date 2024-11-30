@@ -1,3 +1,52 @@
+/*!
+# Registration State Container Module
+
+This module manages the state of user registration processes in the Citadel Protocol, handling registration stages and cryptographic setup.
+
+## Features
+- **Stage Management**: Tracks registration process stages
+- **Cryptographic Setup**: Manages ratchet construction
+- **Timing Control**: Monitors registration packet timing
+- **Failure Handling**: Manages registration failures
+- **Passwordless Support**: Handles passwordless registration
+
+## Core Components
+- `RegisterState`: Main structure for registration state
+- `StackedRatchetConstructor`: Handles cryptographic setup
+- `StackedRatchet`: Provides secure communication
+- `packet_flags`: Defines registration stages
+
+## Example Usage
+```rust
+use citadel_proto::proto::state_subcontainers::RegisterState;
+
+// Create new registration state
+let mut state = RegisterState::default();
+
+// Handle registration packet
+state.on_register_packet_received();
+
+// Handle registration failure
+state.on_fail();
+
+// Create state from specific stage
+let stage_state = RegisterState::from(stage_number);
+```
+
+## Important Notes
+1. Registration stages must follow proper sequence
+2. Cryptographic setup is essential for security
+3. Packet timing is tracked for timeout handling
+4. Failed registrations clear cryptographic state
+
+## Related Components
+- `connect_state_container`: Handles post-registration connection
+- `peer_kem_state_container`: Manages key exchange
+- `packet_processor`: Uses registration state
+- `state_container`: Parent state management
+
+*/
+
 use citadel_io::tokio::time::Instant;
 
 use crate::proto::packet::packet_flags;

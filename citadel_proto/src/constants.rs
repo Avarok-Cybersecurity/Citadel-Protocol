@@ -1,3 +1,55 @@
+//! Protocol Constants for Citadel Protocol
+//!
+//! This module defines the core constants used throughout the Citadel Protocol implementation.
+//! These constants control protocol behavior, networking parameters, timing, and security settings.
+//!
+//! # Features
+//! - **Version Management**: Protocol version control using semantic versioning
+//! - **Network Parameters**: MTU sizes, header lengths, and payload limits
+//! - **Timing Constants**: Keep-alive intervals, timeouts, and update frequencies
+//! - **Buffer Settings**: Codec and group size limitations
+//! - **Port Configuration**: Network port ranges and defaults
+//! - **Security Levels**: Update frequency bases for different security levels
+//!
+//! # Usage Example
+//! ```rust
+//! use citadel_proto::constants::{
+//!     PROTOCOL_VERSION,
+//!     MTU,
+//!     MAX_PAYLOAD_SIZE_IPV4,
+//!     MAX_PAYLOAD_SIZE_IPV6,
+//!     PRIMARY_PORT
+//! };
+//!
+//! // Check protocol version compatibility
+//! let version = *PROTOCOL_VERSION;
+//!
+//! // Calculate maximum payload size based on IP version
+//! let max_payload = if uses_ipv6 {
+//!     MAX_PAYLOAD_SIZE_IPV6
+//! } else {
+//!     MAX_PAYLOAD_SIZE_IPV4
+//! };
+//!
+//! // Ensure payload fits within MTU
+//! assert!(payload.len() <= max_payload);
+//! assert!(max_payload < MTU);
+//! ```
+//!
+//! # Important Notes
+//! - Protocol version uses semantic versioning (major.minor.patch)
+//! - All timing constants are in nanoseconds unless specified
+//! - MTU is set for IPv6 compatibility (1280 bytes)
+//! - Buffer sizes are optimized for typical use cases
+//! - Security level update frequencies are configurable
+//!
+//! # Related Components
+//! - `proto::packet`: Uses header and payload size constants
+//! - `proto::codec`: Uses buffer capacity constants
+//! - `proto::validation`: Uses timing constants
+//! - `proto::state_subcontainers`: Uses security level constants
+//!
+
 use crate::proto::packet::HdpHeader;
 use citadel_types::proto::UdpMode;
 use embedded_semver::prelude::*;

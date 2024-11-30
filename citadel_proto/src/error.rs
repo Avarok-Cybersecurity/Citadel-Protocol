@@ -1,3 +1,36 @@
+//! Error Types and Handling for Citadel Protocol
+//!
+//! This module provides the core error handling functionality for the Citadel Protocol,
+//! primarily through the `NetworkError` enum. It handles various error scenarios that
+//! can occur during network operations, packet processing, and inter-node communication.
+//!
+//! # Features
+//! - Comprehensive error type (`NetworkError`) for network-related operations
+//! - Error conversion implementations from common error types
+//! - Detailed error messages and debugging information
+//! - Support for timeout, socket, packet, and internal error scenarios
+//!
+//! # Usage
+//! ```rust
+//! use citadel_proto::NetworkError;
+//!
+//! // Create a generic error with a message
+//! let error = NetworkError::msg("Connection failed");
+//!
+//! // Convert error to string for logging or display
+//! let error_string = error.into_string();
+//! ```
+//!
+//! # Important Notes
+//! - All error variants include descriptive messages for debugging
+//! - Implements standard error traits (`Error`, `Debug`, `Display`)
+//! - Provides automatic conversion from common error types like `std::io::Error` and `CryptError`
+//!
+//! # Related Components
+//! - `citadel_crypt::misc::CryptError` - For cryptography-related errors
+//! - `citadel_user::misc::AccountError` - For user account-related errors
+//! - `NodeRequest` - For node communication errors
+
 use crate::prelude::NodeRequest;
 use citadel_crypt::misc::CryptError;
 use citadel_io::tokio::sync::mpsc::error::SendError;

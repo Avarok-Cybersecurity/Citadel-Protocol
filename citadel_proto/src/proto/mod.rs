@@ -1,3 +1,37 @@
+//! # Citadel Protocol Core Implementation
+//!
+//! This module implements the core networking and protocol functionality of the Citadel Protocol.
+//! It provides a comprehensive set of components for secure communication, session management,
+//! and packet processing.
+//!
+//! ## Features
+//! - **Session Management**: Handles connection lifecycles and state
+//! - **Packet Processing**: Efficient packet encoding, validation, and routing
+//! - **Security**: Implements encryption, key rotation, and validation
+//! - **Peer Communication**: Manages peer-to-peer and group channels
+//! - **State Management**: Tracks connection and operation states
+//!
+//! ## Module Structure
+//! - `codec`: Custom BytesCodec implementation
+//! - `node`: Core HyperNode implementation
+//! - `packet`: Fundamental packet types and processing
+//! - `peer`: Peer-to-peer communication layer
+//! - `session`: Connection session management
+//! - `validation`: Packet validation and security
+//!
+//! ## Important Notes
+//! - All packet processing is inlined for performance
+//! - Session management is CID-based
+//! - State containers handle different protocol stages
+//! - Transfer stats track performance metrics
+//!
+//! ## Related Components
+//! - `citadel_crypt`: Provides cryptographic primitives
+//! - `citadel_wire`: Handles low-level networking
+//! - `citadel_types`: Common type definitions
+//! - `citadel_user`: User management and authentication
+//!
+
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet::HdpHeader;
 use crate::proto::session::CitadelSession;

@@ -1,3 +1,43 @@
+//! In-Memory Backend Storage
+//!
+//! This module provides an in-memory implementation of the backend storage system,
+//! primarily used for testing and environments without filesystem access (e.g., WASM).
+//!
+//! # Features
+//!
+//! * **Storage Management**
+//!   - Thread-safe client storage
+//!   - Peer relationship tracking
+//!   - Metadata management
+//!   - Byte map operations
+//!
+//! * **Memory Safety**
+//!   - Read-write locking
+//!   - Atomic operations
+//!   - Resource cleanup
+//!   - Reference management
+//!
+//! * **Client Operations**
+//!   - Account registration
+//!   - Peer management
+//!   - Data persistence
+//!   - Client lookup
+//!
+//! # Important Notes
+//!
+//! * Data is not persisted between program restarts
+//! * All operations are thread-safe through RwLock
+//! * Suitable for testing and WASM environments
+//! * Memory usage scales with stored data
+//! * Peer relationships are bi-directionally maintained
+//!
+//! # Related Components
+//!
+//! * `BackendConnection` - Implemented interface
+//! * `ClientNetworkAccount` - Stored data type
+//! * `AccountManager` - Uses backend storage
+//! * `PersistenceHandler` - Manages backend lifecycle
+
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};

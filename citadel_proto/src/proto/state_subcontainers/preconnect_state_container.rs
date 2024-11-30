@@ -1,3 +1,56 @@
+/*!
+# Pre-connection State Container Module
+
+This module manages the state of pre-connection setup in the Citadel Protocol, handling initial handshakes and cryptographic setup.
+
+## Features
+- **Stage Tracking**: Manages pre-connection stages
+- **Node Type Management**: Handles different node types
+- **Cryptographic Setup**: Manages ratchet construction
+- **UDP Channel Setup**: Handles UDP channel initialization
+- **Ticket Management**: Tracks connection tickets
+
+## Core Components
+- `PreConnectState`: Main structure for pre-connection state
+- `UdpChannelSender`: Manages UDP channel communication
+- `StackedRatchetConstructor`: Handles cryptographic setup
+- `NodeType`: Configures node behavior
+
+## Example Usage
+```rust
+use citadel_proto::proto::state_subcontainers::PreConnectState;
+
+// Create new pre-connection state
+let mut state = PreConnectState::default();
+
+// Handle packet reception
+state.on_packet_received();
+
+// Check connection success
+if state.success {
+    // Handle successful pre-connection
+}
+
+// Access generated ratchet
+if let Some(ratchet) = state.generated_ratchet {
+    // Use the ratchet for encryption
+}
+```
+
+## Important Notes
+1. Pre-connection state is critical for secure setup
+2. UDP channels are managed through oneshot channels
+3. Ratchet construction must complete before connection
+4. Node types affect connection behavior
+
+## Related Components
+- `connect_state_container`: Handles main connection
+- `peer_kem_state_container`: Manages key exchange
+- `packet_processor`: Uses pre-connection state
+- `state_container`: Parent state management
+
+*/
+
 use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::channel::UdpChannel;
 use crate::proto::remote::Ticket;

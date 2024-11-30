@@ -1,3 +1,34 @@
+//! # Session Queue Handler
+//!
+//! This module implements a queue-based task scheduling system for Citadel Protocol sessions.
+//! It manages timed operations, periodic checks, and session-specific tasks using a delay queue.
+//!
+//! ## Features
+//!
+//! - **Task Scheduling**: Manages scheduled tasks with customizable timeouts
+//! - **Reserved System Processes**: Dedicated slots for critical system operations
+//! - **One-shot Tasks**: Support for single-execution future tasks
+//! - **State Management**: Integration with session state container
+//! - **Async Stream Interface**: Implements Stream and Future traits
+//!
+//! ## Task Types
+//!
+//! - **Reserved Tasks** (indices 0-9): System-level operations like keep-alive checks
+//! - **Ordinary Tasks** (indices 10+): Session-specific operations like group timeouts
+//! - **One-shot Tasks**: Single-execution tasks with custom timeouts
+//!
+//! ## Important Notes
+//!
+//! - Reserved indices below 10 are preserved for system operations
+//! - Task execution is managed through a DelayQueue system
+//! - Supports both blocking and non-blocking task execution
+//!
+//! ## Related Components
+//!
+//! - [`SessionState`]: Session state management
+//! - [`StateContainer`]: Session state storage
+//! - [`NetworkError`]: Error handling
+//!
 use crate::error::NetworkError;
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;

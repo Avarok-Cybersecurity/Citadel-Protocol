@@ -1,3 +1,45 @@
+/*!
+ * # Network Join Operation
+ *
+ * Implements a network-aware join operation that synchronizes futures across two network
+ * endpoints. Similar to `futures::join`, but operates over a network connection.
+ *
+ * ## Features
+ * - Synchronizes futures between two network endpoints
+ * - Returns when both endpoints complete
+ * - Type-safe with generic value types
+ * - Network-aware relative node types
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::operations::net_join::NetJoin;
+ * use netbeam::sync::RelativeNodeType;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable + 'static>(connection: &S) -> Result<()> {
+ *     // Create a join operation
+ *     let join = NetJoin::new(
+ *         connection,
+ *         RelativeNodeType::Initiator,
+ *         async { 42 }
+ *     );
+ *
+ *     // Wait for both endpoints
+ *     let result = join.await?;
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Important Notes
+ * - Both endpoints must complete
+ * - Uses multiplexed connections
+ *
+ * ## Related Components
+ * - `net_try_join.rs`: Try-join variant that handles errors
+ * - `net_select.rs`: Select operation for multiple futures
+ */
+
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::ReliableOrderedStreamToTarget;
 use crate::sync::operations::net_try_join::NetTryJoin;

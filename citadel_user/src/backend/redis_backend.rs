@@ -1,3 +1,35 @@
+//! # Redis Backend
+//!
+//! The Redis backend provides distributed storage for Citadel client accounts and data using Redis.
+//! It implements the `BackendConnection` trait and enables scalable, high-performance data storage
+//! with support for clustering and replication.
+//!
+//! ## Features
+//!
+//! * Distributed storage using Redis
+//! * Connection pooling for efficient resource management
+//! * Support for Redis clustering
+//! * Configurable connection options
+//! * Atomic operations for data consistency
+//! * Peer relationship management
+//! * Byte map storage functionality
+//!
+//! ## Important Notes
+//!
+//! * Requires a running Redis server
+//! * Supports both standalone and clustered Redis deployments
+//! * Implements connection health checks
+//! * Handles connection pooling and timeouts
+//! * Provides automatic reconnection
+//!
+//! ## Related Components
+//!
+//! * `BackendConnection`: The trait implemented for backend storage
+//! * `RedisConnectionManager`: Manages Redis connections
+//! * `RedisConnectionOptions`: Configuration for Redis connections
+//! * `ClientNetworkAccount`: The core data structure being stored
+//!
+
 use crate::backend::memory::no_backend_streaming;
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
@@ -16,7 +48,18 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-/// Backend struct for redis
+/// Backend implementation that stores client data in Redis, providing distributed storage
+/// with support for clustering and replication. This backend is suitable for production
+/// deployments requiring high availability and scalability.
+///
+/// The Redis backend manages a connection pool for efficient resource utilization and
+/// implements automatic reconnection and health checks. It supports both standalone
+/// Redis servers and Redis clusters.
+///
+/// # Type Parameters
+///
+/// * `R`: The ratchet type used for encryption
+/// * `Fcm`: The ratchet type used for FCM (Firebase Cloud Messaging)
 pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
     url: String,
     conn_options: RedisConnectionOptions,
@@ -26,8 +69,13 @@ pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
 
 type RedisPool = Pool<RedisConnectionManager>;
 
+/// Configuration options for the Redis connection pool. These options allow fine-tuning
+/// of connection management, timeouts, and health checks.
+///
+/// The connection pool helps manage Redis connections efficiently by maintaining
+/// a pool of reusable connections, reducing the overhead of creating new connections
+/// for each operation.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
-/// For setting custom options for the internal redis connection pool
 pub struct RedisConnectionOptions {
     /// Sets the number of connections. Default 10
     pub max_open: Option<u64>,

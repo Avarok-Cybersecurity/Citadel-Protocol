@@ -1,3 +1,39 @@
+//! # Session Manager for Citadel Protocol
+//!
+//! The Session Manager is responsible for handling and maintaining stateful connections between peers
+//! in the Citadel Protocol. It manages both client-server and peer-to-peer connections, handling
+//! session establishment, maintenance, and termination.
+//!
+//! ## Features
+//!
+//! * Session lifecycle management (creation, maintenance, termination)
+//! * Handles both provisional and established connections
+//! * Manages peer-to-peer communication and group broadcasts
+//! * Supports secure file transfers with configurable security levels
+//! * Implements connection upgrades from provisional to full sessions
+//! * Provides message group functionality for group communications
+//! * Handles virtual connections and connection state transitions
+//! * Supports both UDP and TCP transport protocols
+//!
+//! ## Important Notes
+//!
+//! * Session management is thread-safe and handles concurrent connections
+//! * Sessions are identified by unique CIDs (Connection IDs)
+//! * Provisional connections are temporary and must be upgraded to full sessions
+//! * Clean shutdown procedures ensure proper resource cleanup
+//! * Implements timeout mechanisms for connection management
+//!
+//! ## Related Components
+//!
+//! * `CitadelSession`: Handles individual session state and operations
+//! * `HyperNodePeerLayer`: Manages peer-to-peer communications
+//! * `GroupBroadcast`: Implements group messaging functionality
+//! * `PeerSignal`: Handles peer-to-peer signaling
+//! * `NodeRemote`: Manages remote node connections
+//! * `packet_processor`: Processes various packet types
+//! * `AccountManager`: Manages user authentication and credentials
+//!
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -52,7 +88,7 @@ use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
 
-define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
+define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner);
 
 /// Used for handling stateful connections between two peer
 pub struct HdpSessionManagerInner {
@@ -64,7 +100,7 @@ pub struct HdpSessionManagerInner {
     incoming_cxn_count: usize,
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
-    /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
+    /// by the [CitadelSessionManager] and thereafter placed inside an appropriate session
     pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession)>,
     kernel_tx: UnboundedSender<NodeResult>,
     time_tracker: TimeTracker,
@@ -74,7 +110,7 @@ pub struct HdpSessionManagerInner {
     stun_servers: Option<Vec<String>>,
 }
 
-impl HdpSessionManager {
+impl CitadelSessionManager {
     /// Creates a new [SessionManager] which handles individual connections
     pub fn new(
         local_node_type: NodeType,
@@ -296,7 +332,7 @@ impl HdpSessionManager {
                 local_nat_type,
                 remote_peer: peer_addr,
                 on_drop,
-                hdp_remote: remote,
+                citadel_remote: remote,
                 local_bind_addr,
                 local_node_type,
                 kernel_tx,
@@ -351,7 +387,7 @@ impl HdpSessionManager {
         )
     ))]
     async fn execute_session_with_safe_shutdown(
-        session_manager: HdpSessionManager,
+        session_manager: CitadelSessionManager,
         new_session: CitadelSession,
         peer_addr: SocketAddr,
         tcp_stream: GenericNetworkStream,
@@ -471,12 +507,11 @@ impl HdpSessionManager {
         }
     }
 
-    // This future should be joined up higher at the [HdpServer] layer
+    /// This future should be joined up higher at the [node] layer
     pub async fn run_peer_container(
-        hdp_session_manager: HdpSessionManager,
+        citadel_session_manager: CitadelSessionManager,
     ) -> Result<(), NetworkError> {
-        let peer_container = { inner!(hdp_session_manager).hypernode_peer_layer.clone() };
-
+        let peer_container = { inner!(citadel_session_manager).hypernode_peer_layer.clone() };
         peer_container.create_executor().await.await
     }
 
@@ -509,7 +544,7 @@ impl HdpSessionManager {
         let session_init_params = SessionInitParams {
             on_drop,
             local_nat_type,
-            hdp_remote: remote,
+            citadel_remote: remote,
             local_bind_addr,
             local_node_type,
             kernel_tx: this.kernel_tx.clone(),

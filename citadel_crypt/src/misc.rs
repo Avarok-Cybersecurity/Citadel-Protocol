@@ -1,4 +1,50 @@
-use crate::entropy_bank::PORT_RANGE;
+//! Cryptographic Utility Functions and Error Types
+//!
+//! This module provides common utility functions and error types used throughout
+//! the cryptographic operations. It includes port mapping generation and a
+//! flexible error handling system for cryptographic operations.
+//!
+//! # Features
+//!
+//! - Generic cryptographic error type
+//! - Error conversion utilities
+//! - Random port mapping generation
+//! - Security level validation
+//! - Debug and Display implementations
+//! - Type-safe error conversions
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::misc::{CryptError, create_port_mapping};
+//!
+//! fn handle_crypto_error() {
+//!     // Create and convert error
+//!     let error = CryptError::Encrypt("Failed to encrypt data");
+//!     let error_string = error.into_string();
+//!     
+//!     // Generate random port mappings
+//!     let port_pairs = create_port_mapping();
+//!     for (src, dst) in port_pairs {
+//!         println!("Mapping port {} to {}", src, dst);
+//!     }
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Error types are generic over the error message type
+//! - Port mappings are cryptographically random
+//! - Error messages are safely convertible
+//! - Debug and Display implementations are provided
+//! - Port range is configurable via constants
+//!
+//! # Related Components
+//!
+//! - [`crate::entropy_bank`] - Uses port mappings
+//! - [`citadel_types::crypto::SecurityLevel`] - Security settings
+
+use crate::entropy_bank::DRILL_RANGE;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use std::fmt::{Display, Formatter};
@@ -60,10 +106,10 @@ impl<T: AsRef<str>> Display for CryptError<T> {
 
 /// Creates a port pair mapping at random
 pub fn create_port_mapping() -> Vec<(u16, u16)> {
-    let mut input_ports = Vec::with_capacity(PORT_RANGE);
-    let mut output_ports = Vec::with_capacity(PORT_RANGE);
+    let mut input_ports = Vec::with_capacity(DRILL_RANGE);
+    let mut output_ports = Vec::with_capacity(DRILL_RANGE);
 
-    for i in 0..PORT_RANGE {
+    for i in 0..DRILL_RANGE {
         input_ports.push(i);
         output_ports.push(i);
     }
@@ -72,8 +118,8 @@ pub fn create_port_mapping() -> Vec<(u16, u16)> {
     input_ports.as_mut_slice().shuffle(&mut rng);
     output_ports.as_mut_slice().shuffle(&mut rng);
 
-    let mut output_vec = Vec::with_capacity(PORT_RANGE);
-    for i in 0..PORT_RANGE {
+    let mut output_vec = Vec::with_capacity(DRILL_RANGE);
+    for i in 0..DRILL_RANGE {
         output_vec.push((input_ports[i] as u16, output_ports[i] as u16));
     }
 

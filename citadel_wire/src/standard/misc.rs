@@ -1,3 +1,84 @@
+//! Certificate Format Conversion Utilities
+//!
+//! This module provides utilities for converting between different certificate
+//! and key formats, particularly focusing on PKCS#12 to QUIC-compatible formats.
+//! It handles the complexities of certificate chain management and private key
+//! conversion.
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use citadel_wire::misc;
+//! use anyhow::Result;
+//! use std::path::Path;
+//!
+//! async fn example() -> Result<()> {
+//!     // Read PKCS#12 file and convert to QUIC keys
+//!     let (certs, key) = misc::read_pkcs_12_der_to_quinn_keys(
+//!         "cert.p12",
+//!         "password"
+//!     )?;
+//!     
+//!     // Convert individual DER files
+//!     let cert_der = std::fs::read("cert.der")?;
+//!     let key_der = std::fs::read("key.der")?;
+//!     let (cert, key) = misc::cert_and_priv_key_der_to_quic_keys(
+//!         &cert_der,
+//!         &key_der
+//!     )?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Features
+//!
+//! - PKCS#12 DER file parsing
+//! - Certificate chain extraction
+//! - Private key conversion
+//! - QUIC-compatible format generation
+//! - OpenSSL to Rustls conversion
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::misc;
+//!
+//! fn convert_certificates() -> Result<(), anyhow::Error> {
+//!     // Read PKCS#12 file and convert to QUIC keys
+//!     let (certs, key) = misc::read_pkcs_12_der_to_quinn_keys(
+//!         "cert.p12",
+//!         "password"
+//!     )?;
+//!     
+//!     // Convert individual DER files
+//!     let cert_der = std::fs::read("cert.der")?;
+//!     let key_der = std::fs::read("key.der")?;
+//!     let (cert, key) = misc::cert_and_priv_key_der_to_quic_keys(
+//!         &cert_der,
+//!         &key_der
+//!     )?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - PKCS#12 passwords must be UTF-8
+//! - Certificate chains are preserved
+//! - DER format is required for input
+//! - Memory safety is maintained
+//! - OpenSSL types are used internally
+//!
+//! # Related Components
+//!
+//! - [`crate::standard::tls`] - TLS configuration
+//! - [`crate::standard::quic`] - QUIC protocol support
+//! - [`crate::exports::Certificate`] - Certificate types
+//! - [`crate::exports::PrivateKey`] - Key management
+//!
+
 use crate::exports::{Certificate, PrivateKey};
 use openssl::pkcs12::ParsedPkcs12_2 as ParsedPkcs12;
 use openssl::pkey::{PKey, Private};

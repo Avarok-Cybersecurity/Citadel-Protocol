@@ -1,3 +1,30 @@
+//! Clean Shutdown Handler
+//!
+//! This module provides utilities for gracefully shutting down components in the Citadel Protocol.
+//! It ensures proper cleanup of resources and notifies dependent components during shutdown.
+//!
+//! # Features
+//!
+//! - Asynchronous shutdown coordination
+//! - Resource cleanup management
+//! - Shutdown notification broadcasting
+//! - Timeout-based forced shutdown
+//! - Shutdown state tracking
+//!
+//! # Important Notes
+//!
+//! - All shutdown operations are asynchronous
+//! - Components must respond to shutdown signals promptly
+//! - Forced shutdown occurs after timeout
+//! - Thread-safe shutdown coordination
+//!
+//! # Related Components
+//!
+//! - `kernel_executor.rs`: Kernel shutdown handling
+//! - `session.rs`: Session cleanup
+//! - `node.rs`: Node shutdown coordination
+//! - `lock_holder.rs`: Resource locking
+
 use crate::macros::ContextRequirements;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite};
 use citadel_io::tokio_util::codec::{Decoder, Encoder, Framed};

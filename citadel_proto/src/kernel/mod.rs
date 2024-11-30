@@ -1,3 +1,56 @@
+//! Kernel Module for Citadel Protocol
+//!
+//! This module implements the core kernel functionality that bridges the high-level API
+//! with the low-level protocol implementation. It provides runtime management,
+//! asynchronous execution, and event handling for the Citadel Protocol.
+//!
+//! # Features
+//!
+//! - Asynchronous runtime management
+//! - Event-driven architecture
+//! - Multi-threaded execution support
+//! - Configurable concurrency control
+//! - Account management integration
+//! - Protocol type abstraction
+//! - Session security management
+//!
+//! # Usage Example
+//!
+//! ```rust
+//! use citadel_proto::kernel::{KernelExecutor, KernelExecutorSettings};
+//! use citadel_proto::kernel::kernel_trait::NetKernel;
+//! use citadel_wire::hypernode_type::NodeType;
+//!
+//! // Configure kernel settings
+//! let settings = KernelExecutorSettings::default()
+//!     .with_max_concurrency(Some(10));
+//!
+//! // Create kernel executor with settings
+//! let executor = KernelExecutor::new(
+//!     runtime.handle(),
+//!     NodeType::default(),
+//!     account_manager,
+//!     kernel,
+//!     settings
+//! );
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Single-threaded lower level, multi-threaded upper level
+//! - Configurable concurrency limits for event handling
+//! - Handles both client and server node types
+//! - Integrates with account management system
+//! - Supports multiple underlying protocols
+//!
+//! # Related Components
+//!
+//! - `kernel_communicator`: Asynchronous callback handling
+//! - `kernel_executor`: Multi-threaded runtime management
+//! - `kernel_trait`: High-level API interface
+//! - `HdpServer`: Low-level protocol implementation
+//! - `AccountManager`: User account management
+
 use citadel_io::tokio::macros::support::Future;
 use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;

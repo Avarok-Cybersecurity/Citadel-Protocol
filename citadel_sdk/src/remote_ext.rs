@@ -1,3 +1,60 @@
+//! Remote Protocol Extensions
+//!
+//! This module extends the core NodeRemote functionality with high-level operations
+//! for managing connections, file transfers, and peer interactions in the Citadel
+//! Protocol network.
+//!
+//! # Features
+//! - User registration and authentication
+//! - Connection management
+//! - File transfer operations
+//! - Virtual filesystem support
+//! - Peer discovery and management
+//! - Group communication
+//! - Security settings configuration
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//!
+//! async fn example(remote: NodeRemote) -> Result<(), NetworkError> {
+//!     // Register a new user
+//!     let reg = remote.register_with_defaults(
+//!         "127.0.0.1:25021",
+//!         "John Doe",
+//!         "john.doe",
+//!         "password123"
+//!     ).await?;
+//!
+//!     // Connect to a peer
+//!     let auth = AuthenticationRequest::credentialed("john.doe", "password123");
+//!     let conn = remote.connect_with_defaults(auth).await?;
+//!     
+//!     // Send a file to a peer
+//!     remote.find_target("john.doe", "peer.name")
+//!         .await?
+//!         .send_file("/path/to/file.txt")
+//!         .await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - All operations are asynchronous
+//! - Connections are automatically managed
+//! - File transfers support chunking
+//! - Virtual filesystem is encrypted
+//! - Peer connections require mutual registration
+//!
+//! # Related Components
+//! - [`NodeRemote`]: Core remote interface
+//! - [`ClientServerRemote`]: Client-server communication
+//! - [`PeerRemote`]: Peer-to-peer communication
+//! - [`ConnectionSuccess`]: Connection management
+//! - [`RegisterSuccess`]: Registration handling
+//!
+
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;

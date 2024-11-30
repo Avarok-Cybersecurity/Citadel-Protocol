@@ -1,3 +1,67 @@
+//! Peer Session Cryptographic Container
+//!
+//! This module provides a thread-safe container for managing cryptographic state
+//! between peer sessions. It handles ratchet updates, version management, and
+//! concurrent access control for secure peer-to-peer communication.
+//!
+//! # Features
+//!
+//! - Thread-safe cryptographic state management
+//! - Ratchet version control and updates
+//! - Concurrent update conflict resolution
+//! - Session key management and rotation
+//! - Atomic state transitions
+//! - Rolling object and group ID management
+//! - Post-quantum cryptography support
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
+//! use citadel_crypt::toolset::Toolset;
+//! use citadel_crypt::stacked_ratchet::StackedRatchet;
+//!
+//! fn setup_session() -> Result<(), CryptError> {
+//!     // Create toolset with default parameters
+//!     let toolset = Toolset::new_with_defaults();
+//!     
+//!     // Initialize peer session (as initiator)
+//!     let mut session = PeerSessionCrypto::new(toolset, true);
+//!     
+//!     // Get constructor for next update
+//!     if let Some(constructor) = session.get_next_constructor(false) {
+//!         // Perform update
+//!         let status = session.update_sync_safe(
+//!             constructor,
+//!             true,  // is_alice
+//!             1234   // local_cid
+//!         )?;
+//!         
+//!         // Handle transfer status
+//!         if status.has_some() {
+//!             println!("Update requires transfer");
+//!         }
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Updates are atomic and thread-safe
+//! - Version conflicts resolved by initiator priority
+//! - Requires proper lock management
+//! - State transitions must be synchronized
+//! - Supports multiple ratchet versions
+//!
+//! # Related Components
+//!
+//! - [`crate::toolset::Toolset`] - Cryptographic toolset
+//! - [`crate::stacked_ratchet::StackedRatchet`] - Ratchet implementation
+//! - [`crate::misc::CryptError`] - Error handling
+//!
+
 #![allow(missing_docs)]
 
 use crate::misc::CryptError;
@@ -355,4 +419,5 @@ mod tests {
             }
         }
     }
-}*/
+}
+*/

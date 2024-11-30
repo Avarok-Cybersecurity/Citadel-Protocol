@@ -1,3 +1,30 @@
+//! Panic-Safe Future Implementation
+//!
+//! This module provides a future wrapper that safely handles panics in async code.
+//! It ensures that panics are caught and converted into proper error results
+//! rather than propagating and potentially crashing the entire process.
+//!
+//! # Features
+//!
+//! - Panic catching
+//! - Error conversion
+//! - Future wrapping
+//! - Safe unwinding
+//!
+//! # Important Notes
+//!
+//! - Converts panics to errors
+//! - Thread-safe operation
+//! - Zero overhead when no panic
+//! - Preserves error types
+//!
+//! # Related Components
+//!
+//! - `kernel_executor.rs`: Task execution
+//! - `clean_shutdown.rs`: Resource cleanup
+//! - `error.rs`: Error handling
+//! - `ordered_channel.rs`: Message handling
+
 use citadel_io::tokio::macros::support::{Pin, Poll};
 use citadel_io::tokio::task::{JoinError, JoinHandle};
 use futures::task::Context;

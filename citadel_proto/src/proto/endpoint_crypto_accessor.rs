@@ -1,3 +1,25 @@
+//! Endpoint Cryptographic Access Management
+//!
+//! This module provides secure access to cryptographic state for both peer-to-peer (P2P)
+//! and client-to-server (C2S) communication channels within the Citadel Protocol.
+//!
+//! # Features
+//! - Safe access to cryptographic state through controlled borrowing
+//! - Support for both P2P and C2S communication modes
+//! - Version-aware cryptographic state management
+//! - Thread-safe state container access
+//! - Automatic error handling for missing or invalid states
+//!
+//! # Important Notes
+//! - All cryptographic operations are performed using post-quantum secure algorithms
+//! - State containers are protected against concurrent access
+//! - Version control ensures forward compatibility
+//!
+//! # Related Components
+//! - `StateContainer`: Manages the underlying cryptographic state
+//! - `StackedRatchet`: Provides the core cryptographic operations
+//! - `NetworkError`: Error handling for cryptographic operations
+
 #![allow(dead_code)]
 use crate::error::NetworkError;
 use crate::inner_arg::ExpectedInnerTargetMut;

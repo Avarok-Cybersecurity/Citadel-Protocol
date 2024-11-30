@@ -1,3 +1,53 @@
+/*!
+# Peer Layer Module
+
+This module implements the core peer-to-peer networking layer for the Citadel Protocol, providing high-level abstractions for managing peer connections, message groups, and peer signal routing.
+
+## Features
+- **Peer Signal Management**: Handles routing and tracking of peer signals between nodes
+- **Message Group Support**: Implements group messaging functionality with support for concurrent and pending peers
+- **Ticket-based Connection Handling**: Uses unique tickets for tracking connection attempts and simultaneous connections
+- **Timeout Management**: Provides configurable timeouts for peer operations with callback support
+- **HyperLAN Integration**: Specialized support for HyperLAN client communication and state management
+
+## Core Components
+- `HyperNodePeerLayer`: Main interface for peer operations and message group management
+- `PeerSignal`: Enum representing different types of peer-to-peer communication signals
+- `MessageGroup`: Handles group messaging with support for concurrent and pending peers
+- `TrackedPosting`: Tracks peer signal states with timeout support
+
+## Example Usage
+```rust
+let peer_layer = HyperNodePeerLayer::new(persistence_handler);
+
+// Create a new message group
+let group_key = peer_layer.create_new_message_group(
+    implicated_cid,
+    &initial_peers,
+    message_group_options
+)?;
+
+// Add peers to the group
+peer_layer.add_pending_peers_to_group(group_key, new_peers);
+
+// Upgrade a peer from pending to concurrent
+peer_layer.upgrade_peer_in_group(group_key, peer_cid);
+```
+
+## Important Notes
+1. Peer signals are tracked using unique tickets per session to prevent unintended expiration
+2. Message groups support both concurrent (active) and pending (invited) peers
+3. The module integrates with HyperLAN for advanced networking capabilities
+4. Proper cleanup is handled through the `on_session_shutdown` method
+
+## Related Components
+- `session`: Manages the overall session state
+- `packet_processor`: Handles packet processing and routing
+- `state_container`: Manages connection state
+- `message_group`: Implements group messaging functionality
+
+*/
+
 use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
 use crate::prelude::PreSharedKey;

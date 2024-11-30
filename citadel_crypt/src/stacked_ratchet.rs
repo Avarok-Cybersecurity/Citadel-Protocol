@@ -1,3 +1,64 @@
+//! Stacked Ratchet: Perfect Forward Secrecy with Key Evolution
+//!
+//! This module implements a stacked ratchet system that provides perfect forward
+//! secrecy through continuous key evolution. It supports both message protection
+//! and scrambling operations with independent keys.
+//!
+//! # Features
+//!
+//! - Perfect forward secrecy
+//! - Independent message and scramble keys
+//! - Post-quantum cryptography support
+//! - Key evolution and ratcheting
+//! - Security level configuration
+//! - Anti-replay attack protection
+//! - Ordered packet delivery
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::stacked_ratchet::{StackedRatchet, constructor::StackedRatchetConstructor};
+//! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+//! use citadel_types::crypto::SecurityLevel;
+//!
+//! fn setup_ratchet() -> Option<StackedRatchet> {
+//!     // Create constructor options
+//!     let opts = vec![ConstructorOpts::default()];
+//!     
+//!     // Initialize Alice's constructor
+//!     let constructor = StackedRatchetConstructor::new_alice(
+//!         opts,
+//!         1234,  // Client ID
+//!         1,     // Version
+//!         Some(SecurityLevel::Standard)
+//!     )?;
+//!     
+//!     // Generate Alice's initial ratchet
+//!     let ratchet = constructor.finish()?;
+//!     
+//!     // Use ratchet for packet protection
+//!     let mut packet = vec![0u8; 64];
+//!     ratchet.protect_message_packet(None, 32, &mut packet).ok()?;
+//!     
+//!     Some(ratchet)
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Keys evolve after each use
+//! - Message and scramble keys are independent
+//! - Security levels affect key composition
+//! - Packet order must be maintained
+//! - Anti-replay protection is automatic
+//!
+//! # Related Components
+//!
+//! - [`EntropyBank`] - Provides entropy for key evolution
+//! - [`PostQuantumContainer`] - Post-quantum cryptography
+//! - [`crate::endpoint_crypto_container`] - Endpoint state management
+//!
+
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::entropy_bank::EntropyBank;
 use crate::fcm::fcm_ratchet::ThinRatchet;
@@ -25,22 +86,39 @@ pub struct StackedRatchet {
 pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {
     type Constructor: EndpointRatchetConstructor<Self> + Serialize + for<'a> Deserialize<'a>;
 
+    /// Returns the client ID
     fn get_cid(&self) -> u64;
+
+    /// Returns the version
     fn version(&self) -> u32;
+
+    /// Determines if any of the ratchets have verified packets
     fn has_verified_packets(&self) -> bool;
+
+    /// Resets the anti-replay attack counters
     fn reset_ara(&self);
+
+    /// Returns the default security level
     fn get_default_security_level(&self) -> SecurityLevel;
+
+    /// Returns the message PQC and drill for the specified index
     fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank);
+
+    /// Returns the scramble drill
     fn get_scramble_drill(&self) -> &EntropyBank;
 
+    /// Returns the next constructor options
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts>;
 
+    /// Protects a message packet
     fn protect_message_packet<T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
         header_len_bytes: usize,
         packet: &mut T,
     ) -> Result<(), CryptError<String>>;
+
+    /// Validates a message packet
     fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
@@ -48,6 +126,7 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
         packet: &mut T,
     ) -> Result<(), CryptError<String>>;
 
+    /// Returns the next Alice constructor
     fn next_alice_constructor(&self) -> Option<Self::Constructor> {
         Self::Constructor::new_alice(
             self.get_next_constructor_opts(),
@@ -57,11 +136,14 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
         )
     }
 
+    /// Encrypts data locally
     fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
         &self,
         contents: T,
         security_level: SecurityLevel,
     ) -> Result<Vec<u8>, CryptError>;
+
+    /// Decrypts data locally
     fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
         &self,
         contents: T,
@@ -76,6 +158,7 @@ pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
 }
 
 impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
+    /// Returns the default ratchet if it exists
     pub fn assume_default(self) -> Option<R> {
         if let RatchetType::Default(r) = self {
             Some(r)
@@ -917,14 +1000,14 @@ pub mod constructor {
         }
 
         /// Updates the internal version
-        pub fn update_version(&mut self, proposed_version: u32) -> Option<()> {
-            self.new_version = proposed_version;
+        pub fn update_version(&mut self, version: u32) -> Option<()> {
+            self.new_version = version;
 
             for container in self.message.inner.iter_mut() {
-                container.drill.as_mut()?.version = proposed_version;
+                container.drill.as_mut()?.version = version;
             }
 
-            self.scramble.drill.as_mut()?.version = proposed_version;
+            self.scramble.drill.as_mut()?.version = version;
             Some(())
         }
 

@@ -1,3 +1,44 @@
+//! Client Connection Event Handler
+//!
+//! This module provides a network kernel that executes custom logic whenever a client
+//! establishes a connection. It's particularly useful for implementing server-side
+//! connection handling, authentication, and session initialization.
+//!
+//! # Features
+//! - Custom connection handling
+//! - Asynchronous event processing
+//! - Type-safe callback execution
+//! - Session security management
+//! - UDP channel support
+//! - Service discovery integration
+//!
+//! # Example:
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! let kernel = Box::new(ClientConnectListenerKernel::new(|conn, remote| async move {
+//!     println!("Client connected!");
+//!     Ok(())
+//! }));
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - Callbacks must be Send + Sync
+//! - Futures must be Send + Sync
+//! - Handles both TCP and UDP channels
+//! - Automatic security settings handling
+//!
+//! # Related Components
+//! - [`NetKernel`]: Base trait for network kernels
+//! - [`ClientServerRemote`]: Client-server communication
+//! - [`ConnectionSuccess`]: Connection event data
+//! - [`NodeResult`]: Network event handling
+//!
+
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
 use citadel_proto::prelude::async_trait;

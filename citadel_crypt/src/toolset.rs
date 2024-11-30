@@ -1,3 +1,59 @@
+//! # Cryptographic Toolset Management
+//!
+//! This module provides a management layer for cryptographic ratchets, handling version control,
+//! synchronization, and lifecycle management of encryption keys. It maintains a rolling window
+//! of active ratchets while ensuring secure key evolution.
+//!
+//! ## Features
+//! - Manages multiple versions of cryptographic ratchets
+//! - Provides automatic version control and synchronization
+//! - Implements memory-bounded storage with configurable limits
+//! - Supports static auxiliary ratchet for persistent encryption
+//! - Handles secure ratchet updates and deregistration
+//! - Ensures thread-safe access to cryptographic primitives
+//!
+//! ## Usage Example
+//! ```rust
+//! use citadel_crypt::toolset::{Toolset, UpdateStatus};
+//! use citadel_crypt::stacked_ratchet::StackedRatchet;
+//!
+//! // Create a new toolset with initial ratchet
+//! let cid = 12345;
+//! let initial_ratchet = StackedRatchet::new(cid, 0);
+//! let mut toolset = Toolset::new(cid, initial_ratchet);
+//!
+//! // Create and add a new ratchet version
+//! let new_ratchet = StackedRatchet::new(cid, 1);
+//! match toolset.update_from(new_ratchet) {
+//!     Some(UpdateStatus::Committed { new_version }) => {
+//!         println!("Updated to version {}", new_version);
+//!     }
+//!     Some(UpdateStatus::CommittedNeedsSynchronization { new_version, old_version }) => {
+//!         println!("Updated to {} but need to sync version {}", new_version, old_version);
+//!         // Implement synchronization logic
+//!         toolset.deregister_oldest_hyper_ratchet(old_version).unwrap();
+//!     }
+//!     None => println!("Update failed"),
+//! }
+//!
+//! // Access ratchets
+//! if let Some(current) = toolset.get_most_recent_hyper_ratchet() {
+//!     // Use current ratchet for encryption
+//! }
+//! ```
+//!
+//! ## Important Notes
+//! - Maximum number of ratchets in memory is configurable and environment-dependent
+//! - Static auxiliary ratchet provides persistent encryption for stored data
+//! - Version synchronization is required when maximum capacity is reached
+//! - Thread-safe operations for concurrent access
+//!
+//! ## Related Components
+//! - [`StackedRatchet`](crate::stacked_ratchet::StackedRatchet): Core ratchet implementation
+//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Entropy source for ratchets
+//! - [`CryptError`](crate::misc::CryptError): Error handling for cryptographic operations
+//! - [`ClientNetworkAccount`]: High-level account management
+
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};

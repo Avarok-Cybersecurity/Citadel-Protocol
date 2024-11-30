@@ -1,3 +1,85 @@
+//! # Serialization Support
+//!
+//! This module provides efficient serialization and deserialization functionality
+//! for Citadel Protocol types using bincode. It offers a trait-based approach
+//! for consistent serialization across the system.
+//!
+//! ## Features
+//!
+//! * **Binary Serialization**
+//!   - Vector-based serialization
+//!   - Buffer-based serialization
+//!   - In-place deserialization
+//!   - Size estimation
+//!
+//! * **Format Support**
+//!   - Bincode encoding
+//!   - Bytes buffer integration
+//!   - Slice operations
+//!   - Reader/Writer support
+//!
+//! * **Performance Features**
+//!   - Size pre-allocation
+//!   - In-place operations
+//!   - Buffer reuse
+//!   - Memory efficiency
+//!
+//! ## Usage Example
+//!
+//! ```rust
+//! use citadel_user::serialization::SyncIO;
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! struct User {
+//!     id: u64,
+//!     name: String,
+//! }
+//!
+//! fn handle_serialization() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create test data
+//!     let user = User {
+//!         id: 1234,
+//!         name: "Alice".to_string(),
+//!     };
+//!     
+//!     // Serialize to vector
+//!     let bytes = user.serialize_to_vector()?;
+//!     
+//!     // Deserialize from vector
+//!     let decoded: User = User::deserialize_from_vector(&bytes)?;
+//!     assert_eq!(decoded.id, user.id);
+//!     assert_eq!(decoded.name, user.name);
+//!     
+//!     // Use buffer for efficiency
+//!     let mut buffer = bytes::BytesMut::with_capacity(64);
+//!     user.serialize_into_buf(&mut buffer)?;
+//!     
+//!     // Get serialized size
+//!     if let Some(size) = user.serialized_size() {
+//!         println!("Serialized size: {} bytes", size);
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Types must implement `Serialize` and `Deserialize`
+//! * Buffer operations are more efficient for repeated use
+//! * Size estimation helps with buffer pre-allocation
+//! * In-place deserialization avoids allocations
+//! * Error handling uses `AccountError` type
+//!
+//! ## Related Components
+//!
+//! * `AccountManager` - Uses serialization for persistence
+//! * `ClientNetworkAccount` - Serializable account type
+//! * `PersistenceHandler` - Handles serialized data storage
+//! * `BackendType` - Storage backend configuration
+//!
+
 use crate::misc::AccountError;
 use bincode::BincodeRead;
 use bytes::BufMut;

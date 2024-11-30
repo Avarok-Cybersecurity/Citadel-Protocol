@@ -1,3 +1,35 @@
+//! # Deregistration State Container
+//!
+//! Manages the state of account deregistration processes in the Citadel Protocol.
+//!
+//! ## Features
+//! - Tracks deregistration process state and progress
+//! - Manages deregistration tickets for process identification
+//! - Tracks timing information for deregistration operations
+//! - Provides atomic state transitions for thread safety
+//!
+//! ## Example Usage
+//! ```rust
+//! use citadel_proto::proto::state_subcontainers::DeRegisterState;
+//! use citadel_proto::proto::remote::Ticket;
+//!
+//! let mut state = DeRegisterState::default();
+//! let ticket = Ticket::default();
+//!
+//! // Initialize deregistration process
+//! state.on_init(timestamp, ticket);
+//! ```
+//!
+//! ## Important Notes
+//! - State must be properly initialized before use
+//! - Timing information is critical for process tracking
+//! - Ticket management ensures process uniqueness
+//!
+//! ## Related Components
+//! - `session`: Uses deregistration states for account management
+//! - `remote`: Handles remote deregistration operations
+//! - `validation`: Validates deregistration requests
+
 use crate::proto::remote::Ticket;
 
 /// For keeping track of deregistration processes

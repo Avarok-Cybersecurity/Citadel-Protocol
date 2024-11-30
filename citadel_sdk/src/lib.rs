@@ -134,7 +134,7 @@
 //!
 //! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, remote| async move {
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
 //!     // handle program logic here
 //!     let (sink, mut stream) = connect_success.channel.split();
 //!     while let Some(message) = stream.next().await {
@@ -249,7 +249,7 @@ pub mod backend_kv_store;
 mod builder;
 /// Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)
 pub mod fs;
-/// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
+/// The prefabs module contains pre-built kernels for common use cases.
 pub mod prefabs;
 /// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
 pub mod remote_ext;

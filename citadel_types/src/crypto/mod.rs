@@ -1,3 +1,62 @@
+//! # Cryptographic Types and Utilities
+//!
+//! This module provides core cryptographic types and utilities for the Citadel Protocol,
+//! including secure memory management, algorithm selection, and parameter configuration.
+//!
+//! ## Key Components
+//!
+//! ### Secure Memory Management
+//!
+//! The module provides `SecBuffer` for secure handling of sensitive data:
+//!
+//! ```rust
+//! use citadel_types::crypto::SecBuffer;
+//!
+//! // Create a secure buffer
+//! let mut buffer = SecBuffer::empty();
+//!
+//! // Work with the buffer securely
+//! {
+//!     let mut handle = buffer.handle();
+//!     handle.extend_from_slice(b"sensitive data");
+//! } // Memory is locked when handle is dropped
+//! ```
+//!
+//! ### Cryptographic Parameters
+//!
+//! Configure cryptographic algorithms and security levels:
+//!
+//! ```rust
+//! use citadel_types::crypto::{KemAlgorithm, EncryptionAlgorithm, SecurityLevel};
+//!
+//! // Create parameters
+//! let params = KemAlgorithm::Kyber
+//!     + EncryptionAlgorithm::ChaCha20Poly_1305;
+//!
+//! // Set security level
+//! let level = SecurityLevel::High;
+//! ```
+//!
+//! ### Algorithm Selection
+//!
+//! Supported algorithms include:
+//!
+//! - KEM (Key Encapsulation Mechanism)
+//!   - Kyber (1024)
+//! - Encryption
+//!   - ChaCha20-Poly1305
+//!   - AES-GCM
+//!   - Ascon
+//! - Signatures
+//!   - Falcon
+//!
+//! ## Security Considerations
+//!
+//! - All sensitive data should be stored in `SecBuffer`
+//! - Use appropriate security levels for your use case
+//! - Consider perfect secrecy mode for maximum security
+//! - Properly handle algorithm selection based on requirements
+
 use crate::utils;
 use crate::utils::validate_crypto_params;
 use bytes::{Bytes, BytesMut};

@@ -1,3 +1,40 @@
+//! Node Builder API for Citadel Protocol
+//!
+//! This module provides a builder pattern interface for constructing and configuring Citadel network nodes.
+//! The builder supports creating both peer and server nodes with customizable settings for security,
+//! networking, and backend storage.
+//!
+//! # Features
+//! - Flexible node type configuration (Peer/Server)
+//! - Multiple backend storage options (In-memory, Filesystem, SQL with enterprise feature)
+//! - Customizable security settings (TLS, certificates)
+//! - Google services integration (optional)
+//! - STUN server configuration for NAT traversal
+//! - Server authentication via pre-shared keys
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use std::net::SocketAddr;
+//! use std::str::FromStr;
+//!
+//! // Create a basic server node
+//! let builder = NodeBuilder::default()
+//!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
+//!     .with_backend(BackendType::InMemory);
+//! ```
+//!
+//! # Important Notes
+//! - Server nodes require a valid bind address
+//! - Default backend is filesystem-based when the "filesystem" feature is enabled
+//! - TLS is enabled by default with self-signed certificates
+//! - When using Google services, both services JSON and database config must be set
+//!
+//! # Related Components
+//! - [`NetKernel`]: Core networking kernel that processes node operations
+//! - [`KernelExecutor`]: Executor for running the network kernel
+//! - [`BackendType`]: Storage backend configurations
+
 use citadel_proto::prelude::*;
 
 use citadel_proto::kernel::KernelExecutorArguments;

@@ -1,3 +1,57 @@
+/*!
+# Group Channel Module
+
+This module implements group communication channels in the Citadel Protocol, providing a secure and efficient way to manage group messaging and broadcasts.
+
+## Features
+- **Split Channel Architecture**: Separates send and receive operations for better control
+- **Group Broadcast Support**: Enables efficient message broadcasting to group members
+- **Permission Management**: Implements group owner privileges and member management
+- **Secure Communication**: Uses SecBuffer for encrypted message payloads
+- **Stream Interface**: Implements Stream trait for asynchronous message reception
+
+## Core Components
+- `GroupChannel`: Main channel type combining send and receive capabilities
+- `GroupChannelSendHalf`: Handles message sending and group management operations
+- `GroupChannelRecvHalf`: Manages message reception and implements Stream trait
+- `GroupBroadcastPayload`: Represents different types of group messages
+
+## Example Usage
+```rust
+// Create a new group channel
+let group_channel = GroupChannel::new(
+    node_remote,
+    tx,
+    key,
+    ticket,
+    implicated_cid,
+    recv
+);
+
+// Send a message to the group
+group_channel.send_message(message)?;
+
+// Invite new members
+group_channel.invite(peer_cid)?;
+
+// Split the channel for separate send/receive handling
+let (send_half, recv_half) = group_channel.split();
+```
+
+## Important Notes
+1. Channels can be split into send and receive halves for flexible usage
+2. Group owners have special privileges for member management
+3. Messages are encrypted using SecBuffer for security
+4. Proper cleanup is handled through Drop implementations
+
+## Related Components
+- `peer_layer`: Manages peer-to-peer networking
+- `packet_processor`: Handles packet processing and routing
+- `session`: Manages connection sessions
+- `message_group`: Implements group messaging logic
+
+*/
+
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;

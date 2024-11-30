@@ -1,3 +1,31 @@
+//! Node Result Types and Processing
+//!
+//! This module defines the result types and structures used for handling responses
+//! and events in the Citadel Protocol. It provides a comprehensive set of result
+//! types for managing node operations, connection states, and event handling.
+//!
+//! # Features
+//!
+//! - **Operation Results**: Registration, connection, and deregistration outcomes
+//! - **Event Handling**: Peer events, group events, and mailbox deliveries
+//! - **Transfer Management**: Object transfer and ReVFS operations
+//! - **Error Handling**: Comprehensive error reporting and status codes
+//! - **Session Management**: Session state and channel tracking
+//!
+//! # Important Notes
+//!
+//! - All results include ticket tracking for asynchronous operation matching
+//! - Connection results contain security settings and channel information
+//! - Object transfer results include progress tracking capabilities
+//! - Error results provide detailed failure information
+//!
+//! # Related Components
+//!
+//! - `NodeRequest`: Defines corresponding request types
+//! - `SessionManager`: Processes and generates results
+//! - `PeerChannel`: Handles peer communication channels
+//! - `GroupChannel`: Manages group communication channels
+//!
 use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpChannel};
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;

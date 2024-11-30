@@ -1,3 +1,23 @@
+# Citadel Protocol Post-Quantum Cryptography Library
+#
+# This crate provides the core cryptographic functionality for the Citadel Protocol,
+# implementing post-quantum cryptographic algorithms and protocols. It is designed
+# to be resistant to both classical and quantum computer attacks.
+#
+# Features:
+# - Post-quantum key exchange (Kyber)
+# - Post-quantum signatures (Falcon)
+# - Hybrid classical/post-quantum encryption
+# - AEAD encryption (AES-GCM, ChaCha20-Poly1305, Ascon)
+# - Zero-knowledge proofs
+# - Anti-replay attack protection
+#
+# Security:
+# - All sensitive data uses zeroize for secure cleanup
+# - No unsafe code allowed
+# - Constant-time operations where possible
+# - Memory-safe implementations
+
 [package]
 name = "citadel_pqcrypto"
 version = "0.11.3"
@@ -15,40 +35,51 @@ exclude = [
     "./target/*"
 ]
 
+# Feature flags for different compilation targets and configurations
 [features]
+# Default features include standard library support
 default = ["std"]
+
+# Standard library support with all optimizations
 std = [
-    "serde/std",
-    "aes-gcm/std",
-    "aes-gcm/alloc",
-    "chacha20poly1305/alloc",
-    "chacha20poly1305/std",
-    "bytes/std",
-    "kyber-pke/std",
-    "pqcrypto-falcon-wasi/std",
-    "pqcrypto-traits-wasi/std",
-    "rand/std",
-    "sha3/std"
+    "serde/std",              # Serialization support
+    "aes-gcm/std",           # AES-GCM encryption
+    "aes-gcm/alloc",         # Heap allocation for AES
+    "chacha20poly1305/alloc", # Heap allocation for ChaCha
+    "chacha20poly1305/std",  # ChaCha20-Poly1305 encryption
+    "bytes/std",             # Byte buffer operations
+    "kyber-pke/std",         # Post-quantum key exchange
+    "pqcrypto-falcon-wasi/std", # Post-quantum signatures
+    "pqcrypto-traits-wasi/std", # Common crypto traits
+    "rand/std",              # Random number generation
+    "sha3/std"               # Hash functions
 ]
 
+# WebAssembly target support
 wasm = []
 
+# Dependencies with specific version requirements and features
 [dependencies]
-citadel_io = { workspace = true }
-generic-array = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive", "rc"] }
-bincode = { workspace = true }
-aes-gcm = { workspace = true, features = ["heapless", "aes", "alloc"]}
-chacha20poly1305 = { workspace = true, features = ["heapless", "alloc"] }
-bytes = { workspace = true }
-parking_lot = { workspace = true, features = ["serde"] }
-log = { workspace = true }
-sha3 = { workspace = true }
-kyber-pke = { workspace = true, features=["90s"] }
-rand = { workspace = true }
-serde-big-array = { workspace = true }
-ascon-aead = { workspace = true }
-zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
+# Core functionality
+citadel_io = { workspace = true }                 # I/O operations
+generic-array = { workspace = true, features = ["serde"] }  # Fixed-size arrays
+serde = { workspace = true, features = ["derive", "rc"] }  # Serialization
+bincode = { workspace = true }                    # Binary encoding
+
+# Cryptographic algorithms
+aes-gcm = { workspace = true, features = ["heapless", "aes", "alloc"]}  # AES-GCM encryption
+chacha20poly1305 = { workspace = true, features = ["heapless", "alloc"] }  # ChaCha20-Poly1305
+kyber-pke = { workspace = true, features=["90s"] }  # Post-quantum key exchange
+ascon-aead = { workspace = true }                 # Lightweight AEAD
+
+# Utility libraries
+bytes = { workspace = true }                      # Byte buffer operations
+parking_lot = { workspace = true, features = ["serde"] }  # Synchronization primitives
+log = { workspace = true }                        # Logging support
+sha3 = { workspace = true }                       # Hash functions
+rand = { workspace = true }                       # Random number generation
+serde-big-array = { workspace = true }            # Large array serialization
+zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }  # Secure memory wiping
 citadel_types = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

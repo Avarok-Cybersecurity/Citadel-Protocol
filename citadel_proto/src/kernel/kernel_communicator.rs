@@ -1,3 +1,31 @@
+//! Kernel Communication Handler
+//!
+//! This module implements the communication layer between kernel components,
+//! managing message passing, callbacks, and event handling within the Citadel Protocol.
+//!
+//! # Features
+//!
+//! - Asynchronous message handling
+//! - Event callback management
+//! - Channel-based communication
+//! - Error propagation
+//! - Resource cleanup
+//!
+//! # Important Notes
+//!
+//! - Uses Tokio channels for communication
+//! - Maintains thread safety for callbacks
+//! - Handles resource cleanup on drop
+//! - Supports both sync and async callbacks
+//! - Manages message ordering guarantees
+//!
+//! # Related Components
+//!
+//! - `kernel_executor.rs`: Task execution
+//! - `kernel_trait.rs`: Core interfaces
+//! - `mod.rs`: Module coordination
+//! - `error.rs`: Error handling
+
 use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
 use crate::proto::remote::Ticket;

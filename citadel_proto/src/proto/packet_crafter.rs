@@ -1,3 +1,62 @@
+//! # Citadel Protocol Packet Crafting
+//!
+//! This module provides the functionality to create various types of protocol packets
+//! used in the Citadel Protocol. Each packet type is carefully crafted with appropriate
+//! headers, encryption, and security measures.
+//!
+//! ## Packet Types
+//!
+//! The module supports crafting several types of packets:
+//!
+//! - **Connection Management**
+//!   - Pre-connect packets for initial handshake
+//!   - Connect packets for establishing connections
+//!   - Disconnect packets for clean connection termination
+//!
+//! - **Authentication**
+//!   - Register packets for user registration
+//!   - Deregister packets for account removal
+//!
+//! - **Data Transfer**
+//!   - File transfer packets with metadata
+//!   - Group message packets for broadcast
+//!   - Channel packets for direct communication
+//!
+//! - **Maintenance**
+//!   - Keep-alive packets for connection health
+//!   - Drill update packets for key rotation
+//!   - Hole punch packets for NAT traversal
+//!
+//! ## Security Features
+//!
+//! Each packet is secured with:
+//! - Post-quantum encryption
+//! - Integrity protection
+//! - Replay attack prevention
+//! - Perfect forward secrecy
+//!
+//! ## Implementation Details
+//!
+//! The packet crafting process involves:
+//! 1. Header construction with appropriate flags
+//! 2. Payload serialization and encryption
+//! 3. Security level enforcement
+//! 4. Timestamp and sequence number management
+//!
+//! ## Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::packet_crafter::{SecureProtocolPacket, GroupTransmitter};
+//!
+//! // Create a secure packet
+//! let packet = SecureProtocolPacket::new();
+//! packet.write_payload(data)?;
+//!
+//! // Create a group transmitter for file transfer
+//! let transmitter = GroupTransmitter::new(stream, config)?;
+//! transmitter.transmit_group_header(target)?;
+//! ```
+
 use bytes::BytesMut;
 
 use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
@@ -14,6 +73,28 @@ use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 use citadel_types::prelude::ObjectId;
 
+/// A secure packet container that provides zero-copy buffer management and
+/// automatic memory zeroing for sensitive data. This structure is used as
+/// the base for all protocol packets.
+///
+/// # Features
+///
+/// - Zero-copy buffer management
+/// - Automatic memory zeroing
+/// - Efficient payload extraction
+/// - Secure message encapsulation
+///
+/// # Example
+///
+/// ```no_run
+/// use citadel_proto::packet_crafter::SecureProtocolPacket;
+///
+/// let mut packet = SecureProtocolPacket::new();
+/// packet.write_payload(data_len, |buf| {
+///     buf.copy_from_slice(data);
+///     Ok(())
+/// })?;
+/// ```
 #[derive(Debug)]
 /// A thin wrapper used for convenient creation of zero-copy outgoing buffers
 pub struct SecureProtocolPacket {
@@ -21,22 +102,26 @@ pub struct SecureProtocolPacket {
 }
 
 impl SecureProtocolPacket {
+    /// Creates a new secure packet
     pub(crate) fn new() -> Self {
         Self {
             inner: SecureMessagePacket::new().unwrap(),
         }
     }
 
+    /// Extracts the message from a given buffer
     pub(crate) fn extract_message(input: &mut BytesMut) -> std::io::Result<BytesMut> {
         SecureMessagePacket::<HDP_HEADER_BYTE_LEN>::extract_payload(input)
     }
 
+    /// Creates a new secure packet from an inner packet
     pub(crate) fn from_inner(inner: SecureMessagePacket<HDP_HEADER_BYTE_LEN>) -> Self {
         Self { inner }
     }
 }
 
 impl<T: AsRef<[u8]>> From<T> for SecureProtocolPacket {
+    /// Creates a new secure packet from a given byte slice
     fn from(bytes: T) -> Self {
         let bytes = bytes.as_ref();
         let mut this = Self::new();
@@ -51,11 +136,40 @@ impl<T: AsRef<[u8]>> From<T> for SecureProtocolPacket {
 }
 
 impl From<SecureProtocolPacket> for SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
+    /// Converts a secure packet to an inner packet
     fn from(val: SecureProtocolPacket) -> Self {
         val.inner
     }
 }
 
+/// Manages the transmission of group messages and file transfers with support
+/// for encryption, scrambling, and packet management. This structure handles
+/// the complexities of breaking large transfers into manageable chunks while
+/// maintaining security.
+///
+/// # Features
+///
+/// - Secure group transmission
+/// - Automatic packet chunking
+/// - Progress tracking
+/// - Error handling
+///
+/// # Example
+///
+/// ```no_run
+/// use citadel_proto::packet_crafter::GroupTransmitter;
+///
+/// let transmitter = GroupTransmitter::new_message(
+///     stream,
+///     object_id,
+///     ratchet,
+///     packet,
+///     security_level,
+///     group_id,
+///     ticket,
+///     time_tracker,
+/// )?;
+/// ```
 pub struct GroupTransmitter {
     pub hyper_ratchet_container: RatchetPacketCrafterContainer,
     to_primary_stream: OutboundPrimaryStreamSender,
@@ -85,6 +199,7 @@ pub struct RatchetPacketCrafterContainer<R: Ratchet = StackedRatchet> {
 }
 
 impl<R: Ratchet> RatchetPacketCrafterContainer<R> {
+    /// Creates a new ratchet packet crafter container
     pub fn new(base: R, base_constructor: Option<R::Constructor>) -> Self {
         Self {
             base,
@@ -226,7 +341,6 @@ impl GroupTransmitter {
 }
 
 pub(crate) mod group {
-
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
@@ -246,6 +360,7 @@ pub(crate) mod group {
     use citadel_user::serialization::SyncIO;
     use std::ops::RangeInclusive;
 
+    /// Crafts a group header packet for a given group transmitter and virtual target
     pub(super) fn craft_group_header_packet(
         processor: &mut GroupTransmitter,
         virtual_target: VirtualTargetType,
@@ -313,10 +428,7 @@ pub(crate) mod group {
         packet
     }
 
-    /// `initial_wave_window` should be set the Some if this node is ready to begin receiving the data
-    /// `message`: Is appended to the end of the payload
-    /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
-    /// needs to only delete the outbound container
+    /// Crafts a group header acknowledgement packet for a given group transmitter and virtual target
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_group_header_ack(
         hyper_ratchet: &StackedRatchet,
@@ -364,8 +476,7 @@ pub(crate) mod group {
         packet
     }
 
-    /// This is called by the scrambler. NOTE: the scramble_drill MUST have the same drill/cid as the message_drill, otherwise
-    /// packets will not be rendered on the otherside
+    /// Crafts a wave payload packet for a given group transmitter and virtual target
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
         scramble_drill: &EntropyBank,
@@ -398,7 +509,7 @@ pub(crate) mod group {
         buffer.put_u8(remote_port as u8);
     }
 
-    // NOTE: context infos contain the object ID in most of the GROUP packets
+    /// Crafts a wave acknowledgement packet for a given group transmitter and virtual target
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_wave_ack(
         hyper_ratchet: &StackedRatchet,
@@ -453,6 +564,7 @@ pub(crate) mod do_connect {
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
+    /// Crafts a do-connect stage 0 packet for a given proposed credentials and timestamp
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet {
         pub proposed_credentials: ProposedCredentials,
@@ -502,6 +614,7 @@ pub(crate) mod do_connect {
         packet
     }
 
+    /// Crafts a do-connect final status packet for a given mailbox transfer, peers, and post-login object
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
@@ -577,6 +690,7 @@ pub(crate) mod do_connect {
         packet
     }
 
+    /// Crafts a do-connect success acknowledgement packet for a given timestamp and security level
     #[allow(unused_results)]
     pub(crate) fn craft_success_ack(
         hyper_ratchet: &StackedRatchet,
@@ -618,6 +732,7 @@ pub(crate) mod keep_alive {
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::SecurityLevel;
 
+    /// Crafts a keep-alive packet for a given timestamp and security level
     pub(crate) fn craft_keep_alive_packet(
         hyper_ratchet: &StackedRatchet,
         timestamp: i64,
@@ -659,6 +774,7 @@ pub(crate) mod do_register {
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
+    /// Crafts a do-register stage 0 packet for a given transfer and passwordless flag
     #[derive(Serialize, Deserialize)]
     pub(crate) struct DoRegisterStage0 {
         pub(crate) transfer: AliceToBobTransfer,
@@ -703,7 +819,7 @@ pub(crate) mod do_register {
         packet
     }
 
-    /// Bob crafts a packet with the ciphertext
+    /// Crafts a do-register stage 1 packet for a given transfer and proposed CID
     pub(crate) fn craft_stage1(
         algorithm: u8,
         timestamp: i64,
@@ -733,6 +849,7 @@ pub(crate) mod do_register {
         packet
     }
 
+    /// Crafts a do-register stage 2 packet for a given credentials and timestamp
     #[derive(Serialize, Deserialize)]
     pub struct DoRegisterStage2Packet {
         pub credentials: ProposedCredentials,
@@ -777,7 +894,7 @@ pub(crate) mod do_register {
         packet
     }
 
-    /// `success_message`: This is NOT encrypted in this closure. Make sure to encrypt it beforehand if necessary
+    /// Crafts a do-register success packet for a given success message and timestamp
     pub(crate) fn craft_success<T: AsRef<[u8]>>(
         hyper_ratchet: &StackedRatchet,
         algorithm: u8,
@@ -813,7 +930,7 @@ pub(crate) mod do_register {
         packet
     }
 
-    /// No encryption used for this packet
+    /// Crafts a do-register failure packet for a given error message and proposed CID
     pub(crate) fn craft_failure<T: AsRef<[u8]>>(
         algorithm: u8,
         timestamp: i64,
@@ -845,8 +962,7 @@ pub(crate) mod do_register {
     }
 }
 
-/// For creating disconnect packets
-pub mod do_disconnect {
+pub(crate) mod do_disconnect {
     use bytes::BytesMut;
     use zerocopy::{I64, U128, U32, U64};
 
@@ -856,7 +972,7 @@ pub mod do_disconnect {
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::SecurityLevel;
 
-    /// The drill used should be an unused one. (generate a new drill)
+    /// Crafts a do-disconnect stage 0 packet for a given ticket, timestamp, and security level
     #[allow(unused_results)]
     pub(crate) fn craft_stage0(
         hyper_ratchet: &StackedRatchet,
@@ -887,7 +1003,7 @@ pub mod do_disconnect {
         packet
     }
 
-    /// Bob sends Alice an message implying the disconnect has been handled
+    /// Crafts a do-disconnect final packet for a given ticket, timestamp, and security level
     #[allow(unused_results)]
     pub(crate) fn craft_final(
         hyper_ratchet: &StackedRatchet,
@@ -911,10 +1027,10 @@ pub mod do_disconnect {
         };
 
         let mut packet = header.as_packet();
+
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
-
         packet
     }
 }
@@ -932,6 +1048,7 @@ pub(crate) mod do_drill_update {
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
+    /// Crafts a do-drill update stage 0 packet for a given transfer, timestamp, target CID, and security level
     #[allow(unused_results)]
     pub(crate) fn craft_stage0(
         hyper_ratchet: &StackedRatchet,
@@ -965,6 +1082,7 @@ pub(crate) mod do_drill_update {
         packet
     }
 
+    /// Crafts a do-drill update stage 1 packet for a given update status, timestamp, target CID, and security level
     #[derive(Serialize, Deserialize)]
     pub(crate) struct Stage1UpdatePacket {
         pub(crate) update_status: KemTransferStatus,
@@ -1005,6 +1123,7 @@ pub(crate) mod do_drill_update {
         packet
     }
 
+    /// Crafts a do-drill update truncate packet for a given truncate version, target CID, timestamp, and security level
     #[derive(Serialize, Deserialize)]
     pub(crate) struct TruncatePacket {
         pub(crate) truncate_version: Option<u32>,
@@ -1046,6 +1165,7 @@ pub(crate) mod do_drill_update {
         packet
     }
 
+    /// Crafts a do-drill update truncate acknowledgement packet for a given truncated version, target CID, timestamp, and security level
     #[derive(Serialize, Deserialize)]
     pub(crate) struct TruncateAckPacket {
         pub(crate) truncated_version: u32,
@@ -1095,6 +1215,7 @@ pub(crate) mod do_deregister {
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::SecurityLevel;
 
+    /// Crafts a do-deregister stage 0 packet for a given timestamp and security level
     pub(crate) fn craft_stage0(
         hyper_ratchet: &StackedRatchet,
         timestamp: i64,
@@ -1124,6 +1245,7 @@ pub(crate) mod do_deregister {
         packet
     }
 
+    /// Crafts a do-deregister final packet for a given success flag, timestamp, and security level
     #[allow(unused_results)]
     pub(crate) fn craft_final(
         hyper_ratchet: &StackedRatchet,
@@ -1182,6 +1304,7 @@ pub(crate) mod pre_connect {
     use citadel_wire::nat_identification::NatType;
     use serde::{Deserialize, Serialize};
 
+    /// Crafts a pre-connect SYN packet for a given transfer, NAT type, UDP mode, timestamp, keep-alive timeout, security level, session security settings, peer-only connect protocol, and connect mode
     #[derive(Serialize, Deserialize)]
     pub struct SynPacket {
         pub transfer: AliceToBobTransfer,
@@ -1242,6 +1365,7 @@ pub(crate) mod pre_connect {
         packet
     }
 
+    /// Crafts a pre-connect SYN acknowledgement packet for a given transfer, NAT type, timestamp, and security level
     #[derive(Serialize, Deserialize)]
     pub struct SynAckPacket {
         pub transfer: BobToAliceTransfer,
@@ -1284,6 +1408,7 @@ pub(crate) mod pre_connect {
         packet
     }
 
+    /// Crafts a pre-connect stage 0 packet for a given node type, timestamp, and security level
     #[derive(Serialize, Deserialize)]
     pub struct PreConnectStage0 {
         pub node_type: NodeType,
@@ -1325,7 +1450,7 @@ pub(crate) mod pre_connect {
         packet
     }
 
-    /// If `tcp_only` is set to true, then the primary stream will be used for sharing information instead of the wave ports
+    /// Crafts a pre-connect final packet for a given success flag, TCP-only flag, timestamp, and security level
     pub(crate) fn craft_stage_final(
         hyper_ratchet: &StackedRatchet,
         success: bool,
@@ -1368,6 +1493,7 @@ pub(crate) mod pre_connect {
         packet
     }
 
+    /// Crafts a pre-connect begin connect packet for a given timestamp and security level
     pub(crate) fn craft_begin_connect(
         hyper_ratchet: &StackedRatchet,
         timestamp: i64,
@@ -1395,6 +1521,7 @@ pub(crate) mod pre_connect {
         packet
     }
 
+    /// Crafts a pre-connect halt packet for a given previous header and fail reason
     pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &HdpHeader, fail_reason: T) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1434,6 +1561,7 @@ pub(crate) mod peer_cmd {
     use serde::Serialize;
     use zerocopy::{I64, U128, U32, U64};
 
+    /// Crafts a peer signal packet for a given peer command, ticket, timestamp, and security level
     pub(crate) const C2S_ENCRYPTION_ONLY: u64 = 0;
     /*
 
@@ -1476,6 +1604,7 @@ pub(crate) mod peer_cmd {
         packet
     }
 
+    /// Crafts a peer signal endpoint packet for a given peer command, ticket, timestamp, target CID, and security level
     #[allow(dead_code)]
     pub(crate) fn craft_peer_signal_endpoint<T: SyncIO + Serialize>(
         hyper_ratchet: &StackedRatchet,
@@ -1514,7 +1643,7 @@ pub(crate) mod peer_cmd {
         packet
     }
 
-    /// Channel packets ALWAYS get rerouted, and hence NEED a target_cid
+    /// Crafts a channel packet for a given payload, ticket, proxy target CID, timestamp, and security level
     #[allow(dead_code)]
     pub(crate) fn craft_channel_packet(
         hyper_ratchet: &StackedRatchet,
@@ -1552,7 +1681,7 @@ pub(crate) mod peer_cmd {
         packet
     }
 
-    /// Group message packets, unlike channel packets, do not always get rerouted
+    /// Crafts a group message packet for a given payload, ticket, proxy target CID, timestamp, and security level
     #[allow(dead_code)]
     pub(crate) fn craft_group_message_packet(
         hyper_ratchet: &StackedRatchet,
@@ -1586,7 +1715,6 @@ pub(crate) mod peer_cmd {
         hyper_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
-
         packet
     }
 }
@@ -1606,6 +1734,7 @@ pub(crate) mod file {
     use std::path::PathBuf;
     use zerocopy::{I64, U128, U32, U64};
 
+    /// Crafts a file transfer error packet for a given error message, object ID, ticket, security level, virtual target, timestamp, and transfer type
     #[derive(Serialize, Deserialize, Debug)]
     pub struct FileTransferErrorPacket {
         pub error_message: String,
@@ -1652,6 +1781,7 @@ pub(crate) mod file {
         packet
     }
 
+    /// Crafts a file header packet for a given file metadata, virtual target, local encryption level, group start, ticket, security level, timestamp, and transfer type
     #[derive(Serialize, Deserialize, Debug)]
     pub struct FileHeaderPacket {
         pub file_metadata: VirtualObjectMetadata,
@@ -1702,6 +1832,7 @@ pub(crate) mod file {
         packet
     }
 
+    /// Crafts a file header acknowledgement packet for a given success flag, object ID, target CID, ticket, security level, virtual target, timestamp, and transfer type
     #[derive(Serialize, Deserialize, Debug)]
     pub struct FileHeaderAckPacket {
         pub success: bool,
@@ -1756,6 +1887,7 @@ pub(crate) mod file {
         packet
     }
 
+    /// Crafts a ReVFSPull packet for a given virtual path, delete on pull flag, security level, ticket, timestamp, and target CID
     #[derive(Serialize, Deserialize, Debug)]
     pub struct ReVFSPullPacket {
         pub virtual_path: PathBuf,
@@ -1763,8 +1895,6 @@ pub(crate) mod file {
         pub security_level: SecurityLevel,
     }
 
-    /// This packet will essentially cause the receiving endpoint to emulate
-    /// a FILE_HEADER with auto-accept on
     pub fn craft_revfs_pull(
         hyper_ratchet: &StackedRatchet,
         security_level: SecurityLevel,
@@ -1806,6 +1936,7 @@ pub(crate) mod file {
         packet
     }
 
+    /// Crafts a ReVFSDelete packet for a given virtual path, ticket, timestamp, and target CID
     #[derive(Serialize, Deserialize, Debug)]
     pub struct ReVFSDeletePacket {
         pub virtual_path: PathBuf,
@@ -1847,6 +1978,7 @@ pub(crate) mod file {
         packet
     }
 
+    /// Crafts a ReVFSAck packet for a given success flag, error message, ticket, timestamp, and target CID
     #[derive(Serialize, Deserialize, Debug)]
     pub struct ReVFSAckPacket {
         pub success: bool,
@@ -1890,6 +2022,7 @@ pub(crate) mod file {
         packet
     }
 
+    /// Crafts a ReVFSPullAck packet for a given payload, ticket, timestamp, and target CID
     #[derive(Serialize, Deserialize, Debug)]
     pub enum ReVFSPullAckPacket {
         Success,
@@ -1939,6 +2072,7 @@ pub(crate) mod udp {
     use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
+    /// Crafts a UDP packet for a given command auxiliary, payload, target CID, and security level
     pub(crate) fn craft_udp_packet(
         hyper_ratchet: &StackedRatchet,
         cmd_aux: u8,
@@ -1981,6 +2115,7 @@ pub(crate) mod hole_punch {
     use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
+    /// Crafts a hole punch packet for a given plaintext, security level, target CID, and hyper ratchet
     pub fn generate_packet(
         hyper_ratchet: &StackedRatchet,
         plaintext: &[u8],
@@ -2013,8 +2148,7 @@ pub(crate) mod hole_punch {
         packet
     }
 
-    /// this is called assuming the CORRECT hyper ratchet is used (i.e., the same one used above)
-    /// This strips the header, since it's only relevant to the networking protocol and NOT the hole-puncher
+    /// Decrypts a hole punch packet for a given packet, hyper ratchet, security level, and target CID
     pub fn decrypt_packet(
         _hyper_ratchet: &StackedRatchet,
         packet: &[u8],

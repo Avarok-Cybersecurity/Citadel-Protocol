@@ -1,3 +1,54 @@
+//! Rekey Packet Processor for Citadel Protocol
+//!
+//! This module implements the key rotation mechanism in the Citadel Protocol network.
+//! It manages the secure update of cryptographic keys between nodes to maintain
+//! perfect forward secrecy and post-quantum security.
+//!
+//! # Features
+//!
+//! - Secure key rotation
+//! - Multi-stage key exchange
+//! - Post-quantum cryptography
+//! - Perfect forward secrecy
+//! - State synchronization
+//! - Proxy support
+//!
+//! # Important Notes
+//!
+//! - Requires connected session state
+//! - All packets must be authenticated
+//! - Supports both C2S and P2P connections
+//! - Manages ratchet state updates
+//! - Handles key truncation
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages rekey state
+//! - `StackedRatchet`: Provides cryptographic primitives
+//! - `RatchetUpdateState`: Tracks key updates
+//! - `SecurityLevel`: Manages encryption levels
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::rekey_packet;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! fn handle_rekey(session: &CitadelSession, packet: HdpPacket) {
+//!     let header_drill_vers = 1;
+//!     let proxy_info = None;
+//!     match rekey_packet::process_rekey(session, packet, header_drill_vers, proxy_info) {
+//!         Ok(result) => {
+//!             // Handle successful rekey
+//!         }
+//!         Err(err) => {
+//!             // Handle rekey error
+//!         }
+//!     }
+//! }
+//! ```
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::ReKeyReturnType;

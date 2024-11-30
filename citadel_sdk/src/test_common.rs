@@ -1,3 +1,43 @@
+//! Testing Utilities for Citadel Protocol
+//!
+//! This module provides common utilities and helpers for testing Citadel Protocol
+//! components. It includes functions for setting up test servers, managing test
+//! barriers, and performing common assertions.
+//!
+//! # Features
+//! - Test server creation and configuration
+//! - Synchronization barriers for multi-peer tests
+//! - UDP mode testing utilities
+//! - P2P connection testing helpers
+//! - Local test peer management
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::test_common::*;
+//! use citadel_sdk::prelude::*;
+//!
+//! async fn test_server() {
+//!     // Create a test server with default settings
+//!     let (server_future, addr) = server_info();
+//!     
+//!     // Run server and handle connections
+//!     server_future.await.expect("Server failed to start");
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Most functionality requires "localhost-testing" feature
+//! - Test barriers help coordinate multi-peer tests
+//! - UDP assertions verify connection modes
+//! - P2P assertions validate peer connections
+//!
+//! # Related Components
+//! - [`NodeBuilder`]: Server configuration builder
+//! - [`EmptyKernel`]: Basic test server kernel
+//! - [`UdpMode`]: UDP connection configuration
+//! - [`PeerConnectSuccess`]: Peer connection validation
+//!
+
 #![allow(missing_docs, unused_imports)]
 #![doc(hidden)]
 use crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel;

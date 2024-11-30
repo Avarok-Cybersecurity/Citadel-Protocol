@@ -1,11 +1,46 @@
-//! A list of helpers making the response phase simple and intuitive
+//! Protocol Response Helpers
 //!
-//! Generally, when making a response, the response must be sent outbound through
-//! the [NodeRemote](crate::prelude::NodeRemote) with a custom ticket equivalent to the ticket receieved by
-//! the external request in order for the peer to listen for a response. Additionally,
-//! [PeerConnectionType](crate::prelude::PeerConnectionType) data must be `.reverse()`'d. Finally, some response types
-//! require the manual input of usernames, and as such, this helper library enforces
-//! all these requirements
+//! This module provides helper functions for handling responses to various protocol
+//! operations in the Citadel Protocol. It simplifies the process of sending responses
+//! to peer registration, connection, and group invitation requests.
+//!
+//! # Features
+//! - Peer registration response handling
+//! - Peer connection response management
+//! - Group invitation response processing
+//! - Automatic ticket management
+//! - Connection type reversal handling
+//! - Username resolution and validation
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::responses;
+//!
+//! async fn handle_peer_request(
+//!     signal: PeerSignal,
+//!     remote: &impl Remote
+//! ) -> Result<(), NetworkError> {
+//!     // Accept a peer registration request
+//!     let ticket = responses::peer_register(signal, true, remote).await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Responses must match request tickets
+//! - Connection types are automatically reversed
+//! - Username resolution is handled internally
+//! - Group responses require server connection
+//!
+//! # Related Components
+//! - [`Remote`]: Network communication interface
+//! - [`PeerSignal`]: Peer communication events
+//! - [`NodeResult`]: Network operation results
+//! - [`Ticket`]: Request/response correlation
+//!
+
 use crate::prelude::*;
 
 /// Given the `input_signal` from the peer, this function sends a register response to the target peer

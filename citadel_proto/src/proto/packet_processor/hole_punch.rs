@@ -1,3 +1,53 @@
+//! Hole Punch Packet Processor for Citadel Protocol
+//!
+//! This module implements NAT traversal functionality through hole punching in the
+//! Citadel Protocol network. It enables direct peer-to-peer connections between nodes
+//! behind NATs by coordinating connection establishment.
+//!
+//! # Features
+//!
+//! - NAT traversal packet processing
+//! - Secure packet validation
+//! - Peer connection coordination
+//! - Connection pipe management
+//! - Proxy support
+//!
+//! # Important Notes
+//!
+//! - Requires valid peer CID
+//! - All packets must be authenticated
+//! - Manages hole puncher pipes
+//! - Supports proxied connections
+//! - Forwards validated packets
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages hole punch state
+//! - `HolePuncherPipe`: Handles connection establishment
+//! - `StackedRatchet`: Provides packet security
+//! - `ProxyManager`: Handles proxied connections
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! use citadel_proto::proto::packet_processor::hole_punch;
+//! use citadel_proto::proto::CitadelSession;
+//! use citadel_proto::proto::packet::HdpPacket;
+//!
+//! fn handle_hole_punch(session: &CitadelSession, packet: HdpPacket) {
+//!     let hr_version = 1;
+//!     let proxy_info = None;
+//!     match hole_punch::process_hole_punch(session, packet, hr_version, proxy_info) {
+//!         Ok(result) => {
+//!             // Handle successful hole punch
+//!         }
+//!         Err(err) => {
+//!             // Handle hole punch error
+//!         }
+//!     }
+//! }
+//! ```
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::packet_processor::primary_group_packet::{

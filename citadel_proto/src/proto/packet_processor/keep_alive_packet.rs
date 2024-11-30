@@ -1,3 +1,36 @@
+//! # Keep-Alive Packet Processor
+//!
+//! Implements connection maintenance through periodic keep-alive packets,
+//! ensuring connections remain active and detecting disconnections early.
+//!
+//! ## Features
+//!
+//! - **Connection Maintenance**:
+//!   - Periodic heartbeat packets
+//!   - Connection liveness detection
+//!   - Timeout management
+//!   - Automatic reconnection triggers
+//!
+//! - **State Management**:
+//!   - Connection state tracking
+//!   - Latency monitoring
+//!   - Jitter calculation
+//!   - Connection quality metrics
+//!
+//! ## Important Notes
+//!
+//! - Configurable keep-alive intervals
+//! - Adaptive timing based on network conditions
+//! - Minimal bandwidth overhead
+//! - Handles both UDP and TCP connections
+//!
+//! ## Related Components
+//!
+//! - [`connect_packet`]: Connection establishment
+//! - [`disconnect_packet`]: Connection termination
+//! - [`session_manager`]: Session management
+//! - [`udp_internal_interface`]: UDP transport
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
@@ -6,7 +39,15 @@ use std::sync::atomic::Ordering;
 
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[allow(unused_results, unused_must_use)]
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
 pub async fn process_keep_alive(
     session: &CitadelSession,
     packet: HdpPacket,

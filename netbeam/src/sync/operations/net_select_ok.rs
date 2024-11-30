@@ -1,3 +1,52 @@
+/*!
+ * # Network Select-Ok Operation
+ *
+ * Implements a network-aware select operation that races fallible futures across two
+ * network endpoints. Similar to `futures::select`, but operates over a network connection
+ * with built-in conflict resolution and error handling.
+ *
+ * ## Features
+ * - Races fallible futures between network endpoints
+ * - First endpoint to complete successfully wins
+ * - Built-in conflict resolution
+ * - Error handling with Result type
+ * - State synchronization between nodes
+ * - Network-aware relative node types
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::operations::net_select_ok::NetSelectOk;
+ * use netbeam::sync::RelativeNodeType;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable>(connection: &S) -> Result<()> {
+ *     // Create a select-ok operation
+ *     let select = NetSelectOk::new(
+ *         connection,
+ *         RelativeNodeType::Initiator,
+ *         async { Ok::<_, anyhow::Error>(42) }
+ *     );
+ *
+ *     // Wait for first successful completion
+ *     let result = select.await?;
+ *     println!("Got result: {:?}", result);
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Important Notes
+ * - First successful endpoint wins
+ * - Handles errors with Result type
+ * - State is synchronized between nodes
+ * - Includes conflict resolution
+ * - Uses multiplexed connections
+ *
+ * ## Related Components
+ * - `net_select.rs`: Basic select operation without error handling
+ * - `net_try_join.rs`: Try-join operation for synchronization
+ */
+
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::subscription::Subscribable;

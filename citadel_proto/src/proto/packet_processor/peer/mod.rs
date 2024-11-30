@@ -1,3 +1,31 @@
+//! Peer Packet Processing Module for Citadel Protocol
+//!
+//! This module provides the core functionality for handling peer-to-peer communication
+//! in the Citadel Protocol network. It manages group broadcasts, peer commands,
+//! server interactions, and signal handling between peers.
+//!
+//! # Features
+//!
+//! - Group broadcast management
+//! - Peer command processing
+//! - Server interaction handling
+//! - Signal processing between peers
+//! - Disconnect signal management
+//!
+//! # Important Notes
+//!
+//! - Requires established peer connections
+//! - Handles peer session state
+//! - Manages error propagation
+//! - Supports ticket-based operations
+//!
+//! # Related Components
+//!
+//! - `CitadelSession`: Manages peer sessions
+//! - `NodeResult`: Handles operation results
+//! - `Ticket`: Tracks peer operations
+//! - `NetworkError`: Manages error states
+
 use crate::error::NetworkError;
 use crate::prelude::{ConnectFail, NodeResult, Ticket};
 use crate::proto::session::CitadelSession;

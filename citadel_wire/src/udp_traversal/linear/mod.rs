@@ -1,3 +1,63 @@
+//! Linear UDP Hole Punching Framework
+//!
+//! This module implements a specialized UDP hole punching framework designed for
+//! client-server scenarios where clients are behind NAT. It uses a linear approach
+//! with synchronized timing and multiple fallback methods to establish reliable
+//! connections through firewalls.
+//!
+//! # Features
+//!
+//! - Synchronized pre-process stage
+//! - Multiple traversal methods
+//! - UPnP integration
+//! - Recovery mode support
+//! - Connection state tracking
+//! - Ping-based timing control
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::udp_traversal::linear::{SingleUDPHolePuncher, NatTraversalMethod};
+//! use netbeam::sync::RelativeNodeType;
+//! use std::net::SocketAddr;
+//!
+//! async fn establish_server_connection(
+//!     socket: UdpSocket,
+//!     server_addrs: Vec<SocketAddr>,
+//!     config: HolePunchConfigContainer
+//! ) -> Result<HolePunchedUdpSocket, FirewallError> {
+//!     let mut puncher = SingleUDPHolePuncher::new(
+//!         RelativeNodeType::Client,
+//!         config,
+//!         socket,
+//!         server_addrs
+//!     )?;
+//!     
+//!     // Try UPnP first
+//!     if let Some(method) = puncher.get_next_method() {
+//!         puncher.try_method(method, kill_switch, post_kill_rebuild).await
+//!     } else {
+//!         Err(FirewallError::AllMethodsExhausted)
+//!     }
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Pre-process stage required
+//! - Global time sync needed
+//! - Methods tried sequentially
+//! - Recovery mode for failures
+//! - Client-server optimized
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal::linear::method3`] - Method 3 implementation
+//! - [`crate::standard::upnp_handler`] - UPnP support
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`crate::socket_helpers`] - Socket utilities
+//!
+
 use std::net::SocketAddr;
 
 use citadel_io::tokio::net::UdpSocket;

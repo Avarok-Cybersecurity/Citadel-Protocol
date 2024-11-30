@@ -1,3 +1,31 @@
+//! Kernel Trait Definitions for Citadel Protocol
+//!
+//! This module defines the core trait interfaces that all kernel implementations must satisfy.
+//! It provides the contract between the high-level protocol operations and the underlying
+//! network implementations.
+//!
+//! # Features
+//!
+//! - Abstract network kernel interface definition
+//! - Protocol-agnostic message handling
+//! - Asynchronous operation support
+//! - Session management traits
+//! - Error handling specifications
+//!
+//! # Important Notes
+//!
+//! - All kernel implementations must be thread-safe
+//! - Methods are asynchronous and return Futures
+//! - Implementations must handle connection state
+//! - Error types must implement std::error::Error
+//!
+//! # Related Components
+//!
+//! - `kernel/mod.rs`: Main kernel module implementation
+//! - `kernel_executor.rs`: Execution runtime
+//! - `kernel_communicator.rs`: Communication handling
+//! - `error.rs`: Protocol error definitions
+
 use async_trait::async_trait;
 
 use crate::error::NetworkError;
@@ -5,7 +33,7 @@ use crate::proto::node_result::NodeResult;
 use crate::proto::remote::NodeRemote;
 use auto_impl::auto_impl;
 
-/// The [NetKernel] is the thread-safe interface between the single-threaded OR multi-threaded async
+/// The [`NetKernel`] is the thread-safe interface between the single-threaded OR multi-threaded async
 /// protocol and your network application
 #[async_trait]
 #[auto_impl(Box, &mut)]

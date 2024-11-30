@@ -1,3 +1,41 @@
+//! Post-quantum cryptographic encryption module.
+//!
+//! This module provides a comprehensive set of encryption primitives that are
+//! resistant to both classical and quantum computer attacks. It features:
+//!
+//! - Authenticated Encryption with Associated Data (AEAD)
+//! - Post-quantum key exchange using Kyber
+//! - Multiple cipher implementations (AES-GCM, ChaCha20-Poly1305, Ascon80pq)
+//! - Local-user-only encryption for endpoint privacy
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use citadel_pqcrypto::encryption::{AeadModule, aes_impl::AesModule};
+//! use citadel_types::crypto::KemAlgorithm;
+//!
+//! // Create an AES-GCM cipher
+//! let cipher = get_aes_module();
+//!
+//! // Encrypt data
+//! let nonce = [0u8; 12];
+//! let data = b"Hello, World!";
+//! let ciphertext = cipher.encrypt(&nonce, data).unwrap();
+//!
+//! // Decrypt data
+//! let plaintext = cipher.decrypt(&nonce, &ciphertext).unwrap();
+//! assert_eq!(&plaintext, data);
+//! # fn get_aes_module() -> AesModule { unimplemented!() }
+//! ```
+//!
+//! # Security Considerations
+//!
+//! - All sensitive data is automatically zeroized when dropped
+//! - Nonces must never be reused with the same key
+//! - Associated data is authenticated but not encrypted
+//! - Local-user encryption provides endpoint privacy
+//! - Post-quantum algorithms are used for future-proofing
+
 use aes_gcm::aead::Buffer;
 use citadel_types::errors::Error;
 
@@ -52,7 +90,7 @@ pub trait AeadModule: Send + Sync {
     }
 }
 
-pub(crate) mod aes_impl {
+pub mod aes_impl {
     use crate::encryption::AeadModule;
     use crate::PostQuantumMetaKex;
     use aes_gcm::aead::generic_array::GenericArray;
@@ -68,7 +106,7 @@ pub(crate) mod aes_impl {
     crate::impl_basic_aead_module!(AesModule, citadel_types::crypto::AES_GCM_NONCE_LENGTH_BYTES);
 }
 
-pub(crate) mod chacha_impl {
+pub mod chacha_impl {
     use crate::encryption::AeadModule;
     use crate::PostQuantumMetaKex;
     use aes_gcm::aead::Buffer;
@@ -88,7 +126,7 @@ pub(crate) mod chacha_impl {
     );
 }
 
-pub(crate) mod ascon_impl {
+pub mod ascon_impl {
     use crate::encryption::AeadModule;
     use crate::PostQuantumMetaKex;
     use aes_gcm::aead::Buffer;
@@ -105,7 +143,7 @@ pub(crate) mod ascon_impl {
     crate::impl_basic_aead_module!(AsconModule, citadel_types::crypto::ASCON_NONCE_LENGTH_BYTES);
 }
 
-pub(crate) mod kyber_module {
+pub mod kyber_module {
     #[cfg(target_family = "wasm")]
     use crate::functions::AsSlice;
     use crate::wire::ScramCryptDictionary;

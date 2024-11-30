@@ -1,3 +1,98 @@
+//! # Account Manager
+//!
+//! The Account Manager is responsible for managing user accounts in the Citadel Protocol.
+//! It provides a unified interface for account creation, storage, retrieval, and management
+//! across different backend storage systems.
+//!
+//! ## Features
+//!
+//! * **Account Management**
+//!   - User registration and authentication
+//!   - Personal and impersonal account modes
+//!   - Account metadata management
+//!   - Account deletion and purging
+//!
+//! * **Storage Backend Support**
+//!   - In-memory storage
+//!   - File system persistence
+//!   - SQL database integration
+//!   - Redis database support
+//!
+//! * **Peer Management**
+//!   - HyperLAN peer registration
+//!   - P2P connection handling
+//!   - Peer list synchronization
+//!   - User information lookup
+//!
+//! * **Security**
+//!   - Argon2id password hashing
+//!   - Secure credential management
+//!   - Ratchet-based cryptography
+//!
+//! ## Usage Example
+//!
+//! ```rust
+//! use citadel_user::prelude::*;
+//! use citadel_crypt::stacked_ratchet::StackedRatchet;
+//!
+//! async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Initialize account manager with in-memory backend
+//!     let manager = AccountManager::<StackedRatchet>::new(
+//!         BackendType::InMemory,
+//!         None,
+//!         None,
+//!         None
+//!     ).await?;
+//!
+//!     // Register a new client account
+//!     let conn_info = ConnectionInfo::new(
+//!         SecurityLevel::Standard,
+//!         None,
+//!         None
+//!     );
+//!
+//!     let creds = ProposedCredentials::new(
+//!         "username".to_string(),
+//!         "password".to_string(),
+//!         None
+//!     );
+//!
+//!     let ratchet = StackedRatchet::new(1234, 0);
+//!
+//!     let account = manager.register_impersonal_hyperlan_client_network_account(
+//!         conn_info,
+//!         creds,
+//!         ratchet
+//!     )?;
+//!
+//!     // Retrieve peer information
+//!     if let Some(peers) = manager.get_hyperlan_peer_list(account.get_cid())? {
+//!         for peer_cid in peers {
+//!             println!("Connected to peer: {}", peer_cid);
+//!         }
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Account manager must be initialized with appropriate backend configuration
+//! * Username uniqueness is not guaranteed - use CIDs for unique identification
+//! * Proper error handling is essential for backend operations
+//! * Account operations are thread-safe and async-compatible
+//! * Backend connections are verified during initialization
+//!
+//! ## Related Components
+//!
+//! * `ClientNetworkAccount` - Individual client account management
+//! * `PersistenceHandler` - Backend storage interface
+//! * `ServicesHandler` - External service integration
+//! * `BackendType` - Storage backend configuration
+//! * `ProposedCredentials` - Account creation parameters
+//!
+
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::backend::memory::MemoryBackend;
 use crate::backend::{BackendType, PersistenceHandler};
