@@ -114,7 +114,7 @@
 //! use citadel_sdk::prefabs::server::empty::EmptyKernel;
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults. When calling 'build', a NetKernel is specified
-//! let server = NodeBuilder::default()
+//! let server = DefaultNodeBuilder::default()
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .build(EmptyKernel::default())?;
 //!
@@ -132,7 +132,7 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
 //! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
 //!     // handle program logic here
@@ -144,7 +144,7 @@
 //!     Ok(())
 //! });
 //!
-//! let client = NodeBuilder::default().build(client_kernel)?;
+//! let client = DefaultNodeBuilder::default().build(client_kernel)?;
 //! # async move {
 //! let result = client.await;
 //! # };
@@ -171,7 +171,7 @@
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults with a kernel
 //! // that auto-accepts inbound file transfer requests
-//! let server = NodeBuilder::default()
+//! let server = DefaultNodeBuilder::default()
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .build(AcceptFileTransferKernel::default())?;
 //!
@@ -188,7 +188,7 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
 //! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";
@@ -200,7 +200,7 @@
 //!     Ok(())
 //! });
 //!
-//! let client = NodeBuilder::default().build(client_kernel)?;
+//! let client = DefaultNodeBuilder::default().build(client_kernel)?;
 //! # async move {
 //!     let result = client.await;
 //! # };
@@ -236,7 +236,9 @@ pub mod prelude {
     pub use crate::builder::node_builder::*;
     pub use crate::prefabs::client::peer_connection::PeerConnectionSetupAggregator;
     pub use crate::prefabs::client::PrefabFunctions;
-    pub use crate::prefabs::client::{ServerConnectionSettings, ServerConnectionSettingsBuilder};
+    pub use crate::prefabs::client::{
+        DefaultServerConnectionSettingsBuilder, ServerConnectionSettings,
+    };
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;

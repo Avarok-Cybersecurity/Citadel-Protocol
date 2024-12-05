@@ -61,7 +61,7 @@ pub struct SyncToggle {
     inner: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
-const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCst;
+const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::Relaxed;
 
 /// Represents the current state of a toggle operation.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -84,12 +84,23 @@ impl SyncToggle {
 
     /// Attempts to toggle the state to true if it's currently false.
     ///
-    /// Returns `JustToggled` if the state was changed to true, `AlreadyToggled` if the state was already true, and `Untoggled` if the state is still false.
+    /// Returns `JustToggled` if the state was changed to true, `AlreadyToggled` if the state was already true
     pub fn toggle_on_if_untoggled(&self) -> CurrentToggleState {
         if self.inner.fetch_nand(false, ORDERING) {
             CurrentToggleState::AlreadyToggled
         } else {
             CurrentToggleState::JustToggled
+        }
+    }
+
+    /// Resets the toggle state to false and returns the previous state.
+    ///
+    /// Returns `AlreadyToggled` if it was previously true, `Untoggled` if it was already false
+    pub fn reset_and_get_previous(&self) -> CurrentToggleState {
+        if self.inner.fetch_and(false, ORDERING) {
+            CurrentToggleState::AlreadyToggled
+        } else {
+            CurrentToggleState::Untoggled
         }
     }
 
@@ -99,7 +110,7 @@ impl SyncToggle {
     }
 
     /// Returns the current state of the toggle.
-    pub fn get(&self) -> CurrentToggleState {
+    pub fn state(&self) -> CurrentToggleState {
         if self.inner.load(ORDERING) {
             CurrentToggleState::AlreadyToggled
         } else {
@@ -115,33 +126,55 @@ mod tests {
     #[test]
     fn test_sync_toggle() {
         let toggle = SyncToggle::new();
-        assert_eq!(toggle.get(), CurrentToggleState::Untoggled);
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
         assert_eq!(
             toggle.toggle_on_if_untoggled(),
             CurrentToggleState::JustToggled
         );
         toggle.toggle_off();
-        assert_eq!(toggle.get(), CurrentToggleState::Untoggled);
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
         assert_eq!(
             toggle.toggle_on_if_untoggled(),
             CurrentToggleState::JustToggled
         );
-        assert_eq!(toggle.get(), CurrentToggleState::AlreadyToggled);
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
         assert_eq!(
             toggle.toggle_on_if_untoggled(),
             CurrentToggleState::AlreadyToggled
         );
-        assert_eq!(toggle.get(), CurrentToggleState::AlreadyToggled);
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
         assert_eq!(
             toggle.toggle_on_if_untoggled(),
             CurrentToggleState::AlreadyToggled
         );
-        assert_eq!(toggle.get(), CurrentToggleState::AlreadyToggled);
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
         toggle.toggle_off();
-        assert_eq!(toggle.get(), CurrentToggleState::Untoggled);
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
         assert_eq!(
             toggle.toggle_on_if_untoggled(),
             CurrentToggleState::JustToggled
         );
+    }
+
+    #[test]
+    fn test_sync_toggle_reset_and_get_previous() {
+        let toggle = SyncToggle::new();
+
+        // Test resetting when already false
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
+        assert_eq!(
+            toggle.reset_and_get_previous(),
+            CurrentToggleState::Untoggled
+        );
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
+
+        // Test resetting when true
+        let _ = toggle.toggle_on_if_untoggled();
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
+        assert_eq!(
+            toggle.reset_and_get_previous(),
+            CurrentToggleState::AlreadyToggled
+        );
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
     }
 }

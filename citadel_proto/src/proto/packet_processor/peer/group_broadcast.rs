@@ -50,7 +50,7 @@ use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::proto::{
     GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
 };
@@ -230,11 +230,11 @@ pub enum GroupBroadcast {
     )
 ))]
 /// Process a group broadcast message
-pub async fn process_group_broadcast(
-    session_ref: &CitadelSession,
+pub async fn process_group_broadcast<R: Ratchet>(
+    session_ref: &CitadelSession<R>,
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
-    sess_hyper_ratchet: &StackedRatchet,
+    sess_ratchet: &R,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let signal = return_if_none!(
@@ -245,7 +245,7 @@ pub async fn process_group_broadcast(
     let ticket = header.context_info.get().into();
     let security_level = header.security_level.into();
     // since group broadcast packets never get proxied, the implicated cid is the local session cid
-    let implicated_cid = header.session_cid.get();
+    let session_cid = header.session_cid.get();
     log::trace!(target: "citadel", "[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
     match signal {
         GroupBroadcast::Create {
@@ -257,7 +257,7 @@ pub async fn process_group_broadcast(
                 .create_message_group_and_notify(
                     timestamp,
                     ticket,
-                    implicated_cid,
+                    session_cid,
                     initial_peers,
                     security_level,
                     options,
@@ -265,7 +265,7 @@ pub async fn process_group_broadcast(
                 .await;
             let signal = GroupBroadcast::CreateResponse { key };
             let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
+                sess_ratchet,
                 &signal,
                 ticket,
                 C2S_ENCRYPTION_ONLY,
@@ -288,9 +288,9 @@ pub async fn process_group_broadcast(
                 let peer_layer = &session.hypernode_peer_layer;
                 let result = if peer_layer.message_group_exists(key).await {
                     peer_layer
-                        .add_pending_peers_to_group(key, vec![implicated_cid])
+                        .add_pending_peers_to_group(key, vec![session_cid])
                         .await;
-                    peer_layer.request_join(implicated_cid, key).await
+                    peer_layer.request_join(session_cid, key).await
                 } else {
                     None
                 };
@@ -301,7 +301,7 @@ pub async fn process_group_broadcast(
                         log::warn!(target: "citadel", "Group {:?} does not exist", key);
                         let error = GroupBroadcast::GroupNonExists { key };
                         let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                            sess_hyper_ratchet,
+                            sess_ratchet,
                             &error,
                             ticket,
                             C2S_ENCRYPTION_ONLY,
@@ -316,7 +316,7 @@ pub async fn process_group_broadcast(
                         let success =
                             GroupBroadcast::AcceptMembershipResponse { key, success: true };
                         let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                            sess_hyper_ratchet,
+                            sess_ratchet,
                             &success,
                             ticket,
                             C2S_ENCRYPTION_ONLY,
@@ -341,7 +341,7 @@ pub async fn process_group_broadcast(
 
                         let signal = GroupBroadcast::RequestJoinPending { result: res, key };
                         let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                            sess_hyper_ratchet,
+                            sess_ratchet,
                             &signal,
                             ticket,
                             C2S_ENCRYPTION_ONLY,
@@ -371,7 +371,7 @@ pub async fn process_group_broadcast(
                 groups: message_groups,
             };
             let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
+                sess_ratchet,
                 &signal,
                 ticket,
                 C2S_ENCRYPTION_ONLY,
@@ -400,14 +400,14 @@ pub async fn process_group_broadcast(
         ),
 
         GroupBroadcast::End { key } => {
-            return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
+            return_if_none!(permission_gate(session_cid, key), "Permission denied");
             let success = session
                 .session_manager
-                .remove_message_group(implicated_cid, timestamp, ticket, key, security_level)
+                .remove_message_group(session_cid, timestamp, ticket, key, security_level)
                 .await;
             let signal = GroupBroadcast::EndResponse { key, success };
             let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
+                sess_ratchet,
                 &signal,
                 ticket,
                 C2S_ENCRYPTION_ONLY,
@@ -452,7 +452,7 @@ pub async fn process_group_broadcast(
                 let success = session
                     .session_manager
                     .broadcast_signal_to_group(
-                        implicated_cid,
+                        session_cid,
                         timestamp,
                         ticket,
                         key,
@@ -467,7 +467,7 @@ pub async fn process_group_broadcast(
                     .unwrap_or(false);
                 let resp = GroupBroadcast::MessageResponse { key, success };
                 let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                    sess_hyper_ratchet,
+                    sess_ratchet,
                     &resp,
                     ticket,
                     C2S_ENCRYPTION_ONLY,
@@ -510,7 +510,7 @@ pub async fn process_group_broadcast(
                 if !session
                     .session_manager
                     .broadcast_signal_to_group(
-                        implicated_cid,
+                        session_cid,
                         timestamp,
                         ticket,
                         key,
@@ -531,7 +531,7 @@ pub async fn process_group_broadcast(
             // tell the user who accepted the membership
             let signal = GroupBroadcast::AcceptMembershipResponse { key, success };
             let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
+                sess_ratchet,
                 &signal,
                 ticket,
                 C2S_ENCRYPTION_ONLY,
@@ -566,7 +566,7 @@ pub async fn process_group_broadcast(
                 // tell the user who declined the membership
                 let signal = GroupBroadcast::DeclineMembershipResponse { key, success };
                 let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                    sess_hyper_ratchet,
+                    sess_ratchet,
                     &signal,
                     ticket,
                     C2S_ENCRYPTION_ONLY,
@@ -587,7 +587,7 @@ pub async fn process_group_broadcast(
         }
 
         GroupBroadcast::AcceptMembershipResponse { key, success } => {
-            if success && (key.cid != implicated_cid) {
+            if success && (key.cid != session_cid) {
                 create_group_channel(ticket, key, session)
             } else {
                 forward_signal(
@@ -612,11 +612,11 @@ pub async fn process_group_broadcast(
                 .session_manager
                 .kick_from_message_group(
                     GroupMemberAlterMode::Leave,
-                    implicated_cid,
+                    session_cid,
                     timestamp,
                     ticket,
                     key,
-                    vec![implicated_cid],
+                    vec![session_cid],
                     security_level,
                 )
                 .await
@@ -625,12 +625,12 @@ pub async fn process_group_broadcast(
             let message = if success {
                 format!(
                     "Successfully removed peer {} from room {}:{}",
-                    implicated_cid, key.cid, key.mgid
+                    session_cid, key.cid, key.mgid
                 )
             } else {
                 format!(
                     "Unable to remove peer {} from room {}:{}",
-                    implicated_cid, key.cid, key.mgid
+                    session_cid, key.cid, key.mgid
                 )
             };
             let signal = GroupBroadcast::LeaveRoomResponse {
@@ -639,7 +639,7 @@ pub async fn process_group_broadcast(
                 message,
             };
             let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
+                sess_ratchet,
                 &signal,
                 ticket,
                 C2S_ENCRYPTION_ONLY,
@@ -673,7 +673,7 @@ pub async fn process_group_broadcast(
             key,
             invitees: peers,
         } => {
-            return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
+            return_if_none!(permission_gate(session_cid, key), "Permission denied");
             // the server receives this. It then sends an invitation
             // if peer is not online, leave some mail. If peer is online,
             // send invitation
@@ -681,7 +681,7 @@ pub async fn process_group_broadcast(
             let sess_mgr = session.session_manager.clone();
             let peer_layer = &session.hypernode_peer_layer;
             let peer_statuses = persistence_handler
-                .hyperlan_peers_are_mutuals(implicated_cid, &peers)
+                .hyperlan_peers_are_mutuals(session_cid, &peers)
                 .await?;
 
             if peer_layer.message_group_exists(key).await {
@@ -692,7 +692,7 @@ pub async fn process_group_broadcast(
                         peers.iter().cloned().zip(peer_statuses.clone()),
                         true,
                         GroupBroadcast::Invitation {
-                            sender: implicated_cid,
+                            sender: session_cid,
                             key,
                         },
                         security_level,
@@ -715,7 +715,7 @@ pub async fn process_group_broadcast(
                     failed_to_invite_list: peers_failed,
                 };
                 let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                    sess_hyper_ratchet,
+                    sess_ratchet,
                     &signal,
                     ticket,
                     C2S_ENCRYPTION_ONLY,
@@ -727,7 +727,7 @@ pub async fn process_group_broadcast(
                 // Send error message
                 let signal = GroupBroadcast::GroupNonExists { key };
                 let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                    sess_hyper_ratchet,
+                    sess_ratchet,
                     &signal,
                     ticket,
                     C2S_ENCRYPTION_ONLY,
@@ -755,12 +755,12 @@ pub async fn process_group_broadcast(
             key,
             kick_list: peers,
         } => {
-            return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
+            return_if_none!(permission_gate(session_cid, key), "Permission denied");
             let success = session
                 .session_manager
                 .kick_from_message_group(
                     GroupMemberAlterMode::Kick,
-                    implicated_cid,
+                    session_cid,
                     timestamp,
                     ticket,
                     key,
@@ -772,7 +772,7 @@ pub async fn process_group_broadcast(
                 .unwrap_or(false);
             let resp = GroupBroadcast::KickResponse { key, success };
             let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                sess_hyper_ratchet,
+                sess_ratchet,
                 &resp,
                 ticket,
                 C2S_ENCRYPTION_ONLY,
@@ -817,21 +817,21 @@ pub async fn process_group_broadcast(
 }
 
 /// Create a group channel
-fn create_group_channel(
+fn create_group_channel<R: Ratchet>(
     ticket: Ticket,
     key: MessageGroupKey,
-    session: &CitadelSession,
+    session: &CitadelSession<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
-    let implicated_cid = session
-        .implicated_cid
+    let session_cid = session
+        .session_cid
         .get()
         .ok_or_else(|| NetworkError::msg("Implicated CID not loaded"))?;
     session.send_to_kernel(NodeResult::GroupChannelCreated(GroupChannelCreated {
         ticket,
         channel,
-        implicated_cid,
+        session_cid,
     }))?;
     Ok(PrimaryProcessorResult::Void)
 }
@@ -851,13 +851,13 @@ impl From<GroupBroadcast> for GroupBroadcastPayload {
 }
 
 /// Forward a signal to the kernel or a group channel
-fn forward_signal(
-    session: &CitadelSession,
+fn forward_signal<R: Ratchet>(
+    session: &CitadelSession<R>,
     ticket: Ticket,
     key: Option<MessageGroupKey>,
     broadcast: GroupBroadcast,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let implicated_cid = return_if_none!(session.implicated_cid.get(), "Implicated CID not loaded");
+    let session_cid = return_if_none!(session.session_cid.get(), "Implicated CID not loaded");
 
     if let Some(key) = key {
         // send to the dedicated channel
@@ -876,7 +876,7 @@ fn forward_signal(
     // send to kernel
     session
         .send_to_kernel(NodeResult::GroupEvent(GroupEvent {
-            implicated_cid,
+            session_cid,
             ticket,
             event: broadcast,
         }))
@@ -885,8 +885,8 @@ fn forward_signal(
 }
 
 /// Permission gate for group operations
-fn permission_gate(implicated_cid: u64, key: MessageGroupKey) -> Option<()> {
-    if implicated_cid != key.cid {
+fn permission_gate(session_cid: u64, key: MessageGroupKey) -> Option<()> {
+    if session_cid != key.cid {
         None
     } else {
         Some(())

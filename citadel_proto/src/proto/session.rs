@@ -58,7 +58,6 @@ use bytes::{Bytes, BytesMut};
 use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
-use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::proto::UdpMode;
 use citadel_user::account_manager::AccountManager;
@@ -103,7 +102,7 @@ use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
-use crate::proto::peer::peer_layer::{HyperNodePeerLayer, PeerSignal};
+use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::session_queue_handler::{
@@ -118,8 +117,8 @@ use crate::proto::state_container::{
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
 use crate::proto::transfer_stats::TransferStats;
-use atomic::Atomic;
 use bytemuck::NoUninit;
+use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
 use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_types::crypto::SecurityLevel;
@@ -142,11 +141,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 //define_outer_struct_wrapper!(HdpSession, HdpSessionInner);
 
 /// Allows a connection stream to be worked on by a single worker
-pub struct CitadelSession {
+#[derive(Clone)]
+pub struct CitadelSession<R: Ratchet> {
     #[cfg(not(feature = "multi-threaded"))]
-    pub inner: std::rc::Rc<CitadelSessionInner>,
+    pub inner: std::rc::Rc<CitadelSessionInner<R>>,
     #[cfg(feature = "multi-threaded")]
-    pub inner: std::sync::Arc<CitadelSessionInner>,
+    pub inner: std::sync::Arc<CitadelSessionInner<R>>,
 }
 
 enum SessionShutdownReason {
@@ -154,7 +154,7 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-impl CitadelSession {
+impl<R: Ratchet> CitadelSession<R> {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -168,28 +168,28 @@ impl CitadelSession {
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner> {
+    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner<R>> {
         std::rc::Rc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner> {
+    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner<R>> {
         std::sync::Arc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner<R>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner<R>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 }
 
-impl From<CitadelSessionInner> for CitadelSession {
-    fn from(inner: CitadelSessionInner) -> Self {
+impl<R: Ratchet> From<CitadelSessionInner<R>> for CitadelSession<R> {
+    fn from(inner: CitadelSessionInner<R>) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
         {
             Self {
@@ -206,38 +206,28 @@ impl From<CitadelSessionInner> for CitadelSession {
     }
 }
 
-impl Deref for CitadelSession {
-    type Target = CitadelSessionInner;
+impl<R: Ratchet> Deref for CitadelSession<R> {
+    type Target = CitadelSessionInner<R>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl Clone for CitadelSession {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-//define_struct!(HdpSession, HdpSessionInner);
-
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
-pub struct CitadelSessionInner {
-    pub(super) implicated_cid: DualRwLock<Option<u64>>,
+pub struct CitadelSessionInner<R: Ratchet> {
+    pub(super) session_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<NodeResult>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
-    pub(super) session_manager: CitadelSessionManager,
-    pub(super) state: Arc<Atomic<SessionState>>,
-    pub(super) state_container: StateContainer,
-    pub(super) account_manager: AccountManager,
+    pub(super) session_manager: CitadelSessionManager<R>,
+    pub(super) state: DualCell<SessionState>,
+    pub(super) state_container: StateContainer<R>,
+    pub(super) account_manager: AccountManager<R, R>,
     pub(super) time_tracker: TimeTracker,
     pub(super) local_node_type: NodeType,
     pub(super) remote_node_type: Option<NodeType>,
@@ -246,14 +236,14 @@ pub struct CitadelSessionInner {
     pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult>>>,
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
-    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
+    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R>>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
     pub(super) primary_stream_quic_conn: DualRwLock<Option<Connection>>,
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
     pub(super) client_config: Arc<rustls::ClientConfig>,
-    pub(super) hypernode_peer_layer: HyperNodePeerLayer,
+    pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: Option<Vec<String>>,
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
@@ -270,7 +260,7 @@ pub enum SessionState {
     /// or if it needs to register
     SocketJustOpened,
     /// If the endpoint does not have an implicated CID with the current node, then registration must occur.
-    /// This will imply the use of standard encryption to get the hyperencrypted drill over the wire
+    /// This will imply the use of standard encryption to get the hyperencrypted entropy_bank over the wire
     NeedsRegister,
     /// The system just initiated, and needs to begin the session
     NeedsConnect,
@@ -289,31 +279,31 @@ pub enum HdpSessionInitMode {
     Register(SocketAddr, ProposedCredentials),
 }
 
-pub(crate) struct SessionInitParams {
+pub(crate) struct SessionInitParams<R: Ratchet> {
     pub on_drop: UnboundedSender<()>,
     pub local_nat_type: NatType,
-    pub citadel_remote: NodeRemote,
+    pub citadel_remote: NodeRemote<R>,
     pub local_bind_addr: SocketAddr,
     pub local_node_type: NodeType,
     pub kernel_tx: UnboundedSender<NodeResult>,
-    pub session_manager: crate::proto::session_manager::CitadelSessionManager,
-    pub account_manager: AccountManager,
+    pub session_manager: CitadelSessionManager<R>,
+    pub account_manager: AccountManager<R, R>,
     pub time_tracker: TimeTracker,
     pub remote_peer: SocketAddr,
     pub init_ticket: Ticket,
     pub client_config: Arc<rustls::ClientConfig>,
-    pub hypernode_peer_layer: HyperNodePeerLayer,
+    pub hypernode_peer_layer: CitadelNodePeerLayer<R>,
     // this is set only when a local client is attempting to start an outbound session
-    pub client_only_settings: Option<ClientOnlySessionInitSettings>,
+    pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
     pub stun_servers: Option<Vec<String>>,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
 }
 
-pub(crate) struct ClientOnlySessionInitSettings {
+pub(crate) struct ClientOnlySessionInitSettings<R: Ratchet> {
     pub init_mode: HdpSessionInitMode,
     pub peer_only_connect_proto: ConnectProtocol,
-    pub cnac: Option<ClientNetworkAccount>,
+    pub cnac: Option<ClientNetworkAccount<R, R>>,
     pub proposed_credentials: ProposedCredentials,
     pub udp_mode: UdpMode,
     pub keep_alive_timeout_ns: i64,
@@ -321,14 +311,14 @@ pub(crate) struct ClientOnlySessionInitSettings {
     pub connect_mode: Option<ConnectMode>,
 }
 
-impl CitadelSession {
+impl<R: Ratchet> CitadelSession<R> {
     pub(crate) fn new(
-        session_init_params: SessionInitParams,
+        session_init_params: SessionInitParams<R>,
     ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (stopper_tx, _stopper_rx) = citadel_io::tokio::sync::broadcast::channel(10);
         let client_only_settings = &session_init_params.client_only_settings;
         let is_server = client_only_settings.is_none();
-        let (cnac, state, implicated_cid) =
+        let (cnac, state, session_cid) =
             if let Some(client_init_settings) = &session_init_params.client_only_settings {
                 match &client_init_settings.init_mode {
                     HdpSessionInitMode::Connect(auth) => {
@@ -339,38 +329,23 @@ impl CitadelSession {
                                     .clone()
                                     .ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
                                 let cid = cnac.get_cid();
-                                (
-                                    Some(cnac),
-                                    Arc::new(Atomic::new(SessionState::NeedsConnect)),
-                                    Some(cid),
-                                )
+                                (Some(cnac), SessionState::NeedsConnect, Some(cid))
                             }
 
                             AuthenticationRequest::Passwordless { .. } => {
                                 // register will redirect to preconnect afterwards
-                                (
-                                    None,
-                                    Arc::new(Atomic::new(SessionState::NeedsRegister)),
-                                    None,
-                                )
+                                (None, SessionState::NeedsRegister, None)
                             }
                         }
                     }
 
-                    HdpSessionInitMode::Register(..) => (
-                        None,
-                        Arc::new(Atomic::new(SessionState::NeedsRegister)),
-                        None,
-                    ),
+                    HdpSessionInitMode::Register(..) => (None, SessionState::NeedsRegister, None),
                 }
             } else {
-                (
-                    None,
-                    Arc::new(Atomic::new(SessionState::SocketJustOpened)),
-                    None,
-                )
+                (None, SessionState::SocketJustOpened, None)
             };
 
+        let state = DualCell::from(state);
         let timestamp = session_init_params.time_tracker.get_global_time_ns();
         let hypernode_peer_layer = session_init_params.hypernode_peer_layer;
         let connect_mode = client_only_settings.as_ref().and_then(|r| r.connect_mode);
@@ -417,7 +392,7 @@ impl CitadelSession {
             local_bind_addr,
             local_node_type,
             remote_node_type,
-            implicated_cid: DualRwLock::from(implicated_cid),
+            session_cid: DualRwLock::from(session_cid),
             time_tracker,
             kernel_ticket: kernel_ticket.into(),
             remote_peer,
@@ -478,7 +453,7 @@ impl CitadelSession {
         let this_queue_worker = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, implicated_cid) = {
+        let (session_future, handle_zero_state, session_cid) = {
             let quic_conn_opt = primary_stream.take_quic_connection();
             let (writer, reader) = misc::net::safe_split_stream(primary_stream);
 
@@ -499,7 +474,7 @@ impl CitadelSession {
 
             let timestamp = this.time_tracker.get_global_time_ns();
             let cnac_opt = inner_state!(this.state_container).cnac.clone();
-            let implicated_cid = this.implicated_cid.clone();
+            let session_cid = this.session_cid.clone();
             let persistence_handler = this.account_manager.get_persistence_handler().clone();
 
             let stopper = inner!(this.stopper_tx).subscribe();
@@ -515,7 +490,7 @@ impl CitadelSession {
                 persistence_handler,
                 primary_outbound_tx,
                 this_outbound,
-                this.state.load(Ordering::SeqCst),
+                this.state.get(),
                 timestamp,
                 cnac_opt,
             );
@@ -536,12 +511,12 @@ impl CitadelSession {
             // separate task, we solve the issue of re-entrancing of mutex
             spawn!(queue_worker_future);
 
-            (session_future, handle_zero_state, implicated_cid)
+            (session_future, handle_zero_state, session_cid)
         };
 
         if let Err(err) = handle_zero_state.await {
             log::error!(target: "citadel", "Unable to proceed past session zero-state. Stopping session: {:?}", &err);
-            return Err((err, implicated_cid.get()));
+            return Err((err, session_cid.get()));
         }
 
         let res = session_future
@@ -550,14 +525,14 @@ impl CitadelSession {
 
         match res {
             Ok(_) => {
-                log::trace!(target: "citadel", "Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.implicated_cid.get(), this_close.is_server);
-                Ok(implicated_cid.get())
+                log::trace!(target: "citadel", "Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.session_cid.get(), this_close.is_server);
+                Ok(session_cid.get())
             }
 
             Err(err) => {
                 let ticket = this_close.kernel_ticket.get();
                 let reason = err.to_string();
-                let cid = implicated_cid.get();
+                let cid = session_cid.get();
 
                 log::trace!(target: "citadel", "Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
 
@@ -596,12 +571,12 @@ impl CitadelSession {
     )]
     async fn handle_zero_state(
         zero_packet: Option<BytesMut>,
-        persistence_handler: PersistenceHandler,
+        persistence_handler: PersistenceHandler<R, R>,
         to_outbound: OutboundPrimaryStreamSender,
-        session: CitadelSession,
+        session: CitadelSession<R>,
         state: SessionState,
         timestamp: i64,
-        cnac: Option<ClientNetworkAccount>,
+        cnac: Option<ClientNetworkAccount<R, R>>,
     ) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound
@@ -628,19 +603,19 @@ impl CitadelSession {
                     .register_state
                     .passwordless
                     .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
-                // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
-                let alice_constructor = StackedRatchetConstructor::new_alice(
-                    ConstructorOpts::new_vec_init(
-                        Some(session_security_settings.crypto_params),
-                        (session_security_settings.security_level.value() + 1) as usize,
-                    ),
-                    proposed_cid,
-                    0,
-                    Some(session_security_settings.security_level),
-                )
-                .ok_or(NetworkError::InternalError(
-                    "Unable to construct Alice ratchet",
-                ))?;
+                // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
+                let alice_constructor =
+                    <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
+                        ConstructorOpts::new_vec_init(
+                            Some(session_security_settings.crypto_params),
+                            session_security_settings.security_level,
+                        ),
+                        proposed_cid,
+                        0,
+                    )
+                    .ok_or(NetworkError::InternalError(
+                        "Unable to construct Alice ratchet",
+                    ))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "citadel", "Running stage0 alice");
@@ -652,7 +627,7 @@ impl CitadelSession {
                         ))?;
 
                 let stage0_register_packet =
-                    crate::proto::packet_crafter::do_register::craft_stage0(
+                    crate::proto::packet_crafter::do_register::craft_stage0::<R>(
                         session_security_settings.crypto_params.into(),
                         timestamp,
                         transfer,
@@ -692,8 +667,8 @@ impl CitadelSession {
     }
 
     pub(crate) fn begin_connect(
-        session: &CitadelSession,
-        cnac: &ClientNetworkAccount,
+        session: &CitadelSession<R>,
+        cnac: &ClientNetworkAccount<R, R>,
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine!");
         let session_ref = session;
@@ -706,7 +681,7 @@ impl CitadelSession {
         let session_security_settings = state_container.session_security_settings.unwrap();
         let peer_only_connect_mode = session_ref.peer_only_connect_protocol.get().unwrap();
         // reset the toolset's ARA
-        let static_aux_hr = &cnac.refresh_static_hyper_ratchet();
+        let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
         let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::InvalidRequest("The specified security setting for the session exceeds the registration security setting"))?;
         let opts = static_aux_hr
@@ -714,16 +689,11 @@ impl CitadelSession {
             .into_iter()
             .take((session_security_settings.security_level.value() + 1) as usize)
             .collect();
-        //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
-        let alice_constructor = StackedRatchetConstructor::new_alice(
-            opts,
-            cnac.get_cid(),
-            0,
-            Some(session_security_settings.security_level),
-        )
-        .ok_or(NetworkError::InternalError(
-            "Unable to construct Alice ratchet",
-        ))?;
+        let alice_constructor =
+            <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cnac.get_cid(), 0)
+                .ok_or(NetworkError::InternalError(
+                "Unable to construct Alice ratchet",
+            ))?;
         let transfer = alice_constructor
             .stage0_alice()
             .ok_or(NetworkError::InternalError(
@@ -766,7 +736,7 @@ impl CitadelSession {
 
     // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
     pub(crate) fn udp_socket_loader(
-        this: CitadelSession,
+        this: CitadelSession<R>,
         v_target: VirtualTargetType,
         udp_conn: UdpSplittableTypes,
         addr: TargettedSocketAddr,
@@ -812,7 +782,7 @@ impl CitadelSession {
                     .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let accessor = match v_target {
-                    VirtualConnectionType::LocalGroupServer { implicated_cid: _ } => {
+                    VirtualConnectionType::LocalGroupServer { session_cid: _ } => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
                         log::trace!(target: "citadel", "C2S UDP subroutine inserting UDP channel ... (is_server={})", is_server);
@@ -847,7 +817,7 @@ impl CitadelSession {
                     }
 
                     VirtualConnectionType::LocalGroupPeer {
-                        implicated_cid: _implicated_cid,
+                        session_cid: _session_cid,
                         peer_cid: target_cid,
                     } => {
                         let mut state_container = inner_mut_state!(sess.state_container);
@@ -941,7 +911,8 @@ impl CitadelSession {
             .map(|r| {
                 #[cfg_attr(
                     feature = "localhost-testing",
-                    tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()))
+                    tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()
+                    ))
                 )]
                 fn process_outbound_packet(r: BytesMut) -> Bytes {
                     r.freeze()
@@ -961,7 +932,7 @@ impl CitadelSession {
     )]
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
-        this_main: CitadelSession,
+        this_main: CitadelSession<R>,
         p2p_handle: Option<P2PInboundHandle>,
     ) -> Result<(), NetworkError> {
         let this_main = &this_main;
@@ -969,7 +940,7 @@ impl CitadelSession {
         let (
             ref remote_peer,
             ref local_primary_port,
-            ref implicated_cid,
+            ref session_cid,
             ref kernel_tx,
             ref primary_stream,
             peer_cid,
@@ -978,7 +949,7 @@ impl CitadelSession {
             (
                 p2p.remote_peer,
                 p2p.local_bind_port,
-                p2p.implicated_cid,
+                p2p.session_cid,
                 p2p.kernel_tx,
                 p2p.to_primary_stream,
                 Some(p2p.peer_cid),
@@ -988,14 +959,14 @@ impl CitadelSession {
             let borrow = this_main;
             let remote_peer = borrow.remote_peer;
             let local_primary_port = borrow.local_bind_addr.port();
-            let implicated_cid = borrow.implicated_cid.clone();
+            let session_cid = borrow.session_cid.clone();
             let kernel_tx = borrow.kernel_tx.clone();
             let primary_stream = borrow.to_primary_stream.clone().unwrap();
             let is_server = borrow.is_server;
             (
                 remote_peer,
                 local_primary_port,
-                implicated_cid,
+                session_cid,
                 kernel_tx,
                 primary_stream,
                 None,
@@ -1003,16 +974,16 @@ impl CitadelSession {
             )
         };
 
-        fn evaluate_result(
+        fn evaluate_result<R: Ratchet>(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult>,
-            session: &CitadelSession,
+            session: &CitadelSession<R>,
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             match result {
                 Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
-                    CitadelSession::send_to_primary_stream_closure(
+                    CitadelSession::<R>::send_to_primary_stream_closure(
                         primary_stream,
                         kernel_tx,
                         return_packet,
@@ -1028,7 +999,7 @@ impl CitadelSession {
                 }
 
                 Err(reason) => {
-                    log::error!(target: "citadel", "[PrimaryProcessor] session ending: {:?} | Session end state: {:?}", reason, session.state.load(Ordering::Relaxed));
+                    log::error!(target: "citadel", "[PrimaryProcessor] session ending: {:?} | Session end state: {:?}", reason, session.state.get());
                     Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         reason.into_string(),
@@ -1047,8 +1018,8 @@ impl CitadelSession {
             }
         }
 
-        fn handle_session_terminating_error(
-            session: &CitadelSession,
+        fn handle_session_terminating_error<R: Ratchet>(
+            session: &CitadelSession<R>,
             err: std::io::Error,
             is_server: bool,
             peer_cid: Option<u64>,
@@ -1068,19 +1039,19 @@ impl CitadelSession {
             if err_string.contains(SUCCESS_DISCONNECT) {
                 SessionShutdownReason::ProperShutdown
             } else {
-                let implicated_cid = session.implicated_cid.get().unwrap_or_default();
+                let session_cid = session.session_cid.get().unwrap_or_default();
                 let v_conn_type = if let Some(peer_cid) = peer_cid {
                     VirtualConnectionType::LocalGroupPeer {
-                        implicated_cid,
+                        session_cid,
                         peer_cid,
                     }
                 } else {
-                    VirtualConnectionType::LocalGroupServer { implicated_cid }
+                    VirtualConnectionType::LocalGroupServer { session_cid }
                 };
 
                 if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
                     ticket: session.kernel_ticket.get(),
-                    cid_opt: session.implicated_cid.get(),
+                    cid_opt: session.session_cid.get(),
                     success: false,
                     v_conn_type: Some(v_conn_type),
                     message: err_string.clone(),
@@ -1109,16 +1080,16 @@ impl CitadelSession {
 
         let res = reader
             .try_for_each_concurrent(None, |packet| async move {
-                let implicated_cid = implicated_cid.get();
+                let session_cid = session_cid.get();
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
-                    implicated_cid,
+                    session_cid,
                     this_main,
                     *remote_peer,
                     *local_primary_port,
                     packet,
                 )
                 .await;
-                evaluate_result(result, primary_stream, kernel_tx, this_main, implicated_cid)
+                evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid)
             })
             .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
             .await;
@@ -1157,7 +1128,7 @@ impl CitadelSession {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn execute_queue_worker(this_main: CitadelSession) -> Result<(), NetworkError> {
+    async fn execute_queue_worker(this_main: CitadelSession<R>) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
@@ -1186,7 +1157,7 @@ impl CitadelSession {
                 )),
                 LOGIN_EXPIRATION_TIME,
                 |state_container| {
-                    if state_container.state.load(Ordering::SeqCst) != SessionState::Connected {
+                    if !state_container.state.is_connected() {
                         QueueWorkerResult::EndSession
                     } else {
                         // remove it from being called again
@@ -1199,7 +1170,7 @@ impl CitadelSession {
                 queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE), move |state_container| {
                     let ticket = kernel_ticket;
 
-                    if state_container.state.load(Ordering::Relaxed) == SessionState::Connected {
+                    if state_container.state.is_connected() {
                         let timestamp = time_tracker.get_global_time_ns();
 
                         let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
@@ -1212,18 +1183,18 @@ impl CitadelSession {
                             }
                         }).collect::<Vec<VirtualTargetType>>();
 
-                        let virtual_target = VirtualTargetType::LocalGroupServer { implicated_cid: C2S_ENCRYPTION_ONLY };
-                        if state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket)).is_ok() {
+                        let virtual_target = VirtualTargetType::LocalGroupServer { session_cid: C2S_ENCRYPTION_ONLY };
+                        if state_container.initiate_entropy_bank_update(timestamp, virtual_target, Some(ticket)).is_ok() {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
-                                if let Err(err) = state_container.initiate_drill_update(timestamp, vconn, None) {
-                                    log::warn!(target: "citadel", "Unable to initiate drill update for {:?}: {:?}", vconn, err);
+                                if let Err(err) = state_container.initiate_entropy_bank_update(timestamp, vconn, None) {
+                                    log::warn!(target: "citadel", "Unable to initiate entropy_bank update for {:?}: {:?}", vconn, err);
                                 }
                             }
 
                             QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &state_container.transfer_stats))
                         } else {
-                            log::warn!(target: "citadel", "initiate_drill_update subroutine signalled failure");
+                            log::warn!(target: "citadel", "initiate_entropy_bank_update subroutine signalled failure");
                             QueueWorkerResult::EndSession
                         }
                     } else {
@@ -1234,7 +1205,7 @@ impl CitadelSession {
 
             queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(KEEP_ALIVE_CHECKER, 0)), Duration::from_millis(KEEP_ALIVE_INTERVAL_MS), move |state_container| {
                 let timestamp = time_tracker_2.get_global_time_ns();
-                if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
+                if state_container.state.is_connected() {
                     if state_container.keep_alive_timeout_ns != 0 {
                         if state_container.keep_alive_subsystem_timed_out(timestamp) && state_container.meta_expiry_state.expired() {
                             log::error!(target: "citadel", "The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
@@ -1256,7 +1227,7 @@ impl CitadelSession {
                 Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)),
                 FIREWALL_KEEP_ALIVE_UDP,
                 move |state_container| {
-                    if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
+                    if state_container.state.is_connected() {
                         if state_container.udp_mode == UdpMode::Disabled {
                             //log::trace!(target: "citadel", "TCP only mode detected. Removing FIREWALL_KEEP_ALIVE subroutine");
                             return QueueWorkerResult::Complete;
@@ -1295,7 +1266,7 @@ impl CitadelSession {
 
         match v_conn {
             VirtualConnectionType::LocalGroupServer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
             } => {
                 let crypt_container = &mut state_container
                     .c2s_channel_container
@@ -1303,7 +1274,7 @@ impl CitadelSession {
                     .unwrap()
                     .peer_session_crypto;
 
-                let latest_hr = crypt_container.get_hyper_ratchet(None).unwrap();
+                let latest_hr = crypt_container.get_ratchet(None).unwrap();
                 let packet = packet_crafter::file::craft_revfs_pull(
                     latest_hr,
                     security_level,
@@ -1316,14 +1287,14 @@ impl CitadelSession {
                 self.send_to_primary_stream(Some(ticket), packet)
             }
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid: _,
+                session_cid: _,
                 peer_cid: target_cid,
             } => {
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
                 let latest_hr = endpoint_container
                     .endpoint_crypto
-                    .get_hyper_ratchet(None)
+                    .get_ratchet(None)
                     .unwrap();
                 let packet = packet_crafter::file::craft_revfs_pull(
                     latest_hr,
@@ -1362,7 +1333,7 @@ impl CitadelSession {
 
         match v_conn {
             VirtualConnectionType::LocalGroupServer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
             } => {
                 let crypt_container = &mut state_container
                     .c2s_channel_container
@@ -1370,7 +1341,7 @@ impl CitadelSession {
                     .unwrap()
                     .peer_session_crypto;
 
-                let latest_hr = crypt_container.get_hyper_ratchet(None).unwrap();
+                let latest_hr = crypt_container.get_ratchet(None).unwrap();
                 let packet = packet_crafter::file::craft_revfs_delete(
                     latest_hr,
                     security_level,
@@ -1382,14 +1353,14 @@ impl CitadelSession {
                 self.send_to_primary_stream(Some(ticket), packet)
             }
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid: _,
+                session_cid: _,
                 peer_cid: target_cid,
             } => {
                 let endpoint_container =
                     state_container.get_peer_endpoint_container_mut(target_cid)?;
                 let latest_hr = endpoint_container
                     .endpoint_crypto
-                    .get_hyper_ratchet(None)
+                    .get_ratchet(None)
                     .unwrap();
                 let packet = packet_crafter::file::craft_revfs_delete(
                     latest_hr,
@@ -1414,7 +1385,7 @@ impl CitadelSession {
     }
 
     fn ensure_connected(&self, ticket: &Ticket) -> Result<(), NetworkError> {
-        if self.state.load(Ordering::Relaxed) != SessionState::Connected {
+        if !self.state.is_connected() {
             Err(NetworkError::Generic(format!("Attempted to send a request (ticket: {ticket}) outbound, but the session is not connected")))
         } else {
             Ok(())
@@ -1476,7 +1447,7 @@ impl CitadelSession {
         let mut group_sender_rx =
             citadel_io::tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
         let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
-        // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
+        // the above are the same for all vtarget types. Now, we need to get the proper entropy_bank and pqc
 
         let mut state_container = inner_mut_state!(this.state_container);
 
@@ -1492,9 +1463,9 @@ impl CitadelSession {
             groups_needed,
             metadata,
         ) = match virtual_target {
-            VirtualTargetType::LocalGroupServer { implicated_cid } => {
+            VirtualTargetType::LocalGroupServer { session_cid } => {
                 // if we are sending this just to the HyperLAN server (in the case of file uploads),
-                // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                // then, we use this session's pqc, the cnac's latest entropy_bank, and 0 for target_cid
                 if !*self.file_transfer_compatible {
                     return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
                 }
@@ -1509,7 +1480,7 @@ impl CitadelSession {
                     .map(|r| r.object_id)
                     .unwrap_or_else(|| crypt_container.get_next_object_id());
                 let group_id_start = crypt_container.get_and_increment_group_id();
-                let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                let latest_hr = crypt_container.get_ratchet(None).cloned().unwrap();
                 let static_aux_ratchet = crypt_container
                     .toolset
                     .get_static_auxiliary_ratchet()
@@ -1545,10 +1516,10 @@ impl CitadelSession {
                     )
                     .expect("Invalid timestamp")
                     .to_rfc2822(),
-                    author: implicated_cid.to_string(),
+                    author: session_cid.to_string(),
                     plaintext_length: file_size,
                     group_count: groups_needed,
-                    cid: implicated_cid,
+                    cid: session_cid,
                     transfer_type,
                 };
 
@@ -1570,17 +1541,17 @@ impl CitadelSession {
                     file_header,
                     object_id,
                     target_cid,
-                    implicated_cid,
+                    session_cid,
                     groups_needed,
                     file_metadata,
                 )
             }
 
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: target_cid,
             } => {
-                log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", session_cid, target_cid);
                 // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
                 // of the file
                 let crypt_container_c2s = &state_container
@@ -1611,7 +1582,7 @@ impl CitadelSession {
 
                 let latest_usable_ratchet = endpoint_container
                     .endpoint_crypto
-                    .get_hyper_ratchet(None)
+                    .get_ratchet(None)
                     .unwrap();
 
                 let preferred_primary_stream = endpoint_container
@@ -1647,10 +1618,10 @@ impl CitadelSession {
                     )
                     .expect("Invalid timestamp")
                     .to_rfc2822(),
-                    author: implicated_cid.to_string(),
+                    author: session_cid.to_string(),
                     plaintext_length: file_size,
                     group_count: groups_needed,
-                    cid: implicated_cid,
+                    cid: session_cid,
                     transfer_type,
                 };
 
@@ -1749,7 +1720,7 @@ impl CitadelSession {
             //
 
             let mut relative_group_id = 0;
-            let implicated_cid = this.implicated_cid.get();
+            let session_cid = this.session_cid.get();
             // while waiting, we likely have a set of GroupSenders to process
             while let Some(sender) = group_sender_rx.next().await {
                 match sender {
@@ -1757,29 +1728,27 @@ impl CitadelSession {
                         let (group_id, key) = {
                             // construct the OutboundTransmitters
                             let sess = this;
-                            if sess.state.load(Ordering::Relaxed) != SessionState::Connected {
+                            if !sess.state.is_connected() {
                                 log::warn!(target: "citadel", "Since transmitting the file, the session ended");
                                 return;
                             }
 
                             let mut state_container = inner_mut_state!(sess.state_container);
 
-                            let proper_latest_hyper_ratchet = match virtual_target {
-                                VirtualConnectionType::LocalGroupServer { implicated_cid: _ } => {
+                            let proper_latest_stacked_ratchet = match virtual_target {
+                                VirtualConnectionType::LocalGroupServer { session_cid: _ } => {
                                     state_container
                                         .c2s_channel_container
                                         .as_ref()
                                         .unwrap()
                                         .peer_session_crypto
-                                        .get_hyper_ratchet(None)
+                                        .get_ratchet(None)
                                 }
                                 VirtualConnectionType::LocalGroupPeer {
-                                    implicated_cid: _,
+                                    session_cid: _,
                                     peer_cid,
                                 } => match state_container.get_peer_session_crypto(peer_cid) {
-                                    Some(peer_sess_crypt) => {
-                                        peer_sess_crypt.get_hyper_ratchet(None)
-                                    }
+                                    Some(peer_sess_crypt) => peer_sess_crypt.get_ratchet(None),
 
                                     None => {
                                         log::warn!(target: "citadel", "Since transmitting the file, the peer session ended");
@@ -1793,17 +1762,17 @@ impl CitadelSession {
                                 }
                             };
 
-                            if proper_latest_hyper_ratchet.is_none() {
+                            if proper_latest_stacked_ratchet.is_none() {
                                 log::error!(target: "citadel", "Unable to unwrap StackedRatchet (X-05)");
                                 return;
                             }
 
-                            let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
+                            let stacked_ratchet = proper_latest_stacked_ratchet.unwrap();
 
                             let mut transmitter = GroupTransmitter::new_from_group_sender(
                                 to_primary_stream.clone(),
                                 sender,
-                                RatchetPacketCrafterContainer::new(hyper_ratchet.clone(), None),
+                                RatchetPacketCrafterContainer::new(stacked_ratchet.clone(), None),
                                 object_id,
                                 ticket,
                                 security_level,
@@ -1870,8 +1839,8 @@ impl CitadelSession {
 
                                             if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                 ticket_opt: Some(ticket),
-                                                cid_opt: implicated_cid,
-                                                message: format!("Timeout on ticket {ticket}")
+                                                cid_opt: session_cid,
+                                                message: format!("Timeout on ticket {ticket}"),
                                             })).is_err() {
                                                 log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
                                                 QueueWorkerResult::EndSession
@@ -1910,7 +1879,7 @@ impl CitadelSession {
                             .clone()
                             .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                 ticket_opt: Some(ticket),
-                                cid_opt: implicated_cid,
+                                cid_opt: session_cid,
                                 message: err.to_string(),
                             }));
                     }
@@ -1928,7 +1897,7 @@ impl CitadelSession {
 
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
-        this: CitadelSession,
+        this: CitadelSession<R>,
         mut rx: citadel_io::tokio::sync::mpsc::Receiver<SessionRequest>,
     ) {
         let task = async move {
@@ -1966,7 +1935,7 @@ impl CitadelSession {
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
                                             ticket_opt: Some(ticket),
-                                            cid_opt: this.implicated_cid.get(),
+                                            cid_opt: this.session_cid.get(),
                                             message: err.into_string(),
                                         },
                                     ))
@@ -1982,7 +1951,7 @@ impl CitadelSession {
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
                                             ticket_opt: Some(ticket),
-                                            cid_opt: this.implicated_cid.get(),
+                                            cid_opt: this.session_cid.get(),
                                             message: err.into_string(),
                                         },
                                     ))
@@ -2013,7 +1982,7 @@ impl CitadelSession {
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Dispatching peer command {:?} ...", peer_command);
         let this = self;
-        let state = this.state.load(Ordering::SeqCst);
+        let state = this.state.get();
 
         if state != SessionState::Connected {
             log::warn!(target: "citadel", "Session is not connected (s={:?}); will still attempt send peer command {:?}", state, peer_command)
@@ -2044,7 +2013,7 @@ impl CitadelSession {
                                     )),
                                 },
                                 ticket,
-                                implicated_cid: self.implicated_cid.get().ok_or_else(|| {
+                                session_cid: self.session_cid.get().ok_or_else(|| {
                                     NetworkError::InternalError("Implicated CID not set")
                                 })?,
                             }))
@@ -2076,7 +2045,7 @@ impl CitadelSession {
                         .outgoing_peer_connect_attempts
                         .contains_key(&a.get_original_target_cid())
                     {
-                        log::warn!(target: "citadel", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
+                        log::warn!(target: "citadel", "{} is already attempting to connect to {}", a.get_original_session_cid(), a.get_original_target_cid())
                     }
 
                     state_container
@@ -2099,7 +2068,7 @@ impl CitadelSession {
                 n => n,
             };
 
-            let hyper_ratchet = state_container
+            let stacked_ratchet = state_container
                 .c2s_channel_container
                 .as_ref()
                 .ok_or_else(|| {
@@ -2108,10 +2077,10 @@ impl CitadelSession {
                     ))
                 })?
                 .peer_session_crypto
-                .get_hyper_ratchet(None)
+                .get_ratchet(None)
                 .unwrap();
             let packet = super::packet_crafter::peer_cmd::craft_peer_signal(
-                hyper_ratchet,
+                stacked_ratchet,
                 signal_processed,
                 ticket,
                 timestamp,
@@ -2127,11 +2096,11 @@ impl CitadelSession {
     }
 
     async fn listen_udp_port<S: UdpStream>(
-        this: CitadelSession,
+        this: CitadelSession<R>,
         _hole_punched_addr_ip: IpAddr,
         local_port: u16,
         mut stream: S,
-        peer_session_accessor: EndpointCryptoAccessor,
+        peer_session_accessor: EndpointCryptoAccessor<R>,
     ) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
@@ -2157,7 +2126,7 @@ impl CitadelSession {
         receiver: UnboundedReceiver<(u8, BytesMut)>,
         hole_punched_addr: TargettedSocketAddr,
         mut sink: S,
-        peer_session_accessor: EndpointCryptoAccessor,
+        peer_session_accessor: EndpointCryptoAccessor<R>,
     ) -> Result<(), NetworkError> {
         let mut receiver =
             citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
@@ -2188,7 +2157,7 @@ impl CitadelSession {
     pub fn process_inbound_packet_udp(
         &self,
         packet: HdpPacket,
-        accessor: &EndpointCryptoAccessor,
+        accessor: &EndpointCryptoAccessor<R>,
     ) -> Result<(), NetworkError> {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
             return Ok(());
@@ -2201,10 +2170,10 @@ impl CitadelSession {
                 return Ok(());
             }
 
-            let hr_version = header.drill_version.get();
+            let hr_version = header.entropy_bank_version.get();
             let mut endpoint_cid_info = None;
             match check_proxy(
-                self.implicated_cid.get(),
+                self.session_cid.get(),
                 header.cmd_primary,
                 header.cmd_aux,
                 header.session_cid.get(),
@@ -2247,7 +2216,7 @@ impl CitadelSession {
     /// Returns true if the disconnect initiate was a success, false if not. An error returns if something else occurs
     pub fn initiate_disconnect(&self, ticket: Ticket) -> Result<bool, NetworkError> {
         let session = self;
-        if session.state.load(Ordering::Relaxed) != SessionState::Connected {
+        if !session.state.is_connected() {
             log::error!(target: "citadel", "Must be connected to HyperLAN in order to start disconnect")
         }
 
@@ -2273,14 +2242,14 @@ impl CitadelSession {
                     to_kernel_tx,
                     disconnect_stage0_packet,
                     Some(ticket),
-                    self.implicated_cid.get(),
+                    self.session_cid.get(),
                 )
             })?
             .map(|_| true)
     }
 }
 
-impl CitadelSessionInner {
+impl<R: Ratchet> CitadelSessionInner<R> {
     /// Stores the proposed credentials into the register state container
     pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
         let mut state_container = inner_mut_state!(self.state_container);
@@ -2332,7 +2301,7 @@ impl CitadelSessionInner {
                 Err(err) => {
                     self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                         ticket_opt: ticket,
-                        cid_opt: self.implicated_cid.get(),
+                        cid_opt: self.session_cid.get(),
                         message: err.to_string(),
                     }))
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -2357,7 +2326,7 @@ impl CitadelSessionInner {
                 self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: ticket,
                     message: err.to_string(),
-                    cid_opt: self.implicated_cid.get(),
+                    cid_opt: self.session_cid.get(),
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 Err(err)
@@ -2369,8 +2338,7 @@ impl CitadelSessionInner {
 
     /// Stops the future from running
     pub fn shutdown(&self) {
-        self.state
-            .store(SessionState::Disconnected, Ordering::SeqCst);
+        self.state.set(SessionState::Disconnected);
         let _ = inner!(self.stopper_tx).send(());
     }
 
@@ -2396,8 +2364,8 @@ impl CitadelSessionInner {
     }
 
     pub(crate) fn is_provisional(&self) -> bool {
-        let state = self.state.load(Ordering::Relaxed);
-        //self.implicated_cid.is_none()
+        let state = self.state.get();
+        //self.session_cid.is_none()
         // SocketJustOpened is only the state for a session created from an incoming connection
         state == SessionState::SocketJustOpened
             || state == SessionState::NeedsConnect
@@ -2411,18 +2379,10 @@ impl CitadelSessionInner {
         disconnect_success: bool,
         msg: T,
     ) {
-        if self
-            .session_manager
-            .provisional_session_active(&self.remote_peer)
-        {
-            // If we are provisional, we don't need to send a disconnect signal
-            return;
-        }
-
         if let Some(tx) = self.dc_signal_sender.take() {
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
-                cid_opt: self.implicated_cid.get(),
+                cid_opt: self.session_cid.get(),
                 success: disconnect_success,
                 v_conn_type: None,
                 message: msg.into(),
@@ -2435,16 +2395,18 @@ impl CitadelSessionInner {
     }
 }
 
-impl Drop for CitadelSessionInner {
+impl<R: Ratchet> Drop for CitadelSession<R> {
     fn drop(&mut self) {
-        log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
-        self.send_session_dc_signal(None, false, "Session dropped");
+        if self.strong_count() == 1 {
+            log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
+            self.send_session_dc_signal(None, false, "Session dropped");
 
-        if self.on_drop.unbounded_send(()).is_err() {
-            //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
+            if self.on_drop.unbounded_send(()).is_err() {
+                //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
+            }
+
+            let _ = inner!(self.stopper_tx).send(());
         }
-
-        let _ = inner!(self.stopper_tx).send(());
     }
 }
 

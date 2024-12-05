@@ -17,8 +17,10 @@
 //! ```rust
 //! use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 //!
+//! const N: usize = 32;
+//!
 //! // Create a new packet
-//! let mut packet = SecureMessagePacket::<32>::new().unwrap();
+//! let mut packet = SecureMessagePacket::<N>::new().unwrap();
 //!
 //! // Write payload first
 //! packet.write_payload(64, |buf| {
@@ -28,13 +30,13 @@
 //!
 //! // Write header second
 //! packet.write_header(|buf| {
-//!     buf[0] = 1; // packet type
+//!     buf.copy_from_slice(&[0u8; N]);
 //!     Ok(())
 //! }).unwrap();
 //!
 //! // Write extension last and get final bytes
-//! let bytes = packet.write_payload_extension(32, |buf| {
-//!     buf.copy_from_slice(&[0u8; 32]);
+//! let bytes = packet.write_payload_extension(10, |buf| {
+//!     buf.copy_from_slice(&[0u8; 10]);
 //!     Ok(())
 //! }).unwrap();
 //! ```

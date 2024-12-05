@@ -12,7 +12,7 @@ mod tests {
     use citadel_crypt::packet_vector::PacketVector;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
-    use citadel_crypt::toolset::{Toolset, UpdateStatus, MAX_HYPER_RATCHETS_IN_MEMORY};
+    use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
     #[cfg(not(target_family = "wasm"))]
     use citadel_io::tokio;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
@@ -189,9 +189,9 @@ mod tests {
         println!("{:?}\n", &cids_order_decrypt);
         let output = chain.links.iter().rfold(onion_packet, |mut acc, (cid, container)| {
             println!("At {} (onion packet len: {})", cid, acc.len());
-            let (pqc, drill) = container.get_hyper_ratchet(None).unwrap().message_pqc_drill(None);
+            let (pqc, entropy_bank) = container.get_stacked_ratchet(None).unwrap().message_pqc_entropy_bank(None);
             let payload = acc.split_off(HEADER_LEN);
-            drill.aes_gcm_decrypt(0, pqc, payload)
+            entropy_bank.aes_gcm_decrypt(0, pqc, payload)
                 .map(|vec| bytes::BytesMut::from(&vec[..])).unwrap()
         });
 
@@ -219,18 +219,18 @@ mod tests {
     }
 
     #[test]
-    fn hyper_ratchets() {
+    fn stacked_ratchets() {
         citadel_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::Extreme.value() {
-                let _ = hyper_ratchet::<StackedRatchet, _>(
+                let _ = stacked_ratchet::<StackedRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     false,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = hyper_ratchet::<StackedRatchet, _>(
+                let _ = stacked_ratchet::<StackedRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     false,
@@ -242,18 +242,18 @@ mod tests {
     }
 
     #[test]
-    fn hyper_ratchets_fcm() {
+    fn stacked_ratchets_fcm() {
         citadel_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::Extreme.value() {
-                let _ = hyper_ratchet::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet, _>(
+                let _ = stacked_ratchet::<citadel_crypt::fcm::ratchet::ThinRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     true,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = hyper_ratchet::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet, _>(
+                let _ = stacked_ratchet::<citadel_crypt::fcm::ratchet::ThinRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     true,
@@ -268,7 +268,7 @@ mod tests {
     fn security_levels() {
         citadel_logging::setup_log();
         for sec in 0..SecurityLevel::Extreme.value() {
-            let ratchet = hyper_ratchet::<StackedRatchet, _>(
+            let ratchet = stacked_ratchet::<StackedRatchet, _>(
                 KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
                 false,
@@ -285,7 +285,7 @@ mod tests {
         }
     }
 
-    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(
+    fn stacked_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(
         algorithm: Z,
         security_level: Option<SecurityLevel>,
         is_fcm: bool,
@@ -295,32 +295,30 @@ mod tests {
         let algorithm = algorithm.into();
         log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
         let algorithm = Some(algorithm);
-        let count = (security_level.unwrap_or_default().value() + 1) as usize;
-        let mut alice_hyper_ratchet = R::Constructor::new_alice(
-            ConstructorOpts::new_vec_init(algorithm, count),
+        let security_level = security_level.unwrap_or_default();
+        let mut alice_stacked_ratchet = R::Constructor::new_alice(
+            ConstructorOpts::new_vec_init(algorithm, security_level),
             99,
             0,
-            security_level,
         )
         .unwrap();
-        let transfer = alice_hyper_ratchet.stage0_alice().unwrap();
+        let transfer = alice_stacked_ratchet.stage0_alice().unwrap();
 
-        let bob_hyper_ratchet = R::Constructor::new_bob(
+        let mut bob_stacked_ratchet = R::Constructor::new_bob(
             99,
-            0,
-            ConstructorOpts::new_vec_init(algorithm, count),
+            ConstructorOpts::new_vec_init(algorithm, security_level),
             transfer,
             bob_psks,
         )
         .unwrap();
-        let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
+        let transfer = bob_stacked_ratchet.stage0_bob().unwrap();
 
-        alice_hyper_ratchet
+        alice_stacked_ratchet
             .stage1_alice(transfer, alice_psks)
             .unwrap();
 
-        let alice_hyper_ratchet = alice_hyper_ratchet.finish().unwrap();
-        let bob_hyper_ratchet = bob_hyper_ratchet.finish().unwrap();
+        let alice_stacked_ratchet = alice_stacked_ratchet.finish().unwrap();
+        let bob_stacked_ratchet = bob_stacked_ratchet.finish().unwrap();
 
         const MESSAGE: &[u8] = b"Hello, world!" as &[u8];
         const HEADER_LEN: usize = 50;
@@ -335,20 +333,20 @@ mod tests {
 
         let plaintext_packet = packet.clone();
 
-        alice_hyper_ratchet
-            .protect_message_packet(security_level, HEADER_LEN, &mut packet)
+        alice_stacked_ratchet
+            .protect_message_packet(Some(security_level), HEADER_LEN, &mut packet)
             .unwrap();
         assert_ne!(packet, plaintext_packet);
 
         let mut header = packet.split_to(HEADER_LEN);
-        bob_hyper_ratchet
-            .validate_message_packet(security_level, &header[..], &mut packet)
+        bob_stacked_ratchet
+            .validate_message_packet(Some(security_level), &header[..], &mut packet)
             .unwrap();
 
         header.unsplit(packet);
 
         assert_eq!(header, plaintext_packet);
-        alice_hyper_ratchet
+        alice_stacked_ratchet
     }
 
     #[rstest]
@@ -379,7 +377,7 @@ mod tests {
     ) {
         toolset::<StackedRatchet>(enx, kem, sig);
         #[cfg(feature = "fcm")]
-        toolset::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(enx, kem, sig);
+        toolset::<citadel_crypt::fcm::ratchet::ThinRatchet>(enx, kem, sig);
     }
 
     fn toolset<R: Ratchet>(enx: EncryptionAlgorithm, kem: KemAlgorithm, sig: SigAlgorithm) {
@@ -413,29 +411,34 @@ mod tests {
                 )
                 .unwrap();
             match res {
-                UpdateStatus::Committed { .. } => {
-                    assert!(x < MAX_HYPER_RATCHETS_IN_MEMORY as u32);
-                    assert_eq!(0, toolset.get_oldest_hyper_ratchet_version());
-                    assert_eq!(x, toolset.get_most_recent_hyper_ratchet_version());
+                ToolsetUpdateStatus::Committed { .. } => {
+                    assert!(x < MAX_RATCHETS_IN_MEMORY as u32);
+                    assert_eq!(0, toolset.get_oldest_stacked_ratchet_version());
+                    assert_eq!(x, toolset.get_most_recent_stacked_ratchet_version());
                 }
 
-                UpdateStatus::CommittedNeedsSynchronization { old_version, .. } => {
+                ToolsetUpdateStatus::CommittedNeedsSynchronization {
+                    oldest_version: old_version,
+                    ..
+                } => {
                     assert_eq!(old_version, 0); // we're not truncating it yet, so it should be 0
-                    assert!(x + 1 > MAX_HYPER_RATCHETS_IN_MEMORY as u32);
-                    assert_eq!(0, toolset.get_oldest_hyper_ratchet_version()); // this shouldn't change because the oldest needs to be manually removed
-                    assert_eq!(x, toolset.get_most_recent_hyper_ratchet_version());
+                    assert!(x + 1 >= MAX_RATCHETS_IN_MEMORY as u32);
+                    assert_eq!(0, toolset.get_oldest_stacked_ratchet_version()); // this shouldn't change because the oldest needs to be manually removed
+                    assert_eq!(x, toolset.get_most_recent_stacked_ratchet_version());
                 }
             }
         }
 
         for x in 0..COUNT {
-            if toolset.deregister_oldest_hyper_ratchet(x).is_ok() {
-                assert_eq!(x + 1, toolset.get_oldest_hyper_ratchet_version());
+            if toolset.deregister_oldest_stacked_ratchet(x).is_ok() {
+                assert_eq!(x + 1, toolset.get_oldest_stacked_ratchet_version());
             } else {
-                assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
+                assert_eq!(toolset.len(), MAX_RATCHETS_IN_MEMORY - 1);
                 assert_eq!(
-                    toolset.get_oldest_hyper_ratchet_version(),
-                    COUNT - MAX_HYPER_RATCHETS_IN_MEMORY as u32
+                    toolset
+                        .get_oldest_stacked_ratchet_version()
+                        .saturating_sub(1),
+                    COUNT - MAX_RATCHETS_IN_MEMORY as u32
                 );
             }
         }
@@ -453,19 +456,21 @@ mod tests {
                 .0,
             )
             .unwrap();
-        assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY + 1);
+        assert_eq!(toolset.len(), MAX_RATCHETS_IN_MEMORY);
         assert_eq!(
-            toolset.get_oldest_hyper_ratchet_version(),
-            toolset.get_most_recent_hyper_ratchet_version() - MAX_HYPER_RATCHETS_IN_MEMORY as u32
+            toolset
+                .get_oldest_stacked_ratchet_version()
+                .saturating_sub(1),
+            toolset.get_most_recent_stacked_ratchet_version() - MAX_RATCHETS_IN_MEMORY as u32
         );
 
         toolset
-            .deregister_oldest_hyper_ratchet(
-                toolset.get_most_recent_hyper_ratchet_version()
-                    - MAX_HYPER_RATCHETS_IN_MEMORY as u32,
+            .deregister_oldest_stacked_ratchet(
+                toolset.get_most_recent_stacked_ratchet_version()
+                    - (MAX_RATCHETS_IN_MEMORY - 1) as u32, // Add one since the max count is only for when it's full and temporarily fills the full buffer
             )
             .unwrap();
-        assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
+        assert_eq!(toolset.len(), MAX_RATCHETS_IN_MEMORY - 1);
     }
 
     fn gen<R: Ratchet>(
@@ -476,18 +481,15 @@ mod tests {
         bob_psks: &[Vec<u8>],
         alice_psks: &[Vec<u8>],
     ) -> (R, R) {
-        let count = sec.value() as usize + 1;
         let mut alice = R::Constructor::new_alice(
-            ConstructorOpts::new_vec_init(Some(algorithm), count),
+            ConstructorOpts::new_vec_init(Some(algorithm), sec),
             cid,
             version,
-            Some(sec),
         )
         .unwrap();
-        let bob = R::Constructor::new_bob(
+        let mut bob = R::Constructor::new_bob(
             cid,
-            version,
-            ConstructorOpts::new_vec_init(Some(algorithm), count),
+            ConstructorOpts::new_vec_init(Some(algorithm), sec),
             alice.stage0_alice().unwrap(),
             bob_psks,
         )
@@ -525,7 +527,7 @@ mod tests {
     ) {
         toolset_wrapping_vers::<StackedRatchet>(enx, kem, sig);
         #[cfg(feature = "fcm")]
-        toolset_wrapping_vers::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(enx, kem, sig);
+        toolset_wrapping_vers::<citadel_crypt::fcm::ratchet::ThinRatchet>(enx, kem, sig);
     }
 
     fn toolset_wrapping_vers<R: Ratchet>(
@@ -545,7 +547,7 @@ mod tests {
             &PRE_SHARED_KEYS,
         );
         let mut toolset = Toolset::new_debug(cid, hr.0, vers, vers);
-        let r = toolset.get_hyper_ratchet(vers).unwrap();
+        let r = toolset.get_stacked_ratchet(vers).unwrap();
         assert_eq!(r.version(), vers);
 
         const COUNT: usize = 100;
@@ -569,24 +571,27 @@ mod tests {
                     .0,
                 )
                 .unwrap();
-            let ratchet = toolset.get_hyper_ratchet(cur_vers).unwrap();
+            let ratchet = toolset.get_stacked_ratchet(cur_vers).unwrap();
             assert_eq!(ratchet.version(), cur_vers);
             cur_vers = cur_vers.wrapping_add(1);
             insofar += 1;
         }
 
-        assert_eq!(toolset.get_oldest_hyper_ratchet().unwrap().version(), vers);
+        assert_eq!(
+            toolset.get_oldest_stacked_ratchet().unwrap().version(),
+            vers
+        );
         let mut amt_culled = 0;
         for _ in 0..COUNT {
-            if toolset.len() == MAX_HYPER_RATCHETS_IN_MEMORY {
+            if toolset.len() == MAX_RATCHETS_IN_MEMORY {
                 continue;
             }
             toolset
-                .deregister_oldest_hyper_ratchet(vers.wrapping_add(amt_culled))
+                .deregister_oldest_stacked_ratchet(vers.wrapping_add(amt_culled))
                 .unwrap();
             amt_culled += 1;
             assert_eq!(
-                toolset.get_oldest_hyper_ratchet().unwrap().version(),
+                toolset.get_oldest_stacked_ratchet().unwrap().version(),
                 vers.wrapping_add(amt_culled)
             );
         }
@@ -626,7 +631,7 @@ mod tests {
             |decrypted, plaintext, _, _| debug_assert_eq!(decrypted, plaintext),
         );
         #[cfg(feature = "fcm")]
-        scrambler_transmission_spectrum::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(
+        scrambler_transmission_spectrum::<citadel_crypt::fcm::ratchet::ThinRatchet>(
             enx,
             kem,
             sig,
@@ -684,7 +689,7 @@ mod tests {
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
         #[cfg(feature = "fcm")]
-        scrambler_transmission_spectrum::<citadel_crypt::fcm::fcm_ratchet::ThinRatchet>(
+        scrambler_transmission_spectrum::<citadel_crypt::fcm::ratchet::ThinRatchet>(
             enx, kem, sig, tx_type, verifier,
         );
     }
@@ -736,7 +741,7 @@ mod tests {
                     ObjectId::zero(),
                     0,
                     transfer_type.clone(),
-                    |_vec, _drill, _target_cid, _, buffer| {
+                    |_vec, _entropy_bank, _target_cid, _, buffer| {
                         for x in 0..HEADER_SIZE_BYTES {
                             buffer.put_u8(x as u8)
                         }
@@ -909,7 +914,7 @@ mod tests {
         let source = PathBuf::from("../resources/TheBridge.pdf");
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        let (bytes, _num_groups, _mxbpg) = scramble_encrypt_source::<_, _, HEADER_LEN>(
+        let (bytes, _num_groups, _mxbpg) = scramble_encrypt_source::<_, _, HEADER_LEN, _>(
             source,
             None,
             ObjectId::zero(),
@@ -997,7 +1002,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    fn test_drill_encrypt_decrypt_basic(
+    fn test_entropy_bank_encrypt_decrypt_basic(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
@@ -1017,12 +1022,12 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::None
     )]
-    fn test_drill_encrypt_decrypt_basic_bad_psks(
+    fn test_entropy_bank_encrypt_decrypt_basic_bad_psks(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        citadel_logging::setup_log_no_panic_hook();
+        citadel_logging::should_panic_test();
         test_harness_with_psks(
             enx + kem + sig,
             &PRE_SHARED_KEYS,
@@ -1056,41 +1061,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
-    fn test_drill_encrypt_decrypt_scrambler(
-        #[case] enx: EncryptionAlgorithm,
-        #[case] kem: KemAlgorithm,
-        #[case] sig: SigAlgorithm,
-    ) {
-        citadel_logging::setup_log();
-        test_harness(enx + kem + sig, |alice, bob, _, data| {
-            let encrypted = alice.encrypt_scrambler(data).unwrap();
-            let decrypted = bob.decrypt_scrambler(encrypted).unwrap();
-            assert_eq!(decrypted, data);
-        });
-    }
-
-    #[rstest]
-    #[case(
-        EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::None
-    )]
-    #[case(
-        EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::None
-    )]
-    #[case(
-        EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::None
-    )]
-    #[case(
-        EncryptionAlgorithm::Kyber,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
-    )]
-    fn test_drill_local_encrypt_decrypt(
+    fn test_entropy_bank_local_encrypt_decrypt(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,

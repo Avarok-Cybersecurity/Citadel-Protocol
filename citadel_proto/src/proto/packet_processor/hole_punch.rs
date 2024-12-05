@@ -51,13 +51,22 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::packet_processor::primary_group_packet::{
-    get_proper_hyper_ratchet, get_resp_target_cid_from_header,
+    get_orientation_safe_ratchet, get_resp_target_cid_from_header,
 };
+use citadel_crypt::stacked_ratchet::Ratchet;
 
 /// This will handle an inbound group packet
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_hole_punch(
-    session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub fn process_hole_punch<R: Ratchet>(
+    session: &CitadelSession<R>,
     packet: HdpPacket,
     hr_version: u32,
     proxy_cid_info: Option<(u64, u64)>,
@@ -65,7 +74,7 @@ pub fn process_hole_punch(
     let (header, payload, _, _) = packet.decompose();
     let state_container = inner_state!(session.state_container);
     let hr = return_if_none!(
-        get_proper_hyper_ratchet(hr_version, &state_container, proxy_cid_info),
+        get_orientation_safe_ratchet(hr_version, &state_container, proxy_cid_info),
         "Unable to get proper HR"
     );
     let header = header.as_ref();

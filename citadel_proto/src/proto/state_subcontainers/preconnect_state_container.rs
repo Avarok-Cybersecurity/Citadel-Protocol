@@ -54,32 +54,31 @@ if let Some(ratchet) = state.generated_ratchet {
 use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::channel::UdpChannel;
 use crate::proto::remote::Ticket;
-use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_wire::hypernode_type::NodeType;
 
 /// For keeping track of the pre-connect state
-pub struct PreConnectState {
+pub struct PreConnectState<R: Ratchet> {
     pub(crate) last_stage: u8,
     #[allow(dead_code)]
     pub(crate) adjacent_node_type: Option<NodeType>,
-    // This drill should be turned .into() the next toolset once the other side updated
-    pub(crate) constructor: Option<StackedRatchetConstructor>,
+    // This entropy_bank should be turned .into() the next toolset once the other side updated
+    pub(crate) constructor: Option<R::Constructor>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
     pub(crate) success: bool,
-    pub(crate) generated_ratchet: Option<StackedRatchet>,
+    pub(crate) generated_ratchet: Option<R>,
 }
 
-impl PreConnectState {
+impl<R: Ratchet> PreConnectState<R> {
     pub fn on_packet_received(&mut self) {
         self.last_packet_time = Some(Instant::now());
     }
 }
 
-impl Default for PreConnectState {
+impl<R: Ratchet> Default for PreConnectState<R> {
     fn default() -> Self {
         Self {
             generated_ratchet: None,

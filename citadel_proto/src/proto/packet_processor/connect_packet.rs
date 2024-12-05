@@ -31,14 +31,15 @@
 //! - `VirtualConnection`: Manages established connections
 //! - `SessionSecuritySettings`: Configures connection security
 //!
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
-use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
+use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::proto::ConnectMode;
 use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
-use std::sync::atomic::Ordering;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -50,10 +51,10 @@ use std::sync::atomic::Ordering;
     fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_connect(
-    sess_ref: &CitadelSession,
+pub async fn process_connect<R: Ratchet>(
+    sess_ref: &CitadelSession<R>,
     packet: HdpPacket,
-    header_drill_vers: u32,
+    header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref.clone();
 
@@ -73,7 +74,7 @@ pub async fn process_connect(
         }
 
         let hr = return_if_none!(
-            get_proper_hyper_ratchet(header_drill_vers, &state_container, None),
+            get_orientation_safe_ratchet(header_entropy_bank_vers, &state_container, None),
             "Could not get proper HR [connect]"
         );
         let cnac = return_if_none!(state_container.cnac.clone(), "CNAC missing");
@@ -82,7 +83,7 @@ pub async fn process_connect(
 
     let (header, payload, _, _) = packet.decompose();
 
-    let (header, payload, hyper_ratchet) = return_if_none!(
+    let (header, payload, stacked_ratchet) = return_if_none!(
         validation::aead::validate(hr, &header, payload),
         "Unable to validate connect packet"
     );
@@ -108,7 +109,7 @@ pub async fn process_connect(
                             session
                                 .file_transfer_compatible
                                 .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
-                            let cid = hyper_ratchet.get_cid();
+                            let cid = stacked_ratchet.get_cid();
                             let success_time = session.time_tracker.get_global_time_ns();
                             let addr = session.remote_peer;
                             let is_personal = !session.is_server;
@@ -170,7 +171,7 @@ pub async fn process_connect(
 
                                 let success_packet =
                                     packet_crafter::do_connect::craft_final_status_packet(
-                                        &hyper_ratchet,
+                                        &stacked_ratchet,
                                         true,
                                         mailbox_items,
                                         post_login_object.clone(),
@@ -181,17 +182,14 @@ pub async fn process_connect(
                                         session.account_manager.get_backend_type(),
                                     );
 
-                                session.implicated_cid.set(Some(cid));
-                                session
-                                    .state
-                                    .store(SessionState::Connected, Ordering::Relaxed);
+                                session.session_cid.set(Some(cid));
+                                session.state.set(SessionState::Connected);
 
-                                let cxn_type = VirtualConnectionType::LocalGroupServer {
-                                    implicated_cid: cid,
-                                };
+                                let cxn_type =
+                                    VirtualConnectionType::LocalGroupServer { session_cid: cid };
                                 let channel_signal = NodeResult::ConnectSuccess(ConnectSuccess {
                                     ticket: kernel_ticket,
-                                    implicated_cid: cid,
+                                    session_cid: cid,
                                     remote_addr: addr,
                                     is_personal,
                                     v_conn_type: cxn_type,
@@ -217,7 +215,7 @@ pub async fn process_connect(
 
                             //session.state = SessionState::NeedsConnect;
                             let packet = packet_crafter::do_connect::craft_final_status_packet(
-                                &hyper_ratchet,
+                                &stacked_ratchet,
                                 false,
                                 None,
                                 ServicesObject::default(),
@@ -246,14 +244,12 @@ pub async fn process_connect(
                     let message = String::from_utf8(payload.message.to_vec())
                         .unwrap_or_else(|_| "Invalid UTF-8 message".to_string());
                     log::error!(target: "citadel", "The server refused to login the user. Reason: {}", &message);
-                    let cid = hyper_ratchet.get_cid();
+                    let cid = stacked_ratchet.get_cid();
                     state_container.connect_state.on_fail();
                     drop(state_container);
 
-                    session.implicated_cid.set(None);
-                    session
-                        .state
-                        .store(SessionState::NeedsConnect, Ordering::Relaxed);
+                    session.session_cid.set(None);
+                    session.state.set(SessionState::NeedsConnect);
                     session.disable_dc_signal();
 
                     session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
@@ -294,7 +290,7 @@ pub async fn process_connect(
                             let message = String::from_utf8(payload.message.to_vec())
                                 .unwrap_or_else(|_| String::from("Invalid message"));
                             let kernel_ticket = session.kernel_ticket.get();
-                            let cid = hyper_ratchet.get_cid();
+                            let cid = stacked_ratchet.get_cid();
 
                             state_container.connect_state.on_success();
                             state_container.connect_state.on_connect_packet_received();
@@ -322,7 +318,7 @@ pub async fn process_connect(
                                 .expect("Should be set");
                             std::mem::drop(state_container);
 
-                            session.implicated_cid.set(Some(cid)); // This makes is_provisional equal to false
+                            session.session_cid.set(Some(cid)); // This makes is_provisional equal to false
 
                             let addr = session.remote_peer;
                             let is_personal = !session.is_server;
@@ -339,9 +335,8 @@ pub async fn process_connect(
 
                             let _post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
-                            let cxn_type = VirtualConnectionType::LocalGroupServer {
-                                implicated_cid: cid,
-                            };
+                            let cxn_type =
+                                VirtualConnectionType::LocalGroupServer { session_cid: cid };
                             let peers = payload.peers;
 
                             let timestamp = session.time_tracker.get_global_time_ns();
@@ -349,12 +344,10 @@ pub async fn process_connect(
                             let persistence_handler =
                                 session.account_manager.get_persistence_handler().clone();
                             //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
-                            session
-                                .state
-                                .store(SessionState::Connected, Ordering::Relaxed);
+                            session.state.set(SessionState::Connected);
 
                             let success_ack = packet_crafter::do_connect::craft_success_ack(
-                                &hyper_ratchet,
+                                &stacked_ratchet,
                                 timestamp,
                                 security_level,
                             );
@@ -362,7 +355,7 @@ pub async fn process_connect(
 
                             session.send_to_kernel(NodeResult::ConnectSuccess(ConnectSuccess {
                                 ticket: kernel_ticket,
-                                implicated_cid: cid,
+                                session_cid: cid,
                                 remote_addr: addr,
                                 is_personal,
                                 v_conn_type: cxn_type,
@@ -376,7 +369,7 @@ pub async fn process_connect(
                             if let Some(mailbox_delivery) = payload.mailbox {
                                 session.send_to_kernel(NodeResult::MailboxDelivery(
                                     MailboxDelivery {
-                                        implicated_cid: cid,
+                                        session_cid: cid,
                                         ticket_opt: None,
                                         items: mailbox_delivery,
                                     },
@@ -433,7 +426,7 @@ pub async fn process_connect(
 
                                 if use_ka {
                                     let ka = packet_crafter::keep_alive::craft_keep_alive_packet(
-                                        &hyper_ratchet,
+                                        &stacked_ratchet,
                                         timestamp,
                                         security_level,
                                     );

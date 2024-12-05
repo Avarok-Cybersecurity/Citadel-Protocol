@@ -22,7 +22,7 @@ let peer_layer = HyperNodePeerLayer::new(persistence_handler);
 
 // Create a new message group
 let group_key = peer_layer.create_new_message_group(
-    implicated_cid,
+    session_cid,
     &initial_peers,
     message_group_options
 )?;
@@ -56,6 +56,7 @@ use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::time::error::Error;
 use citadel_io::tokio::time::Duration;
 use citadel_io::tokio_util::time::{delay_queue, delay_queue::DelayQueue};
@@ -82,9 +83,9 @@ impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction f
 
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),
 /// the request needs to stay in memory until either the peer joins OR HyperLAN client A disconnects. Hence the need for this layer
-pub struct HyperNodePeerLayerInner {
+pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
-    pub(crate) persistence_handler: PersistenceHandler,
+    pub(crate) persistence_handler: PersistenceHandler<R, R>,
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
     waker: Arc<AtomicWaker>,
@@ -103,12 +104,12 @@ struct SharedInner {
 const MAILBOX: &str = "mailbox";
 
 #[derive(Clone)]
-pub struct HyperNodePeerLayer {
-    pub(crate) inner: std::sync::Arc<citadel_io::tokio::sync::RwLock<HyperNodePeerLayerInner>>,
+pub struct CitadelNodePeerLayer<R: Ratchet> {
+    pub(crate) inner: std::sync::Arc<citadel_io::tokio::sync::RwLock<CitadelNodePeerLayerInner<R>>>,
     waker: std::sync::Arc<AtomicWaker>,
 }
 
-pub struct HyperNodePeerLayerExecutor {
+pub struct CitadelNodePeerLayerExecutor {
     inner: Arc<citadel_io::RwLock<SharedInner>>,
     waker: Arc<AtomicWaker>,
 }
@@ -135,11 +136,11 @@ impl TrackedPosting {
     }
 }
 
-impl HyperNodePeerLayer {
+impl<R: Ratchet> CitadelNodePeerLayer<R> {
     #[allow(clippy::arc_with_non_send_sync)]
-    pub fn new(persistence_handler: PersistenceHandler) -> HyperNodePeerLayer {
+    pub fn new(persistence_handler: PersistenceHandler<R, R>) -> CitadelNodePeerLayer<R> {
         let waker = Arc::new(AtomicWaker::new());
-        let inner = HyperNodePeerLayerInner {
+        let inner = CitadelNodePeerLayerInner {
             waker: waker.clone(),
             inner: Arc::new(citadel_io::RwLock::new(Default::default())),
             simultaneous_ticket_mappings: Default::default(),
@@ -151,8 +152,8 @@ impl HyperNodePeerLayer {
         Self { inner, waker }
     }
 
-    pub async fn create_executor(&self) -> HyperNodePeerLayerExecutor {
-        HyperNodePeerLayerExecutor {
+    pub async fn create_executor(&self) -> CitadelNodePeerLayerExecutor {
+        CitadelNodePeerLayerExecutor {
             waker: self.waker.clone(),
             inner: self.inner.read().await.inner.clone(),
         }
@@ -198,16 +199,16 @@ impl HyperNodePeerLayer {
 
     /// Cleans up the internal entries
     #[allow(unused_results)]
-    pub async fn on_session_shutdown(&self, implicated_cid: u64) -> Result<(), NetworkError> {
+    pub async fn on_session_shutdown(&self, session_cid: u64) -> Result<(), NetworkError> {
         let pers = {
             let mut this = self.inner.write().await;
-            this.message_groups.remove(&implicated_cid);
-            this.inner.write().observed_postings.remove(&implicated_cid);
+            this.message_groups.remove(&session_cid);
+            this.inner.write().observed_postings.remove(&session_cid);
             this.persistence_handler.clone()
         };
 
         let _ = pers
-            .remove_byte_map_values_by_key(implicated_cid, 0, MAILBOX)
+            .remove_byte_map_values_by_key(session_cid, 0, MAILBOX)
             .await?;
         Ok(())
     }
@@ -216,12 +217,12 @@ impl HyperNodePeerLayer {
     #[allow(unused_results)]
     pub async fn create_new_message_group(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         initial_peers: &Vec<u64>,
         options: MessageGroupOptions,
     ) -> Option<MessageGroupKey> {
         let mut this = self.inner.write().await;
-        let map = this.message_groups.get_mut(&implicated_cid)?;
+        let map = this.message_groups.get_mut(&session_cid)?;
         let mgid = options.id;
         if map.len() <= u8::MAX as usize {
             if let std::collections::hash_map::Entry::Vacant(e) = map.entry(mgid) {
@@ -238,24 +239,24 @@ impl HyperNodePeerLayer {
                         .insert(peer_cid, MessageGroupPeer { peer_cid });
                 }
 
-                // add the implicated_cid to the concurrent peers
+                // add the session_cid to the concurrent peers
                 message_group.concurrent_peers.insert(
-                    implicated_cid,
+                    session_cid,
                     MessageGroupPeer {
-                        peer_cid: implicated_cid,
+                        peer_cid: session_cid,
                     },
                 );
 
                 e.insert(message_group);
                 Some(MessageGroupKey {
-                    cid: implicated_cid,
+                    cid: session_cid,
                     mgid,
                 })
             } else {
                 None
             }
         } else {
-            log::warn!(target: "citadel", "The maximum number of groups per session has been reached for {}", implicated_cid);
+            log::warn!(target: "citadel", "The maximum number of groups per session has been reached for {}", session_cid);
             None
         }
     }
@@ -402,7 +403,7 @@ impl HyperNodePeerLayer {
     /// `target_cid`: Should be the destination
     #[allow(unused_results)]
     pub async fn try_add_mailbox(
-        pers: &PersistenceHandler,
+        pers: &PersistenceHandler<R, R>,
         target_cid: u64,
         signal: PeerSignal,
     ) -> Result<(), NetworkError> {
@@ -418,20 +419,20 @@ impl HyperNodePeerLayer {
     }
 }
 
-impl HyperNodePeerLayerExecutor {
+impl CitadelNodePeerLayerExecutor {
     pub(self) fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         self.waker.register(cx.waker());
 
         let mut this = self.inner.write();
 
         while let Some(res) = futures::ready!(this.delay_queue.poll_expired(cx)) {
-            let (implicated_cid, ticket) = res.into_inner();
-            if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
+            let (session_cid, ticket) = res.into_inner();
+            if let Some(active_postings) = this.observed_postings.get_mut(&session_cid) {
                 if let Some(posting) = active_postings.remove(&ticket) {
-                    log::warn!(target: "citadel", "Running on_timeout for active posting {} for CID {}", ticket, implicated_cid);
+                    log::warn!(target: "citadel", "Running on_timeout for active posting {} for CID {}", ticket, session_cid);
                     (posting.on_timeout)(posting.signal)
                 } else {
-                    log::warn!(target: "citadel", "Attempted to remove active posting {} for CID {}, but failed", implicated_cid, ticket);
+                    log::warn!(target: "citadel", "Attempted to remove active posting {} for CID {}, but failed", session_cid, ticket);
                 }
             }
         }
@@ -440,7 +441,7 @@ impl HyperNodePeerLayerExecutor {
     }
 }
 
-impl HyperNodePeerLayerInner {
+impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     pub fn insert_mapped_ticket(&mut self, cid: u64, ticket: Ticket, mapped_ticket: Ticket) {
         self.simultaneous_ticket_mappings
             .entry(cid)
@@ -453,19 +454,19 @@ impl HyperNodePeerLayerInner {
             .get_mut(&cid)?
             .remove(&ticket)
     }
-    /// Determines if `peer_cid` is already attempting to register to `implicated_cid`
+    /// Determines if `peer_cid` is already attempting to register to `session_cid`
     /// Returns the target's ticket for their corresponding request
     pub fn check_simultaneous_register(
         &mut self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
+        log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", session_cid, peer_cid);
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister { peer_conn_type: conn, inviter_username: _, invitee_username: _, ticket_opt: _, invitee_response: None, .. } = &posting.signal {
-            log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-            if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
-                *b == implicated_cid
+            log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, session_cid);
+            if let PeerConnectionType::LocalGroupPeer { session_cid: _, peer_cid: b } = conn {
+                *b == session_cid
             } else {
                 false
             }
@@ -474,19 +475,19 @@ impl HyperNodePeerLayerInner {
         })
     }
 
-    /// Determines if `peer_cid` is already attempting to connect to `implicated_cid`
+    /// Determines if `peer_cid` is already attempting to connect to `session_cid`
     /// Returns the target's ticket and signal for their corresponding request
     pub fn check_simultaneous_connect(
         &mut self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
+        log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", session_cid, peer_cid);
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, ticket_opt: _, invitee_response: _, session_security_settings: _, udp_mode: _, .. } = &posting.signal {
-            log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
-            if let PeerConnectionType::LocalGroupPeer { implicated_cid: _, peer_cid: b } = conn {
-                *b == implicated_cid
+            log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, session_cid);
+            if let PeerConnectionType::LocalGroupPeer { session_cid: _, peer_cid: b } = conn {
+                *b == session_cid
             } else {
                 false
             }
@@ -497,13 +498,13 @@ impl HyperNodePeerLayerInner {
 
     pub fn check_simultaneous_deregister(
         &mut self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        log::trace!(target: "citadel", "Checking simultaneous deregister between {} and {}", implicated_cid, peer_cid);
+        log::trace!(target: "citadel", "Checking simultaneous deregister between {} and {}", session_cid, peer_cid);
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::DeregistrationSuccess { peer_conn_type: peer } = &posting.signal {
-            log::trace!(target: "citadel", "Checking if posting from {} == {}", peer, implicated_cid);
-            peer.get_original_target_cid() == implicated_cid
+            log::trace!(target: "citadel", "Checking if posting from {} == {}", peer, session_cid);
+            peer.get_original_target_cid() == session_cid
         } else {
             false
         })
@@ -523,60 +524,60 @@ impl HyperNodePeerLayerInner {
             .map(|(ticket, _)| *ticket)
     }
 
-    /// An observed posting is associated with the `implicated_cid`
-    /// `on_timeout`: This function will be called if a timeout occurs. The provided session belongs to `implicated_cid`
+    /// An observed posting is associated with the `session_cid`
+    /// `on_timeout`: This function will be called if a timeout occurs. The provided session belongs to `session_cid`
     /// NOTE: the ticket MUST be unique per session, otherwise unexpired items may disappear unnecessarily! If the ticket ID's are provided
     /// by the HyperLAN client's side, this should work out
     #[allow(unused_results)]
     pub async fn insert_tracked_posting(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         timeout: Duration,
         ticket: Ticket,
         signal: PeerSignal,
         on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements,
     ) {
         let mut this = self.inner.write();
-        let delay_key = this.delay_queue.insert((implicated_cid, ticket), timeout);
-        log::trace!(target: "citadel", "Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
+        let delay_key = this.delay_queue.insert((session_cid, ticket), timeout);
+        log::trace!(target: "citadel", "Creating TrackedPosting {} (Ticket: {})", session_cid, ticket);
 
-        if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
+        if let Some(map) = this.observed_postings.get_mut(&session_cid) {
             let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
             map.insert(ticket, tracked_posting);
 
             std::mem::drop(this);
             self.waker.wake();
         } else {
-            log::error!(target: "citadel", "Unable to find implicated_cid in observed_posting. Bad init state?");
+            log::error!(target: "citadel", "Unable to find session_cid in observed_posting. Bad init state?");
         }
     }
 
     pub fn remove_tracked_posting_inner(
         &mut self,
-        implicated_cid: u64,
+        session_cid: u64,
         ticket: Ticket,
     ) -> Option<PeerSignal> {
-        log::trace!(target: "citadel", "Removing tracked posting for {} (ticket: {})", implicated_cid, ticket);
+        log::trace!(target: "citadel", "Removing tracked posting for {} (ticket: {})", session_cid, ticket);
         let mut this = self.inner.write();
-        if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
+        if let Some(active_postings) = this.observed_postings.get_mut(&session_cid) {
             if let Some(active_posting) = active_postings.remove(&ticket) {
-                log::trace!(target: "citadel", "Successfully removed tracked posting {} (ticket: {})", implicated_cid, ticket);
+                log::trace!(target: "citadel", "Successfully removed tracked posting {} (ticket: {})", session_cid, ticket);
                 let _ = this.delay_queue.remove(&active_posting.key);
                 std::mem::drop(this);
                 self.waker.wake();
                 Some(active_posting.signal)
             } else {
-                log::warn!(target: "citadel", "Tracked posting for {} (ticket: {}) does not exist since key for ticket does not exist", implicated_cid, ticket);
+                log::warn!(target: "citadel", "Tracked posting for {} (ticket: {}) does not exist since key for ticket does not exist", session_cid, ticket);
                 None
             }
         } else {
-            log::warn!(target: "citadel", "Tracked posting for {} (ticket: {}) does not exist since key for cid does not exist", implicated_cid, ticket);
+            log::warn!(target: "citadel", "Tracked posting for {} (ticket: {}) does not exist since key for cid does not exist", session_cid, ticket);
             None
         }
     }
 }
 
-impl Stream for HyperNodePeerLayerExecutor {
+impl Stream for CitadelNodePeerLayerExecutor {
     type Item = ();
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -591,7 +592,7 @@ impl Stream for HyperNodePeerLayerExecutor {
     }
 }
 
-impl futures::Future for HyperNodePeerLayerExecutor {
+impl futures::Future for CitadelNodePeerLayerExecutor {
     type Output = Result<(), NetworkError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -636,7 +637,7 @@ pub enum PeerSignal {
     },
     // This is used for the mailbox
     BroadcastConnected {
-        implicated_cid: u64,
+        session_cid: u64,
         group_broadcast: GroupBroadcast,
     },
     PostFileUploadRequest {
@@ -684,42 +685,42 @@ pub enum ChannelPacket {
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone, Eq, Hash)]
 pub enum PeerConnectionType {
-    // implicated_cid, target_cid
+    // session_cid, target_cid
     LocalGroupPeer {
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     },
-    // implicated_cid, icid, target_cid
+    // session_cid, icid, target_cid
     ExternalGroupPeer {
-        implicated_cid: u64,
+        session_cid: u64,
         interserver_cid: u64,
         peer_cid: u64,
     },
 }
 
 impl PeerConnectionType {
-    pub fn get_original_implicated_cid(&self) -> u64 {
+    pub fn get_original_session_cid(&self) -> u64 {
         match self {
             PeerConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: _target_cid,
-            } => *implicated_cid,
+            } => *session_cid,
             PeerConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: _icid,
                 peer_cid: _target_cid,
-            } => *implicated_cid,
+            } => *session_cid,
         }
     }
 
     pub fn get_original_target_cid(&self) -> u64 {
         match self {
             PeerConnectionType::LocalGroupPeer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
                 peer_cid: target_cid,
             } => *target_cid,
             PeerConnectionType::ExternalGroupPeer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
                 interserver_cid: _icid,
                 peer_cid: target_cid,
             } => *target_cid,
@@ -729,20 +730,20 @@ impl PeerConnectionType {
     pub fn reverse(&self) -> PeerConnectionType {
         match self {
             PeerConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: target_cid,
             } => PeerConnectionType::LocalGroupPeer {
-                implicated_cid: *target_cid,
-                peer_cid: *implicated_cid,
+                session_cid: *target_cid,
+                peer_cid: *session_cid,
             },
             PeerConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
                 peer_cid: target_cid,
             } => PeerConnectionType::ExternalGroupPeer {
-                implicated_cid: *target_cid,
+                session_cid: *target_cid,
                 interserver_cid: *icid,
-                peer_cid: *implicated_cid,
+                peer_cid: *session_cid,
             },
         }
     }
@@ -750,18 +751,18 @@ impl PeerConnectionType {
     pub fn as_virtual_connection(self) -> VirtualConnectionType {
         match self {
             PeerConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: target_cid,
             } => VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: target_cid,
             },
             PeerConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
                 peer_cid: target_cid,
             } => VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
                 peer_cid: target_cid,
             },
@@ -773,17 +774,17 @@ impl Display for PeerConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PeerConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: target_cid,
             } => {
-                write!(f, "hLAN {implicated_cid} <-> {target_cid}")
+                write!(f, "hLAN {session_cid} <-> {target_cid}")
             }
             PeerConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
                 peer_cid: target_cid,
             } => {
-                write!(f, "hWAN {implicated_cid} <-> {icid} <-> {target_cid}")
+                write!(f, "hWAN {session_cid} <-> {icid} <-> {target_cid}")
             }
         }
     }
@@ -791,19 +792,17 @@ impl Display for PeerConnectionType {
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum NodeConnectionType {
-    // implicated_cid
+    // session_cid
     LocalGroupPeerToLocalGroupServer(u64),
-    // implicated_cid, icid
+    // session_cid, icid
     LocalGroupPeerToExternalGroupServer(u64, u64),
 }
 
 impl NodeConnectionType {
-    pub fn get_implicated_cid(&self) -> u64 {
+    pub fn get_session_cid(&self) -> u64 {
         match self {
-            NodeConnectionType::LocalGroupPeerToLocalGroupServer(implicated_cid) => *implicated_cid,
-            NodeConnectionType::LocalGroupPeerToExternalGroupServer(implicated_cid, _) => {
-                *implicated_cid
-            }
+            NodeConnectionType::LocalGroupPeerToLocalGroupServer(session_cid) => *session_cid,
+            NodeConnectionType::LocalGroupPeerToExternalGroupServer(session_cid, _) => *session_cid,
         }
     }
 }

@@ -47,15 +47,15 @@ use std::marker::PhantomData;
 
 /// A kernel that executes a user-provided function each time
 /// a client makes a connection
-pub struct ClientConnectListenerKernel<F, Fut> {
+pub struct ClientConnectListenerKernel<F, Fut, R: Ratchet> {
     on_channel_received: F,
-    node_remote: Option<NodeRemote>,
+    node_remote: Option<NodeRemote<R>>,
     _pd: PhantomData<Fut>,
 }
 
-impl<F, Fut> ClientConnectListenerKernel<F, Fut>
+impl<F, Fut, R: Ratchet> ClientConnectListenerKernel<F, Fut, R>
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     pub fn new(on_channel_received: F) -> Self {
@@ -68,12 +68,12 @@ where
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
+impl<F, Fut, R: Ratchet> NetKernel<R> for ClientConnectListenerKernel<F, Fut, R>
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync,
+    F: Fn(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
-    fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
+    fn load_remote(&mut self, server_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         self.node_remote = Some(server_remote);
         Ok(())
     }
@@ -86,7 +86,7 @@ where
         match message {
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: _,
-                implicated_cid: cid,
+                session_cid: cid,
                 remote_addr: _,
                 is_personal: _,
                 v_conn_type: conn_type,

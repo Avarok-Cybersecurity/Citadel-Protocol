@@ -61,7 +61,7 @@ pub struct PacketVector {
     /// The group ID of this packet
     pub group_id: u64,
     /// The sequence is the position in the wave ID. Repeating sequences CANNOT exist, and as such,
-    /// the drill generator must ensure all values in the port range are non-repeating.
+    /// the entropy_bank generator must ensure all values in the port range are non-repeating.
     ///
     ///
     /// A wave is a set of packets in scrambled order in respect to the in/out ports. There are a maximum
@@ -81,7 +81,7 @@ pub struct PacketVector {
 ///
 /// * `true_sequence`: The original true sequence number.
 /// * `group_id`: The group ID of the packet.
-/// * `drill`: The entropy bank used for port scrambling.
+/// * `entropy_bank`: The entropy bank used for port scrambling.
 ///
 /// # Returns
 ///
@@ -89,13 +89,16 @@ pub struct PacketVector {
 pub fn generate_packet_vector(
     true_sequence: usize,
     group_id: u64,
-    drill: &EntropyBank,
+    entropy_bank: &EntropyBank,
 ) -> PacketVector {
     // To get the wave_id, we must floor divide the true sequence by the port range. The remainder is the sequence
-    let port_range = &drill.get_multiport_width();
+    let port_range = &entropy_bank.get_multiport_width();
     let (true_wave_id, relative_sequence) = true_sequence.div_mod_floor(port_range);
-    // To scramble the true values, we get their corresponding values in the drill
-    let (local_port, remote_port) = *drill.scramble_mappings.get(relative_sequence).unwrap();
+    // To scramble the true values, we get their corresponding values in the entropy_bank
+    let (local_port, remote_port) = *entropy_bank
+        .scramble_mappings
+        .get(relative_sequence)
+        .unwrap();
 
     PacketVector {
         group_id,
@@ -106,14 +109,14 @@ pub fn generate_packet_vector(
     }
 }
 
-/// Generates packet coordinates from wave ID, source port, local port, and scramble drill.
+/// Generates packet coordinates from wave ID, source port, local port, and scramble entropy_bank.
 ///
 /// # Parameters
 ///
 /// * `wave_id`: The wave ID of the packet.
 /// * `src_port`: The source port of the packet.
 /// * `local_port`: The local port of the packet.
-/// * `scramble_drill`: The entropy bank used for port scrambling.
+/// * `scramble_entropy_bank`: The entropy bank used for port scrambling.
 ///
 /// # Returns
 ///
@@ -123,11 +126,11 @@ pub fn generate_packet_coordinates_inv(
     wave_id: u32,
     src_port: u16,
     local_port: u16,
-    scramble_drill: &EntropyBank,
+    scramble_entropy_bank: &EntropyBank,
 ) -> Option<usize> {
-    for (idx, (in_port, out_port)) in scramble_drill.scramble_mappings.iter().enumerate() {
+    for (idx, (in_port, out_port)) in scramble_entropy_bank.scramble_mappings.iter().enumerate() {
         if *in_port == src_port && *out_port == local_port {
-            let port_range = scramble_drill.scramble_mappings.len();
+            let port_range = scramble_entropy_bank.scramble_mappings.len();
             let true_position = (wave_id as usize * port_range) + idx;
             return Some(true_position);
         }

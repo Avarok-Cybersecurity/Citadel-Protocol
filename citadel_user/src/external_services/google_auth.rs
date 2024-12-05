@@ -110,9 +110,9 @@ impl GoogleAuth {
 
         let iat = iat.to_string();
         let exp = exp.to_string();
-        let implicated_cid = uid.to_string();
+        let session_cid = uid.to_string();
 
-        //let final_claim = format!("array(\"cid\" => ${})", &implicated_cid);
+        //let final_claim = format!("array(\"cid\" => ${})", &session_cid);
 
         let mut claims = HashMap::new();
         claims.insert("alg", "RS256");
@@ -121,7 +121,7 @@ impl GoogleAuth {
         claims.insert("aud", "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit");
         claims.insert("iat", iat.as_str());
         claims.insert("exp", exp.as_str());
-        claims.insert("uid", &implicated_cid);
+        claims.insert("uid", &session_cid);
         //claims.insert("claims", final_claim.as_str());
 
         log::trace!(target: "citadel", "{:?}", &claims);

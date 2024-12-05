@@ -51,16 +51,16 @@
 //! - `HdpServer`: Low-level protocol implementation
 //! - `AccountManager`: User account management
 
+use crate::error::NetworkError;
+use crate::macros::ContextRequirements;
+use crate::prelude::{PreSharedKey, ServerUnderlyingProtocol};
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::macros::support::Future;
 use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::ClientConfig;
 use citadel_wire::hypernode_type::NodeType;
 use std::sync::Arc;
-
-use crate::error::NetworkError;
-use crate::macros::ContextRequirements;
-use crate::prelude::{PreSharedKey, ServerUnderlyingProtocol};
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;
@@ -88,10 +88,10 @@ impl KernelExecutorSettings {
     }
 }
 
-pub struct KernelExecutorArguments<K> {
+pub struct KernelExecutorArguments<K, R: Ratchet> {
     pub rt: Handle,
     pub hypernode_type: NodeType,
-    pub account_manager: AccountManager,
+    pub account_manager: AccountManager<R, R>,
     pub kernel: K,
     pub underlying_proto: ServerUnderlyingProtocol,
     pub client_config: Option<Arc<ClientConfig>>,

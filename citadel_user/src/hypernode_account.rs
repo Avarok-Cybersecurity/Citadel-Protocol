@@ -76,6 +76,7 @@ use crate::account_manager::AccountManager;
 use crate::misc::AccountError;
 use crate::prelude::ClientNetworkAccount;
 use async_trait::async_trait;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
 
@@ -84,19 +85,17 @@ pub const CNAC_SERIALIZED_EXTENSION: &str = "hca";
 
 #[async_trait]
 pub trait UserIdentifierExt {
-    type AccountManager;
-    type SearchOutput; // Usually the clientnetworkaccount
     type Error;
-    async fn search(
+    async fn search<R: Ratchet, Fcm: Ratchet>(
         &self,
-        account_manager: &Self::AccountManager,
-    ) -> Result<Option<Self::SearchOutput>, Self::Error>;
+        account_manager: &AccountManager<R, Fcm>,
+    ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, Self::Error>;
 
-    /// Performs a search for the current peer given the `implicated_cid`
-    async fn search_peer(
+    /// Performs a search for the current peer given the `session_cid`
+    async fn search_peer<R: Ratchet, Fcm: Ratchet>(
         &self,
-        implicated_cid: u64,
-        account_manager: &Self::AccountManager,
+        session_cid: u64,
+        account_manager: &AccountManager<R, Fcm>,
     ) -> Result<Option<MutualPeer>, Self::Error>;
 
     fn get_cid(&self) -> u64;
@@ -104,38 +103,36 @@ pub trait UserIdentifierExt {
 
 #[async_trait]
 impl UserIdentifierExt for UserIdentifier {
-    type AccountManager = AccountManager;
-    type SearchOutput = ClientNetworkAccount;
     type Error = AccountError;
 
     /// Searches for the account
-    async fn search(
+    async fn search<R: Ratchet, Fcm: Ratchet>(
         &self,
-        account_manager: &AccountManager,
-    ) -> Result<Option<ClientNetworkAccount>, AccountError> {
+        account_manager: &AccountManager<R, Fcm>,
+    ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         match self {
             Self::ID(cid) => account_manager.get_client_by_cid(*cid).await,
             Self::Username(uname) => account_manager.get_client_by_username(uname).await,
         }
     }
 
-    /// Performs a search for the current peer given the `implicated_cid`
-    async fn search_peer(
+    /// Performs a search for the current peer given the `session_cid`
+    async fn search_peer<R: Ratchet, Fcm: Ratchet>(
         &self,
-        implicated_cid: u64,
-        account_manager: &AccountManager,
+        session_cid: u64,
+        account_manager: &AccountManager<R, Fcm>,
     ) -> Result<Option<MutualPeer>, AccountError> {
         match self {
             UserIdentifier::ID(cid) => {
                 account_manager
                     .get_persistence_handler()
-                    .get_hyperlan_peer_by_cid(implicated_cid, *cid)
+                    .get_hyperlan_peer_by_cid(session_cid, *cid)
                     .await
             }
             UserIdentifier::Username(name) => {
                 account_manager
                     .get_persistence_handler()
-                    .get_hyperlan_peer_by_username(implicated_cid, name.as_str())
+                    .get_hyperlan_peer_by_username(session_cid, name.as_str())
                     .await
             }
         }

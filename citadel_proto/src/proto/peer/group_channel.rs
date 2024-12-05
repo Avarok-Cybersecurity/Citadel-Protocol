@@ -24,7 +24,7 @@ let group_channel = GroupChannel::new(
     tx,
     key,
     ticket,
-    implicated_cid,
+    session_cid,
     recv
 );
 
@@ -55,7 +55,7 @@ let (send_half, recv_half) = group_channel.split();
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::proto::remote::{NodeRemote, Ticket};
+use crate::proto::remote::Ticket;
 use crate::proto::session::SessionRequest;
 use citadel_io::tokio_stream::StreamExt;
 use citadel_types::crypto::SecBuffer;
@@ -83,27 +83,25 @@ impl Deref for GroupChannel {
 
 impl GroupChannel {
     pub fn new(
-        node_remote: NodeRemote,
         tx: Sender<SessionRequest>,
         key: MessageGroupKey,
         ticket: Ticket,
-        implicated_cid: u64,
+        session_cid: u64,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
         Self {
             send_half: GroupChannelSendHalf {
-                node_remote,
                 tx: tx.clone(),
                 ticket,
                 key,
-                implicated_cid,
+                session_cid,
             },
 
             recv_half: GroupChannelRecvHalf {
                 recv,
                 tx,
                 ticket,
-                implicated_cid,
+                session_cid,
                 key,
             },
         }
@@ -125,7 +123,7 @@ impl GroupChannel {
     }
 
     pub fn cid(&self) -> u64 {
-        self.recv_half.implicated_cid
+        self.recv_half.session_cid
     }
 }
 
@@ -137,12 +135,10 @@ pub enum GroupBroadcastPayload {
 
 #[derive(Clone)]
 pub struct GroupChannelSendHalf {
-    #[allow(dead_code)]
-    node_remote: NodeRemote,
     tx: Sender<SessionRequest>,
     ticket: Ticket,
     key: MessageGroupKey,
-    implicated_cid: u64,
+    session_cid: u64,
 }
 
 impl Debug for GroupChannelSendHalf {
@@ -150,7 +146,7 @@ impl Debug for GroupChannelSendHalf {
         write!(
             f,
             "GroupChannelTx {} connected to [{:?}]",
-            self.implicated_cid, self.key
+            self.session_cid, self.key
         )
     }
 }
@@ -159,7 +155,7 @@ impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
         self.send_group_command(GroupBroadcast::Message {
-            sender: self.implicated_cid,
+            sender: self.session_cid,
             key: self.key,
             message,
         })
@@ -220,7 +216,7 @@ impl GroupChannelSendHalf {
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {
-        if self.implicated_cid == self.key.cid {
+        if self.session_cid == self.key.cid {
             Ok(())
         } else {
             Err(NetworkError::InvalidRequest(
@@ -234,7 +230,7 @@ pub struct GroupChannelRecvHalf {
     recv: UnboundedReceiver<GroupBroadcastPayload>,
     tx: Sender<SessionRequest>,
     ticket: Ticket,
-    implicated_cid: u64,
+    session_cid: u64,
     key: MessageGroupKey,
 }
 
@@ -243,7 +239,7 @@ impl Debug for GroupChannelRecvHalf {
         write!(
             f,
             "GroupChannelRx: {} subscribed to {:?}",
-            self.implicated_cid, self.key
+            self.session_cid, self.key
         )
     }
 }
@@ -258,7 +254,7 @@ impl Stream for GroupChannelRecvHalf {
 
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
-        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.implicated_cid, self.key);
+        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.session_cid, self.key);
         let request = SessionRequest::Group {
             ticket: self.ticket,
             broadcast: GroupBroadcast::LeaveRoom { key: self.key },

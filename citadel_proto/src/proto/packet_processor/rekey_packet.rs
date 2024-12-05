@@ -36,9 +36,9 @@
 //! use citadel_proto::proto::packet::HdpPacket;
 //!
 //! fn handle_rekey(session: &CitadelSession, packet: HdpPacket) {
-//!     let header_drill_vers = 1;
+//!     let header_entropy_bank_vers = 1;
 //!     let proxy_info = None;
-//!     match rekey_packet::process_rekey(session, packet, header_drill_vers, proxy_info) {
+//!     match rekey_packet::process_rekey(session, packet, header_entropy_bank_vers, proxy_info) {
 //!         Ok(result) => {
 //!             // Handle successful rekey
 //!         }
@@ -55,24 +55,30 @@ use crate::prelude::ReKeyReturnType;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
-    attempt_kem_as_alice_finish, attempt_kem_as_bob, get_proper_hyper_ratchet,
+    attempt_kem_as_alice_finish, attempt_kem_as_bob, get_orientation_safe_ratchet,
     get_resp_target_cid_from_header, ToolsetUpdate,
 };
-use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
-use citadel_crypt::stacked_ratchet::RatchetType;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::crypto::SecrecyMode;
 use std::ops::Deref;
-use std::sync::atomic::Ordering;
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_rekey(
-    session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub fn process_rekey<R: Ratchet>(
+    session: &CitadelSession<R>,
     packet: HdpPacket,
-    header_drill_vers: u32,
+    header_entropy_bank_vers: u32,
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::error!(target: "citadel", "Session state is not connected; dropping drill update packet");
+    if !session.state.is_connected() {
+        log::error!(target: "citadel", "Session state is not connected; dropping entropy_bank update packet");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -85,12 +91,12 @@ pub fn process_rekey(
     let (header, payload, _, _) = packet.decompose();
     let mut state_container = inner_mut_state!(state_container);
 
-    let hyper_ratchet = return_if_none!(
-        get_proper_hyper_ratchet(header_drill_vers, &state_container, proxy_cid_info),
+    let stacked_ratchet = return_if_none!(
+        get_orientation_safe_ratchet(header_entropy_bank_vers, &state_container, proxy_cid_info),
         "Unable to get proper HR"
     );
     let (header, payload) = return_if_none!(
-        validation::aead::validate_custom(&hyper_ratchet, &header, payload),
+        validation::aead::validate_custom(&stacked_ratchet, &header, payload),
         "Unable to validate packet"
     );
     let payload = &payload[..];
@@ -100,9 +106,9 @@ pub fn process_rekey(
 
     match header.cmd_aux {
         // Bob
-        packet_flags::cmd::aux::do_drill_update::STAGE0 => {
-            log::trace!(target: "citadel", "DO_DRILL_UPDATE STAGE 0 PACKET RECV");
-            match validation::do_drill_update::validate_stage0(payload) {
+        packet_flags::cmd::aux::do_stacked_ratchet_update::STAGE0 => {
+            log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE STAGE 0 PACKET RECV");
+            match validation::do_stacked_ratchet_update::validate_stage0::<R>(payload) {
                 Some(transfer) => {
                     let resp_target_cid = get_resp_target_cid_from_header(&header);
                     let status = return_if_none!(
@@ -110,14 +116,14 @@ pub fn process_rekey(
                             session,
                             resp_target_cid,
                             &header,
-                            Some(AliceToBobTransferType::Default(transfer)),
+                            Some(transfer),
                             &mut state_container,
-                            &hyper_ratchet
+                            &stacked_ratchet
                         ),
                         "Unable to attempt KEM as Bob"
                     );
-                    let packet = packet_crafter::do_drill_update::craft_stage1(
-                        &hyper_ratchet,
+                    let packet = packet_crafter::do_entropy_bank_update::craft_stage1(
+                        &stacked_ratchet,
                         status,
                         timestamp,
                         resp_target_cid,
@@ -127,16 +133,16 @@ pub fn process_rekey(
                 }
 
                 _ => {
-                    log::error!(target: "citadel", "Invalid stage0 DO_DRILL_UPDATE packet");
+                    log::error!(target: "citadel", "Invalid stage0 DO_STACKED_RATCHET_UPDATE packet");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
 
         // Alice
-        packet_flags::cmd::aux::do_drill_update::STAGE1 => {
-            log::trace!(target: "citadel", "DO_DRILL_UPDATE STAGE 1 PACKET RECV");
-            match validation::do_drill_update::validate_stage1(payload) {
+        packet_flags::cmd::aux::do_stacked_ratchet_update::STAGE1 => {
+            log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE STAGE 1 PACKET RECV");
+            match validation::do_stacked_ratchet_update::validate_stage1(payload) {
                 Some(transfer) => {
                     //let mut state_container = inner_mut!(session.state_container);
                     let peer_cid = header.session_cid.get();
@@ -151,7 +157,7 @@ pub fn process_rekey(
                     } else {
                         return_if_none!(state_container
                             .ratchet_update_state
-                            .alice_hyper_ratchet
+                            .alice_stacked_ratchet
                             .take())
                     };
                     log::trace!(target: "citadel", "Obtained constructor for {}", resp_target_cid);
@@ -162,7 +168,7 @@ pub fn process_rekey(
 
                     let needs_early_kernel_alert = transfer.update_status.omitted();
 
-                    let latest_hr = return_if_none!(return_if_none!(
+                    let latest_hr = return_if_none!(
                         attempt_kem_as_alice_finish(
                             session,
                             secrecy_mode,
@@ -170,14 +176,14 @@ pub fn process_rekey(
                             target_cid,
                             transfer.update_status,
                             &mut state_container,
-                            Some(ConstructorType::Default(constructor))
+                            Some(constructor)
                         )
                         .ok(),
                         "Unable to attempt KEM as alice finish"
                     )
-                    .unwrap_or(RatchetType::Default(hyper_ratchet))
-                    .assume_default());
-                    let truncate_packet = packet_crafter::do_drill_update::craft_truncate(
+                    .unwrap_or(stacked_ratchet);
+
+                    let truncate_packet = packet_crafter::do_entropy_bank_update::craft_truncate(
                         &latest_hr,
                         needs_truncate,
                         resp_target_cid,
@@ -200,17 +206,17 @@ pub fn process_rekey(
                 }
 
                 _ => {
-                    log::error!(target: "citadel", "Invalid stage1 DO_DRILL_UPDATE packet");
+                    log::error!(target: "citadel", "Invalid stage1 DO_STACKED_RATCHET_UPDATE packet");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
 
-        // Bob will always receive this, whether the toolset being upgraded or not. This allows Bob to begin using the latest drill version
-        packet_flags::cmd::aux::do_drill_update::TRUNCATE => {
-            log::trace!(target: "citadel", "DO_DRILL_UPDATE TRUNCATE PACKET RECV");
+        // Bob will always receive this, whether the toolset being upgraded or not. This allows Bob to begin using the latest entropy_bank version
+        packet_flags::cmd::aux::do_stacked_ratchet_update::TRUNCATE => {
+            log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE TRUNCATE PACKET RECV");
             let truncate_packet = return_if_none!(
-                validation::do_drill_update::validate_truncate(payload),
+                validation::do_stacked_ratchet_update::validate_truncate(payload),
                 "Invalid truncate"
             );
             let resp_target_cid = get_resp_target_cid_from_header(&header);
@@ -224,7 +230,7 @@ pub fn process_rekey(
                 let crypt = &mut endpoint_container.endpoint_crypto;
                 let local_cid = header.target_cid.get();
                 (
-                    ToolsetUpdate::E2E { crypt, local_cid },
+                    ToolsetUpdate { crypt, local_cid },
                     endpoint_container.default_security_settings.secrecy_mode,
                 )
             } else {
@@ -239,7 +245,7 @@ pub fn process_rekey(
                     .unwrap()
                     .peer_session_crypto;
                 let local_cid = header.session_cid.get();
-                (ToolsetUpdate::E2E { crypt, local_cid }, secrecy_mode)
+                (ToolsetUpdate { crypt, local_cid }, secrecy_mode)
             };
 
             // We optionally deregister at this endpoint to prevent any further packets with this version from being sent
@@ -265,8 +271,8 @@ pub fn process_rekey(
             // If we didn't have to deregister, then our job is done. alice does not need to hear from Bob
             // But, if deregistration occurred, we need to alert alice that way she can unlock hers
             if let Some(truncate_vers) = truncate_packet.truncate_version {
-                let truncate_ack = packet_crafter::do_drill_update::craft_truncate_ack(
-                    &hyper_ratchet,
+                let truncate_ack = packet_crafter::do_entropy_bank_update::craft_truncate_ack(
+                    &stacked_ratchet,
                     truncate_vers,
                     resp_target_cid,
                     timestamp,
@@ -284,10 +290,10 @@ pub fn process_rekey(
             Ok(PrimaryProcessorResult::Void)
         }
 
-        packet_flags::cmd::aux::do_drill_update::TRUNCATE_ACK => {
-            log::trace!(target: "citadel", "DO_DRILL_UPDATE TRUNCATE_ACK PACKET RECV");
+        packet_flags::cmd::aux::do_stacked_ratchet_update::TRUNCATE_ACK => {
+            log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE TRUNCATE_ACK PACKET RECV");
             let truncate_ack_packet = return_if_none!(
-                validation::do_drill_update::validate_truncate_ack(payload),
+                validation::do_stacked_ratchet_update::validate_truncate_ack(payload),
                 "Unable to validate truncate ack"
             );
             log::trace!(target: "citadel", "Adjacent node has finished deregistering version {}", truncate_ack_packet.truncated_version);
@@ -303,7 +309,7 @@ pub fn process_rekey(
                 let crypt = &mut endpoint_container.endpoint_crypto;
                 let local_cid = header.target_cid.get();
                 (
-                    ToolsetUpdate::E2E { crypt, local_cid },
+                    ToolsetUpdate { crypt, local_cid },
                     endpoint_container.default_security_settings.secrecy_mode,
                 )
             } else {
@@ -318,7 +324,7 @@ pub fn process_rekey(
                     .unwrap()
                     .peer_session_crypto;
                 let local_cid = header.session_cid.get();
-                (ToolsetUpdate::E2E { crypt, local_cid }, secrecy_mode)
+                (ToolsetUpdate { crypt, local_cid }, secrecy_mode)
             };
 
             let _ = return_if_none!(method.unlock(true)); // unconditional unlock
@@ -333,7 +339,7 @@ pub fn process_rekey(
                 header_to_response_vconn_type(&header),
                 &session.kernel_tx,
                 ReKeyReturnType::Success {
-                    version: hyper_ratchet.version(),
+                    version: stacked_ratchet.version(),
                 },
             )?;
 
@@ -341,7 +347,7 @@ pub fn process_rekey(
         }
 
         _ => {
-            log::error!(target: "citadel", "Invalid auxiliary command for DO_DRILL_UPDATE packet. Dropping");
+            log::error!(target: "citadel", "Invalid auxiliary command for DO_STACKED_RATCHET_UPDATE packet. Dropping");
             Ok(PrimaryProcessorResult::Void)
         }
     }

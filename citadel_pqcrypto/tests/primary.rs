@@ -22,12 +22,12 @@ mod tests {
         pub static ref PRE_SHARED_KEYS2: Vec<Vec<u8>> = vec!["World".into(), "Hello".into()];
     }
 
-    fn gen(
+    fn gen<T: AsRef<[u8]>, R: AsRef<[u8]>>(
         kem_algorithm: KemAlgorithm,
         encryption_algorithm: EncryptionAlgorithm,
         sig_alg: SigAlgorithm,
-        bob_psks: &[Vec<u8>],
-        alice_psks: &[Vec<u8>],
+        bob_psks: &[T],
+        alice_psks: &[R],
     ) -> (PostQuantumContainer, PostQuantumContainer) {
         log::trace!(target: "citadel", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn runit() {
-        run(
+        run::<Vec<u8>>(
             0,
             EncryptionAlgorithm::AES_GCM_256,
             SigAlgorithm::None,
@@ -60,7 +60,7 @@ mod tests {
             &PRE_SHARED_KEYS,
         )
         .unwrap();
-        run(
+        run::<Vec<u8>>(
             0,
             EncryptionAlgorithm::ChaCha20Poly_1305,
             SigAlgorithm::None,
@@ -68,7 +68,7 @@ mod tests {
             &PRE_SHARED_KEYS,
         )
         .unwrap();
-        run(
+        run::<Vec<u8>>(
             0,
             EncryptionAlgorithm::Ascon80pq,
             SigAlgorithm::None,
@@ -78,12 +78,12 @@ mod tests {
         .unwrap();
     }
 
-    fn run(
+    fn run<T: AsRef<[u8]>>(
         algorithm: u8,
         encryption_algorithm: EncryptionAlgorithm,
         signature_algorithm: SigAlgorithm,
-        bob_psk: &[Vec<u8>],
-        alice_psk: &[Vec<u8>],
+        bob_psk: &[T],
+        alice_psk: &[T],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
         log::trace!(target: "citadel", "Test: {:?} w/ {:?} w/ {:?}", kem_algorithm, encryption_algorithm, signature_algorithm);
@@ -388,7 +388,7 @@ mod tests {
         citadel_logging::setup_log();
         for algorithm in KemAlgorithm::list() {
             log::trace!(target: "citadel", "About to test {:?}", algorithm);
-            run(
+            run::<Vec<u8>>(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::AES_GCM_256,
                 SigAlgorithm::None,
@@ -396,7 +396,7 @@ mod tests {
                 &PRE_SHARED_KEYS,
             )
             .unwrap();
-            run(
+            run::<Vec<u8>>(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::ChaCha20Poly_1305,
                 SigAlgorithm::None,
@@ -404,7 +404,7 @@ mod tests {
                 &PRE_SHARED_KEYS,
             )
             .unwrap();
-            run(
+            run::<Vec<u8>>(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::Ascon80pq,
                 SigAlgorithm::None,
@@ -413,7 +413,7 @@ mod tests {
             )
             .unwrap();
             if algorithm == KemAlgorithm::Kyber {
-                run(
+                run::<Vec<u8>>(
                     algorithm.as_u8(),
                     EncryptionAlgorithm::Kyber,
                     SigAlgorithm::Falcon1024,
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn test_kyber() {
         citadel_logging::setup_log();
-        run(
+        run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
             EncryptionAlgorithm::Kyber,
             SigAlgorithm::Falcon1024,
@@ -438,18 +438,18 @@ mod tests {
         .unwrap()
     }
 
-    #[should_panic]
     #[test]
+    #[should_panic(expected = "EncryptionFailure")]
     fn test_kyber_bad_psks() {
-        citadel_logging::setup_log_no_panic_hook();
-        run(
+        citadel_logging::should_panic_test();
+        run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
             EncryptionAlgorithm::AES_GCM_256,
             SigAlgorithm::Falcon1024,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS2,
         )
-        .unwrap()
+        .unwrap();
     }
 
     #[test]

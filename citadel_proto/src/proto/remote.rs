@@ -46,9 +46,10 @@ use crate::kernel::kernel_communicator::{
     CallbackKey, KernelAsyncCallbackHandler, KernelStreamSubscription,
 };
 use crate::prelude::NodeRequest;
-use crate::proto::node::HdpServerRemoteInner;
+use crate::proto::node::CitadelNodeRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
 use bytemuck::NoUninit;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::sync::mpsc::error::TrySendError;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
@@ -58,14 +59,14 @@ use std::sync::Arc;
 
 /// allows convenient communication with the server
 #[derive(Clone)]
-pub struct NodeRemote {
+pub struct NodeRemote<R: Ratchet> {
     outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
-    inner: Arc<HdpServerRemoteInner>,
+    inner: Arc<CitadelNodeRemoteInner<R>>,
 }
 
 #[async_trait::async_trait]
 #[auto_impl::auto_impl(Box, &mut, &, Arc)]
-pub trait Remote: Clone + Send {
+pub trait Remote<R: Ratchet>: Clone + Send {
     /// Sends a request to the server and returns a ticket for tracking the response.
     async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
@@ -88,14 +89,14 @@ pub trait Remote: Clone + Send {
     ) -> Result<KernelStreamSubscription, NetworkError>;
 
     /// Returns the account manager instance.
-    fn account_manager(&self) -> &AccountManager;
+    fn account_manager(&self) -> &AccountManager<R, R>;
 
     /// Returns the next available ticket.
     fn get_next_ticket(&self) -> Ticket;
 }
 
 #[async_trait::async_trait]
-impl Remote for NodeRemote {
+impl<R: Ratchet> Remote<R> for NodeRemote<R> {
     async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         NodeRemote::send(self, request).await
     }
@@ -115,7 +116,7 @@ impl Remote for NodeRemote {
         NodeRemote::send_callback_subscription(self, request).await
     }
 
-    fn account_manager(&self) -> &AccountManager {
+    fn account_manager(&self) -> &AccountManager<R, R> {
         NodeRemote::account_manager(self)
     }
 
@@ -124,24 +125,24 @@ impl Remote for NodeRemote {
     }
 }
 
-impl Debug for NodeRemote {
+impl<R: Ratchet> Debug for NodeRemote<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HdpServerRemote")
+        write!(f, "CitadelNodeRemote")
     }
 }
 
-impl NodeRemote {
+impl<R: Ratchet> NodeRemote<R> {
     /// Creates a new [`NodeRemote`] instance.
     pub(crate) fn new(
         outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
         callback_handler: KernelAsyncCallbackHandler,
-        account_manager: AccountManager,
+        account_manager: AccountManager<R, R>,
         node_type: NodeType,
     ) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self {
             outbound_send_request_tx,
-            inner: Arc::new(HdpServerRemoteInner {
+            inner: Arc::new(CitadelNodeRemoteInner {
                 callback_handler,
                 account_manager,
                 node_type,
@@ -183,7 +184,7 @@ impl NodeRemote {
     ) -> Result<KernelStreamSubscription, NetworkError> {
         let callback_key = CallbackKey {
             ticket,
-            implicated_cid: request.implicated_cid(),
+            session_cid: request.session_cid(),
         };
 
         let rx = self.inner.callback_handler.register_stream(callback_key)?;
@@ -242,12 +243,12 @@ impl NodeRemote {
         &self.inner.node_type
     }
 
-    pub fn account_manager(&self) -> &AccountManager {
+    pub fn account_manager(&self) -> &AccountManager<R, R> {
         &self.inner.account_manager
     }
 }
 
-impl Unpin for NodeRemote {}
+impl<R: Ratchet> Unpin for NodeRemote<R> {}
 
 /// A type sent through the server when a request is made
 #[derive(

@@ -77,7 +77,7 @@ use std::sync::Arc;
 use crate::proto::packet_processor::primary_group_packet::{
     attempt_kem_as_alice_finish, get_resp_target_cid_from_header,
 };
-use citadel_crypt::stacked_ratchet::constructor::{ConstructorType, StackedRatchetConstructor};
+use citadel_crypt::sync_toggle::{CurrentToggleState, SyncToggle};
 use serde::{Deserialize, Serialize};
 
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
@@ -96,6 +96,7 @@ use crate::constants::{
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
 use crate::prelude::{InternalServerError, PreSharedKey, ReKeyResult, ReKeyReturnType};
+use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::ordered_channel::OrderedChannel;
@@ -126,10 +127,11 @@ use crate::proto::state_subcontainers::register_state_container::RegisterState;
 use crate::proto::state_subcontainers::rekey_container::RatchetUpdateState;
 use crate::proto::transfer_stats::TransferStats;
 use crate::proto::{packet_crafter, send_with_error_logging};
-use atomic::Atomic;
 use bytes::Bytes;
-use citadel_crypt::endpoint_crypto_container::{KemTransferStatus, PeerSessionCrypto};
-use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_crypt::endpoint_crypto_container::{
+    EndpointRatchetConstructor, KemTransferStatus, PeerSessionCrypto,
+};
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecrecyMode;
 use citadel_types::crypto::SecurityLevel;
@@ -144,23 +146,24 @@ use citadel_user::serialization::SyncIO;
 use either::Either;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-impl Debug for StateContainer {
+impl<R: Ratchet> Debug for StateContainer<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "StateContainer")
     }
 }
 
-define_outer_struct_wrapper!(StateContainer, StateContainerInner);
+define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, <R>);
 
 /// For keeping track of the stages
-pub struct StateContainerInner {
-    pub(super) pre_connect_state: PreConnectState,
-    pub(super) hdp_server_remote: NodeRemote,
+pub struct StateContainerInner<R: Ratchet> {
+    pub(super) pre_connect_state: PreConnectState<R>,
+    pub(super) node_remote: NodeRemote<R>,
     /// No hashmap here, since register is only for a single target
-    pub(super) register_state: RegisterState,
+    pub(super) register_state: RegisterState<R>,
     /// No hashmap here, since connect is only for a single target
     pub(super) connect_state: ConnectState,
-    pub(super) ratchet_update_state: RatchetUpdateState,
+    // TODO: move c2s ratchet updates into here
+    pub(super) ratchet_update_state: RatchetUpdateState<R>,
     pub(super) deregister_state: DeRegisterState,
     pub(super) meta_expiry_state: MetaExpiryState,
     pub(super) network_stats: NetworkStats,
@@ -173,30 +176,30 @@ pub struct StateContainerInner {
             SecurityLevel,
         )>,
     >,
-    pub(super) updates_in_progress: HashMap<u64, Arc<AtomicBool>>,
+    pub(super) updates_in_progress: HashMap<u64, SyncToggle>,
     pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
     pub(super) file_transfer_handles: HashMap<FileKey, UnboundedSender<ObjectTransferStatus>>,
     pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
-    pub(super) outbound_transmitters: HashMap<GroupKey, OutboundTransmitterContainer>,
-    pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer>,
+    pub(super) outbound_transmitters: HashMap<GroupKey, OutboundTransmitterContainer<R>>,
+    pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer<R>>,
     // u64 is peer id, ticket is the local original ticket (ticket may
     // transform if a simultaneous connect)
     pub(super) outgoing_peer_connect_attempts: HashMap<u64, Ticket>,
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult>,
-    pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
-    pub(super) c2s_channel_container: Option<C2SChannelContainer>,
+    pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
+    pub(super) c2s_channel_container: Option<C2SChannelContainer<R>>,
     pub(crate) keep_alive_timeout_ns: i64,
-    pub(crate) state: Arc<Atomic<SessionState>>,
+    pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
     pub(super) tcp_loaded_status: Option<citadel_io::tokio::sync::oneshot::Sender<()>>,
     pub(super) hole_puncher_pipes:
         HashMap<u64, citadel_io::tokio::sync::mpsc::UnboundedSender<Bytes>>,
-    pub(super) cnac: Option<ClientNetworkAccount>,
+    pub(super) cnac: Option<ClientNetworkAccount<R, R>>,
     pub(super) time_tracker: TimeTracker,
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
-    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
+    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R>>,
     pub(super) group_channels: HashMap<MessageGroupKey, UnboundedSender<GroupBroadcastPayload>>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
@@ -264,7 +267,7 @@ impl FileKey {
 }
 
 /// For keeping track of connections
-pub struct VirtualConnection<R: Ratchet = StackedRatchet> {
+pub struct VirtualConnection<R: Ratchet> {
     /// For determining the type of connection
     pub connection_type: VirtualConnectionType,
     pub last_delivered_message_timestamp: DualRwLock<Option<Instant>>,
@@ -275,17 +278,15 @@ pub struct VirtualConnection<R: Ratchet = StackedRatchet> {
     pub endpoint_container: Option<EndpointChannelContainer<R>>,
 }
 
-impl VirtualConnection {
+impl<R: Ratchet> VirtualConnection<R> {
     /// If No version is supplied, uses the latest committed version
-    pub fn borrow_endpoint_hyper_ratchet(&self, version: Option<u32>) -> Option<&StackedRatchet> {
+    pub fn borrow_endpoint_stacked_ratchet(&self, version: Option<u32>) -> Option<&R> {
         let endpoint_container = self.endpoint_container.as_ref()?;
-        endpoint_container
-            .endpoint_crypto
-            .get_hyper_ratchet(version)
+        endpoint_container.endpoint_crypto.get_ratchet(version)
     }
 }
 
-pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
+pub struct EndpointChannelContainer<R: Ratchet> {
     pub(crate) default_security_settings: SessionSecuritySettings,
     // this is only loaded if STUN-like NAT-traversal works
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
@@ -298,7 +299,7 @@ pub struct EndpointChannelContainer<R: Ratchet = StackedRatchet> {
     pub(crate) file_transfer_compatible: bool,
 }
 
-pub struct C2SChannelContainer<R: Ratchet = StackedRatchet> {
+pub struct C2SChannelContainer<R: Ratchet> {
     to_channel: OrderedChannel,
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
@@ -313,7 +314,7 @@ pub(crate) struct UnorderedChannelContainer {
     stopper_tx: citadel_io::tokio::sync::oneshot::Sender<()>,
 }
 
-impl EndpointChannelContainer {
+impl<R: Ratchet> EndpointChannelContainer<R> {
     pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
         Some(&self.direct_p2p_remote.as_ref()?.p2p_primary_stream)
     }
@@ -329,19 +330,19 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
 #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash, Serialize, Deserialize)]
 pub enum VirtualConnectionType {
     LocalGroupPeer {
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     },
     ExternalGroupPeer {
-        implicated_cid: u64,
+        session_cid: u64,
         interserver_cid: u64,
         peer_cid: u64,
     },
     LocalGroupServer {
-        implicated_cid: u64,
+        session_cid: u64,
     },
     ExternalGroupServer {
-        implicated_cid: u64,
+        session_cid: u64,
         interserver_cid: u64,
     },
 }
@@ -360,53 +361,49 @@ impl VirtualConnectionType {
     /// Gets the target cid, agnostic to type
     pub fn get_target_cid(&self) -> u64 {
         match self {
-            VirtualConnectionType::LocalGroupServer {
-                implicated_cid: _cid,
-            } => {
+            VirtualConnectionType::LocalGroupServer { session_cid: _cid } => {
                 // by rule of the network, the target CID is zero if a hyperlan peer -> hyperlan server conn
                 0
             }
 
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
                 peer_cid: target_cid,
             } => *target_cid,
 
             VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
                 interserver_cid: _icid,
                 peer_cid: target_cid,
             } => *target_cid,
 
             VirtualConnectionType::ExternalGroupServer {
-                implicated_cid: _implicated_cid,
+                session_cid: _session_cid,
                 interserver_cid: icid,
             } => *icid,
         }
     }
 
     /// Gets the target cid, agnostic to type
-    pub fn get_implicated_cid(&self) -> u64 {
+    pub fn get_session_cid(&self) -> u64 {
         match self {
-            VirtualConnectionType::LocalGroupServer {
-                implicated_cid: cid,
-            } => *cid,
+            VirtualConnectionType::LocalGroupServer { session_cid: cid } => *cid,
 
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: _target_cid,
-            } => *implicated_cid,
+            } => *session_cid,
 
             VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: _icid,
                 peer_cid: _target_cid,
-            } => *implicated_cid,
+            } => *session_cid,
 
             VirtualConnectionType::ExternalGroupServer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: _icid,
-            } => *implicated_cid,
+            } => *session_cid,
         }
     }
 
@@ -425,19 +422,19 @@ impl VirtualConnectionType {
     pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
         match self {
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid,
             } => Some(PeerConnectionType::LocalGroupPeer {
-                implicated_cid: *implicated_cid,
+                session_cid: *session_cid,
                 peer_cid: *peer_cid,
             }),
 
             VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
                 peer_cid,
             } => Some(PeerConnectionType::ExternalGroupPeer {
-                implicated_cid: *implicated_cid,
+                session_cid: *session_cid,
                 interserver_cid: *icid,
                 peer_cid: *peer_cid,
             }),
@@ -449,11 +446,11 @@ impl VirtualConnectionType {
     pub fn set_target_cid(&mut self, target_cid: u64) {
         match self {
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid: _,
+                session_cid: _,
                 peer_cid,
             }
             | VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid: _,
+                session_cid: _,
                 interserver_cid: _,
                 peer_cid,
             } => *peer_cid = target_cid,
@@ -462,17 +459,17 @@ impl VirtualConnectionType {
         }
     }
 
-    pub fn set_implicated_cid(&mut self, cid: u64) {
+    pub fn set_session_cid(&mut self, cid: u64) {
         match self {
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: _,
             }
             | VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: _,
                 peer_cid: _,
-            } => *implicated_cid = cid,
+            } => *session_cid = cid,
 
             _ => {}
         }
@@ -482,40 +479,38 @@ impl VirtualConnectionType {
 impl Display for VirtualConnectionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            VirtualConnectionType::LocalGroupServer {
-                implicated_cid: cid,
-            } => {
+            VirtualConnectionType::LocalGroupServer { session_cid: cid } => {
                 write!(f, "Local Group Peer to Local Group Server ({cid})")
             }
 
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: target_cid,
             } => {
                 write!(
                     f,
-                    "Local Group Peer to Local Group Peer ({implicated_cid} -> {target_cid})"
+                    "Local Group Peer to Local Group Peer ({session_cid} -> {target_cid})"
                 )
             }
 
             VirtualConnectionType::ExternalGroupPeer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
                 peer_cid: target_cid,
             } => {
                 write!(
                     f,
-                    "Local Group Peer to External Group Peer ({implicated_cid} -> {icid} -> {target_cid})"
+                    "Local Group Peer to External Group Peer ({session_cid} -> {icid} -> {target_cid})"
                 )
             }
 
             VirtualConnectionType::ExternalGroupServer {
-                implicated_cid,
+                session_cid,
                 interserver_cid: icid,
             } => {
                 write!(
                     f,
-                    "Local Group Peer to External Group Server ({implicated_cid} -> {icid})"
+                    "Local Group Peer to External Group Server ({session_cid} -> {icid})"
                 )
             }
         }
@@ -530,11 +525,9 @@ pub(super) struct NetworkStats {
     pub(super) rtt_ns: Option<i64>,
 }
 
-//define_outer_struct_wrapper!(GroupSender, GroupSenderDevice<HDP_HEADER_BYTE_LEN>);
-
-pub(crate) struct OutboundTransmitterContainer {
-    ratchet_constructor: Option<StackedRatchetConstructor>,
-    pub(crate) burst_transmitter: GroupTransmitter,
+pub(crate) struct OutboundTransmitterContainer<R: Ratchet> {
+    ratchet_constructor: Option<R::Constructor>,
+    pub(crate) burst_transmitter: GroupTransmitter<R>,
     // in the case of file transfers, it is desirable to wake-up the async task
     // that enqueues the next group
     object_notifier: Option<UnboundedSender<()>>,
@@ -548,19 +541,16 @@ pub(crate) struct OutboundTransmitterContainer {
     pub has_begun: bool,
 }
 
-impl OutboundTransmitterContainer {
+impl<R: Ratchet> OutboundTransmitterContainer<R> {
     pub fn new(
         object_notifier: Option<UnboundedSender<()>>,
-        mut burst_transmitter: GroupTransmitter,
+        mut burst_transmitter: GroupTransmitter<R>,
         group_plaintext_length: usize,
         parent_object_total_groups: usize,
         relative_group_id: u32,
         ticket: Ticket,
     ) -> Self {
-        let ratchet_constructor = burst_transmitter
-            .hyper_ratchet_container
-            .base_constructor
-            .take();
+        let ratchet_constructor = burst_transmitter.ratchet_container.base_constructor.take();
         let transmission_start_time = Instant::now();
         let has_begun = false;
 
@@ -623,21 +613,21 @@ impl GroupReceiverContainer {
     }
 }
 
-impl StateContainerInner {
+impl<R: Ratchet> StateContainerInner<R> {
     /// Creates a new container
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         kernel_tx: UnboundedSender<NodeResult>,
-        hdp_server_remote: NodeRemote,
+        hdp_server_remote: NodeRemote<R>,
         keep_alive_timeout_ns: i64,
-        state: Arc<Atomic<SessionState>>,
-        cnac: Option<ClientNetworkAccount>,
+        state: DualCell<SessionState>,
+        cnac: Option<ClientNetworkAccount<R, R>>,
         time_tracker: TimeTracker,
         session_security_settings: Option<SessionSecuritySettings>,
         is_server: bool,
         transfer_stats: TransferStats,
         udp_mode: UdpMode,
-    ) -> StateContainer {
+    ) -> StateContainer<R> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
             file_transfer_handles: HashMap::new(),
@@ -656,7 +646,7 @@ impl StateContainerInner {
             state,
             c2s_channel_container: None,
             keep_alive_timeout_ns,
-            hdp_server_remote,
+            node_remote: hdp_server_remote,
             meta_expiry_state: Default::default(),
             pre_connect_state: Default::default(),
             udp_primary_outbound_tx: None,
@@ -695,8 +685,8 @@ impl StateContainerInner {
     /// Attempts to find the direct p2p stream. If not found, will use the default
     /// to_server stream. Note: the underlying crypto is still the same
     pub fn get_preferred_stream(&self, peer_cid: u64) -> &OutboundPrimaryStreamSender {
-        fn get_inner(
-            this: &StateContainerInner,
+        fn get_inner<R: Ratchet>(
+            this: &StateContainerInner<R>,
             peer_cid: u64,
         ) -> Option<&OutboundPrimaryStreamSender> {
             Some(
@@ -785,7 +775,7 @@ impl StateContainerInner {
                     v_conn,
                     ticket,
                     c2s_container.is_active.clone(),
-                    self.hdp_server_remote.clone(),
+                    self.node_remote.clone(),
                 );
                 c2s_container.to_unordered_channel = Some(UnorderedChannelContainer {
                     to_channel,
@@ -808,7 +798,7 @@ impl StateContainerInner {
                         v_conn,
                         ticket,
                         p2p_container.is_active.clone(),
-                        self.hdp_server_remote.clone(),
+                        self.node_remote.clone(),
                     );
                     p2p_endpoint_container.to_unordered_channel = Some(UnorderedChannelContainer {
                         to_channel,
@@ -889,8 +879,8 @@ impl StateContainerInner {
         channel_ticket: Ticket,
         target_cid: u64,
         connection_type: VirtualConnectionType,
-        endpoint_crypto: PeerSessionCrypto,
-        sess: &CitadelSession,
+        endpoint_crypto: PeerSessionCrypto<R>,
+        sess: &CitadelSession<R>,
         file_transfer_compatible: bool,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
@@ -902,7 +892,7 @@ impl StateContainerInner {
 
         //let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let peer_channel = PeerChannel::new(
-            self.hdp_server_remote.clone(),
+            self.node_remote.clone(),
             target_cid,
             connection_type,
             channel_ticket,
@@ -942,19 +932,19 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn init_new_c2s_virtual_connection(
         &mut self,
-        cnac: &ClientNetworkAccount,
+        cnac: &ClientNetworkAccount<R, R>,
         security_level: SecurityLevel,
         channel_ticket: Ticket,
-        implicated_cid: u64,
-        session: &CitadelSession,
+        session_cid: u64,
+        session: &CitadelSession<R>,
     ) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let (tx, rx) = crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
         let peer_channel = PeerChannel::new(
-            self.hdp_server_remote.clone(),
-            implicated_cid,
-            VirtualConnectionType::LocalGroupServer { implicated_cid },
+            self.node_remote.clone(),
+            session_cid,
+            VirtualConnectionType::LocalGroupServer { session_cid },
             channel_ticket,
             security_level,
             is_active.clone(),
@@ -1015,10 +1005,10 @@ impl StateContainerInner {
             log::warn!(target: "citadel", "Inserted a virtual connection. but overwrote one in the process. Report to developers");
         }
 
-        log::trace!(target: "citadel", "Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
+        log::trace!(target: "citadel", "Vconn {} -> {} established", connection_type.get_session_cid(), target_cid);
     }
 
-    pub fn get_peer_session_crypto(&self, peer_cid: u64) -> Option<&PeerSessionCrypto> {
+    pub fn get_peer_session_crypto(&self, peer_cid: u64) -> Option<&PeerSessionCrypto<R>> {
         Some(
             &self
                 .active_virtual_connections
@@ -1032,7 +1022,7 @@ impl StateContainerInner {
     pub fn get_peer_endpoint_container_mut(
         &mut self,
         target_cid: u64,
-    ) -> Result<&mut EndpointChannelContainer, NetworkError> {
+    ) -> Result<&mut EndpointChannelContainer<R>, NetworkError> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                 Ok(endpoint_container)
@@ -1048,7 +1038,7 @@ impl StateContainerInner {
         }
     }
 
-    pub fn get_c2s_crypto(&self) -> Option<&PeerSessionCrypto> {
+    pub fn get_c2s_crypto(&self) -> Option<&PeerSessionCrypto<R>> {
         Some(&self.c2s_channel_container.as_ref()?.peer_session_crypto)
     }
 
@@ -1172,28 +1162,28 @@ impl StateContainerInner {
     /// This creates an entry in the inbound_files hashmap
     #[allow(unused_results)]
     #[allow(clippy::too_many_arguments)]
-    pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(
+    pub fn on_file_header_received(
         &mut self,
         header: &Ref<&[u8], HdpHeader>,
         virtual_target: VirtualTargetType,
         metadata_orig: VirtualObjectMetadata,
-        pers: &PersistenceHandler<R, Fcm>,
-        state_container: StateContainer,
-        hyper_ratchet: StackedRatchet,
+        pers: &PersistenceHandler<R, R>,
+        state_container: StateContainer<R>,
+        stacked_ratchet: R,
         _target_cid: u64,
         v_target_flipped: VirtualTargetType,
         preferred_primary_stream: OutboundPrimaryStreamSender,
         local_encryption_level: Option<SecurityLevel>,
     ) -> bool {
         let target_cid = v_target_flipped.get_target_cid();
-        let implicated_cid = v_target_flipped.get_implicated_cid();
+        let session_cid = v_target_flipped.get_session_cid();
         let object_id = metadata_orig.object_id;
 
         let key = FileKey::new(object_id);
         let ticket = header.context_info.get().into();
         let is_revfs_pull = local_encryption_level.is_some();
 
-        log::trace!(target: "citadel", "File header {implicated_cid}: {key:?} | revfs_pull: {is_revfs_pull}");
+        log::trace!(target: "citadel", "File header {session_cid}: {key:?} | revfs_pull: {is_revfs_pull}");
 
         if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
@@ -1229,7 +1219,7 @@ impl StateContainerInner {
             e.insert(entry);
             let (handle, tx_status) = ObjectTransferHandler::new(
                 target_cid,
-                implicated_cid,
+                session_cid,
                 metadata.clone(),
                 ObjectTransferOrientation::Receiver { is_revfs_pull },
                 start_recv_tx,
@@ -1242,7 +1232,7 @@ impl StateContainerInner {
                 .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                     ticket,
                     handle,
-                    implicated_cid,
+                    session_cid,
                 }))
             {
                 log::error!(target: "citadel", "Failed to send the ObjectTransferHandle to the kernel: {err:?}");
@@ -1264,7 +1254,7 @@ impl StateContainerInner {
                 // first, send a rebound signal immediately to the sender
                 // to ensure the sender knows if the user accepted or not
                 let file_header_ack = packet_crafter::file::craft_file_header_ack_packet(
-                    &hyper_ratchet,
+                    &stacked_ratchet,
                     accepted,
                     object_id,
                     target_cid,
@@ -1301,7 +1291,7 @@ impl StateContainerInner {
                                         Ok(header) => {
                                             // write the header
                                             let wave_ack = packet_crafter::group::craft_wave_ack(
-                                                &hyper_ratchet,
+                                                &stacked_ratchet,
                                                 object_id,
                                                 get_resp_target_cid_from_header(&header),
                                                 header.group.get(),
@@ -1350,7 +1340,7 @@ impl StateContainerInner {
                     Err(err) => {
                         log::error!(target: "citadel", "Start_recv_rx failed: {:?}", err);
                         let err_packet = packet_crafter::file::craft_file_header_ack_packet(
-                            &hyper_ratchet,
+                            &stacked_ratchet,
                             false,
                             object_id,
                             target_cid,
@@ -1376,7 +1366,7 @@ impl StateContainerInner {
     pub fn on_file_header_ack_received(
         &mut self,
         success: bool,
-        implicated_cid: u64,
+        session_cid: u64,
         ticket: Ticket,
         object_id: ObjectId,
         v_target: VirtualTargetType,
@@ -1384,16 +1374,16 @@ impl StateContainerInner {
     ) -> Option<()> {
         let (key, receiver_cid) = match v_target {
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: _target_cid,
             } => {
-                let receiver_cid = implicated_cid;
+                let receiver_cid = session_cid;
                 // since the order hasn't flipped yet, get the implicated cid
                 (FileKey::new(object_id), receiver_cid)
             }
 
-            VirtualConnectionType::LocalGroupServer { implicated_cid } => {
-                (FileKey::new(object_id), implicated_cid)
+            VirtualConnectionType::LocalGroupServer { session_cid } => {
+                (FileKey::new(object_id), session_cid)
             }
 
             _ => {
@@ -1409,7 +1399,7 @@ impl StateContainerInner {
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
                 let (handle, tx) = ObjectTransferHandler::new(
-                    implicated_cid,
+                    session_cid,
                     receiver_cid,
                     metadata,
                     ObjectTransferOrientation::Sender,
@@ -1424,7 +1414,7 @@ impl StateContainerInner {
                     .unbounded_send(NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                         ticket,
                         handle,
-                        implicated_cid,
+                        session_cid,
                     }))
                     .ok()?;
             } else {
@@ -1443,7 +1433,7 @@ impl StateContainerInner {
                         message: "The adjacent node did not accept the file transfer request"
                             .into(),
                         ticket_opt: Some(ticket),
-                        cid_opt: Some(implicated_cid),
+                        cid_opt: Some(session_cid),
                     }));
             } else {
                 log::error!(target: "citadel", "Attempted to remove OutboundFileTransfer for {:?}, but it didn't exist", key);
@@ -1463,24 +1453,21 @@ impl StateContainerInner {
     #[allow(clippy::too_many_arguments)]
     pub fn on_group_header_ack_received(
         &mut self,
-        session: &CitadelSession,
+        session: &CitadelSession<R>,
         base_session_secrecy_mode: SecrecyMode,
         peer_cid: u64,
         target_cid: u64,
         group_id: u64,
         object_id: ObjectId,
         next_window: Option<RangeInclusive<u32>>,
-        transfer: KemTransferStatus,
+        transfer: KemTransferStatus<R>,
         fast_msg: bool,
     ) -> bool {
         let key = GroupKey::new(peer_cid, group_id, object_id);
 
         let constructor = if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key)
         {
-            outbound_container
-                .ratchet_constructor
-                .take()
-                .map(ConstructorType::Default)
+            outbound_container.ratchet_constructor.take()
         } else {
             log::warn!(target: "citadel", "Key for outbound transmitter absent");
             return false;
@@ -1550,7 +1537,7 @@ impl StateContainerInner {
         &mut self,
         header: &HdpHeader,
         payload: Bytes,
-        hr: &StackedRatchet,
+        hr: &R,
     ) -> Result<PrimaryProcessorResult, (NetworkError, Ticket, ObjectId)> {
         let target_cid = header.session_cid.get();
         let group_id = header.group.get();
@@ -1606,7 +1593,7 @@ impl StateContainerInner {
             header.wave_id.get(),
             src as u16,
             dest as u16,
-            hr.get_scramble_drill(),
+            hr.get_scramble_pqc_and_entropy_bank().1,
         )
         .ok_or((
             NetworkError::InvalidRequest("Unable to obtain true_sequence"),
@@ -1637,7 +1624,7 @@ impl StateContainerInner {
                         .cnac
                         .as_ref()
                         .unwrap()
-                        .get_static_auxiliary_hyper_ratchet();
+                        .get_static_auxiliary_stacked_ratchet();
 
                     chunk = static_aux_hr
                         .local_decrypt(chunk, local_encryption_level)
@@ -1740,7 +1727,7 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn on_wave_ack_received(
         &mut self,
-        implicated_cid: u64,
+        session_cid: u64,
         header: &Ref<&[u8], HdpHeader>,
     ) -> bool {
         let object_id = header.context_info.get().into();
@@ -1790,7 +1777,7 @@ impl StateContainerInner {
                         ObjectTransferStatus::TransferComplete
                     };
 
-                    log::trace!(target: "citadel", "Transmitter {implicated_cid}: {file_key:?} received final wave ack. Sending status to local node: {:?}", status);
+                    log::trace!(target: "citadel", "Transmitter {session_cid}: {file_key:?} received final wave ack. Sending status to local node: {:?}", status);
                     if let Err(err) = tx.unbounded_send(status.clone()) {
                         // if the server is using an accept-only policy with no further responses, this branch
                         // will be reached
@@ -1805,7 +1792,7 @@ impl StateContainerInner {
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
                 } else {
-                    log::error!(target: "citadel", "Unable to find ObjectTransferHandle for {:?} | Local is {implicated_cid} | FileKeys available: {:?}", file_key, self.file_transfer_handles.keys().copied().collect::<Vec<_>>());
+                    log::error!(target: "citadel", "Unable to find ObjectTransferHandle for {:?} | Local is {session_cid} | FileKeys available: {:?}", file_key, self.file_transfer_handles.keys().copied().collect::<Vec<_>>());
                 }
 
                 delete_group = true;
@@ -1874,7 +1861,7 @@ impl StateContainerInner {
                 let update_in_progress = self
                     .updates_in_progress
                     .get(&target_cid)
-                    .map(|r| r.fetch_nand(false, Ordering::SeqCst))
+                    .map(|r| r.toggle_on_if_untoggled() == CurrentToggleState::AlreadyToggled)
                     .ok_or(NetworkError::InternalError(
                         "Update state not loaded in hashmap!",
                     ))?;
@@ -1941,7 +1928,7 @@ impl StateContainerInner {
     ) -> Result<(), NetworkError> {
         let this = self;
 
-        if this.state.load(Ordering::Relaxed) != SessionState::Connected {
+        if !this.state.is_connected() {
             Err(NetworkError::Generic(format!(
                 "Attempted to send data (ticket: {ticket}) outbound, but the session is not connected"
             )))
@@ -1959,7 +1946,7 @@ impl StateContainerInner {
                     || this
                         .updates_in_progress
                         .get(&virtual_target.get_target_cid())
-                        .map(|r| r.load(Ordering::SeqCst))
+                        .map(|r| r.state() == CurrentToggleState::AlreadyToggled)
                         .ok_or({
                             NetworkError::InternalError("Update in progress not loaded for client")
                         })?
@@ -1982,30 +1969,35 @@ impl StateContainerInner {
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
             let (mut transmitter, group_id, target_cid) = match virtual_target {
-                VirtualTargetType::LocalGroupServer { implicated_cid } => {
+                VirtualTargetType::LocalGroupServer { session_cid } => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
-                    // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                    // then, we use this session's pqc, the cnac's latest entropy_bank, and 0 for target_cid
                     let crypt_container = &mut this
                         .c2s_channel_container
                         .as_mut()
                         .unwrap()
                         .peer_session_crypto;
-                    let latest_hyper_ratchet =
-                        crypt_container.get_hyper_ratchet(None).cloned().unwrap();
-                    latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
+                    let latest_stacked_ratchet =
+                        crypt_container.get_ratchet(None).cloned().unwrap();
+                    latest_stacked_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_stacked_ratchet.get_default_security_level())))?;
                     let constructor = crypt_container.get_next_constructor(called_from_poll);
 
                     let result = match secrecy_mode {
                         SecrecyMode::BestEffort => {
                             let group_id = crypt_container.get_and_increment_group_id();
-                            Either::Left((constructor, latest_hyper_ratchet, group_id, packet))
+                            Either::Left((constructor, latest_stacked_ratchet, group_id, packet))
                         }
 
                         SecrecyMode::Perfect => {
                             if constructor.is_some() {
                                 // we can perform a kex
                                 let group_id = crypt_container.get_and_increment_group_id();
-                                Either::Left((constructor, latest_hyper_ratchet, group_id, packet))
+                                Either::Left((
+                                    constructor,
+                                    latest_stacked_ratchet,
+                                    group_id,
+                                    packet,
+                                ))
                             } else {
                                 // kex later
                                 Either::Right(packet)
@@ -2016,7 +2008,7 @@ impl StateContainerInner {
                     match result {
                         Either::Left((
                             alice_constructor,
-                            latest_hyper_ratchet,
+                            latest_stacked_ratchet,
                             group_id,
                             packet,
                         )) => {
@@ -2026,7 +2018,7 @@ impl StateContainerInner {
                                     to_primary_stream,
                                     OBJECT_SINGLETON,
                                     RatchetPacketCrafterContainer::new(
-                                        latest_hyper_ratchet,
+                                        latest_stacked_ratchet,
                                         alice_constructor,
                                     ),
                                     packet,
@@ -2041,7 +2033,7 @@ impl StateContainerInner {
                                     )
                                 })?,
                                 group_id,
-                                implicated_cid,
+                                session_cid,
                             )
                         }
 
@@ -2061,10 +2053,10 @@ impl StateContainerInner {
                 }
 
                 VirtualConnectionType::LocalGroupPeer {
-                    implicated_cid,
+                    session_cid,
                     peer_cid: target_cid,
                 } => {
-                    log::trace!(target: "citadel", "Maybe sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                    log::trace!(target: "citadel", "Maybe sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", session_cid, target_cid);
                     // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
                     let default_primary_stream = this.get_primary_stream().cloned().unwrap();
 
@@ -2083,7 +2075,7 @@ impl StateContainerInner {
                             //let to_primary_stream_preferred = this.to_primary_stream.clone().unwrap();
                             let latest_usable_ratchet = endpoint_container
                                 .endpoint_crypto
-                                .get_hyper_ratchet(None)
+                                .get_ratchet(None)
                                 .unwrap()
                                 .clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
@@ -2201,7 +2193,7 @@ impl StateContainerInner {
             let outbound_container =
                 OutboundTransmitterContainer::new(None, transmitter, group_len, 1, 0, ticket);
             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
-            // NOTE: Ever since using GroupKeys, we use either the implicated_cid (for client -> server conns) or target_cids (for peer conns)
+            // NOTE: Ever since using GroupKeys, we use either the session_cid (for client -> server conns) or target_cids (for peer conns)
             let key = GroupKey::new(target_cid, group_id, object_id);
             //inner_mut!(this.state_container).outbound_transmitters.insert(key, outbound_container);
             this.outbound_transmitters.insert(key, outbound_container);
@@ -2234,7 +2226,7 @@ impl StateContainerInner {
     }
 
     #[allow(unused_results)]
-    pub(crate) fn initiate_drill_update(
+    pub(crate) fn initiate_entropy_bank_update(
         &mut self,
         timestamp: i64,
         virtual_target: VirtualTargetType,
@@ -2243,23 +2235,18 @@ impl StateContainerInner {
         fn return_already_in_progress(
             kernel_tx: &UnboundedSender<NodeResult>,
             ticket: Ticket,
-            implicated_cid: u64,
+            session_cid: u64,
         ) -> Result<(), NetworkError> {
             kernel_tx
                 .unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
                     ticket,
                     status: ReKeyReturnType::AlreadyInProgress,
-                    implicated_cid,
+                    session_cid,
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))
         }
 
-        /*if !self.meta_expiry_state.expired() {
-            log::trace!(target: "citadel", "Rekey will be omitted since packets are being sent");
-            return Ok(());
-        }*/
-
-        if self.state.load(Ordering::Relaxed) != SessionState::Connected {
+        if !self.state.is_connected() {
             return Err(NetworkError::InvalidRequest(
                 "Cannot initiate rekey since the session is not connected",
             ));
@@ -2273,7 +2260,7 @@ impl StateContainerInner {
             .ok_or(NetworkError::InternalError("Primary stream not loaded"))?);
 
         match virtual_target {
-            VirtualConnectionType::LocalGroupServer { implicated_cid } => {
+            VirtualConnectionType::LocalGroupServer { session_cid } => {
                 let crypt_container = &mut self
                     .c2s_channel_container
                     .as_mut()
@@ -2282,8 +2269,8 @@ impl StateContainerInner {
 
                 match crypt_container.get_next_constructor(false) {
                     Some(alice_constructor) => {
-                        let ratchet = crypt_container.get_hyper_ratchet(None).unwrap();
-                        let stage0_packet = packet_crafter::do_drill_update::craft_stage0(
+                        let ratchet = crypt_container.get_ratchet(None).unwrap();
+                        let stage0_packet = packet_crafter::do_entropy_bank_update::craft_stage0(
                             ratchet,
                             alice_constructor
                                 .stage0_alice()
@@ -2292,7 +2279,7 @@ impl StateContainerInner {
                             C2S_ENCRYPTION_ONLY,
                             security_level,
                         );
-                        self.ratchet_update_state.alice_hyper_ratchet = Some(alice_constructor);
+                        self.ratchet_update_state.alice_stacked_ratchet = Some(alice_constructor);
                         if let Some(ticket) = ticket {
                             // this request requires tracking
                             let _ = self
@@ -2303,12 +2290,12 @@ impl StateContainerInner {
 
                         let to_primary_stream = self.get_primary_stream().unwrap();
                         let kernel_tx = &self.kernel_tx;
-                        CitadelSession::send_to_primary_stream_closure(
+                        CitadelSession::<R>::send_to_primary_stream_closure(
                             to_primary_stream,
                             kernel_tx,
                             stage0_packet,
                             ticket,
-                            Some(implicated_cid),
+                            Some(session_cid),
                         )
                     }
 
@@ -2318,7 +2305,7 @@ impl StateContainerInner {
                             return_already_in_progress(
                                 &self.kernel_tx,
                                 ticket,
-                                virtual_target.get_implicated_cid(),
+                                virtual_target.get_session_cid(),
                             )
                         } else {
                             Ok(())
@@ -2328,7 +2315,7 @@ impl StateContainerInner {
             }
 
             VirtualConnectionType::LocalGroupPeer {
-                implicated_cid: _,
+                session_cid: _,
                 peer_cid,
             } => {
                 const MISSING: NetworkError = NetworkError::InvalidRequest("Peer not connected");
@@ -2341,8 +2328,8 @@ impl StateContainerInner {
                     .ok_or(MISSING)?;
                 let crypt = &mut endpoint_container.endpoint_crypto;
                 let alice_constructor = crypt.get_next_constructor(false);
-                let latest_hyper_ratchet = crypt
-                    .get_hyper_ratchet(None)
+                let latest_stacked_ratchet = crypt
+                    .get_ratchet(None)
                     .cloned()
                     .ok_or(NetworkError::InternalError("Ratchet not loaded"))?;
 
@@ -2352,8 +2339,8 @@ impl StateContainerInner {
                             .get_direct_p2p_primary_stream()
                             .unwrap_or(default_primary_stream);
                         let stage0_packet =
-                            packet_crafter::do_drill_update::craft_stage0(
-                                &latest_hyper_ratchet,
+                            packet_crafter::do_entropy_bank_update::craft_stage0(
+                                &latest_stacked_ratchet,
                                 alice_constructor.stage0_alice().ok_or(
                                     NetworkError::InternalError("Alice constructor (2) failed"),
                                 )?,
@@ -2376,14 +2363,12 @@ impl StateContainerInner {
                         }
 
                         if let Some(ticket) = ticket {
-                            // this request requires tracking
                             let _ = self
                                 .ratchet_update_state
                                 .current_local_requests
                                 .insert(virtual_target, ticket);
                         }
 
-                        // to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))
                         Ok(())
                     }
 
@@ -2393,7 +2378,7 @@ impl StateContainerInner {
                             return_already_in_progress(
                                 &self.kernel_tx,
                                 ticket,
-                                virtual_target.get_implicated_cid(),
+                                virtual_target.get_session_cid(),
                             )
                         } else {
                             Ok(())
@@ -2411,15 +2396,15 @@ impl StateContainerInner {
         ticket: Ticket,
         command: &GroupBroadcast,
     ) -> Result<(), NetworkError> {
-        if self.state.load(Ordering::Relaxed) != SessionState::Connected {
+        if !self.state.is_connected() {
             log::warn!(target: "citadel", "Unable to execute group command since session is not connected");
             return Ok(());
         }
 
-        let hyper_ratchet = self
+        let stacked_ratchet = self
             .get_c2s_crypto()
             .ok_or(NetworkError::InternalError("C2s not loaded"))?
-            .get_hyper_ratchet(None)
+            .get_ratchet(None)
             .unwrap();
         let security_level = self
             .session_security_settings
@@ -2440,7 +2425,7 @@ impl StateContainerInner {
             | GroupBroadcast::ListGroupsFor { .. }
             | GroupBroadcast::LeaveRoom { .. } => {
                 packet_crafter::peer_cmd::craft_group_message_packet(
-                    hyper_ratchet,
+                    stacked_ratchet,
                     command,
                     ticket,
                     C2S_ENCRYPTION_ONLY,
@@ -2466,10 +2451,10 @@ impl StateContainerInner {
         &mut self,
         key: MessageGroupKey,
         ticket: Ticket,
-        session: &CitadelSession,
+        session: &CitadelSession<R>,
     ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
-        let implicated_cid = self
+        let session_cid = self
             .cnac
             .as_ref()
             .map(|r| r.get_cid())
@@ -2489,11 +2474,10 @@ impl StateContainerInner {
         CitadelSession::spawn_message_sender_function(session.clone(), to_session_rx);
 
         Ok(GroupChannel::new(
-            self.hdp_server_remote.clone(),
             to_session_tx,
             key,
             ticket,
-            implicated_cid,
+            session_cid,
             rx,
         ))
     }

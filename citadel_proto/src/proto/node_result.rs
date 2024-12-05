@@ -34,14 +34,13 @@ use crate::proto::state_container::VirtualConnectionType;
 use crate::kernel::kernel_communicator::CallbackKey;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_user::backend::utils::ObjectTransferHandler;
-use citadel_user::client_account::ClientNetworkAccount;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct RegisterOkay {
     pub ticket: Ticket,
-    pub cnac: ClientNetworkAccount,
+    pub cid: u64,
     pub welcome_message: Vec<u8>,
 }
 
@@ -53,7 +52,7 @@ pub struct RegisterFailure {
 
 #[derive(Debug)]
 pub struct DeRegistration {
-    pub implicated_cid: u64,
+    pub session_cid: u64,
     pub ticket_opt: Option<Ticket>,
     pub success: bool,
 }
@@ -61,7 +60,7 @@ pub struct DeRegistration {
 #[derive(Debug)]
 pub struct ConnectSuccess {
     pub ticket: Ticket,
-    pub implicated_cid: u64,
+    pub session_cid: u64,
     pub remote_addr: SocketAddr,
     pub is_personal: bool,
     pub v_conn_type: VirtualConnectionType,
@@ -83,7 +82,7 @@ pub struct ConnectFail {
 pub struct ReKeyResult {
     pub ticket: Ticket,
     pub status: ReKeyReturnType,
-    pub implicated_cid: u64,
+    pub session_cid: u64,
 }
 
 #[derive(Debug)]
@@ -103,12 +102,12 @@ pub struct OutboundRequestRejected {
 pub struct ObjectTransferHandle {
     pub ticket: Ticket,
     pub handle: ObjectTransferHandler,
-    pub implicated_cid: u64,
+    pub session_cid: u64,
 }
 
 #[derive(Debug)]
 pub struct MailboxDelivery {
-    pub implicated_cid: u64,
+    pub session_cid: u64,
     pub ticket_opt: Option<Ticket>,
     pub items: MailboxTransfer,
 }
@@ -117,19 +116,19 @@ pub struct MailboxDelivery {
 pub struct PeerEvent {
     pub event: PeerSignal,
     pub ticket: Ticket,
-    pub implicated_cid: u64,
+    pub session_cid: u64,
 }
 
 #[derive(Debug)]
 pub struct GroupChannelCreated {
     pub ticket: Ticket,
     pub channel: GroupChannel,
-    pub implicated_cid: u64,
+    pub session_cid: u64,
 }
 
 #[derive(Debug)]
 pub struct GroupEvent {
-    pub implicated_cid: u64,
+    pub session_cid: u64,
     pub ticket: Ticket,
     pub event: GroupBroadcast,
 }
@@ -168,7 +167,7 @@ pub struct ReVFSResult {
     pub error_message: Option<String>,
     pub data: Option<PathBuf>,
     pub ticket: Ticket,
-    pub implicated_cid: u64,
+    pub session_cid: u64,
 }
 
 /// This type is for relaying results between the lower-level protocol and the higher-level kernel
@@ -219,63 +218,63 @@ impl NodeResult {
         match self {
             NodeResult::RegisterOkay(RegisterOkay {
                 ticket: t,
-                cnac,
+                cid,
                 welcome_message: _,
-            }) => Some(CallbackKey::new(*t, cnac.get_cid())),
+            }) => Some(CallbackKey::new(*t, *cid)),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: t,
                 error_message: _,
             }) => Some(CallbackKey::ticket_only(*t)),
             NodeResult::DeRegistration(DeRegistration {
-                implicated_cid,
+                session_cid,
                 ticket_opt: t,
                 ..
-            }) => Some(CallbackKey::new((*t)?, *implicated_cid)),
+            }) => Some(CallbackKey::new((*t)?, *session_cid)),
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: t,
-                implicated_cid,
+                session_cid,
                 ..
-            }) => Some(CallbackKey::new(*t, *implicated_cid)),
+            }) => Some(CallbackKey::new(*t, *session_cid)),
             NodeResult::ConnectFail(ConnectFail {
                 ticket: t,
                 cid_opt,
                 error_message: _,
             }) => Some(CallbackKey {
                 ticket: *t,
-                implicated_cid: *cid_opt,
+                session_cid: *cid_opt,
             }),
             NodeResult::OutboundRequestRejected(OutboundRequestRejected {
                 ticket: t,
                 message_opt: _,
             }) => Some(CallbackKey::ticket_only(*t)),
             NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                implicated_cid,
+                session_cid,
                 ticket,
                 ..
-            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
+            }) => Some(CallbackKey::new(*ticket, *session_cid)),
             NodeResult::MailboxDelivery(MailboxDelivery {
-                implicated_cid,
+                session_cid,
                 ticket_opt: t,
                 items: _,
-            }) => Some(CallbackKey::new((*t)?, *implicated_cid)),
+            }) => Some(CallbackKey::new((*t)?, *session_cid)),
             NodeResult::PeerEvent(PeerEvent {
                 event: _,
                 ticket: t,
-                implicated_cid,
-            }) => Some(CallbackKey::new(*t, *implicated_cid)),
+                session_cid,
+            }) => Some(CallbackKey::new(*t, *session_cid)),
             NodeResult::GroupEvent(GroupEvent {
-                implicated_cid,
+                session_cid,
                 ticket: t,
                 event: _,
-            }) => Some(CallbackKey::new(*t, *implicated_cid)),
+            }) => Some(CallbackKey::new(*t, *session_cid)),
             NodeResult::PeerChannelCreated(PeerChannelCreated {
                 ticket: t, channel, ..
-            }) => Some(CallbackKey::new(*t, channel.get_implicated_cid())),
+            }) => Some(CallbackKey::new(*t, channel.get_session_cid())),
             NodeResult::GroupChannelCreated(GroupChannelCreated {
                 ticket: t,
                 channel: _,
-                implicated_cid,
-            }) => Some(CallbackKey::new(*t, *implicated_cid)),
+                session_cid,
+            }) => Some(CallbackKey::new(*t, *session_cid)),
             NodeResult::Disconnect(Disconnect {
                 ticket: t,
                 cid_opt,
@@ -284,7 +283,7 @@ impl NodeResult {
                 message: _,
             }) => Some(CallbackKey {
                 ticket: *t,
-                implicated_cid: *cid_opt,
+                session_cid: *cid_opt,
             }),
             NodeResult::InternalServerError(InternalServerError {
                 ticket_opt: t,
@@ -292,7 +291,7 @@ impl NodeResult {
                 message: _,
             }) => Some(CallbackKey {
                 ticket: (*t)?,
-                implicated_cid: *cid_opt,
+                session_cid: *cid_opt,
             }),
             NodeResult::SessionList(SessionList {
                 ticket: t,
@@ -301,14 +300,14 @@ impl NodeResult {
             NodeResult::Shutdown => None,
             NodeResult::ReKeyResult(ReKeyResult {
                 ticket,
-                implicated_cid,
+                session_cid,
                 ..
-            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
+            }) => Some(CallbackKey::new(*ticket, *session_cid)),
             NodeResult::ReVFS(ReVFSResult {
                 ticket,
-                implicated_cid,
+                session_cid,
                 ..
-            }) => Some(CallbackKey::new(*ticket, *implicated_cid)),
+            }) => Some(CallbackKey::new(*ticket, *session_cid)),
         }
     }
 }

@@ -54,7 +54,7 @@ pub(crate) struct CallbackNotifier {
 #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
 pub struct CallbackKey {
     pub ticket: Ticket,
-    pub implicated_cid: Option<u64>,
+    pub session_cid: Option<u64>,
 }
 
 fn search_for_value<'a>(
@@ -64,18 +64,18 @@ fn search_for_value<'a>(
     let expected_ticket = callback_key_received.ticket;
     for (key, notifier) in map.iter_mut() {
         let ticket = key.ticket;
-        let cid_opt = key.implicated_cid;
+        let cid_opt = key.session_cid;
 
         // If we locally expect a cid, then, we require the same cid to be present in the received callback_key
         // If we locally do not expect a cid, then, we don't need to check the cid
         if let Some(cid_expected) = cid_opt {
-            if let Some(cid_received) = callback_key_received.implicated_cid {
+            if let Some(cid_received) = callback_key_received.session_cid {
                 if expected_ticket == key.ticket && cid_expected == cid_received {
                     return Some((
                         notifier,
                         CallbackKey {
                             ticket,
-                            implicated_cid: Some(cid_expected),
+                            session_cid: Some(cid_expected),
                         },
                     ));
                 } else {
@@ -93,7 +93,7 @@ fn search_for_value<'a>(
                     notifier,
                     CallbackKey {
                         ticket,
-                        implicated_cid: None,
+                        session_cid: None,
                     },
                 ));
             } else {
@@ -107,17 +107,17 @@ fn search_for_value<'a>(
 }
 
 impl CallbackKey {
-    pub fn new(ticket: Ticket, implicated_cid: u64) -> Self {
+    pub fn new(ticket: Ticket, session_cid: u64) -> Self {
         Self {
             ticket,
-            implicated_cid: Some(implicated_cid),
+            session_cid: Some(session_cid),
         }
     }
 
     pub fn ticket_only(ticket: Ticket) -> Self {
         Self {
             ticket,
-            implicated_cid: None,
+            session_cid: None,
         }
     }
 }

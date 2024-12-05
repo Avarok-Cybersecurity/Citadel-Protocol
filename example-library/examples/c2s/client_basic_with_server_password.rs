@@ -55,16 +55,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create server connection settings
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        server_addr,
-        "my_username",
-        "My Name",
-        "notsecurepassword",
-    )
-    .with_session_security_settings(session_security)
-    .with_session_password(connect_password)
-    .disable_udp()
-    .build()?;
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            server_addr,
+            "my_username",
+            "My Name",
+            "notsecurepassword",
+        )?
+        .with_session_security_settings(session_security)
+        .with_session_password(connect_password)
+        .disable_udp()
+        .build()?;
 
     // Create client kernel
     let kernel = SingleClientServerConnectionKernel::new(
@@ -76,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the node
-    let client = NodeBuilder::default().build(kernel)?;
+    let client = DefaultNodeBuilder::default().build(kernel)?;
 
     // Run the node
     client.await?;

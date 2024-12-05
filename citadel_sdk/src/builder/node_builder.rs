@@ -19,7 +19,7 @@
 //! use std::str::FromStr;
 //!
 //! // Create a basic server node
-//! let builder = NodeBuilder::default()
+//! let builder = DefaultNodeBuilder::default()
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
 //!     .with_backend(BackendType::InMemory);
 //! ```
@@ -38,7 +38,7 @@
 use citadel_proto::prelude::*;
 
 use citadel_proto::kernel::KernelExecutorArguments;
-use citadel_proto::macros::LocalContextRequirements;
+use citadel_proto::macros::{ContextRequirements, LocalContextRequirements};
 use citadel_proto::re_imports::RustlsClientConfig;
 use futures::Future;
 use std::fmt::{Debug, Formatter};
@@ -48,9 +48,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-#[derive(Default)]
 /// Used to construct a running client/peer or server instance
-pub struct NodeBuilder {
+pub struct NodeBuilder<R: Ratchet = StackedRatchet> {
     hypernode_type: Option<NodeType>,
     underlying_protocol: Option<ServerUnderlyingProtocol>,
     backend_type: Option<BackendType>,
@@ -62,6 +61,31 @@ pub struct NodeBuilder {
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
     server_session_password: Option<PreSharedKey>,
+    _ratchet: PhantomData<R>,
+}
+
+/// Default node builder type
+pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet>;
+
+pub type LightweightNodeBuilder = NodeBuilder<ThinRatchet>;
+
+impl<R: Ratchet> Default for NodeBuilder<R> {
+    fn default() -> Self {
+        Self {
+            hypernode_type: None,
+            underlying_protocol: None,
+            backend_type: None,
+            server_argon_settings: None,
+            #[cfg(feature = "google-services")]
+            services: None,
+            server_misc_settings: None,
+            client_tls_config: None,
+            kernel_executor_settings: None,
+            stun_servers: None,
+            server_session_password: None,
+            _ratchet: Default::default(),
+        }
+    }
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
@@ -106,9 +130,9 @@ impl<K> Future for NodeFuture<'_, K> {
     }
 }
 
-impl NodeBuilder {
+impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     /// Returns a future that represents the both the protocol and kernel execution
-    pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(
+    pub fn build<'a, 'b: 'a, K: NetKernel<R> + 'b>(
         &'a mut self,
         kernel: K,
     ) -> anyhow::Result<NodeFuture<'b, K>> {
@@ -172,7 +196,7 @@ impl NodeBuilder {
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
-                let kernel_executor = KernelExecutor::new(args).await?;
+                let kernel_executor = KernelExecutor::<_, R>::new(args).await?;
                 log::trace!(target: "citadel", "[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             }),
@@ -183,10 +207,10 @@ impl NodeBuilder {
     /// ```
     /// use std::net::SocketAddr;
     /// use std::str::FromStr;
-    /// use citadel_sdk::prelude::NodeBuilder;
+    /// use citadel_sdk::prelude::DefaultNodeBuilder;
     /// use citadel_proto::prelude::NodeType;
     ///
-    /// NodeBuilder::default().with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()));
+    /// DefaultNodeBuilder::default().with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()));
     /// ```
     pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
@@ -313,7 +337,7 @@ impl NodeBuilder {
     }
 
     /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
-    pub fn with_stun_servers<T: Into<String>, R: Into<Vec<T>>>(&mut self, servers: R) -> &mut Self {
+    pub fn with_stun_servers<T: Into<String>, S: Into<Vec<T>>>(&mut self, servers: S) -> &mut Self {
         self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
         self
     }
@@ -351,7 +375,7 @@ impl NodeBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::node_builder::NodeBuilder;
+    use crate::builder::node_builder::DefaultNodeBuilder;
     use crate::prefabs::server::empty::EmptyKernel;
     use crate::prelude::{BackendType, NodeType};
     use citadel_io::tokio;
@@ -362,7 +386,7 @@ mod tests {
     #[test]
     #[cfg(feature = "google-services")]
     fn okay_config() {
-        let _ = NodeBuilder::default()
+        let _ = DefaultNodeBuilder::default()
             .with_google_realtime_database_config("123", "456")
             .with_google_services_json_path("abc")
             .build(EmptyKernel::default())
@@ -372,7 +396,7 @@ mod tests {
     #[test]
     #[cfg(feature = "google-services")]
     fn bad_config() {
-        assert!(NodeBuilder::default()
+        assert!(DefaultNodeBuilder::default()
             .with_google_realtime_database_config("123", "456")
             .build(EmptyKernel::default())
             .is_err());
@@ -380,9 +404,9 @@ mod tests {
 
     #[test]
     fn bad_config2() {
-        assert!(NodeBuilder::default()
+        assert!(DefaultNodeBuilder::default()
             .with_stun_servers(["dummy1", "dummy2"])
-            .build(EmptyKernel)
+            .build(EmptyKernel::default())
             .is_err());
     }
 
@@ -403,7 +427,7 @@ mod tests {
         #[values(BackendType::InMemory, BackendType::new("file:/hello_world/path/").unwrap())]
         backend_type: BackendType,
     ) {
-        let mut builder = NodeBuilder::default();
+        let mut builder = DefaultNodeBuilder::default();
         let _ = builder
             .with_underlying_protocol(underlying_protocol.clone())
             .with_backend(backend_type.clone())
@@ -423,6 +447,6 @@ mod tests {
             builder.kernel_executor_settings.clone().unwrap()
         );
 
-        drop(builder.build(EmptyKernel).unwrap());
+        drop(builder.build(EmptyKernel::default()).unwrap());
     }
 }

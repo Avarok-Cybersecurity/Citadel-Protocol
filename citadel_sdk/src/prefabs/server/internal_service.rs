@@ -68,12 +68,12 @@ use crate::prelude::*;
 use std::future::Future;
 use std::marker::PhantomData;
 
-pub struct InternalServiceKernel<'a, F, Fut> {
-    inner_kernel: Box<dyn NetKernel + 'a>,
+pub struct InternalServiceKernel<'a, F, Fut, R: Ratchet = StackedRatchet> {
+    inner_kernel: Box<dyn NetKernel<R> + 'a>,
     _pd: PhantomData<fn() -> (&'a F, Fut)>,
 }
 
-impl<F, Fut> InternalServiceKernel<'_, F, Fut>
+impl<F, Fut, R: Ratchet> InternalServiceKernel<'_, F, Fut, R>
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
@@ -98,8 +98,8 @@ where
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
-    fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
+impl<F, Fut, R: Ratchet> NetKernel<R> for InternalServiceKernel<'_, F, Fut, R> {
+    fn load_remote(&mut self, node_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }
 
@@ -119,7 +119,7 @@ impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
 #[cfg(test)]
 mod test {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prefabs::client::ServerConnectionSettingsBuilder;
+    use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prefabs::server::internal_service::InternalServiceKernel;
     use crate::prefabs::shared::internal_service::InternalServerCommunicator;
     use crate::prelude::*;
@@ -134,7 +134,6 @@ mod test {
     use std::convert::Infallible;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
-    use uuid::Uuid;
 
     #[derive(serde::Serialize, serde::Deserialize)]
     struct TestPacket {
@@ -198,7 +197,7 @@ mod test {
             });
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_bind_addr, Uuid::new_v4())
+            DefaultServerConnectionSettingsBuilder::transient(server_bind_addr)
                 .build()
                 .unwrap();
 
@@ -222,12 +221,12 @@ mod test {
             },
         );
 
-        let client = NodeBuilder::default()
+        let client = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Peer)
             .build(client_kernel)
             .unwrap();
 
-        let server = NodeBuilder::default()
+        let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
             .with_underlying_protocol(
                 ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),
@@ -279,7 +278,7 @@ mod test {
         });
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_bind_addr, Uuid::new_v4())
+            DefaultServerConnectionSettingsBuilder::transient(server_bind_addr)
                 .build()
                 .unwrap();
 
@@ -331,12 +330,12 @@ mod test {
             },
         );
 
-        let client = NodeBuilder::default()
+        let client = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Peer)
             .build(client_kernel)
             .unwrap();
 
-        let server = NodeBuilder::default()
+        let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
             .with_underlying_protocol(
                 ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),

@@ -40,10 +40,10 @@
 
 use std::pin::Pin;
 
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::runtime::Handle;
-use futures::TryStreamExt;
-
 use citadel_user::account_manager::AccountManager;
+use futures::TryStreamExt;
 
 use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
@@ -56,13 +56,13 @@ use crate::proto::packet_processor::includes::Duration;
 use crate::proto::remote::NodeRemote;
 
 /// Creates a [KernelExecutor]
-pub struct KernelExecutor<K: NetKernel> {
-    server_remote: Option<NodeRemote>,
+pub struct KernelExecutor<K: NetKernel<R>, R: Ratchet> {
+    server_remote: Option<NodeRemote<R>>,
     server_to_kernel_rx: Option<UnboundedReceiver<NodeResult>>,
     shutdown_alerter_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
     callback_handler: Option<KernelAsyncCallbackHandler>,
     context: Option<KernelContext>,
-    account_manager: AccountManager,
+    account_manager: AccountManager<R, R>,
     kernel_executor_settings: KernelExecutorSettings,
     kernel: K,
 }
@@ -74,11 +74,11 @@ pub type LocalSet = ();
 
 type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 
-impl<K: NetKernel> KernelExecutor<K> {
+impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new(args: KernelExecutorArguments<K>) -> Result<Self, NetworkError> {
-        let KernelExecutorArguments::<K> {
+    pub async fn new(args: KernelExecutorArguments<K, R>) -> Result<Self, NetworkError> {
+        let KernelExecutorArguments::<K, R> {
             rt,
             hypernode_type,
             account_manager,
@@ -93,7 +93,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             citadel_io::tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = Node::init(
+        let (remote, future, localset_opt, callback_handler) = Node::<R>::init(
             hypernode_type,
             server_to_kernel_tx,
             account_manager.clone(),
@@ -171,7 +171,7 @@ impl<K: NetKernel> KernelExecutor<K> {
     async fn kernel_inner_loop(
         kernel: &mut K,
         mut server_to_kernel_rx: UnboundedReceiver<NodeResult>,
-        citadel_server_remote: NodeRemote,
+        citadel_server_remote: NodeRemote<R>,
         shutdown: citadel_io::tokio::sync::oneshot::Receiver<()>,
         callback_handler: KernelAsyncCallbackHandler,
         kernel_settings: KernelExecutorSettings,
@@ -235,7 +235,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         exec_res.and(stop_res.map(|_| ()))
     }
 
-    pub fn account_manager(&self) -> &AccountManager {
+    pub fn account_manager(&self) -> &AccountManager<R, R> {
         &self.account_manager
     }
 }

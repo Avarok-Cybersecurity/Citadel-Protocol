@@ -52,32 +52,32 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::state_container::StateContainerInner;
 use async_trait::async_trait;
 use bytes::Bytes;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::sync::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use netbeam::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-pub(crate) struct ReliableOrderedCompatStream {
+pub(crate) struct ReliableOrderedCompatStream<R: Ratchet> {
     to_primary_stream: OutboundPrimaryStreamSender,
     from_stream: Mutex<UnboundedReceiver<Bytes>>,
     peer_external_addr: SocketAddr,
     local_bind_addr: SocketAddr,
-    hr: StackedRatchet,
+    hr: R,
     security_level: SecurityLevel,
     target_cid: u64,
 }
 
-impl ReliableOrderedCompatStream {
+impl<R: Ratchet> ReliableOrderedCompatStream<R> {
     /// For C2S, using this is straight forward (set target_cid to 0)
     /// For P2P, using this is not as straight forward. This will use the central node for routing packets. As such, the target_cid must be set to the peers to enable routing. Additionally, this will need to use the p2p ratchet. This implies that
     /// BOTH nodes must already have the ratchets loaded
     pub(crate) fn new(
         to_primary_stream: OutboundPrimaryStreamSender,
-        state_container: &mut StateContainerInner,
+        state_container: &mut StateContainerInner<R>,
         target_cid: u64,
-        hr: StackedRatchet,
+        hr: R,
         security_level: SecurityLevel,
     ) -> Self {
         let (from_stream_tx, from_stream_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
@@ -103,7 +103,7 @@ impl ReliableOrderedCompatStream {
 }
 
 #[async_trait]
-impl ReliableOrderedStreamToTarget for ReliableOrderedCompatStream {
+impl<R: Ratchet> ReliableOrderedStreamToTarget for ReliableOrderedCompatStream<R> {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         let packet = crate::proto::packet_crafter::hole_punch::generate_packet(
             &self.hr,
@@ -128,7 +128,7 @@ impl ReliableOrderedStreamToTarget for ReliableOrderedCompatStream {
     }
 }
 
-impl ConnAddr for ReliableOrderedCompatStream {
+impl<R: Ratchet> ConnAddr for ReliableOrderedCompatStream<R> {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_bind_addr)
     }

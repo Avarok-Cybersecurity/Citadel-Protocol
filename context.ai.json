@@ -1,2229 +1,2242 @@
 [
-    {
-        "file": "./citadel_sdk/src/responses.rs",
-        "context": [
-            "Provides helper functions for protocol responses",
-            "Handles peer registration responses",
-            "Manages peer connection responses",
-            "Processes group invitation responses",
-            "Handles automatic ticket management",
-            "Manages connection type reversal",
-            "Performs username resolution and validation",
-            "Requires matching request tickets",
-            "Integrates with Remote interface",
-            "Supports PeerSignal and NodeResult handling"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/test_common.rs",
-        "context": [
-            "Provides testing utilities for Citadel Protocol",
-            "Supports test server creation and configuration",
-            "Implements synchronization barriers for multi-peer tests",
-            "Includes UDP mode testing utilities",
-            "Provides P2P connection testing helpers",
-            "Manages local test peer coordination",
-            "Requires localhost-testing feature for most functionality",
-            "Integrates with NodeBuilder for server configuration",
-            "Supports EmptyKernel for basic testing",
-            "Includes connection validation utilities"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/remote_ext.rs",
-        "context": [
-            "Extends NodeRemote with high-level protocol operations",
-            "Provides user registration and authentication",
-            "Manages connections and file transfers",
-            "Supports encrypted virtual filesystem",
-            "Handles peer discovery and group communication",
-            "Implements security settings configuration",
-            "Uses asynchronous operations throughout",
-            "Supports chunked file transfers for efficiency",
-            "Requires mutual registration for peer connections",
-            "Integrates with client-server and P2P modes"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/inner_arg.rs",
-        "context": [
-            "Provides type-safe parameter reference handling",
-            "Implements wrapper types for mutable and immutable references",
-            "Uses zero-cost abstractions for performance",
-            "Enforces proper dereferencing behavior",
-            "Preserves mutability constraints",
-            "Integrates with packet processing and validation",
-            "Supports cryptographic operation safety"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/functional.rs",
-        "context": [
-            "Provides functional programming utilities and extensions",
-            "Implements monadic-style operations and conditional chaining",
-            "Supports method chaining with Then trait",
-            "Provides conditional branching with IfEq and IfTrue",
-            "Implements tuple mapping with PairMap",
-            "Uses zero-cost abstractions and lazy evaluation",
-            "Enhances code readability throughout the codebase"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/constants.rs",
-        "context": [
-            "Defines core protocol constants and configuration",
-            "Manages protocol version using semantic versioning",
-            "Specifies network parameters and MTU sizes",
-            "Controls timing intervals and timeouts",
-            "Sets buffer sizes and group limitations",
-            "Configures security level update frequencies",
-            "Defines port ranges and networking defaults"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/auth.rs",
-        "context": [
-            "Defines authentication request types for Citadel Protocol",
-            "Supports both credential-based and passwordless authentication",
-            "Uses SecBuffer for secure credential handling",
-            "Manages user identification through CID and usernames",
-            "Handles server connection information for authentication",
-            "Implements transient device-based connections"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/validation.rs",
-        "context": [
-            "Core packet validation module for the Citadel Protocol",
-            "Implements security-critical validation for all packet types",
-            "Handles connection, registration, group, and file transfer validation",
-            "Uses AEAD cryptography for packet integrity verification",
-            "Implements zero-copy validation where possible",
-            "Contains submodules for different validation contexts: do_connect, group, do_register, do_drill_update, pre_connect, file, and aead",
-            "Maintains protocol state consistency across all validation steps"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/session.rs",
-        "context": [
-            "Core session management implementation for Citadel Protocol",
-            "Handles active connections between peers with state management",
-            "Implements secure file transfer with configurable security levels",
-            "Supports UDP connectivity for performance-critical operations",
-            "Provides clean shutdown and resource cleanup mechanisms",
-            "Handles connection interruptions and session resumption",
-            "Uses post-quantum cryptographic primitives for session security",
-            "Manages packet processing and stream handling",
-            "Implements session initialization and parameter configuration",
-            "Supports both TCP and UDP transport protocols",
-            "Handles authentication and credential management",
-            "Provides virtual connection management for different transfer types"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/session_queue_handler.rs",
-        "context": [
-            "Implements queue-based task scheduling for protocol sessions",
-            "Uses DelayQueue for managing timed operations",
-            "Handles both reserved system tasks (indices 0-9) and ordinary tasks (10+)",
-            "Supports one-shot tasks for single-execution operations",
-            "Integrates with session state management",
-            "Implements Stream and Future traits for async operation",
-            "Provides thread-safe task scheduling through atomic operations",
-            "Manages session shutdown and cleanup"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet.rs",
-        "context": [
-            "Implements the core Hypernode Data Protocol (HDP) packet structure",
-            "Defines packet headers, commands, and buffer handling",
-            "Provides zero-copy header parsing for efficiency",
-            "Manages packet composition and decomposition",
-            "Supports both BytesMut and Vec<u8> buffer types",
-            "Handles socket address tracking and packet routing",
-            "Implements hierarchical command organization"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/mod.rs",
-        "context": [
-            "Core packet processing infrastructure for the Citadel Protocol",
-            "Key aspects:",
-            "- Manages multiple packet types (connection, auth, data)",
-            "- Implements processing pipeline with validation",
-            "- Handles packet security and integrity",
-            "- Provides backpressure and ordering guarantees",
-            "- Coordinates between different packet processors"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/connect_packet.rs",
-        "context": [
-            "Handles connection establishment in Citadel Protocol",
-            "Key aspects:",
-            "- Implements secure multi-stage handshake",
-            "- Manages post-quantum key exchange",
-            "- Handles version and capability negotiation",
-            "- Provides connection state management",
-            "- Supports transport-agnostic connections"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/disconnect_packet.rs",
-        "context": [
-            "Implements graceful disconnection protocol",
-            "Uses two-stage disconnect handshake",
-            "Manages secure packet validation",
-            "Handles session state transitions",
-            "Coordinates with kernel for disconnect signals",
-            "Implements packet delivery delay for reliability",
-            "Tracks disconnection tickets"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/file_packet.rs",
-        "context": [
-            "Handles secure file transfer operations",
-            "Manages file transfer lifecycle",
-            "Supports chunked transfers",
-            "Integrates with virtual filesystem",
-            "Implements transfer state tracking",
-            "Handles both direct and proxied transfers"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/keep_alive_packet.rs",
-        "context": [
-            "Implements connection maintenance through keep-alive packets",
-            "Key aspects:",
-            "- Manages periodic heartbeat packets",
-            "- Detects connection liveness",
-            "- Monitors connection quality",
-            "- Handles connection timeouts",
-            "- Triggers automatic reconnection"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/deregister_packet.rs",
-        "context": [
-            "Handles client deregistration process",
-            "Manages secure account removal",
-            "Implements resource cleanup",
-            "Validates session state",
-            "Provides ticket-based tracking",
-            "Handles success/failure states",
-            "Manages client and server cleanup",
-            "Maintains security during removal",
-            "Integrates with account management",
-            "Reports deregistration results"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/raw_primary_packet.rs",
-        "context": [
-            "Low-level packet processing for primary data packets",
-            "Key aspects:",
-            "- Handles raw packet operations",
-            "- Manages packet headers and payloads",
-            "- Implements zero-copy processing",
-            "- Ensures packet integrity",
-            "- Validates packet structure"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/hole_punch.rs",
-        "context": [
-            "Implements NAT traversal through hole punching",
-            "Enables direct P2P connections behind NATs",
-            "Handles NAT traversal packet processing",
-            "Provides secure packet validation",
-            "Manages peer connection coordination",
-            "Implements connection pipe management",
-            "Supports proxied connections",
-            "Manages hole puncher pipes",
-            "Integrates with proxy system",
-            "Ensures authenticated packet handling"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/register_packet.rs",
-        "context": [
-            "Handles client registration in Citadel Protocol",
-            "Implements secure multi-stage handshake",
-            "Provides passwordless registration support",
-            "Manages session state transitions",
-            "Implements cryptographic parameter negotiation",
-            "Handles registration failure cases",
-            "Supports post-quantum cryptography",
-            "Validates registration parameters",
-            "Integrates with account management",
-            "Manages initial cryptographic setup"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/rekey_packet.rs",
-        "context": [
-            "Implements secure key rotation mechanism",
-            "Manages cryptographic key updates",
-            "Provides multi-stage key exchange",
-            "Implements post-quantum cryptography",
-            "Ensures perfect forward secrecy",
-            "Handles state synchronization",
-            "Supports proxy connections",
-            "Manages ratchet state updates",
-            "Handles key truncation operations",
-            "Integrates with security level system"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/session_manager.rs",
-        "context": [
-            "Core session management system for Citadel Protocol",
-            "Handles stateful connections between peers",
-            "Manages both provisional and established connections",
-            "Implements secure peer-to-peer communication",
-            "Provides group broadcast functionality",
-            "Supports configurable security levels",
-            "Handles virtual connection management",
-            "Implements clean shutdown procedures",
-            "Manages connection upgrades and transitions",
-            "Integrates with HyperNodePeerLayer for P2P operations"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/lib.rs",
-        "context": [
-            "Core user management system",
-            "Manages HyperVPN architecture",
-            "Provides hierarchical account structure",
-            "Handles authentication and security",
-            "Supports multiple backend storage",
-            "Integrates external services",
-            "Manages account lifecycle",
-            "Implements zero-trust architecture",
-            "Supports post-quantum cryptography",
-            "Provides feature-gated functionality"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/external_services/service_interface.rs",
-        "context": [
-            "Defines external service interface",
-            "Provides unified service communication",
-            "Supports async data transmission",
-            "Handles raw packet data",
-            "Enables peer-to-peer communication",
-            "Standardizes error handling",
-            "Ensures thread safety",
-            "Manages service connections",
-            "Implements common service trait",
-            "Supports multiple service types"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/external_services/rtdb.rs",
-        "context": [
-            "Provides Firebase RTDB integration",
-            "Manages real-time data synchronization",
-            "Handles authentication and tokens",
-            "Manages connection lifecycle",
-            "Implements data transfer interface",
-            "Supports connection refresh",
-            "Handles token expiration",
-            "Provides client configuration",
-            "Manages RTDB instances",
-            "Implements efficient data sync"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/external_services/mod.rs",
-        "context": [
-            "Manages external service integration",
-            "Provides Google services support",
-            "Handles service configuration",
-            "Manages service authentication",
-            "Supports Firebase RTDB",
-            "Handles JWT management",
-            "Provides WASM compatibility",
-            "Manages service state",
-            "Handles post-login services",
-            "Supports feature flags"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/auth/proposed_credentials.rs",
-        "context": [
-            "Manages credential proposals",
-            "Handles password hashing",
-            "Validates credentials",
-            "Supports passwordless auth",
-            "Implements username sanitization",
-            "Provides secure password storage",
-            "Manages authentication modes",
-            "Handles server validation",
-            "Implements credential comparison",
-            "Ensures memory safety"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/backend/sql_backend.rs",
-        "context": [
-            "Provides SQL database storage",
-            "Supports multiple SQL variants",
-            "Implements connection pooling",
-            "Handles SQL syntax differences",
-            "Manages schema creation",
-            "Supports blob and text storage",
-            "Implements atomic operations",
-            "Manages peer relationships",
-            "Provides efficient querying",
-            "Enables ACID compliance"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/backend/redis_backend.rs",
-        "context": [
-            "Provides distributed Redis storage",
-            "Implements connection pooling",
-            "Supports Redis clustering",
-            "Manages connection health checks",
-            "Handles connection timeouts",
-            "Provides automatic reconnection",
-            "Supports atomic operations",
-            "Manages peer relationships",
-            "Implements byte map storage",
-            "Enables high availability"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/backend/filesystem_backend.rs",
-        "context": [
-            "Provides filesystem-based persistent storage",
-            "Implements hybrid storage with memory cache",
-            "Manages client network account persistence",
-            "Handles directory structure organization",
-            "Supports peer relationship storage",
-            "Implements virtual filesystem operations",
-            "Provides byte map storage functionality",
-            "Ensures atomic file operations",
-            "Supports personal and impersonal accounts",
-            "Integrates with memory backend for caching"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/backend/memory.rs",
-        "context": [
-            "Provides in-memory backend storage",
-            "Implements thread-safe client storage",
-            "Manages peer relationships",
-            "Handles metadata operations",
-            "Supports byte map storage",
-            "Implements atomic operations",
-            "Manages resource cleanup",
-            "Supports WASM environments",
-            "Provides client registration",
-            "Maintains data consistency"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/backend/utils/mod.rs",
-        "context": [
-            "Manages object transfer operations",
-            "Implements bidirectional transfers",
-            "Provides progress tracking",
-            "Handles transfer status updates",
-            "Implements stream-based transfers",
-            "Manages transfer control flow",
-            "Provides async transfer support",
-            "Handles resource cleanup",
-            "Implements transfer acceptance",
-            "Manages transfer orientation"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/backend/mod.rs",
-        "context": [
-            "Defines core backend storage infrastructure",
-            "Manages multiple storage backend types",
-            "Implements unified backend interface",
-            "Provides async persistence operations",
-            "Handles database connections",
-            "Manages virtual filesystem operations",
-            "Implements thread-safe storage",
-            "Provides transaction management",
-            "Supports multiple database types",
-            "Handles automatic reconnection"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/auth/mod.rs",
-        "context": [
-            "Manages authentication modes for CNACs",
-            "Implements Argon2id password hashing",
-            "Supports passwordless authentication",
-            "Handles username uniqueness",
-            "Manages full name storage",
-            "Provides authentication state checks",
-            "Implements serializable auth data",
-            "Handles credential validation",
-            "Manages authentication modes",
-            "Provides secure data storage"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/account_loader.rs",
-        "context": [
-            "Manages loading of serialized client network accounts",
-            "Handles both personal and impersonal account types",
-            "Provides generic file loading capabilities",
-            "Implements efficient buffered I/O operations",
-            "Supports extensible deserialization",
-            "Manages filesystem-based account storage",
-            "Handles account loading errors gracefully",
-            "Integrates with directory management",
-            "Supports cryptographic account security",
-            "Provides account persistence functionality"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/server_misc_settings.rs",
-        "context": [
-            "Manages server-side configuration settings",
-            "Controls passwordless authentication",
-            "Enforces credential requirements",
-            "Provides default security settings",
-            "Integrates with account management",
-            "Supports customizable authentication flows",
-            "Handles server-side security policies",
-            "Configures node authentication behavior",
-            "Manages credential validation rules",
-            "Controls server security features"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/serialization.rs",
-        "context": [
-            "Provides binary serialization functionality",
-            "Implements efficient buffer operations",
-            "Supports in-place deserialization",
-            "Handles size estimation and pre-allocation",
-            "Uses bincode for binary encoding",
-            "Integrates with bytes buffer system",
-            "Provides trait-based serialization",
-            "Manages memory-efficient operations",
-            "Supports slice-based serialization",
-            "Implements error handling with AccountError"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/connection_metadata.rs",
-        "context": [
-            "Manages connection metadata for client connections",
-            "Handles connection protocol specifications",
-            "Supports TCP, TLS, and QUIC protocols",
-            "Stores socket address information",
-            "Provides domain name handling",
-            "Implements serialization support",
-            "Manages connection state persistence",
-            "Supports connection info display",
-            "Handles protocol-specific settings",
-            "Maintains connection type information"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/directory_store.rs",
-        "context": [
-            "Manages filesystem structure for Citadel Protocol",
-            "Handles directory creation and organization",
-            "Provides cross-platform path management",
-            "Organizes account storage directories",
-            "Manages configuration file locations",
-            "Supports virtual filesystem structure",
-            "Handles file transfer storage",
-            "Implements path formatting and generation",
-            "Maintains directory hierarchy",
-            "Ensures consistent file organization"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/credentials.rs",
-        "context": [
-            "Manages credential validation and requirements",
-            "Defines username and password constraints",
-            "Enforces length and format restrictions",
-            "Provides configurable validation rules",
-            "Handles full name format validation",
-            "Implements default security policies",
-            "Supports custom requirement definitions",
-            "Ensures consistent credential formats",
-            "Validates credential formatting",
-            "Defines system-wide credential limits"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/hypernode_account.rs",
-        "context": [
-            "Core HyperNode account functionality",
-            "Provides user identification extensions",
-            "Handles account search operations",
-            "Manages peer relationship lookups",
-            "Supports CID and username-based identification",
-            "Implements async account operations",
-            "Defines serialization file extension",
-            "Enables flexible account type extensions",
-            "Maintains bi-directional peer relationships",
-            "Integrates with persistence backends"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/account_manager.rs",
-        "context": [
-            "Central user account management system",
-            "Handles account creation and registration",
-            "Supports multiple storage backends (Memory, File, SQL, Redis)",
-            "Manages HyperLAN peer relationships",
-            "Provides secure credential storage",
-            "Implements Argon2id password hashing",
-            "Supports personal and impersonal modes",
-            "Handles P2P connection registration",
-            "Provides thread-safe async operations",
-            "Manages external service integrations"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/client_account.rs",
-        "context": [
-            "Manages individual client connections in Citadel Protocol",
-            "Handles both personal and impersonal connection modes",
-            "Implements secure credential management and validation",
-            "Provides ratchet-based cryptographic state management",
-            "Manages HyperLAN and HyperWAN peer relationships",
-            "Supports thread-safe operations through RwLock",
-            "Handles connection endpoint configuration",
-            "Implements peer list synchronization",
-            "Provides P2P connection support",
-            "Maintains immutable critical security fields"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/argon/autotuner.rs",
-        "context": [
-            "Automatic parameter tuning for Argon2 password hashing",
-            "Implements ORY's guidelines for parameter selection",
-            "Uses memory-first tuning strategy for optimal security",
-            "Dynamically adjusts based on system capabilities",
-            "Supports multi-threading with CPU core detection",
-            "Provides configurable minimum execution time",
-            "Includes safeguards for memory usage",
-            "Implements iterative parameter optimization",
-            "Supports custom hash lengths and secret keys",
-            "Designed for release-mode performance tuning"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/lib.rs",
-        "context": [
-            "Core cryptographic framework for the Citadel Protocol",
-            "Implements post-quantum cryptography and perfect forward secrecy",
-            "Provides secure memory management with zero-copy operations",
-            "Features entropy banking system for key derivation",
-            "Includes packet vectorization and port scrambling",
-            "Implements FCM (Forward Chain Messaging) primitives",
-            "Integrates Argon2 with auto-tuning capabilities",
-            "All operations are thread-safe and memory-efficient",
-            "Uses defense-in-depth with multiple security layers",
-            "Automatic memory zeroing for sensitive data"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/lib.rs",
-        "context": [
-            "Main entry point for Citadel Wire crate",
-            "Provides secure peer-to-peer connection capabilities",
-            "Implements NAT traversal and UDP hole punching",
-            "Enforces zero unsafe code policy",
-            "Uses async-first design with security focus"
-        ]
-    },
-    {
-        "file": "./async_ip/src/lib.rs",
-        "context": [
-            "Utility crate for asynchronous IP address resolution",
-            "Provides both IPv4 and IPv6 resolution with fallback mechanisms",
-            "Supports internal and external IP detection",
-            "Uses multiple services concurrently for reliability",
-            "Has special handling for WebAssembly environments",
-            "Key component for NAT traversal and network identification",
-            "Uses HTTP-based IP resolution services with configurable endpoints",
-            "Implements custom error handling for network and parsing failures"
-        ]
-    },
-    {
-        "file": "./firebase-rtdb/src/lib.rs",
-        "context": [
-            "Lightweight async Rust client for Firebase Realtime Database",
-            "Provides JWT-based authentication with automatic token renewal",
-            "Implements all CRUD operations with JSON serialization",
-            "Uses hierarchical node-based database access",
-            "Handles connection timeouts and TLS security",
-            "Provides error handling for network and database operations",
-            "Supports connection pooling and TCP nodelay for performance",
-            "Implements Firebase Security Rules compatibility",
-            "Uses reqwest for HTTP communication with async support",
-            "Manages authentication state and token expiration"
-        ]
-    },
-    {
-        "file": "./firebase-rtdb/Cargo.toml",
-        "context": [
-            "Package configuration for Firebase RTDB client",
-            "Uses workspace-level dependency management",
-            "Configures reqwest with rustls-tls for secure communication",
-            "Includes serde for JSON serialization support",
-            "Defines crate metadata and documentation links",
-            "Specifies test dependencies for integration testing"
-        ]
-    },
-    {
-        "file": "./firebase-rtdb/tests/primary.rs",
-        "context": [
-            "Integration test file for Firebase RTDB client",
-            "Currently empty, prepared for future test implementations"
-        ]
-    },
-    {
-        "file": "./netbeam/src/lib.rs",
-        "context": [
-            "Core library for high-performance networking with multiplexing support",
-            "Provides reliable ordered message delivery guarantees",
-            "Implements network-aware synchronization primitives",
-            "Uses zero unsafe code and leverages Rust's type system",
-            "Requires Tokio runtime for async operations",
-            "Supports both client and server modes with bi-directional communication",
-            "Includes time tracking utilities for network operations",
-            "Features proper error handling and type-safe APIs"
-        ]
-    },
-    {
-        "file": "./netbeam/src/reliable_conn.rs",
-        "context": [
-            "Core traits for reliable network connections",
-            "Implements ordered message delivery guarantees",
-            "Supports both direct and NAT-traversed connections",
-            "Provides connection addressing abstraction",
-            "Includes serialization support for messages",
-            "Implements network simulation for testing"
-        ]
-    },
-    {
-        "file": "./netbeam/src/multiplex.rs",
-        "context": [
-            "Network stream multiplexing implementation",
-            "Enables multiple logical connections over single physical connection",
-            "Provides bi-directional communication channels",
-            "Implements automatic stream ID generation and management",
-            "Ensures thread-safe subscription handling",
-            "Supports custom connection key types",
-            "Maintains message ordering within streams",
-            "Handles graceful stream initialization and cleanup",
-            "Uses pre-action and post-action hooks for lifecycle management",
-            "Provides both borrowed and owned subscription types"
-        ]
-    },
-    {
-        "file": "./netbeam/src/time_tracker.rs",
-        "context": [
-            "Provides precise timing utilities for network operations",
-            "Uses monotonic system time for consistency",
-            "Implements nanosecond precision timing",
-            "Handles time overflow protection",
-            "Used for latency measurements and timing-sensitive operations"
-        ]
-    },
-    {
-        "file": "./citadel_types/src/lib.rs",
-        "context": [
-            "Core type definitions for the Citadel Protocol",
-            "Provides fundamental data structures and utilities",
-            "Includes cryptographic types and parameters",
-            "Defines protocol-specific message types",
-            "Contains user-related data structures",
-            "Implements error handling and validation",
-            "Exports commonly used types through prelude"
-        ]
-    },
-    {
-        "file": "./citadel_types/src/crypto/mod.rs",
-        "context": [
-            "Defines cryptographic types and parameters",
-            "Implements secure memory management with SecBuffer",
-            "Provides algorithm selection and configuration",
-            "Supports post-quantum cryptography algorithms",
-            "Includes security level specifications",
-            "Implements secure memory locking and zeroing",
-            "Provides serialization for cryptographic types",
-            "Supports various secrecy modes for different use cases"
-        ]
-    },
-    {
-        "file": "./citadel_logging/src/lib.rs",
-        "context": [
-            "Structured logging facade for the Citadel Protocol",
-            "Built on top of the tracing ecosystem",
-            "Provides consistent logging setup across components",
-            "Supports file and line number information",
-            "Implements environment-based log level filtering",
-            "Includes panic handling with logging",
-            "Supports async-aware instrumentation",
-            "Uses span-based structured logging",
-            "Provides multiple log levels with target-based filtering"
-        ]
-    },
-    {
-        "file": "./citadel_io/src/lib.rs",
-        "context": [
-            "Cross-platform I/O utility crate for native and WebAssembly targets",
-            "Provides consistent interfaces for synchronization primitives",
-            "Implements platform-specific random number generation",
-            "Abstracts async runtime differences between native and WASM",
-            "Re-exports Tokio ecosystem with platform-specific implementations",
-            "Supports deadlock detection on native platforms"
-        ]
-    },
-    {
-        "file": "./citadel_io/src/standard/locks.rs",
-        "context": [
-            "Native platform synchronization primitives using parking_lot",
-            "High-performance mutex and read-write lock implementations",
-            "RAII-style lock guards for automatic resource management",
-            "More efficient than standard library synchronization types"
-        ]
-    },
-    {
-        "file": "./citadel_io/src/wasm/locks.rs",
-        "context": [
-            "WebAssembly-compatible synchronization primitives",
-            "Wraps standard library locks for WASM compatibility",
-            "Maintains API compatibility with native code",
-            "Single-threaded implementation for current WASM limitations"
-        ]
-    },
-    {
-        "file": "./citadel_io/src/wasm/rng.rs",
-        "context": [
-            "WebAssembly-compatible random number generation",
-            "Uses Web Crypto API through getrandom crate",
-            "Provides cryptographically secure random numbers",
-            "Implements RngCore and CryptoRng traits",
-            "Supports both fixed-size and dynamic buffer generation"
-        ]
-    },
-    {
-        "file": "./citadel_pqcrypto/src/lib.rs",
-        "context": [
-            "# Documentation Progress",
-            "## citadel_pqcrypto Crate",
-            "### Completed Documentation",
-            "- `lib.rs`: Crate-level documentation with overview, features, and examples",
-            "- `constructor_opts.rs`: Documentation for `ConstructorOpts` struct",
-            "- Enhanced `RecursiveChain` documentation with examples and security considerations",
-            "- `encryption.rs`: Module-level documentation",
-            "- `AeadModule` trait documentation",
-            "- `AesModule` implementation docs",
-            "- `ChaChaModule` implementation docs",
-            "- `AsconModule` implementation docs",
-            "- `KyberModule` implementation docs with quantum security considerations",
-            "- `export.rs`: Enhanced module-level documentation",
-            "- Key store serialization documentation",
-            "- Security considerations for key material",
-            "- Examples for serialization/deserialization",
-            "- `bytes_in_place.rs`: Comprehensive module documentation",
-            "- `InPlaceBuffer` and `EzBuffer` documentation",
-            "- Examples for buffer operations",
-            "- `wire.rs`: Module-level documentation",
-            "- Parameter transfer documentation",
-            "- Scrambling dictionary documentation",
-            "- `replay_attack_container.rs`: Module-level documentation",
-            "- Anti-replay attack mechanism documentation",
-            "- Examples and security considerations",
-            "### Security Considerations Documented",
-            "- Post-quantum cryptography principles",
-            "- Proper nonce handling",
-            "- Zeroization of sensitive data",
-            "- Constant-time operations",
-            "- Forward secrecy",
-            "- Local-user encryption for endpoint privacy",
-            "- Anti-replay attack protections",
-            "- Key material serialization safety",
-            "- Buffer operation safety",
-            "- Parameter transfer security",
-            "### Next Steps",
-            "1. Review remaining files in citadel_pqcrypto for any documentation gaps",
-            "2. Cross-reference documentation between related components",
-            "3. Ensure all security considerations are thoroughly documented",
-            "4. Add more real-world usage examples",
-            "### Code Style and Standards",
-            "- All documentation follows Rust documentation best practices",
-            "- Examples are provided for key functionality",
-            "- Security considerations are clearly outlined",
-            "- Cross-references between related components are maintained"
-        ]
-    },
-    {
-        "file": "./citadel_pqcrypto/src/constructor_opts.rs",
-        "context": [
-            "Provides configuration options for post-quantum cryptography (PQC) instances",
-            "Includes ConstructorOpts for PQC initialization and RecursiveChain for key derivation",
-            "Focuses on secure parameter handling and memory safety",
-            "Supports both initial and chained cryptographic operations"
-        ]
-    },
-    {
-        "file": "./citadel_pqcrypto/src/bytes_in_place.rs",
-        "context": [
-            "Implements memory-efficient and secure in-place buffer operations",
-            "Features window-based buffer access control for safe data manipulation",
-            "Supports both Vec<u8> and BytesMut buffer types",
-            "Emphasizes zero-copy operations and memory safety"
-        ]
-    },
-    {
-        "file": "./citadel_pqcrypto/src/wire.rs",
-        "context": [
-            "Implements secure wire protocol for PQC parameter transfer",
-            "Provides parameter transfer structures for Alice-Bob key exchange",
-            "Features data scrambling for additional security",
-            "Supports both symmetric and asymmetric encryption modes",
-            "Ensures memory safety and automatic parameter cleanup"
-        ]
-    },
-    {
-        "file": "./citadel_pqcrypto/src/replay_attack_container.rs",
-        "context": [
-            "Implements protection against replay attacks in communications",
-            "Uses circular buffer for efficient PID history tracking",
-            "Supports out-of-order packet delivery within configurable window",
-            "Provides thread-safe PID generation and validation",
-            "Features automatic state reset on re-keying"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/hypernode_type.rs",
-        "context": [
-            "This module defines network node types and their behaviors in the Citadel Protocol. It handles configuration for server nodes with static IPs and peer nodes in residential NAT environments, including automatic UPnP handling and NAT traversal fallback mechanisms"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/error.rs",
-        "context": [
-            "This module implements error types specific to network traversal and firewall operations",
-            "It provides custom error types for UPnP and hole punching operations, with conversion traits to standard IO errors",
-            "The error types help categorize and handle various network-related failure scenarios, including port mapping failures and exhausted hole punching attempts"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/nat_identification.rs",
-        "context": [
-            "Provides NAT type identification and analysis",
-            "Uses STUN servers for NAT behavior detection",
-            "Analyzes port and IP translation patterns",
-            "Supports IPv4 and IPv6 compatibility checks",
-            "Determines optimal NAT traversal strategies"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/socket_helpers.rs",
-        "context": [
-            "Provides socket creation and configuration utilities",
-            "Handles TCP and UDP socket setup",
-            "Implements platform-specific socket options",
-            "Supports IPv4 and IPv6 with automatic mapping",
-            "Manages socket reuse for NAT traversal"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/upnp_handler.rs",
-        "context": [
-            "Provides UPnP port mapping and gateway management",
-            "Handles automatic gateway discovery and configuration",
-            "Manages port forwarding for TCP and UDP protocols",
-            "Supports configurable lease durations and targeted forwarding",
-            "Implements external IP and local IP detection"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/quic.rs",
-        "context": [
-            "Implements QUIC protocol for secure connections",
-            "Supports client and server endpoints",
-            "Handles self-signed and PKCS#12 certificates",
-            "Provides NAT traversal-friendly transport",
-            "Uses Tokio for async/await support"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/tls.rs",
-        "context": [
-            "Provides TLS configuration and certificate management",
-            "Supports both TLS and QUIC protocols",
-            "Handles self-signed and PKCS#12 certificates",
-            "Implements native system certificate loading",
-            "Uses Rustls for secure TLS implementation"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/misc.rs",
-        "context": [
-            "Provides certificate format conversion utilities",
-            "Handles PKCS#12 to QUIC format conversion",
-            "Manages certificate chain extraction",
-            "Implements private key conversion",
-            "Ensures memory-safe certificate handling"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/hole_punch_config.rs",
-        "context": [
-            "Provides configuration for UDP hole punching NAT traversal",
-            "Handles address prediction and socket preparation",
-            "Configures port ranges based on NAT behavior",
-            "Supports both IPv4 and IPv6 traversal",
-            "Implements iterator-based address generation"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/udp_hole_puncher.rs",
-        "context": [
-            "Implements core UDP hole punching algorithm for NAT traversal",
-            "Handles asynchronous connection establishment between peers",
-            "Supports dual-stack IPv4/IPv6 with automatic retry",
-            "Manages encrypted configuration exchange",
-            "Provides NAT-aware socket binding optimization"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/targetted_udp_socket_addr.rs",
-        "context": [
-            "Manages NAT-aware UDP socket addressing",
-            "Handles separate send/receive addresses for NAT traversal",
-            "Provides packet validation and connection state tracking",
-            "Implements socket cleanup after hole punching",
-            "Supports UPnP address translation detection"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/mod.rs",
-        "context": [
-            "Core UDP NAT traversal framework module",
-            "Coordinates multiple traversal methods and strategies",
-            "Manages UPnP and hole punching integration",
-            "Provides unique connection identification",
-            "Implements method prioritization and fallback"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/linear/encrypted_config_container.rs",
-        "context": [
-            "Manages secure packet encryption for hole punching configuration",
-            "Handles custom STUN server configurations",
-            "Provides zero-copy packet handling optimizations",
-            "Supports localhost testing mode with disabled encryption",
-            "Implements thread-safe encryption function containers"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/linear/method3.rs",
-        "context": [
-            "Implements advanced UDP hole punching with variable TTL values",
-            "Handles asymmetric NAT traversal failures with recovery mode",
-            "Provides encrypted configuration exchange between peers",
-            "Supports dual-stack IPv4/IPv6 operation",
-            "Implements thread-safe UDP socket operations"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/linear/mod.rs",
-        "context": [
-            "Implements linear UDP hole punching for client-server scenarios",
-            "Coordinates multiple traversal methods with fallback strategy",
-            "Manages synchronized connection establishment timing",
-            "Provides recovery mode for asymmetric failures",
-            "Integrates UPnP support with automatic fallback"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/udp_traversal/multi/mod.rs",
-        "context": [
-            "Implements concurrent dual-stack UDP hole punching",
-            "Manages multiple traversal attempts across ports",
-            "Coordinates winner selection between attempts",
-            "Handles IPv4/IPv6 protocol selection",
-            "Provides multiplexed connection management"
-        ]
-    },
-    {
-        "file": "./citadel_wire/src/standard/mod.rs",
-        "context": [
-            "Provides core networking components for Citadel Protocol",
-            "Implements QUIC, TLS, and NAT traversal",
-            "Handles UPnP and socket configuration",
-            "Supports peer-to-peer networking",
-            "Uses async-first design philosophy"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/entropy_bank.rs",
-        "context": [
-            "Implements dynamic entropy management",
-            "Provides secure nonce generation",
-            "Handles packet encryption/decryption",
-            "Prevents replay attacks",
-            "Manages transient counters",
-            "Integrates post-quantum operations"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/endpoint_crypto_container.rs",
-        "context": [
-            "Manages peer session cryptographic state",
-            "Implements thread-safe ratchet updates",
-            "Handles version control and conflicts",
-            "Manages session key rotation",
-            "Supports atomic state transitions",
-            "Integrates with post-quantum cryptography"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/misc.rs",
-        "context": [
-            "Provides cryptographic utility functions",
-            "Implements flexible error handling",
-            "Generates random port mappings",
-            "Supports security level validation",
-            "Implements error type conversions",
-            "Provides debug and display utilities"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/secure_buffer/partitioned_sec_buffer.rs",
-        "context": [
-            "Implements secure partitioned buffer management",
-            "Provides fixed-size memory partitioning",
-            "Enforces strict partition boundaries",
-            "Supports zero-copy partition access",
-            "Implements automatic buffer zeroing",
-            "Provides thread-safe partition operations"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/packet_vector.rs",
-        "context": [
-            "Implements secure packet sequencing",
-            "Provides wave-based packet organization",
-            "Manages scrambled port assignments",
-            "Implements sequence hiding",
-            "Supports automatic memory zeroing",
-            "Ensures ordered packet delivery"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/sync_toggle.rs",
-        "context": [
-            "Provides thread-safe toggle state management",
-            "Implements atomic state transitions",
-            "Supports one-way toggle operations",
-            "Enables state change detection",
-            "Uses sequential consistency ordering"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/stacked_ratchet.rs",
-        "context": [
-            "Implements perfect forward secrecy",
-            "Manages independent key evolution",
-            "Provides post-quantum support",
-            "Handles message protection",
-            "Implements anti-replay protection",
-            "Ensures ordered packet delivery"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/scramble/crypt_splitter.rs",
-        "context": [
-            "Implements secure packet splitting and scrambling",
-            "Provides wave-based packet transmission",
-            "Supports dynamic packet sizing based on security level",
-            "Implements packet reconstruction with timeout handling",
-            "Manages encrypted and unencrypted packet transmission",
-            "Integrates with post-quantum cryptography"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/streaming_crypt_scrambler.rs",
-        "context": [
-            "Implements asynchronous streaming encryption for large data sources",
-            "Supports both file-based and in-memory data sources",
-            "Provides backpressure support through async/await",
-            "Manages efficient group-based encryption and transmission",
-            "Supports custom header inscription for packets",
-            "Implements progress tracking and cancellation"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/toolset.rs",
-        "context": [
-            "Manages cryptographic ratchet versioning and synchronization",
-            "Implements memory-bounded storage for active ratchets",
-            "Provides static auxiliary ratchet for persistent encryption",
-            "Handles secure ratchet updates and deregistration",
-            "Ensures thread-safe access to cryptographic primitives",
-            "Manages rolling window of active encryption keys"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/fcm/keys.rs",
-        "context": [
-            "Manages Firebase Cloud Messaging (FCM) credentials",
-            "Provides thread-safe access to API keys and client IDs",
-            "Implements efficient memory management through Arc",
-            "Supports serialization for credential persistence",
-            "Ensures secure handling of sensitive credential data",
-            "Enables type-safe FCM key construction and access"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/fcm/fcm_ratchet.rs",
-        "context": [
-            "Implements size-optimized cryptographic ratchet for FCM",
-            "Provides post-quantum secure messaging within 4KB limit",
-            "Manages secure key evolution and perfect forward secrecy",
-            "Supports both synchronous and asynchronous operations",
-            "Implements message protection and validation",
-            "Integrates with Firebase Cloud Messaging service"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/argon/argon_container.rs",
-        "context": [
-            "Implements asynchronous Argon2 password hashing",
-            "Provides client and server-side password handling",
-            "Supports configurable memory and time cost parameters",
-            "Implements secure memory management with SecBuffer",
-            "Supports associated data and secret keys",
-            "Uses Argon2id variant for optimal security"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/secure_buffer/sec_packet.rs",
-        "context": [
-            "Implements secure packet buffer handling",
-            "Provides three-part packet structure (header, payload, extension)",
-            "Enforces ordered write operations for packet construction",
-            "Implements zero-copy packet operations",
-            "Manages automatic memory cleanup",
-            "Supports fixed-size header optimization"
-        ]
-    },
-    {
-        "file": "./citadel_crypt/src/secure_buffer/mod.rs",
-        "context": [
-            "Provides secure buffer management module",
-            "Implements memory-safe buffer operations",
-            "Supports zero-copy data handling",
-            "Manages automatic memory zeroing",
-            "Includes packet writing utilities",
-            "Integrates with streaming operations"
-        ]
-    },
-    {
-        "file": "./citadel_user/src/misc.rs",
-        "context": [
-            "Provides core error handling for account operations",
-            "Manages CNAC metadata structures",
-            "Implements cross-platform path validation",
-            "Handles timestamp formatting",
-            "Provides virtual path management",
-            "Implements error type conversion",
-            "Manages account identification",
-            "Handles platform-specific path formatting",
-            "Provides directory validation",
-            "Implements metadata comparison"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/remote.rs",
-        "context": [
-            "Implements remote communication functionality",
-            "Provides high-level interface for node communication",
-            "Supports asynchronous request/response patterns",
-            "Manages ticket-based request tracking",
-            "Integrates with account management system",
-            "Implements callback-based event handling",
-            "Ensures secure communication channels",
-            "Supports post-quantum cryptography",
-            "Handles network errors comprehensively",
-            "Provides bounded message sending"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/endpoint_crypto_accessor.rs",
-        "context": [
-            "Manages cryptographic state access for P2P and C2S channels",
-            "Provides safe borrowing mechanisms for crypto operations",
-            "Implements version-aware state management",
-            "Ensures thread-safe container access",
-            "Integrates with post-quantum cryptography",
-            "Handles missing or invalid crypto states",
-            "Supports both peer-to-peer and client-server modes",
-            "Uses StackedRatchet for core crypto operations"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/session.rs",
-        "context": [
-            "Core session management for Citadel Protocol",
-            "Handles active connections between peers",
-            "Manages authentication and key exchange",
-            "Implements secure file transfer functionality",
-            "Supports UDP connectivity for performance",
-            "Provides clean shutdown and resource cleanup",
-            "Uses post-quantum cryptography for security",
-            "Maintains perfect forward secrecy",
-            "Implements automatic key rotation",
-            "Handles session state transitions",
-            "Manages packet processing and connection state"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/node_request.rs",
-        "context": [
-            "Defines node communication request types",
-            "Manages node registration and connections",
-            "Handles secure file transfer operations",
-            "Implements peer-to-peer command handling",
-            "Supports group broadcast functionality",
-            "Provides session security configuration",
-            "Implements key rotation operations",
-            "Uses ticket tracking for async responses",
-            "Supports SHA-256 password hashing",
-            "Configurable security levels for operations"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_container.rs",
-        "context": [
-            "Core state management system for Citadel Protocol",
-            "Manages connection states and transitions",
-            "Handles virtual connections (P2P and C2S)",
-            "Implements secure group messaging",
-            "Manages file transfers with progress tracking",
-            "Supports UDP connectivity for performance",
-            "Implements cryptographic state verification",
-            "Protects against replay attacks",
-            "Provides secure group key management",
-            "Implements end-to-end file encryption",
-            "Handles connection timeouts and cleanup"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/mod.rs",
-        "context": [
-            "Core packet processing infrastructure for the Citadel Protocol",
-            "Key aspects:",
-            "- Manages multiple packet types (connection, auth, data)",
-            "- Implements processing pipeline with validation",
-            "- Handles packet security and integrity",
-            "- Provides backpressure and ordering guarantees",
-            "- Coordinates between different packet processors"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/node.rs",
-        "context": [
-            "Core networking implementation for Citadel Protocol",
-            "Supports multiple transport protocols (TCP, TLS, QUIC)",
-            "Implements NAT traversal for P2P connections",
-            "Manages concurrent network sessions",
-            "Uses post-quantum cryptography",
-            "Supports pre-shared key authentication",
-            "Handles both client-server and P2P modes",
-            "Provides protocol negotiation",
-            "Manages network socket listeners",
-            "Implements secure session establishment",
-            "Handles kernel communication",
-            "Supports TLS certificate management"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/node_result.rs",
-        "context": [
-            "Defines result types for node operations",
-            "Handles registration, connection, and event results",
-            "Manages transfer and group operation outcomes",
-            "Provides comprehensive error reporting",
-            "Implements ticket tracking for async operations",
-            "Integrates with session and channel management"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/preconnect_packet.rs",
-        "context": [
-            "Handles initial connection establishment",
-            "Implements NAT traversal and hole punching",
-            "Manages protocol version compatibility",
-            "Handles session state validation",
-            "Implements security level negotiation",
-            "Supports UDP and QUIC transports",
-            "Initializes cryptographic ratchets",
-            "Manages preconnect handshake flow",
-            "Validates session states",
-            "Processes connection requests",
-            "Handles NAT traversal configuration",
-            "Manages protocol version synchronization"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/udp_packet.rs",
-        "context": [
-            "Handles UDP packet processing",
-            "Manages unordered channels",
-            "Validates packet security",
-            "Monitors channel state",
-            "Handles cleanup tasks",
-            "Processes secure payloads",
-            "Manages data transmission",
-            "Validates authentication",
-            "Handles session state",
-            "Manages buffer security",
-            "Processes channel drops",
-            "Handles error states"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/mod.rs",
-        "context": [
-            "Manages peer communications",
-            "Handles group broadcasts",
-            "Processes peer commands",
-            "Manages server interactions",
-            "Handles signal processing",
-            "Manages disconnect signals",
-            "Tracks peer sessions",
-            "Handles operation results",
-            "Manages error states",
-            "Supports ticket operations",
-            "Processes peer state",
-            "Coordinates peer modules"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/signal_handler_interface.rs",
-        "context": [
-            "Defines signal handling interface",
-            "Manages async signal operations",
-            "Handles outbound signals",
-            "Processes server signals",
-            "Manages target reception",
-            "Implements error handling",
-            "Uses async traits",
-            "Supports signal types",
-            "Manages signal flow",
-            "Requires type implementation",
-            "Handles network errors",
-            "Pending PeerSignal structification"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/server/mod.rs",
-        "context": [
-            "Manages server-side peer operations",
-            "Handles post-connection states",
-            "Processes post-registration",
-            "Validates peer sessions",
-            "Tracks session states",
-            "Manages server operations",
-            "Handles connection states",
-            "Processes registration completion",
-            "Coordinates peer modules",
-            "Manages state tracking",
-            "Handles peer validation",
-            "Manages session completion"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/server/post_connect.rs",
-        "context": [
-            "Handles post-connection phase",
-            "Establishes virtual connections",
-            "Configures security settings",
-            "Manages UDP channels",
-            "Routes peer signals",
-            "Synchronizes session states",
-            "Manages connection tables",
-            "Handles TCP channels",
-            "Processes peer responses",
-            "Manages security levels",
-            "Tracks connection states",
-            "Needs disconnect cleanup"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/server/post_register.rs",
-        "context": [
-            "Handles post-registration phase",
-            "Processes registration responses",
-            "Sets up HyperLAN P2P",
-            "Validates usernames",
-            "Routes signals",
-            "Manages tickets",
-            "Processes responses",
-            "Handles registration declines",
-            "Manages async registration",
-            "Needs error routing",
-            "Manages security levels",
-            "Tracks registration state"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/group_broadcast.rs",
-        "context": [
-            "Handles group messaging",
-            "Manages group membership",
-            "Processes group broadcasts",
-            "Controls group permissions",
-            "Tracks group state",
-            "Handles invitations",
-            "Manages group listing",
-            "Processes member states",
-            "Handles group creation",
-            "Manages group termination",
-            "Encrypts messages",
-            "Handles disconnections"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs",
-        "context": [
-            "Processes peer commands",
-            "Routes peer signals",
-            "Handles key exchange",
-            "Manages group broadcasts",
-            "Tracks session states",
-            "Manages tickets",
-            "Handles error states",
-            "Mediates server operations",
-            "Validates authentication",
-            "Supports client/server roles",
-            "Manages peer sessions",
-            "Implements group operations"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/transfer_stats.rs",
-        "context": [
-            "Handles network transfer statistics tracking with nanosecond precision",
-            "Core component for monitoring protocol performance metrics",
-            "Implements AddAssign for aggregating statistics over time",
-            "Tracks transfer rates, jitter, and total bytes transferred",
-            "Uses wrapping arithmetic to handle potential numeric overflows",
-            "Thread-safe design for concurrent statistics updates"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/packet_processor/channel.rs",
-        "context": [
-            "Implements peer-to-peer communication channels",
-            "Provides both TCP and UDP channel implementations",
-            "Supports WebRTC compatibility through feature flag",
-            "Uses split architecture for async send/receive operations",
-            "Implements automatic resource cleanup on channel drop",
-            "Manages security levels for message encryption",
-            "Handles virtual connections between peers",
-            "Supports ordered and reliable message delivery",
-            "Integrates with the peer layer for connection management",
-            "Provides Stream trait implementation for async operations"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/peer_layer.rs",
-        "context": [
-            "The peer layer module serves as the core peer-to-peer networking infrastructure in the Citadel Protocol. It manages peer connections, message groups, and signal routing between nodes. Key features include:",
-            "Peer signal management and routing between nodes",
-            "Message group functionality with concurrent/pending peer support",
-            "Ticket-based connection tracking and management",
-            "Timeout handling with callback support",
-            "HyperLAN client communication integration"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/p2p_conn_handler.rs",
-        "context": [
-            "The P2P connection handler module implements direct peer-to-peer connections and NAT traversal in the Citadel Protocol. Notable features include:",
-            "Direct P2P connection management (TCP/UDP)",
-            "NAT traversal via UDP hole punching",
-            "Connection lifecycle management",
-            "WebRTC compatibility",
-            "Integration with Citadel's security infrastructure"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/group_channel.rs",
-        "context": [
-            "The group channel module provides secure group communication channels in the Citadel Protocol. Key aspects include:",
-            "Split channel architecture (separate send/receive)",
-            "Group broadcast capabilities",
-            "Permission-based member management",
-            "Secure message encryption",
-            "Asynchronous message streaming support"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/message_group.rs",
-        "context": [
-            "The message group module implements a consent-based group messaging framework in the Citadel Protocol. Key features include:",
-            "Axis of consent model centered around group initiator",
-            "Management of concurrent and pending peer states",
-            "Group lifecycle and permission management",
-            "Short-lived messaging frames for temporary communications",
-            "Local message history persistence"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/peer_crypt.rs",
-        "context": [
-            "The peer cryptography module handles secure key exchange and NAT traversal for P2P connections. Notable aspects include:",
-            "Multi-stage key exchange protocol",
-            "NAT type detection and compatibility checking",
-            "TLS integration for secure connections",
-            "Configurable security levels and UDP modes",
-            "STUN/TURN server fallback support"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/hole_punch_compat_sink_stream.rs",
-        "context": [
-            "The hole punch compatibility stream module provides NAT traversal functionality. Key features include:",
-            "Reliable ordered stream interface for hole punching",
-            "Protocol compatibility layer",
-            "Stacked ratchet encryption integration",
-            "Support for both C2S and P2P routing",
-            "Connection state and packet ordering management"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/mod.rs",
-        "context": [
-            "Core implementation of the Citadel Protocol",
-            "Manages sessions, packet processing, and security",
-            "Implements peer-to-peer and group communication",
-            "Handles connection state management",
-            "Provides efficient packet validation and routing",
-            "Integrates with cryptographic and networking layers"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/mod.rs",
-        "context": [
-            "The state subcontainers module provides specialized state management for different aspects of the Citadel Protocol's connection lifecycle. Key features include:",
-            "Connection state management and transitions",
-            "Key exchange and cryptographic state handling",
-            "Registration and authentication state tracking",
-            "State persistence and timeout management",
-            "Modular state container architecture"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/connect_state_container.rs",
-        "context": [
-            "Core connection state management module for Citadel Protocol",
-            "Implements stage-based connection tracking and transitions",
-            "Handles credential management during connection process",
-            "Provides timing control and failure monitoring",
-            "Supports different connection modes and state recovery",
-            "Integrates with packet processing and session management",
-            "Uses atomic operations for thread-safe state transitions"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/peer_kem_state_container.rs",
-        "context": [
-            "The peer key exchange management container handles P2P cryptographic states. Key features include:",
-            "Key exchange state management",
-            "Session security configuration",
-            "UDP channel control",
-            "Role-based key exchange",
-            "Session password management"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/preconnect_state_container.rs",
-        "context": [
-            "The pre-connection state container manages initial connection setup. Important aspects include:",
-            "Pre-connection stage tracking",
-            "Node type management",
-            "Cryptographic initialization",
-            "UDP channel setup",
-            "Connection ticket handling"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/register_state_container.rs",
-        "context": [
-            "The registration state container handles user registration processes. Key features include:",
-            "Registration stage management",
-            "Cryptographic setup handling",
-            "Registration timing control",
-            "Failure state management",
-            "Passwordless registration support"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/deregister_state_container.rs",
-        "context": [
-            "Manages account deregistration state in Citadel Protocol",
-            "Tracks deregistration process progress and timing",
-            "Handles deregistration tickets for process identification",
-            "Provides atomic state transitions for thread safety",
-            "Integrates with session and remote operations",
-            "Ensures proper validation of deregistration requests"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/meta_expiry_container.rs",
-        "context": [
-            "Manages expiration state for high-traffic packet processing",
-            "Prevents false expiration of active groups under high load",
-            "Supports both inbound and outbound traffic monitoring",
-            "Handles file transfer expiry tracking",
-            "Provides adaptive expiry timing based on workload",
-            "Integrates with packet processing and group management",
-            "Uses constant GROUP_EXPIRE_TIME_MS for timing control"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/rekey_container.rs",
-        "context": [
-            "Manages cryptographic key rotation and ratchet updates",
-            "Implements security level-based key update scheduling",
-            "Supports peer-to-peer key updates and notifications",
-            "Provides configurable security levels (0-4)",
-            "Implements adaptive update frequency based on security needs",
-            "Handles local rekey requests and kernel notifications",
-            "Uses stacked ratchet construction for key rotation"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/codec.rs",
-        "context": [
-            "Basic bytes codec implementation for raw data transmission",
-            "Handles efficient encoding/decoding with configurable buffer capacity",
-            "Implements zero-copy operations for performance",
-            "Uses tokio_util's Encoder and Decoder traits",
-            "Maintains minimum buffer size with auto-resizing"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/rekey_container.rs",
-        "context": [
-            "Manages cryptographic key rotation and ratchet updates",
-            "Implements security level-based key update scheduling",
-            "Supports peer-to-peer key updates with state tracking",
-            "Provides configurable security levels (0-4)",
-            "Handles local rekey requests and notifications",
-            "Implements adaptive update frequency based on security needs"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/state_subcontainers/connect_state_container.rs",
-        "context": [
-            "Manages active connection states with stage-based transitions",
-            "Handles connection credentials and authentication",
-            "Tracks connection timing and failures",
-            "Supports different connection modes",
-            "Provides state recovery mechanisms",
-            "Integrates with session and packet processing systems"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/peer/group_channel.rs",
-        "context": [
-            "Implements secure group communication channels",
-            "Uses split channel architecture for send/receive operations",
-            "Supports group broadcasts and member management",
-            "Implements permission-based group operations",
-            "Provides Stream trait implementation for async messaging",
-            "Uses SecBuffer for encrypted message payloads",
-            "Handles proper cleanup through Drop implementations"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/clean_shutdown.rs",
-        "context": [
-            "The clean shutdown module provides utilities for gracefully terminating components in the Citadel Protocol. It ensures proper resource cleanup and component notification during shutdown operations.",
-            "Key aspects:",
-            "- Implements asynchronous shutdown coordination",
-            "- Manages resource cleanup during shutdown",
-            "- Provides timeout-based forced shutdown",
-            "- Ensures thread-safe shutdown operations",
-            "- Broadcasts shutdown notifications to components"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/dual_cell.rs",
-        "context": [
-            "The dual cell module implements a flexible cell type that adapts to both single-threaded and multi-threaded contexts through compile-time feature selection.",
-            "Key aspects:",
-            "- Uses Cell in single-threaded mode",
-            "- Uses atomics in multi-threaded mode",
-            "- Provides zero-cost thread safety abstractions",
-            "- Ensures proper Send + Sync implementations",
-            "- Maintains consistent API across modes"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/dual_late_init.rs",
-        "context": [
-            "The dual late init module provides a container for safely initializing values after construction. It ensures proper initialization semantics across different threading contexts.",
-            "Key aspects:",
-            "- Ensures safe late initialization",
-            "- Tracks initialization state",
-            "- Prevents double initialization",
-            "- Provides thread-safe access",
-            "- Zero overhead in single-threaded mode"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/dual_rwlock.rs",
-        "context": [
-            "The dual rwlock module implements a flexible read-write lock that adapts to both single-threaded and multi-threaded contexts through compile-time features.",
-            "Key aspects:",
-            "- Uses RefCell in single-threaded mode",
-            "- Uses RwLock in multi-threaded mode",
-            "- Supports multiple readers",
-            "- Provides exclusive writer access",
-            "- Prevents deadlocks",
-            "- Zero-cost thread safety abstractions"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/lock_holder.rs",
-        "context": [
-            "The lock holder module provides safe lock management across asynchronous boundaries in the Citadel Protocol. It ensures proper lock handling and cleanup.",
-            "Key aspects:",
-            "- Manages locks in async contexts",
-            "- Prevents deadlocks",
-            "- Implements RAII-style cleanup",
-            "- Tracks lock states",
-            "- Ensures thread safety",
-            "- Prevents resource leaks"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/mod.rs",
-        "context": [
-            "The misc module provides utility types and functions used throughout the Citadel Protocol implementation.",
-            "Key aspects:",
-            "- Provides thread-safe data structures",
-            "- Implements network utilities",
-            "- Manages protocol resources",
-            "- Supports async operations",
-            "- Defines protocol types",
-            "- Ensures zero-cost abstractions"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/net.rs",
-        "context": [
-            "The network utilities module provides core networking functionality for the Citadel Protocol, handling connections and protocol operations.",
-            "Key aspects:",
-            "- Manages network sockets and connections",
-            "- Handles address resolution",
-            "- Implements protocol negotiation",
-            "- Supports multiple transport protocols",
-            "- Provides error handling and recovery",
-            "- Handles both IPv4 and IPv6"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/ordered_channel.rs",
-        "context": [
-            "The ordered channel module implements a messaging channel that guarantees message ordering for protocol operations.",
-            "Key aspects:",
-            "- Ensures strict message ordering",
-            "- Implements asynchronous operations",
-            "- Provides backpressure mechanisms",
-            "- Supports multiple producers",
-            "- Maintains thread safety",
-            "- Handles channel state and cleanup"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/panic_future.rs",
-        "context": [
-            "The panic future module provides a wrapper for safely handling panics in asynchronous code, preventing process crashes.",
-            "Key aspects:",
-            "- Catches and handles panics",
-            "- Converts panics to errors",
-            "- Wraps futures safely",
-            "- Ensures proper unwinding",
-            "- Maintains thread safety",
-            "- Preserves error types"
-        ]
-    },
-    {
-        "file": "./citadel_proto/src/proto/misc/session_security_settings.rs",
-        "context": [
-            "The session security settings module defines configuration options for securing protocol sessions.",
-            "Key aspects:",
-            "- Configures encryption parameters",
-            "- Manages authentication settings",
-            "- Controls key management",
-            "- Sets security levels",
-            "- Handles protocol versions",
-            "- Provides secure defaults"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/subscription.rs",
-        "context": [
-            "Provides bidirectional subscription-based streaming",
-            "Key aspects:",
-            "- Implements reliable ordered messaging",
-            "- Manages stream subscriptions",
-            "- Supports connection multiplexing",
-            "- Handles connection lifecycle",
-            "- Ensures thread-safety and ordering"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/sync_start.rs",
-        "context": [
-            "Implements network operation synchronization primitives",
-            "Key aspects:",
-            "- Coordinates operation start between nodes",
-            "- Supports type-safe payload exchange",
-            "- Handles network latency compensation",
-            "- Integrates with async/await",
-            "- Provides timing coordination"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/network_endpoint.rs",
-        "context": [
-            "Provides network endpoint abstraction with address management",
-            "Key aspects:",
-            "- Manages socket addresses",
-            "- Handles connection registration",
-            "- Tracks connection roles",
-            "- Integrates with network applications",
-            "- Provides address resolution"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/network_application.rs",
-        "context": [
-            "Core network application implementation with synchronization primitives",
-            "Key aspects:",
-            "- Provides network synchronization primitives",
-            "- Implements network operations (select, join)",
-            "- Manages communication channels",
-            "- Handles connection multiplexing",
-            "- Ensures operation coordination"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/callback_channel.rs",
-        "context": [
-            "Specialized channel implementation for async request-response patterns",
-            "Key aspects:",
-            "- Asynchronous message passing with optional callbacks",
-            "- Built on Tokio MPSC channels",
-            "- Supports fire-and-forget operations",
-            "- Thread-safe and cloneable",
-            "- Implements Stream trait for receiver"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/tracked_callback_channel.rs",
-        "context": [
-            "Enhanced callback channel with request-response tracking",
-            "Key aspects:",
-            "- Request tracking with unique IDs",
-            "- Response correlation with requests",
-            "- Thread-safe tracking with atomics",
-            "- Memory-efficient response tracking",
-            "- Support for response timeouts"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/mod.rs",
-        "context": [
-            "Core synchronization module for Netbeam framework",
-            "Key aspects:",
-            "- Network endpoint and application management",
-            "- Bidirectional channels with callbacks",
-            "- Request-response tracking",
-            "- Symmetric conversation tracking",
-            "- Reliable ordered streaming",
-            "- Thread-safe operations"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/operations/net_join.rs",
-        "context": [
-            "Network-aware join operation for future synchronization",
-            "Key aspects:",
-            "- Synchronizes futures across network endpoints",
-            "- Returns when both endpoints complete",
-            "- Early error termination",
-            "- Type-safe generic values",
-            "- Network-aware node types"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/operations/net_try_join.rs",
-        "context": [
-            "Network-aware try-join operation for fallible future synchronization",
-            "Key aspects:",
-            "- Synchronizes fallible futures across endpoints",
-            "- Returns when both endpoints complete",
-            "- Early error termination",
-            "- Type-safe generic value and error types",
-            "- State synchronization between nodes",
-            "- Network-aware node types"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/operations/net_select.rs",
-        "context": [
-            "Network-aware select operation for racing futures",
-            "Key aspects:",
-            "- Races futures between network endpoints",
-            "- First endpoint to complete wins",
-            "- Built-in conflict resolution",
-            "- Type-safe generic result type",
-            "- Network-aware node types"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/operations/net_select_ok.rs",
-        "context": [
-            "Network-aware select operation for racing fallible futures",
-            "Key aspects:",
-            "- Races fallible futures between endpoints",
-            "- First successful endpoint wins",
-            "- Built-in conflict resolution",
-            "- Error handling with Result type",
-            "- State synchronization between nodes",
-            "- Network-aware node types"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/primitives/net_mutex.rs",
-        "context": [
-            "Distributed mutex implementation for network synchronization",
-            "Key aspects:",
-            "- Distributed mutual exclusion",
-            "- Network-aware locking",
-            "- Automatic lock release",
-            "- State synchronization",
-            "- Deadlock prevention",
-            "- Background state management"
-        ]
-    },
-    {
-        "file": "./netbeam/src/sync/primitives/mod.rs",
-        "context": [
-            "Provides network-aware synchronization primitives",
-            "Defines NetObject trait for network-compatible types",
-            "Houses distributed mutex and rwlock implementations",
-            "Ensures thread-safety and serializability across network boundaries",
-            "Integrates with Serde for object serialization"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/builder/mod.rs",
-        "context": [
-            "Provides builder patterns for configuring Citadel Protocol components",
-            "Ensures type-safe configuration building",
-            "Validates component configurations",
-            "Supports flexible node setup for different network roles",
-            "Integrates with core networking kernel",
-            "Manages protocol implementation details"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/builder/node_builder.rs",
-        "context": [
-            "Implements builder pattern for Citadel network nodes",
-            "Supports both peer and server node configuration",
-            "Provides multiple backend storage options",
-            "Configures security settings (TLS, certificates)",
-            "Integrates with Google services",
-            "Supports STUN server configuration for NAT traversal",
-            "Manages server authentication via pre-shared keys",
-            "Handles kernel executor settings",
-            "Configures password hashing settings",
-            "Supports database configuration for enterprise features"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/backend_kv_store.rs",
-        "context": [
-            "Implements connection-scoped persistent key-value storage",
-            "Provides async operations for storing and retrieving arbitrary data",
-            "Uses session and peer IDs for storage isolation",
-            "Integrates with the persistence handler backend",
-            "Supports bulk operations for managing multiple key-value pairs",
-            "Implements automatic error handling and conversion",
-            "Designed for application-level data persistence"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/macros.rs",
-        "context": [
-            "Provides procedural macros for SDK trait implementations",
-            "Reduces boilerplate in network communication code",
-            "Supports async/await patterns in trait implementations",
-            "Ensures consistent Remote trait implementations",
-            "Integrates with account management and request handling",
-            "Used internally by the SDK for code generation",
-            "Requires async-trait feature for async implementations"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/client/mod.rs",
-        "context": [
-            "Root module for client-side networking components",
-            "Provides connection builders and configuration",
-            "Supports multiple authentication methods",
-            "Manages UDP and NAT traversal settings",
-            "Implements session security and PSK handling",
-            "Organizes broadcast, peer, and server connections",
-            "Defines base traits for prefab implementations"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/client/single_connection.rs",
-        "context": [
-            "Implements single client-to-server connection management",
-            "Supports multiple authentication modes",
-            "Provides NAT traversal with UDP support",
-            "Handles secure session management",
-            "Supports object transfer handling",
-            "Manages connection lifecycle"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/client/peer_connection.rs",
-        "context": [
-            "Manages peer-to-peer connections",
-            "Supports multiple simultaneous peers",
-            "Implements file transfer capabilities",
-            "Handles NAT traversal settings",
-            "Provides session security",
-            "Manages peer identification"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/client/broadcast.rs",
-        "context": [
-            "Implements group-based communication",
-            "Uses owner-based trust model",
-            "Supports public and private groups",
-            "Handles member registration",
-            "Manages group invitations",
-            "Enables concurrent participation"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/mod.rs",
-        "context": [
-            "Root module for pre-built network components",
-            "Organizes client and server implementations",
-            "Provides remote connection management",
-            "Handles file transfer functionality",
-            "Manages signal and event processing",
-            "Implements connection security",
-            "Supports peer discovery and listing"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/server/accept_file_transfer_kernel.rs",
-        "context": [
-            "Provides automatic handling of file transfers on the server side",
-            "Implements automatic acceptance and silent processing",
-            "Uses minimal resources with no configuration needed",
-            "Integrates with NetKernel for event handling",
-            "Handles error conditions gracefully",
-            "Supports both basic and RE-VFS transfers"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/server/client_connect_listener.rs",
-        "context": [
-            "Executes custom logic on client connection events",
-            "Implements async event processing and security management",
-            "Supports both TCP and UDP channels",
-            "Handles session security settings",
-            "Manages connection success events",
-            "Provides type-safe callback execution"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/server/empty.rs",
-        "context": [
-            "Provides minimal no-op network kernel implementation",
-            "Implements zero overhead event acceptance",
-            "Suitable for basic connection acceptance",
-            "Uses minimal system resources",
-            "Provides clean shutdown handling",
-            "Not designed for interactive servers"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/server/internal_service.rs",
-        "context": [
-            "Enables integration of internal services like HTTP servers",
-            "Supports HTTP/1.1 and HTTP/2 protocols",
-            "Implements bidirectional communication",
-            "Provides service lifecycle management",
-            "Handles automatic resource cleanup",
-            "Supports custom service handlers"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/server/mod.rs",
-        "context": [
-            "Organizes server-side network components",
-            "Provides pre-built server implementations",
-            "Supports file transfer and client connections",
-            "Enables internal service integration",
-            "Implements event-driven architecture",
-            "Manages component lifecycle"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/shared/internal_service.rs",
-        "context": [
-            "Provides core functionality for internal service integration",
-            "Implements bidirectional communication channels",
-            "Uses async I/O for efficient communication",
-            "Handles protocol conversion automatically",
-            "Manages resource cleanup and shutdown",
-            "Supports thread-safe message passing"
-        ]
-    },
-    {
-        "file": "./citadel_sdk/src/prefabs/shared/mod.rs",
-        "context": [
-            "Contains shared network components for client and server",
-            "Provides role-agnostic functionality",
-            "Implements thread-safe shared utilities",
-            "Uses async-first design patterns",
-            "Manages cross-role functionality",
-            "Organizes internal service integration"
-        ]
-    }
+  {
+    "file": "./citadel_sdk/src/responses.rs",
+    "context": [
+      "Provides helper functions for protocol responses",
+      "Handles peer registration responses",
+      "Manages peer connection responses",
+      "Processes group invitation responses",
+      "Handles automatic ticket management",
+      "Manages connection type reversal",
+      "Performs username resolution and validation",
+      "Requires matching request tickets",
+      "Integrates with Remote interface",
+      "Supports PeerSignal and NodeResult handling"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/test_common.rs",
+    "context": [
+      "Provides testing utilities for Citadel Protocol",
+      "Supports test server creation and configuration",
+      "Implements synchronization barriers for multi-peer tests",
+      "Includes UDP mode testing utilities",
+      "Provides P2P connection testing helpers",
+      "Manages local test peer coordination",
+      "Requires localhost-testing feature for most functionality",
+      "Integrates with NodeBuilder for server configuration",
+      "Supports EmptyKernel for basic testing",
+      "Includes connection validation utilities"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/remote_ext.rs",
+    "context": [
+      "Extends NodeRemote with high-level protocol operations",
+      "Provides user registration and authentication",
+      "Manages connections and file transfers",
+      "Supports encrypted virtual filesystem",
+      "Handles peer discovery and group communication",
+      "Implements security settings configuration",
+      "Uses asynchronous operations throughout",
+      "Supports chunked file transfers for efficiency",
+      "Requires mutual registration for peer connections",
+      "Integrates with client-server and P2P modes"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/inner_arg.rs",
+    "context": [
+      "Provides type-safe parameter reference handling",
+      "Implements wrapper types for mutable and immutable references",
+      "Uses zero-cost abstractions for performance",
+      "Enforces proper dereferencing behavior",
+      "Preserves mutability constraints",
+      "Integrates with packet processing and validation",
+      "Supports cryptographic operation safety"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/functional.rs",
+    "context": [
+      "Provides functional programming utilities and extensions",
+      "Implements monadic-style operations and conditional chaining",
+      "Supports method chaining with Then trait",
+      "Provides conditional branching with IfEq and IfTrue",
+      "Implements tuple mapping with PairMap",
+      "Uses zero-cost abstractions and lazy evaluation",
+      "Enhances code readability throughout the codebase"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/constants.rs",
+    "context": [
+      "Defines core protocol constants and configuration",
+      "Manages protocol version using semantic versioning",
+      "Specifies network parameters and MTU sizes",
+      "Controls timing intervals and timeouts",
+      "Sets buffer sizes and group limitations",
+      "Configures security level update frequencies",
+      "Defines port ranges and networking defaults"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/auth.rs",
+    "context": [
+      "Defines authentication request types for Citadel Protocol",
+      "Supports both credential-based and passwordless authentication",
+      "Uses SecBuffer for secure credential handling",
+      "Manages user identification through CID and usernames",
+      "Handles server connection information for authentication",
+      "Implements transient device-based connections"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/validation.rs",
+    "context": [
+      "Core packet validation module for the Citadel Protocol",
+      "Implements security-critical validation for all packet types",
+      "Handles connection, registration, group, and file transfer validation",
+      "Uses AEAD cryptography for packet integrity verification",
+      "Implements zero-copy validation where possible",
+      "Contains submodules for different validation contexts: do_connect, group, do_register, do_entropy_bank_update, pre_connect, file, and aead",
+      "Maintains protocol state consistency across all validation steps"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/session.rs",
+    "context": [
+      "Core session management implementation for Citadel Protocol",
+      "Handles active connections between peers with state management",
+      "Implements secure file transfer with configurable security levels",
+      "Supports UDP connectivity for performance-critical operations",
+      "Provides clean shutdown and resource cleanup mechanisms",
+      "Handles connection interruptions and session resumption",
+      "Uses post-quantum cryptographic primitives for session security",
+      "Manages packet processing and stream handling",
+      "Implements session initialization and parameter configuration",
+      "Supports both TCP and UDP transport protocols",
+      "Handles authentication and credential management",
+      "Provides virtual connection management for different transfer types"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/session_queue_handler.rs",
+    "context": [
+      "Implements queue-based task scheduling for protocol sessions",
+      "Uses DelayQueue for managing timed operations",
+      "Handles both reserved system tasks (indices 0-9) and ordinary tasks (10+)",
+      "Supports one-shot tasks for single-execution operations",
+      "Integrates with session state management",
+      "Implements Stream and Future traits for async operation",
+      "Provides thread-safe task scheduling through atomic operations",
+      "Manages session shutdown and cleanup"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet.rs",
+    "context": [
+      "Implements the core Hypernode Data Protocol (HDP) packet structure",
+      "Defines packet headers, commands, and buffer handling",
+      "Provides zero-copy header parsing for efficiency",
+      "Manages packet composition and decomposition",
+      "Supports both BytesMut and Vec<u8> buffer types",
+      "Handles socket address tracking and packet routing",
+      "Implements hierarchical command organization"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/mod.rs",
+    "context": [
+      "Core packet processing infrastructure for the Citadel Protocol",
+      "Key aspects:",
+      "- Manages multiple packet types (connection, auth, data)",
+      "- Implements processing pipeline with validation",
+      "- Handles packet security and integrity",
+      "- Provides backpressure and ordering guarantees",
+      "- Coordinates between different packet processors"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/connect_packet.rs",
+    "context": [
+      "Handles connection establishment in Citadel Protocol",
+      "Key aspects:",
+      "- Implements secure multi-stage handshake",
+      "- Manages post-quantum key exchange",
+      "- Handles version and capability negotiation",
+      "- Provides connection state management",
+      "- Supports transport-agnostic connections"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/disconnect_packet.rs",
+    "context": [
+      "Implements graceful disconnection protocol",
+      "Uses two-stage disconnect handshake",
+      "Manages secure packet validation",
+      "Handles session state transitions",
+      "Coordinates with kernel for disconnect signals",
+      "Implements packet delivery delay for reliability",
+      "Tracks disconnection tickets"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/file_packet.rs",
+    "context": [
+      "Handles secure file transfer operations",
+      "Manages file transfer lifecycle",
+      "Supports chunked transfers",
+      "Integrates with virtual filesystem",
+      "Implements transfer state tracking",
+      "Handles both direct and proxied transfers"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/keep_alive_packet.rs",
+    "context": [
+      "Implements connection maintenance through keep-alive packets",
+      "Key aspects:",
+      "- Manages periodic heartbeat packets",
+      "- Detects connection liveness",
+      "- Monitors connection quality",
+      "- Handles connection timeouts",
+      "- Triggers automatic reconnection"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/deregister_packet.rs",
+    "context": [
+      "Handles client deregistration process",
+      "Manages secure account removal",
+      "Implements resource cleanup",
+      "Validates session state",
+      "Provides ticket-based tracking",
+      "Handles success/failure states",
+      "Manages client and server cleanup",
+      "Maintains security during removal",
+      "Integrates with account management",
+      "Reports deregistration results"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/raw_primary_packet.rs",
+    "context": [
+      "Low-level packet processing for primary data packets",
+      "Key aspects:",
+      "- Handles raw packet operations",
+      "- Manages packet headers and payloads",
+      "- Implements zero-copy processing",
+      "- Ensures packet integrity",
+      "- Validates packet structure"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/hole_punch.rs",
+    "context": [
+      "Implements NAT traversal through hole punching",
+      "Enables direct P2P connections behind NATs",
+      "Handles NAT traversal packet processing",
+      "Provides secure packet validation",
+      "Manages peer connection coordination",
+      "Implements connection pipe management",
+      "Supports proxied connections",
+      "Manages hole puncher pipes",
+      "Integrates with proxy system",
+      "Ensures authenticated packet handling"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/register_packet.rs",
+    "context": [
+      "Handles client registration in Citadel Protocol",
+      "Implements secure multi-stage handshake",
+      "Provides passwordless registration support",
+      "Manages session state transitions",
+      "Implements cryptographic parameter negotiation",
+      "Handles registration failure cases",
+      "Supports post-quantum cryptography",
+      "Validates registration parameters",
+      "Integrates with account management",
+      "Manages initial cryptographic setup"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/rekey_packet.rs",
+    "context": [
+      "Implements secure key rotation mechanism",
+      "Manages cryptographic key updates",
+      "Provides multi-stage key exchange",
+      "Implements post-quantum cryptography",
+      "Ensures perfect forward secrecy",
+      "Handles state synchronization",
+      "Supports proxy connections",
+      "Manages ratchet state updates",
+      "Handles key truncation operations",
+      "Integrates with security level system"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/session_manager.rs",
+    "context": [
+      "Core session management system for Citadel Protocol",
+      "Handles stateful connections between peers",
+      "Manages both provisional and established connections",
+      "Implements secure peer-to-peer communication",
+      "Provides group broadcast functionality",
+      "Supports configurable security levels",
+      "Handles virtual connection management",
+      "Implements clean shutdown procedures",
+      "Manages connection upgrades and transitions",
+      "Integrates with HyperNodePeerLayer for P2P operations"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/lib.rs",
+    "context": [
+      "Core user management system",
+      "Manages HyperVPN architecture",
+      "Provides hierarchical account structure",
+      "Handles authentication and security",
+      "Supports multiple backend storage",
+      "Integrates external services",
+      "Manages account lifecycle",
+      "Implements zero-trust architecture",
+      "Supports post-quantum cryptography",
+      "Provides feature-gated functionality"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/external_services/service_interface.rs",
+    "context": [
+      "Defines external service interface",
+      "Provides unified service communication",
+      "Supports async data transmission",
+      "Handles raw packet data",
+      "Enables peer-to-peer communication",
+      "Standardizes error handling",
+      "Ensures thread safety",
+      "Manages service connections",
+      "Implements common service trait",
+      "Supports multiple service types"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/external_services/rtdb.rs",
+    "context": [
+      "Provides Firebase RTDB integration",
+      "Manages real-time data synchronization",
+      "Handles authentication and tokens",
+      "Manages connection lifecycle",
+      "Implements data transfer interface",
+      "Supports connection refresh",
+      "Handles token expiration",
+      "Provides client configuration",
+      "Manages RTDB instances",
+      "Implements efficient data sync"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/external_services/mod.rs",
+    "context": [
+      "Manages external service integration",
+      "Provides Google services support",
+      "Handles service configuration",
+      "Manages service authentication",
+      "Supports Firebase RTDB",
+      "Handles JWT management",
+      "Provides WASM compatibility",
+      "Manages service state",
+      "Handles post-login services",
+      "Supports feature flags"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/auth/proposed_credentials.rs",
+    "context": [
+      "Manages credential proposals",
+      "Handles password hashing",
+      "Validates credentials",
+      "Supports passwordless auth",
+      "Implements username sanitization",
+      "Provides secure password storage",
+      "Manages authentication modes",
+      "Handles server validation",
+      "Implements credential comparison",
+      "Ensures memory safety"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/backend/sql_backend.rs",
+    "context": [
+      "Provides SQL database storage",
+      "Supports multiple SQL variants",
+      "Implements connection pooling",
+      "Handles SQL syntax differences",
+      "Manages schema creation",
+      "Supports blob and text storage",
+      "Implements atomic operations",
+      "Manages peer relationships",
+      "Provides efficient querying",
+      "Enables ACID compliance"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/backend/redis_backend.rs",
+    "context": [
+      "Provides distributed Redis storage",
+      "Implements connection pooling",
+      "Supports Redis clustering",
+      "Manages connection health checks",
+      "Handles connection timeouts",
+      "Provides automatic reconnection",
+      "Supports atomic operations",
+      "Manages peer relationships",
+      "Implements byte map storage",
+      "Enables high availability"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/backend/filesystem_backend.rs",
+    "context": [
+      "Provides filesystem-based persistent storage",
+      "Implements hybrid storage with memory cache",
+      "Manages client network account persistence",
+      "Handles directory structure organization",
+      "Supports peer relationship storage",
+      "Implements virtual filesystem operations",
+      "Provides byte map storage functionality",
+      "Ensures atomic file operations",
+      "Supports personal and impersonal accounts",
+      "Integrates with memory backend for caching"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/backend/memory.rs",
+    "context": [
+      "Provides in-memory backend storage",
+      "Implements thread-safe client storage",
+      "Manages peer relationships",
+      "Handles metadata operations",
+      "Supports byte map storage",
+      "Implements atomic operations",
+      "Manages resource cleanup",
+      "Supports WASM environments",
+      "Provides client registration",
+      "Maintains data consistency"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/backend/utils/mod.rs",
+    "context": [
+      "Manages object transfer operations",
+      "Implements bidirectional transfers",
+      "Provides progress tracking",
+      "Handles transfer status updates",
+      "Implements stream-based transfers",
+      "Manages transfer control flow",
+      "Provides async transfer support",
+      "Handles resource cleanup",
+      "Implements transfer acceptance",
+      "Manages transfer orientation"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/backend/mod.rs",
+    "context": [
+      "Defines core backend storage infrastructure",
+      "Manages multiple storage backend types",
+      "Implements unified backend interface",
+      "Provides async persistence operations",
+      "Handles database connections",
+      "Manages virtual filesystem operations",
+      "Implements thread-safe storage",
+      "Provides transaction management",
+      "Supports multiple database types",
+      "Handles automatic reconnection"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/auth/mod.rs",
+    "context": [
+      "Manages authentication modes for CNACs",
+      "Implements Argon2id password hashing",
+      "Supports passwordless authentication",
+      "Handles username uniqueness",
+      "Manages full name storage",
+      "Provides authentication state checks",
+      "Implements serializable auth data",
+      "Handles credential validation",
+      "Manages authentication modes",
+      "Provides secure data storage"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/account_loader.rs",
+    "context": [
+      "Manages loading of serialized client network accounts",
+      "Handles both personal and impersonal account types",
+      "Provides generic file loading capabilities",
+      "Implements efficient buffered I/O operations",
+      "Supports extensible deserialization",
+      "Manages filesystem-based account storage",
+      "Handles account loading errors gracefully",
+      "Integrates with directory management",
+      "Supports cryptographic account security",
+      "Provides account persistence functionality"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/server_misc_settings.rs",
+    "context": [
+      "Manages server-side configuration settings",
+      "Controls passwordless authentication",
+      "Enforces credential requirements",
+      "Provides default security settings",
+      "Integrates with account management",
+      "Supports customizable authentication flows",
+      "Handles server-side security policies",
+      "Configures node authentication behavior",
+      "Manages credential validation rules",
+      "Controls server security features"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/serialization.rs",
+    "context": [
+      "Provides binary serialization functionality",
+      "Implements efficient buffer operations",
+      "Supports in-place deserialization",
+      "Handles size estimation and pre-allocation",
+      "Uses bincode for binary encoding",
+      "Integrates with bytes buffer system",
+      "Provides trait-based serialization",
+      "Manages memory-efficient operations",
+      "Supports slice-based serialization",
+      "Implements error handling with AccountError"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/connection_metadata.rs",
+    "context": [
+      "Manages connection metadata for client connections",
+      "Handles connection protocol specifications",
+      "Supports TCP, TLS, and QUIC protocols",
+      "Stores socket address information",
+      "Provides domain name handling",
+      "Implements serialization support",
+      "Manages connection state persistence",
+      "Supports connection info display",
+      "Handles protocol-specific settings",
+      "Maintains connection type information"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/directory_store.rs",
+    "context": [
+      "Manages filesystem structure for Citadel Protocol",
+      "Handles directory creation and organization",
+      "Provides cross-platform path management",
+      "Organizes account storage directories",
+      "Manages configuration file locations",
+      "Supports virtual filesystem structure",
+      "Handles file transfer storage",
+      "Implements path formatting and generation",
+      "Maintains directory hierarchy",
+      "Ensures consistent file organization"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/credentials.rs",
+    "context": [
+      "Manages credential validation and requirements",
+      "Defines username and password constraints",
+      "Enforces length and format restrictions",
+      "Provides configurable validation rules",
+      "Handles full name format validation",
+      "Implements default security policies",
+      "Supports custom requirement definitions",
+      "Ensures consistent credential formats",
+      "Validates credential formatting",
+      "Defines system-wide credential limits"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/hypernode_account.rs",
+    "context": [
+      "Core HyperNode account functionality",
+      "Provides user identification extensions",
+      "Handles account search operations",
+      "Manages peer relationship lookups",
+      "Supports CID and username-based identification",
+      "Implements async account operations",
+      "Defines serialization file extension",
+      "Enables flexible account type extensions",
+      "Maintains bi-directional peer relationships",
+      "Integrates with persistence backends"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/account_manager.rs",
+    "context": [
+      "Central user account management system",
+      "Handles account creation and registration",
+      "Supports multiple storage backends (Memory, File, SQL, Redis)",
+      "Manages HyperLAN peer relationships",
+      "Provides secure credential storage",
+      "Implements Argon2id password hashing",
+      "Supports personal and impersonal modes",
+      "Handles P2P connection registration",
+      "Provides thread-safe async operations",
+      "Manages external service integrations"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/client_account.rs",
+    "context": [
+      "Manages individual client connections in Citadel Protocol",
+      "Handles both personal and impersonal connection modes",
+      "Implements secure credential management and validation",
+      "Provides ratchet-based cryptographic state management",
+      "Manages HyperLAN and HyperWAN peer relationships",
+      "Supports thread-safe operations through RwLock",
+      "Handles connection endpoint configuration",
+      "Implements peer list synchronization",
+      "Provides P2P connection support",
+      "Maintains immutable critical security fields"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/argon/autotuner.rs",
+    "context": [
+      "Automatic parameter tuning for Argon2 password hashing",
+      "Implements ORY's guidelines for parameter selection",
+      "Uses memory-first tuning strategy for optimal security",
+      "Dynamically adjusts based on system capabilities",
+      "Supports multi-threading with CPU core detection",
+      "Provides configurable minimum execution time",
+      "Includes safeguards for memory usage",
+      "Implements iterative parameter optimization",
+      "Supports custom hash lengths and secret keys",
+      "Designed for release-mode performance tuning"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/lib.rs",
+    "context": [
+      "Core cryptographic framework for the Citadel Protocol",
+      "Implements post-quantum cryptography and perfect forward secrecy",
+      "Provides secure memory management with zero-copy operations",
+      "Features entropy banking system for key derivation",
+      "Includes packet vectorization and port scrambling",
+      "Implements FCM (Forward Chain Messaging) primitives",
+      "Integrates Argon2 with auto-tuning capabilities",
+      "All operations are thread-safe and memory-efficient",
+      "Uses defense-in-depth with multiple security layers",
+      "Automatic memory zeroing for sensitive data"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/lib.rs",
+    "context": [
+      "Main entry point for Citadel Wire crate",
+      "Provides secure peer-to-peer connection capabilities",
+      "Implements NAT traversal and UDP hole punching",
+      "Enforces zero unsafe code policy",
+      "Uses async-first design with security focus"
+    ]
+  },
+  {
+    "file": "./async_ip/src/lib.rs",
+    "context": [
+      "Utility crate for asynchronous IP address resolution",
+      "Provides both IPv4 and IPv6 resolution with fallback mechanisms",
+      "Supports internal and external IP detection",
+      "Uses multiple services concurrently for reliability",
+      "Has special handling for WebAssembly environments",
+      "Key component for NAT traversal and network identification",
+      "Uses HTTP-based IP resolution services with configurable endpoints",
+      "Implements custom error handling for network and parsing failures"
+    ]
+  },
+  {
+    "file": "./firebase-rtdb/src/lib.rs",
+    "context": [
+      "Lightweight async Rust client for Firebase Realtime Database",
+      "Provides JWT-based authentication with automatic token renewal",
+      "Implements all CRUD operations with JSON serialization",
+      "Uses hierarchical node-based database access",
+      "Handles connection timeouts and TLS security",
+      "Provides error handling for network and database operations",
+      "Supports connection pooling and TCP nodelay for performance",
+      "Implements Firebase Security Rules compatibility",
+      "Uses reqwest for HTTP communication with async support",
+      "Manages authentication state and token expiration"
+    ]
+  },
+  {
+    "file": "./firebase-rtdb/Cargo.toml",
+    "context": [
+      "Package configuration for Firebase RTDB client",
+      "Uses workspace-level dependency management",
+      "Configures reqwest with rustls-tls for secure communication",
+      "Includes serde for JSON serialization support",
+      "Defines crate metadata and documentation links",
+      "Specifies test dependencies for integration testing"
+    ]
+  },
+  {
+    "file": "./firebase-rtdb/tests/primary.rs",
+    "context": [
+      "Integration test file for Firebase RTDB client",
+      "Currently empty, prepared for future test implementations"
+    ]
+  },
+  {
+    "file": "./netbeam/src/lib.rs",
+    "context": [
+      "Core library for high-performance networking with multiplexing support",
+      "Provides reliable ordered message delivery guarantees",
+      "Implements network-aware synchronization primitives",
+      "Uses zero unsafe code and leverages Rust's type system",
+      "Requires Tokio runtime for async operations",
+      "Supports both client and server modes with bi-directional communication",
+      "Includes time tracking utilities for network operations",
+      "Features proper error handling and type-safe APIs"
+    ]
+  },
+  {
+    "file": "./netbeam/src/reliable_conn.rs",
+    "context": [
+      "Core traits for reliable network connections",
+      "Implements ordered message delivery guarantees",
+      "Supports both direct and NAT-traversed connections",
+      "Provides connection addressing abstraction",
+      "Includes serialization support for messages",
+      "Implements network simulation for testing"
+    ]
+  },
+  {
+    "file": "./netbeam/src/multiplex.rs",
+    "context": [
+      "Network stream multiplexing implementation",
+      "Enables multiple logical connections over single physical connection",
+      "Provides bi-directional communication channels",
+      "Implements automatic stream ID generation and management",
+      "Ensures thread-safe subscription handling",
+      "Supports custom connection key types",
+      "Maintains message ordering within streams",
+      "Handles graceful stream initialization and cleanup",
+      "Uses pre-action and post-action hooks for lifecycle management",
+      "Provides both borrowed and owned subscription types"
+    ]
+  },
+  {
+    "file": "./netbeam/src/time_tracker.rs",
+    "context": [
+      "Provides precise timing utilities for network operations",
+      "Uses monotonic system time for consistency",
+      "Implements nanosecond precision timing",
+      "Handles time overflow protection",
+      "Used for latency measurements and timing-sensitive operations"
+    ]
+  },
+  {
+    "file": "./citadel_types/src/lib.rs",
+    "context": [
+      "Core type definitions for the Citadel Protocol",
+      "Provides fundamental data structures and utilities",
+      "Includes cryptographic types and parameters",
+      "Defines protocol-specific message types",
+      "Contains user-related data structures",
+      "Implements error handling and validation",
+      "Exports commonly used types through prelude"
+    ]
+  },
+  {
+    "file": "./citadel_types/src/crypto/mod.rs",
+    "context": [
+      "Defines cryptographic types and parameters",
+      "Implements secure memory management with SecBuffer",
+      "Provides algorithm selection and configuration",
+      "Supports post-quantum cryptography algorithms",
+      "Includes security level specifications",
+      "Implements secure memory locking and zeroing",
+      "Provides serialization for cryptographic types",
+      "Supports various secrecy modes for different use cases"
+    ]
+  },
+  {
+    "file": "./citadel_logging/src/lib.rs",
+    "context": [
+      "Structured logging facade for the Citadel Protocol",
+      "Built on top of the tracing ecosystem",
+      "Provides consistent logging setup across components",
+      "Supports file and line number information",
+      "Implements environment-based log level filtering",
+      "Includes panic handling with logging",
+      "Supports async-aware instrumentation",
+      "Uses span-based structured logging",
+      "Provides multiple log levels with target-based filtering"
+    ]
+  },
+  {
+    "file": "./citadel_io/src/lib.rs",
+    "context": [
+      "Cross-platform I/O utility crate for native and WebAssembly targets",
+      "Provides consistent interfaces for synchronization primitives",
+      "Implements platform-specific random number generation",
+      "Abstracts async runtime differences between native and WASM",
+      "Re-exports Tokio ecosystem with platform-specific implementations",
+      "Supports deadlock detection on native platforms"
+    ]
+  },
+  {
+    "file": "./citadel_io/src/standard/locks.rs",
+    "context": [
+      "Native platform synchronization primitives using parking_lot",
+      "High-performance mutex and read-write lock implementations",
+      "RAII-style lock guards for automatic resource management",
+      "More efficient than standard library synchronization types"
+    ]
+  },
+  {
+    "file": "./citadel_io/src/wasm/locks.rs",
+    "context": [
+      "WebAssembly-compatible synchronization primitives",
+      "Wraps standard library locks for WASM compatibility",
+      "Maintains API compatibility with native code",
+      "Single-threaded implementation for current WASM limitations"
+    ]
+  },
+  {
+    "file": "./citadel_io/src/wasm/rng.rs",
+    "context": [
+      "WebAssembly-compatible random number generation",
+      "Uses Web Crypto API through getrandom crate",
+      "Provides cryptographically secure random numbers",
+      "Implements RngCore and CryptoRng traits",
+      "Supports both fixed-size and dynamic buffer generation"
+    ]
+  },
+  {
+    "file": "./citadel_pqcrypto/src/lib.rs",
+    "context": [
+      "# Documentation Progress",
+      "## citadel_pqcrypto Crate",
+      "### Completed Documentation",
+      "- `lib.rs`: Crate-level documentation with overview, features, and examples",
+      "- `constructor_opts.rs`: Documentation for `ConstructorOpts` struct",
+      "- Enhanced `RecursiveChain` documentation with examples and security considerations",
+      "- `encryption.rs`: Module-level documentation",
+      "- `AeadModule` trait documentation",
+      "- `AesModule` implementation docs",
+      "- `ChaChaModule` implementation docs",
+      "- `AsconModule` implementation docs",
+      "- `KyberModule` implementation docs with quantum security considerations",
+      "- `export.rs`: Enhanced module-level documentation",
+      "- Key store serialization documentation",
+      "- Security considerations for key material",
+      "- Examples for serialization/deserialization",
+      "- `bytes_in_place.rs`: Comprehensive module documentation",
+      "- `InPlaceBuffer` and `EzBuffer` documentation",
+      "- Examples for buffer operations",
+      "- `wire.rs`: Module-level documentation",
+      "- Parameter transfer documentation",
+      "- Scrambling dictionary documentation",
+      "- `replay_attack_container.rs`: Module-level documentation",
+      "- Anti-replay attack mechanism documentation",
+      "- Examples and security considerations",
+      "### Security Considerations Documented",
+      "- Post-quantum cryptography principles",
+      "- Proper nonce handling",
+      "- Zeroization of sensitive data",
+      "- Constant-time operations",
+      "- Forward secrecy",
+      "- Local-user encryption for endpoint privacy",
+      "- Anti-replay attack protections",
+      "- Key material serialization safety",
+      "- Buffer operation safety",
+      "- Parameter transfer security",
+      "### Next Steps",
+      "1. Review remaining files in citadel_pqcrypto for any documentation gaps",
+      "2. Cross-reference documentation between related components",
+      "3. Ensure all security considerations are thoroughly documented",
+      "4. Add more real-world usage examples",
+      "### Code Style and Standards",
+      "- All documentation follows Rust documentation best practices",
+      "- Examples are provided for key functionality",
+      "- Security considerations are clearly outlined",
+      "- Cross-references between related components are maintained"
+    ]
+  },
+  {
+    "file": "./citadel_pqcrypto/src/constructor_opts.rs",
+    "context": [
+      "Provides configuration options for post-quantum cryptography (PQC) instances",
+      "Includes ConstructorOpts for PQC initialization and RecursiveChain for key derivation",
+      "Focuses on secure parameter handling and memory safety",
+      "Supports both initial and chained cryptographic operations"
+    ]
+  },
+  {
+    "file": "./citadel_pqcrypto/src/bytes_in_place.rs",
+    "context": [
+      "Implements memory-efficient and secure in-place buffer operations",
+      "Features window-based buffer access control for safe data manipulation",
+      "Supports both Vec<u8> and BytesMut buffer types",
+      "Emphasizes zero-copy operations and memory safety"
+    ]
+  },
+  {
+    "file": "./citadel_pqcrypto/src/wire.rs",
+    "context": [
+      "Implements secure wire protocol for PQC parameter transfer",
+      "Provides parameter transfer structures for Alice-Bob key exchange",
+      "Features data scrambling for additional security",
+      "Supports both symmetric and asymmetric encryption modes",
+      "Ensures memory safety and automatic parameter cleanup"
+    ]
+  },
+  {
+    "file": "./citadel_pqcrypto/src/replay_attack_container.rs",
+    "context": [
+      "Implements protection against replay attacks in communications",
+      "Uses circular buffer for efficient PID history tracking",
+      "Supports out-of-order packet delivery within configurable window",
+      "Provides thread-safe PID generation and validation",
+      "Features automatic state reset on re-keying"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/hypernode_type.rs",
+    "context": [
+      "This module defines network node types and their behaviors in the Citadel Protocol. It handles configuration for server nodes with static IPs and peer nodes in residential NAT environments, including automatic UPnP handling and NAT traversal fallback mechanisms"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/error.rs",
+    "context": [
+      "This module implements error types specific to network traversal and firewall operations",
+      "It provides custom error types for UPnP and hole punching operations, with conversion traits to standard IO errors",
+      "The error types help categorize and handle various network-related failure scenarios, including port mapping failures and exhausted hole punching attempts"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/nat_identification.rs",
+    "context": [
+      "Provides NAT type identification and analysis",
+      "Uses STUN servers for NAT behavior detection",
+      "Analyzes port and IP translation patterns",
+      "Supports IPv4 and IPv6 compatibility checks",
+      "Determines optimal NAT traversal strategies"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/socket_helpers.rs",
+    "context": [
+      "Provides socket creation and configuration utilities",
+      "Handles TCP and UDP socket setup",
+      "Implements platform-specific socket options",
+      "Supports IPv4 and IPv6 with automatic mapping",
+      "Manages socket reuse for NAT traversal"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/upnp_handler.rs",
+    "context": [
+      "Provides UPnP port mapping and gateway management",
+      "Handles automatic gateway discovery and configuration",
+      "Manages port forwarding for TCP and UDP protocols",
+      "Supports configurable lease durations and targeted forwarding",
+      "Implements external IP and local IP detection"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/quic.rs",
+    "context": [
+      "Implements QUIC protocol for secure connections",
+      "Supports client and server endpoints",
+      "Handles self-signed and PKCS#12 certificates",
+      "Provides NAT traversal-friendly transport",
+      "Uses Tokio for async/await support"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/tls.rs",
+    "context": [
+      "Provides TLS configuration and certificate management",
+      "Supports both TLS and QUIC protocols",
+      "Handles self-signed and PKCS#12 certificates",
+      "Implements native system certificate loading",
+      "Uses Rustls for secure TLS implementation"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/misc.rs",
+    "context": [
+      "Provides certificate format conversion utilities",
+      "Handles PKCS#12 to QUIC format conversion",
+      "Manages certificate chain extraction",
+      "Implements private key conversion",
+      "Ensures memory-safe certificate handling"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/hole_punch_config.rs",
+    "context": [
+      "Provides configuration for UDP hole punching NAT traversal",
+      "Handles address prediction and socket preparation",
+      "Configures port ranges based on NAT behavior",
+      "Supports both IPv4 and IPv6 traversal",
+      "Implements iterator-based address generation"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/udp_hole_puncher.rs",
+    "context": [
+      "Implements core UDP hole punching algorithm for NAT traversal",
+      "Handles asynchronous connection establishment between peers",
+      "Supports dual-stack IPv4/IPv6 with automatic retry",
+      "Manages encrypted configuration exchange",
+      "Provides NAT-aware socket binding optimization"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/targetted_udp_socket_addr.rs",
+    "context": [
+      "Manages NAT-aware UDP socket addressing",
+      "Handles separate send/receive addresses for NAT traversal",
+      "Provides packet validation and connection state tracking",
+      "Implements socket cleanup after hole punching",
+      "Supports UPnP address translation detection"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/mod.rs",
+    "context": [
+      "Core UDP NAT traversal framework module",
+      "Coordinates multiple traversal methods and strategies",
+      "Manages UPnP and hole punching integration",
+      "Provides unique connection identification",
+      "Implements method prioritization and fallback"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/linear/encrypted_config_container.rs",
+    "context": [
+      "Manages secure packet encryption for hole punching configuration",
+      "Handles custom STUN server configurations",
+      "Provides zero-copy packet handling optimizations",
+      "Supports localhost testing mode with disabled encryption",
+      "Implements thread-safe encryption function containers"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/linear/method3.rs",
+    "context": [
+      "Implements advanced UDP hole punching with variable TTL values",
+      "Handles asymmetric NAT traversal failures with recovery mode",
+      "Provides encrypted configuration exchange between peers",
+      "Supports dual-stack IPv4/IPv6 operation",
+      "Implements thread-safe UDP socket operations"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/linear/mod.rs",
+    "context": [
+      "Implements linear UDP hole punching for client-server scenarios",
+      "Coordinates multiple traversal methods with fallback strategy",
+      "Manages synchronized connection establishment timing",
+      "Provides recovery mode for asymmetric failures",
+      "Integrates UPnP support with automatic fallback"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/udp_traversal/multi/mod.rs",
+    "context": [
+      "Implements concurrent dual-stack UDP hole punching",
+      "Manages multiple traversal attempts across ports",
+      "Coordinates winner selection between attempts",
+      "Handles IPv4/IPv6 protocol selection",
+      "Provides multiplexed connection management"
+    ]
+  },
+  {
+    "file": "./citadel_wire/src/standard/mod.rs",
+    "context": [
+      "Provides core networking components for Citadel Protocol",
+      "Implements QUIC, TLS, and NAT traversal",
+      "Handles UPnP and socket configuration",
+      "Supports peer-to-peer networking",
+      "Uses async-first design philosophy"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/entropy_bank.rs",
+    "context": [
+      "Implements dynamic entropy management",
+      "Provides secure nonce generation",
+      "Handles packet encryption/decryption",
+      "Prevents replay attacks",
+      "Manages transient counters",
+      "Integrates post-quantum operations"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/endpoint_crypto_container.rs",
+    "context": [
+      "Manages peer session cryptographic state",
+      "Implements thread-safe ratchet updates",
+      "Handles version control and conflicts",
+      "Manages session key rotation",
+      "Supports atomic state transitions",
+      "Integrates with post-quantum cryptography"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/misc.rs",
+    "context": [
+      "Provides cryptographic utility functions",
+      "Implements flexible error handling",
+      "Generates random port mappings",
+      "Supports security level validation",
+      "Implements error type conversions",
+      "Provides debug and display utilities"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/secure_buffer/partitioned_sec_buffer.rs",
+    "context": [
+      "Implements secure partitioned buffer management",
+      "Provides fixed-size memory partitioning",
+      "Enforces strict partition boundaries",
+      "Supports zero-copy partition access",
+      "Implements automatic buffer zeroing",
+      "Provides thread-safe partition operations"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/packet_vector.rs",
+    "context": [
+      "Implements secure packet sequencing",
+      "Provides wave-based packet organization",
+      "Manages scrambled port assignments",
+      "Implements sequence hiding",
+      "Supports automatic memory zeroing",
+      "Ensures ordered packet delivery"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/sync_toggle.rs",
+    "context": [
+      "Provides thread-safe toggle state management",
+      "Implements atomic state transitions",
+      "Supports one-way toggle operations",
+      "Enables state change detection",
+      "Uses sequential consistency ordering"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/stacked_ratchet.rs",
+    "context": [
+      "Implements perfect forward secrecy",
+      "Manages independent key evolution",
+      "Provides post-quantum support",
+      "Handles message protection",
+      "Implements anti-replay protection",
+      "Ensures ordered packet delivery"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/scramble/crypt_splitter.rs",
+    "context": [
+      "Implements secure packet splitting and scrambling",
+      "Provides wave-based packet transmission",
+      "Supports dynamic packet sizing based on security level",
+      "Implements packet reconstruction with timeout handling",
+      "Manages encrypted and unencrypted packet transmission",
+      "Integrates with post-quantum cryptography"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/streaming_crypt_scrambler.rs",
+    "context": [
+      "Implements asynchronous streaming encryption for large data sources",
+      "Supports both file-based and in-memory data sources",
+      "Provides backpressure support through async/await",
+      "Manages efficient group-based encryption and transmission",
+      "Supports custom header inscription for packets",
+      "Implements progress tracking and cancellation"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/toolset.rs",
+    "context": [
+      "Manages cryptographic ratchet versioning and synchronization",
+      "Implements memory-bounded storage for active ratchets",
+      "Provides static auxiliary ratchet for persistent encryption",
+      "Handles secure ratchet updates and deregistration",
+      "Ensures thread-safe access to cryptographic primitives",
+      "Manages rolling window of active encryption keys"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/fcm/keys.rs",
+    "context": [
+      "Manages Firebase Cloud Messaging (FCM) credentials",
+      "Provides thread-safe access to API keys and client IDs",
+      "Implements efficient memory management through Arc",
+      "Supports serialization for credential persistence",
+      "Ensures secure handling of sensitive credential data",
+      "Enables type-safe FCM key construction and access"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/fcm/fcm_ratchet.rs",
+    "context": [
+      "Implements size-optimized cryptographic ratchet for FCM",
+      "Provides post-quantum secure messaging within 4KB limit",
+      "Manages secure key evolution and perfect forward secrecy",
+      "Supports both synchronous and asynchronous operations",
+      "Implements message protection and validation",
+      "Integrates with Firebase Cloud Messaging service"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/argon/argon_container.rs",
+    "context": [
+      "Implements asynchronous Argon2 password hashing",
+      "Provides client and server-side password handling",
+      "Supports configurable memory and time cost parameters",
+      "Implements secure memory management with SecBuffer",
+      "Supports associated data and secret keys",
+      "Uses Argon2id variant for optimal security"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/secure_buffer/sec_packet.rs",
+    "context": [
+      "Implements secure packet buffer handling",
+      "Provides three-part packet structure (header, payload, extension)",
+      "Enforces ordered write operations for packet construction",
+      "Implements zero-copy packet operations",
+      "Manages automatic memory cleanup",
+      "Supports fixed-size header optimization"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/secure_buffer/mod.rs",
+    "context": [
+      "Provides secure buffer management module",
+      "Implements memory-safe buffer operations",
+      "Supports zero-copy data handling",
+      "Manages automatic memory zeroing",
+      "Includes packet writing utilities",
+      "Integrates with streaming operations"
+    ]
+  },
+  {
+    "file": "./citadel_user/src/misc.rs",
+    "context": [
+      "Provides core error handling for account operations",
+      "Manages CNAC metadata structures",
+      "Implements cross-platform path validation",
+      "Handles timestamp formatting",
+      "Provides virtual path management",
+      "Implements error type conversion",
+      "Manages account identification",
+      "Handles platform-specific path formatting",
+      "Provides directory validation",
+      "Implements metadata comparison"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/remote.rs",
+    "context": [
+      "Implements remote communication functionality",
+      "Provides high-level interface for node communication",
+      "Supports asynchronous request/response patterns",
+      "Manages ticket-based request tracking",
+      "Integrates with account management system",
+      "Implements callback-based event handling",
+      "Ensures secure communication channels",
+      "Supports post-quantum cryptography",
+      "Handles network errors comprehensively",
+      "Provides bounded message sending"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/endpoint_crypto_accessor.rs",
+    "context": [
+      "Manages cryptographic state access for P2P and C2S channels",
+      "Provides safe borrowing mechanisms for crypto operations",
+      "Implements version-aware state management",
+      "Ensures thread-safe container access",
+      "Integrates with post-quantum cryptography",
+      "Handles missing or invalid crypto states",
+      "Supports both peer-to-peer and client-server modes",
+      "Uses StackedRatchet for core crypto operations"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/session.rs",
+    "context": [
+      "Core session management for Citadel Protocol",
+      "Handles active connections between peers",
+      "Manages authentication and key exchange",
+      "Implements secure file transfer functionality",
+      "Supports UDP connectivity for performance",
+      "Provides clean shutdown and resource cleanup",
+      "Uses post-quantum cryptography for security",
+      "Maintains perfect forward secrecy",
+      "Implements automatic key rotation",
+      "Handles session state transitions",
+      "Manages packet processing and connection state"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/node_request.rs",
+    "context": [
+      "Defines node communication request types",
+      "Manages node registration and connections",
+      "Handles secure file transfer operations",
+      "Implements peer-to-peer command handling",
+      "Supports group broadcast functionality",
+      "Provides session security configuration",
+      "Implements key rotation operations",
+      "Uses ticket tracking for async responses",
+      "Supports SHA-256 password hashing",
+      "Configurable security levels for operations"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_container.rs",
+    "context": [
+      "Core state management system for Citadel Protocol",
+      "Manages connection states and transitions",
+      "Handles virtual connections (P2P and C2S)",
+      "Implements secure group messaging",
+      "Manages file transfers with progress tracking",
+      "Supports UDP connectivity for performance",
+      "Implements cryptographic state verification",
+      "Protects against replay attacks",
+      "Provides secure group key management",
+      "Implements end-to-end file encryption",
+      "Handles connection timeouts and cleanup"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/mod.rs",
+    "context": [
+      "Core packet processing infrastructure for the Citadel Protocol",
+      "Key aspects:",
+      "- Manages multiple packet types (connection, auth, data)",
+      "- Implements processing pipeline with validation",
+      "- Handles packet security and integrity",
+      "- Provides backpressure and ordering guarantees",
+      "- Coordinates between different packet processors"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/node.rs",
+    "context": [
+      "Core networking implementation for Citadel Protocol",
+      "Supports multiple transport protocols (TCP, TLS, QUIC)",
+      "Implements NAT traversal for P2P connections",
+      "Manages concurrent network sessions",
+      "Uses post-quantum cryptography",
+      "Supports pre-shared key authentication",
+      "Handles both client-server and P2P modes",
+      "Provides protocol negotiation",
+      "Manages network socket listeners",
+      "Implements secure session establishment",
+      "Handles kernel communication",
+      "Supports TLS certificate management"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/node_result.rs",
+    "context": [
+      "Defines result types for node operations",
+      "Handles registration, connection, and event results",
+      "Manages transfer and group operation outcomes",
+      "Provides comprehensive error reporting",
+      "Implements ticket tracking for async operations",
+      "Integrates with session and channel management"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/preconnect_packet.rs",
+    "context": [
+      "Handles initial connection establishment",
+      "Implements NAT traversal and hole punching",
+      "Manages protocol version compatibility",
+      "Handles session state validation",
+      "Implements security level negotiation",
+      "Supports UDP and QUIC transports",
+      "Initializes cryptographic ratchets",
+      "Manages preconnect handshake flow",
+      "Validates session states",
+      "Processes connection requests",
+      "Handles NAT traversal configuration",
+      "Manages protocol version synchronization"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/udp_packet.rs",
+    "context": [
+      "Handles UDP packet processing",
+      "Manages unordered channels",
+      "Validates packet security",
+      "Monitors channel state",
+      "Handles cleanup tasks",
+      "Processes secure payloads",
+      "Manages data transmission",
+      "Validates authentication",
+      "Handles session state",
+      "Manages buffer security",
+      "Processes channel drops",
+      "Handles error states"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/mod.rs",
+    "context": [
+      "Manages peer communications",
+      "Handles group broadcasts",
+      "Processes peer commands",
+      "Manages server interactions",
+      "Handles signal processing",
+      "Manages disconnect signals",
+      "Tracks peer sessions",
+      "Handles operation results",
+      "Manages error states",
+      "Supports ticket operations",
+      "Processes peer state",
+      "Coordinates peer modules"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/signal_handler_interface.rs",
+    "context": [
+      "Defines signal handling interface",
+      "Manages async signal operations",
+      "Handles outbound signals",
+      "Processes server signals",
+      "Manages target reception",
+      "Implements error handling",
+      "Uses async traits",
+      "Supports signal types",
+      "Manages signal flow",
+      "Requires type implementation",
+      "Handles network errors",
+      "Pending PeerSignal structification"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/server/mod.rs",
+    "context": [
+      "Manages server-side peer operations",
+      "Handles post-connection states",
+      "Processes post-registration",
+      "Validates peer sessions",
+      "Tracks session states",
+      "Manages server operations",
+      "Handles connection states",
+      "Processes registration completion",
+      "Coordinates peer modules",
+      "Manages state tracking",
+      "Handles peer validation",
+      "Manages session completion"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/server/post_connect.rs",
+    "context": [
+      "Handles post-connection phase",
+      "Establishes virtual connections",
+      "Configures security settings",
+      "Manages UDP channels",
+      "Routes peer signals",
+      "Synchronizes session states",
+      "Manages connection tables",
+      "Handles TCP channels",
+      "Processes peer responses",
+      "Manages security levels",
+      "Tracks connection states",
+      "Needs disconnect cleanup"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/server/post_register.rs",
+    "context": [
+      "Handles post-registration phase",
+      "Processes registration responses",
+      "Sets up HyperLAN P2P",
+      "Validates usernames",
+      "Routes signals",
+      "Manages tickets",
+      "Processes responses",
+      "Handles registration declines",
+      "Manages async registration",
+      "Needs error routing",
+      "Manages security levels",
+      "Tracks registration state"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/group_broadcast.rs",
+    "context": [
+      "Handles group messaging",
+      "Manages group membership",
+      "Processes group broadcasts",
+      "Controls group permissions",
+      "Tracks group state",
+      "Handles invitations",
+      "Manages group listing",
+      "Processes member states",
+      "Handles group creation",
+      "Manages group termination",
+      "Encrypts messages",
+      "Handles disconnections"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs",
+    "context": [
+      "Processes peer commands",
+      "Routes peer signals",
+      "Handles key exchange",
+      "Manages group broadcasts",
+      "Tracks session states",
+      "Manages tickets",
+      "Handles error states",
+      "Mediates server operations",
+      "Validates authentication",
+      "Supports client/server roles",
+      "Manages peer sessions",
+      "Implements group operations"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/transfer_stats.rs",
+    "context": [
+      "Handles network transfer statistics tracking with nanosecond precision",
+      "Core component for monitoring protocol performance metrics",
+      "Implements AddAssign for aggregating statistics over time",
+      "Tracks transfer rates, jitter, and total bytes transferred",
+      "Uses wrapping arithmetic to handle potential numeric overflows",
+      "Thread-safe design for concurrent statistics updates"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/packet_processor/channel.rs",
+    "context": [
+      "Implements peer-to-peer communication channels",
+      "Provides both TCP and UDP channel implementations",
+      "Supports WebRTC compatibility through feature flag",
+      "Uses split architecture for async send/receive operations",
+      "Implements automatic resource cleanup on channel drop",
+      "Manages security levels for message encryption",
+      "Handles virtual connections between peers",
+      "Supports ordered and reliable message delivery",
+      "Integrates with the peer layer for connection management",
+      "Provides Stream trait implementation for async operations"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/peer_layer.rs",
+    "context": [
+      "The peer layer module serves as the core peer-to-peer networking infrastructure in the Citadel Protocol. It manages peer connections, message groups, and signal routing between nodes. Key features include:",
+      "Peer signal management and routing between nodes",
+      "Message group functionality with concurrent/pending peer support",
+      "Ticket-based connection tracking and management",
+      "Timeout handling with callback support",
+      "HyperLAN client communication integration"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/p2p_conn_handler.rs",
+    "context": [
+      "The P2P connection handler module implements direct peer-to-peer connections and NAT traversal in the Citadel Protocol. Notable features include:",
+      "Direct P2P connection management (TCP/UDP)",
+      "NAT traversal via UDP hole punching",
+      "Connection lifecycle management",
+      "WebRTC compatibility",
+      "Integration with Citadel's security infrastructure"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/group_channel.rs",
+    "context": [
+      "The group channel module provides secure group communication channels in the Citadel Protocol. Key aspects include:",
+      "Split channel architecture (separate send/receive)",
+      "Group broadcast capabilities",
+      "Permission-based member management",
+      "Secure message encryption",
+      "Asynchronous message streaming support"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/message_group.rs",
+    "context": [
+      "The message group module implements a consent-based group messaging framework in the Citadel Protocol. Key features include:",
+      "Axis of consent model centered around group initiator",
+      "Management of concurrent and pending peer states",
+      "Group lifecycle and permission management",
+      "Short-lived messaging frames for temporary communications",
+      "Local message history persistence"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/peer_crypt.rs",
+    "context": [
+      "The peer cryptography module handles secure key exchange and NAT traversal for P2P connections. Notable aspects include:",
+      "Multi-stage key exchange protocol",
+      "NAT type detection and compatibility checking",
+      "TLS integration for secure connections",
+      "Configurable security levels and UDP modes",
+      "STUN/TURN server fallback support"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/hole_punch_compat_sink_stream.rs",
+    "context": [
+      "The hole punch compatibility stream module provides NAT traversal functionality. Key features include:",
+      "Reliable ordered stream interface for hole punching",
+      "Protocol compatibility layer",
+      "Stacked ratchet encryption integration",
+      "Support for both C2S and P2P routing",
+      "Connection state and packet ordering management"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/mod.rs",
+    "context": [
+      "Core implementation of the Citadel Protocol",
+      "Manages sessions, packet processing, and security",
+      "Implements peer-to-peer and group communication",
+      "Handles connection state management",
+      "Provides efficient packet validation and routing",
+      "Integrates with cryptographic and networking layers"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/mod.rs",
+    "context": [
+      "The state subcontainers module provides specialized state management for different aspects of the Citadel Protocol's connection lifecycle. Key features include:",
+      "Connection state management and transitions",
+      "Key exchange and cryptographic state handling",
+      "Registration and authentication state tracking",
+      "State persistence and timeout management",
+      "Modular state container architecture"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/connect_state_container.rs",
+    "context": [
+      "Core connection state management module for Citadel Protocol",
+      "Implements stage-based connection tracking and transitions",
+      "Handles credential management during connection process",
+      "Provides timing control and failure monitoring",
+      "Supports different connection modes and state recovery",
+      "Integrates with packet processing and session management",
+      "Uses atomic operations for thread-safe state transitions"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/peer_kem_state_container.rs",
+    "context": [
+      "The peer key exchange management container handles P2P cryptographic states. Key features include:",
+      "Key exchange state management",
+      "Session security configuration",
+      "UDP channel control",
+      "Role-based key exchange",
+      "Session password management"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/preconnect_state_container.rs",
+    "context": [
+      "The pre-connection state container manages initial connection setup. Important aspects include:",
+      "Pre-connection stage tracking",
+      "Node type management",
+      "Cryptographic initialization",
+      "UDP channel setup",
+      "Connection ticket handling"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/register_state_container.rs",
+    "context": [
+      "The registration state container handles user registration processes. Key features include:",
+      "Registration stage management",
+      "Cryptographic setup handling",
+      "Registration timing control",
+      "Failure state management",
+      "Passwordless registration support"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/deregister_state_container.rs",
+    "context": [
+      "Manages account deregistration state in Citadel Protocol",
+      "Tracks deregistration process progress and timing",
+      "Handles deregistration tickets for process identification",
+      "Provides atomic state transitions for thread safety",
+      "Integrates with session and remote operations",
+      "Ensures proper validation of deregistration requests"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/meta_expiry_container.rs",
+    "context": [
+      "Manages expiration state for high-traffic packet processing",
+      "Prevents false expiration of active groups under high load",
+      "Supports both inbound and outbound traffic monitoring",
+      "Handles file transfer expiry tracking",
+      "Provides adaptive expiry timing based on workload",
+      "Integrates with packet processing and group management",
+      "Uses constant GROUP_EXPIRE_TIME_MS for timing control"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/rekey_container.rs",
+    "context": [
+      "Manages cryptographic key rotation and ratchet updates",
+      "Implements security level-based key update scheduling",
+      "Supports peer-to-peer key updates and notifications",
+      "Provides configurable security levels (0-4)",
+      "Implements adaptive update frequency based on security needs",
+      "Handles local rekey requests and kernel notifications",
+      "Uses stacked ratchet construction for key rotation"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/codec.rs",
+    "context": [
+      "Basic bytes codec implementation for raw data transmission",
+      "Handles efficient encoding/decoding with configurable buffer capacity",
+      "Implements zero-copy operations for performance",
+      "Uses tokio_util's Encoder and Decoder traits",
+      "Maintains minimum buffer size with auto-resizing"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/rekey_container.rs",
+    "context": [
+      "Manages cryptographic key rotation and ratchet updates",
+      "Implements security level-based key update scheduling",
+      "Supports peer-to-peer key updates with state tracking",
+      "Provides configurable security levels (0-4)",
+      "Handles local rekey requests and notifications",
+      "Implements adaptive update frequency based on security needs"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/state_subcontainers/connect_state_container.rs",
+    "context": [
+      "Manages active connection states with stage-based transitions",
+      "Handles connection credentials and authentication",
+      "Tracks connection timing and failures",
+      "Supports different connection modes",
+      "Provides state recovery mechanisms",
+      "Integrates with session and packet processing systems"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/peer/group_channel.rs",
+    "context": [
+      "Implements secure group communication channels",
+      "Uses split channel architecture for send/receive operations",
+      "Supports group broadcasts and member management",
+      "Implements permission-based group operations",
+      "Provides Stream trait implementation for async messaging",
+      "Uses SecBuffer for encrypted message payloads",
+      "Handles proper cleanup through Drop implementations"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/clean_shutdown.rs",
+    "context": [
+      "The clean shutdown module provides utilities for gracefully terminating components in the Citadel Protocol. It ensures proper resource cleanup and component notification during shutdown operations.",
+      "Key aspects:",
+      "- Implements asynchronous shutdown coordination",
+      "- Manages resource cleanup during shutdown",
+      "- Provides timeout-based forced shutdown",
+      "- Ensures thread-safe shutdown operations",
+      "- Broadcasts shutdown notifications to components"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/dual_cell.rs",
+    "context": [
+      "The dual cell module implements a flexible cell type that adapts to both single-threaded and multi-threaded contexts through compile-time feature selection.",
+      "Key aspects:",
+      "- Uses Cell in single-threaded mode",
+      "- Uses atomics in multi-threaded mode",
+      "- Provides zero-cost thread safety abstractions",
+      "- Ensures proper Send + Sync implementations",
+      "- Maintains consistent API across modes"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/dual_late_init.rs",
+    "context": [
+      "The dual late init module provides a container for safely initializing values after construction. It ensures proper initialization semantics across different threading contexts.",
+      "Key aspects:",
+      "- Ensures safe late initialization",
+      "- Tracks initialization state",
+      "- Prevents double initialization",
+      "- Provides thread-safe access",
+      "- Zero overhead in single-threaded mode"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/dual_rwlock.rs",
+    "context": [
+      "The dual rwlock module implements a flexible read-write lock that adapts to both single-threaded and multi-threaded contexts through compile-time features.",
+      "Key aspects:",
+      "- Uses RefCell in single-threaded mode",
+      "- Uses RwLock in multi-threaded mode",
+      "- Supports multiple readers",
+      "- Provides exclusive writer access",
+      "- Prevents deadlocks",
+      "- Zero-cost thread safety abstractions"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/lock_holder.rs",
+    "context": [
+      "The lock holder module provides safe lock management across asynchronous boundaries in the Citadel Protocol. It ensures proper lock handling and cleanup.",
+      "Key aspects:",
+      "- Manages locks in async contexts",
+      "- Prevents deadlocks",
+      "- Implements RAII-style cleanup",
+      "- Tracks lock states",
+      "- Ensures thread safety",
+      "- Prevents resource leaks"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/mod.rs",
+    "context": [
+      "The misc module provides utility types and functions used throughout the Citadel Protocol implementation.",
+      "Key aspects:",
+      "- Provides thread-safe data structures",
+      "- Implements network utilities",
+      "- Manages protocol resources",
+      "- Supports async operations",
+      "- Defines protocol types",
+      "- Ensures zero-cost abstractions"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/net.rs",
+    "context": [
+      "The network utilities module provides core networking functionality for the Citadel Protocol, handling connections and protocol operations.",
+      "Key aspects:",
+      "- Manages network sockets and connections",
+      "- Handles address resolution",
+      "- Implements protocol negotiation",
+      "- Supports multiple transport protocols",
+      "- Provides error handling and recovery",
+      "- Handles both IPv4 and IPv6"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/ordered_channel.rs",
+    "context": [
+      "The ordered channel module implements a messaging channel that guarantees message ordering for protocol operations.",
+      "Key aspects:",
+      "- Ensures strict message ordering",
+      "- Implements asynchronous operations",
+      "- Provides backpressure mechanisms",
+      "- Supports multiple producers",
+      "- Maintains thread safety",
+      "- Handles channel state and cleanup"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/panic_future.rs",
+    "context": [
+      "The panic future module provides a wrapper for safely handling panics in asynchronous code, preventing process crashes.",
+      "Key aspects:",
+      "- Catches and handles panics",
+      "- Converts panics to errors",
+      "- Wraps futures safely",
+      "- Ensures proper unwinding",
+      "- Maintains thread safety",
+      "- Preserves error types"
+    ]
+  },
+  {
+    "file": "./citadel_proto/src/proto/misc/session_security_settings.rs",
+    "context": [
+      "The session security settings module defines configuration options for securing protocol sessions.",
+      "Key aspects:",
+      "- Configures encryption parameters",
+      "- Manages authentication settings",
+      "- Controls key management",
+      "- Sets security levels",
+      "- Handles protocol versions",
+      "- Provides secure defaults"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/subscription.rs",
+    "context": [
+      "Provides bidirectional subscription-based streaming",
+      "Key aspects:",
+      "- Implements reliable ordered messaging",
+      "- Manages stream subscriptions",
+      "- Supports connection multiplexing",
+      "- Handles connection lifecycle",
+      "- Ensures thread-safety and ordering"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/sync_start.rs",
+    "context": [
+      "Implements network operation synchronization primitives",
+      "Key aspects:",
+      "- Coordinates operation start between nodes",
+      "- Supports type-safe payload exchange",
+      "- Handles network latency compensation",
+      "- Integrates with async/await",
+      "- Provides timing coordination"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/network_endpoint.rs",
+    "context": [
+      "Provides network endpoint abstraction with address management",
+      "Key aspects:",
+      "- Manages socket addresses",
+      "- Handles connection registration",
+      "- Tracks connection roles",
+      "- Integrates with network applications",
+      "- Provides address resolution"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/network_application.rs",
+    "context": [
+      "Core network application implementation with synchronization primitives",
+      "Key aspects:",
+      "- Provides network synchronization primitives",
+      "- Implements network operations (select, join)",
+      "- Manages communication channels",
+      "- Handles connection multiplexing",
+      "- Ensures operation coordination"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/callback_channel.rs",
+    "context": [
+      "Specialized channel implementation for async request-response patterns",
+      "Key aspects:",
+      "- Asynchronous message passing with optional callbacks",
+      "- Built on Tokio MPSC channels",
+      "- Supports fire-and-forget operations",
+      "- Thread-safe and cloneable",
+      "- Implements Stream trait for receiver"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/tracked_callback_channel.rs",
+    "context": [
+      "Enhanced callback channel with request-response tracking",
+      "Key aspects:",
+      "- Request tracking with unique IDs",
+      "- Response correlation with requests",
+      "- Thread-safe tracking with atomics",
+      "- Memory-efficient response tracking",
+      "- Support for response timeouts"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/mod.rs",
+    "context": [
+      "Core synchronization module for Netbeam framework",
+      "Key aspects:",
+      "- Network endpoint and application management",
+      "- Bidirectional channels with callbacks",
+      "- Request-response tracking",
+      "- Symmetric conversation tracking",
+      "- Reliable ordered streaming",
+      "- Thread-safe operations"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/operations/net_join.rs",
+    "context": [
+      "Network-aware join operation for future synchronization",
+      "Key aspects:",
+      "- Synchronizes futures across network endpoints",
+      "- Returns when both endpoints complete",
+      "- Early error termination",
+      "- Type-safe generic values",
+      "- Network-aware node types"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/operations/net_try_join.rs",
+    "context": [
+      "Network-aware try-join operation for fallible future synchronization",
+      "Key aspects:",
+      "- Synchronizes fallible futures across endpoints",
+      "- Returns when both endpoints complete",
+      "- Early error termination",
+      "- Type-safe generic value and error types",
+      "- State synchronization between nodes",
+      "- Network-aware node types"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/operations/net_select.rs",
+    "context": [
+      "Network-aware select operation for racing futures",
+      "Key aspects:",
+      "- Races futures between network endpoints",
+      "- First endpoint to complete wins",
+      "- Built-in conflict resolution",
+      "- Type-safe generic result type",
+      "- Network-aware node types"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/operations/net_select_ok.rs",
+    "context": [
+      "Network-aware select operation for racing fallible futures",
+      "Key aspects:",
+      "- Races fallible futures between endpoints",
+      "- First successful endpoint wins",
+      "- Built-in conflict resolution",
+      "- Error handling with Result type",
+      "- State synchronization between nodes",
+      "- Network-aware node types"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/primitives/net_mutex.rs",
+    "context": [
+      "Distributed mutex implementation for network synchronization",
+      "Key aspects:",
+      "- Distributed mutual exclusion",
+      "- Network-aware locking",
+      "- Automatic lock release",
+      "- State synchronization",
+      "- Deadlock prevention",
+      "- Background state management"
+    ]
+  },
+  {
+    "file": "./netbeam/src/sync/primitives/mod.rs",
+    "context": [
+      "Provides network-aware synchronization primitives",
+      "Defines NetObject trait for network-compatible types",
+      "Houses distributed mutex and rwlock implementations",
+      "Ensures thread-safety and serializability across network boundaries",
+      "Integrates with Serde for object serialization"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/builder/mod.rs",
+    "context": [
+      "Provides builder patterns for configuring Citadel Protocol components",
+      "Ensures type-safe configuration building",
+      "Validates component configurations",
+      "Supports flexible node setup for different network roles",
+      "Integrates with core networking kernel",
+      "Manages protocol implementation details"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/builder/node_builder.rs",
+    "context": [
+      "Implements builder pattern for Citadel network nodes",
+      "Supports both peer and server node configuration",
+      "Provides multiple backend storage options",
+      "Configures security settings (TLS, certificates)",
+      "Integrates with Google services",
+      "Supports STUN server configuration for NAT traversal",
+      "Manages server authentication via pre-shared keys",
+      "Handles kernel executor settings",
+      "Configures password hashing settings",
+      "Supports database configuration for enterprise features"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/backend_kv_store.rs",
+    "context": [
+      "Implements connection-scoped persistent key-value storage",
+      "Provides async operations for storing and retrieving arbitrary data",
+      "Uses session and peer IDs for storage isolation",
+      "Integrates with the persistence handler backend",
+      "Supports bulk operations for managing multiple key-value pairs",
+      "Implements automatic error handling and conversion",
+      "Designed for application-level data persistence"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/macros.rs",
+    "context": [
+      "Provides procedural macros for SDK trait implementations",
+      "Reduces boilerplate in network communication code",
+      "Supports async/await patterns in trait implementations",
+      "Ensures consistent Remote trait implementations",
+      "Integrates with account management and request handling",
+      "Used internally by the SDK for code generation",
+      "Requires async-trait feature for async implementations"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/client/mod.rs",
+    "context": [
+      "Root module for client-side networking components",
+      "Provides connection builders and configuration",
+      "Supports multiple authentication methods",
+      "Manages UDP and NAT traversal settings",
+      "Implements session security and PSK handling",
+      "Organizes broadcast, peer, and server connections",
+      "Defines base traits for prefab implementations"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/client/single_connection.rs",
+    "context": [
+      "Implements single client-to-server connection management",
+      "Supports multiple authentication modes",
+      "Provides NAT traversal with UDP support",
+      "Handles secure session management",
+      "Supports object transfer handling",
+      "Manages connection lifecycle"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/client/peer_connection.rs",
+    "context": [
+      "Manages peer-to-peer connections",
+      "Supports multiple simultaneous peers",
+      "Implements file transfer capabilities",
+      "Handles NAT traversal settings",
+      "Provides session security",
+      "Manages peer identification"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/client/broadcast.rs",
+    "context": [
+      "Implements group-based communication",
+      "Uses owner-based trust model",
+      "Supports public and private groups",
+      "Handles member registration",
+      "Manages group invitations",
+      "Enables concurrent participation"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/mod.rs",
+    "context": [
+      "Root module for pre-built network components",
+      "Organizes client and server implementations",
+      "Provides remote connection management",
+      "Handles file transfer functionality",
+      "Manages signal and event processing",
+      "Implements connection security",
+      "Supports peer discovery and listing"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/server/accept_file_transfer_kernel.rs",
+    "context": [
+      "Provides automatic handling of file transfers on the server side",
+      "Implements automatic acceptance and silent processing",
+      "Uses minimal resources with no configuration needed",
+      "Integrates with NetKernel for event handling",
+      "Handles error conditions gracefully",
+      "Supports both basic and RE-VFS transfers"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/server/client_connect_listener.rs",
+    "context": [
+      "Executes custom logic on client connection events",
+      "Implements async event processing and security management",
+      "Supports both TCP and UDP channels",
+      "Handles session security settings",
+      "Manages connection success events",
+      "Provides type-safe callback execution"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/server/empty.rs",
+    "context": [
+      "Provides minimal no-op network kernel implementation",
+      "Implements zero overhead event acceptance",
+      "Suitable for basic connection acceptance",
+      "Uses minimal system resources",
+      "Provides clean shutdown handling",
+      "Not designed for interactive servers"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/server/internal_service.rs",
+    "context": [
+      "Enables integration of internal services like HTTP servers",
+      "Supports HTTP/1.1 and HTTP/2 protocols",
+      "Implements bidirectional communication",
+      "Provides service lifecycle management",
+      "Handles automatic resource cleanup",
+      "Supports custom service handlers"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/server/mod.rs",
+    "context": [
+      "Organizes server-side network components",
+      "Provides pre-built server implementations",
+      "Supports file transfer and client connections",
+      "Enables internal service integration",
+      "Implements event-driven architecture",
+      "Manages component lifecycle"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/shared/internal_service.rs",
+    "context": [
+      "Provides core functionality for internal service integration",
+      "Implements bidirectional communication channels",
+      "Uses async I/O for efficient communication",
+      "Handles protocol conversion automatically",
+      "Manages resource cleanup and shutdown",
+      "Supports thread-safe message passing"
+    ]
+  },
+  {
+    "file": "./citadel_sdk/src/prefabs/shared/mod.rs",
+    "context": [
+      "Contains shared network components for client and server",
+      "Provides role-agnostic functionality",
+      "Implements thread-safe shared utilities",
+      "Uses async-first design patterns",
+      "Manages cross-role functionality",
+      "Organizes internal service integration"
+    ]
+  },
+  {
+    "file": "./citadel_crypt/src/ratchet_manager.rs",
+    "context": [
+      "Implements a secure key ratcheting protocol manager for peer-to-peer communication",
+      "Manages bidirectional communication between Alice and Bob roles during key updates",
+      "Handles asynchronous state synchronization with support for Pre-Shared Keys (PSKs)",
+      "Implements state truncation to manage memory while maintaining security",
+      "Core component for maintaining forward secrecy in the cryptographic protocol",
+      "Uses Sink/Stream pattern for message passing between peers",
+      "Integrates with PeerSessionCrypto for underlying cryptographic operations",
+      "Supports versioned ratchet states with safe deregistration of old versions"
+    ]
+  }
 ]

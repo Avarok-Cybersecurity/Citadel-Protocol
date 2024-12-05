@@ -60,7 +60,6 @@
 //! By default, `setup_log()` installs a panic hook that logs the panic
 //! information before exiting. If you need to use a custom panic hook,
 //! use `setup_log_no_panic_hook()` instead.
-
 pub use tracing::{self, debug, error, info, instrument, trace, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::fmt::SubscriberBuilder;
@@ -89,7 +88,7 @@ use tracing_subscriber::EnvFilter;
 /// the process exits with status code 1.
 pub fn setup_log() {
     std::panic::set_hook(Box::new(|info| {
-        error!(target: "citadel", "Panic occurred: {}", info);
+        error!(target: "citadel", "Panic occurred: {info}");
         std::process::exit(1);
     }));
 
@@ -119,7 +118,14 @@ pub fn setup_log_no_panic_hook() {
         .with_line_number(true) // Include line numbers in log output
         .with_file(true) // Include file names in log output
         .with_span_events(FmtSpan::NONE) // Don't log span lifecycle events
-        .with_env_filter(EnvFilter::from_default_env()) // Use RUST_LOG env var
+        .with_env_filter(EnvFilter::from_default_env())
+        .without_time() // Use RUST_LOG env var
         .finish()
         .try_init();
+}
+
+/// Disables the panic hook installed by `setup_log()`.
+pub fn should_panic_test() {
+    let _ = std::panic::take_hook();
+    setup_log_no_panic_hook();
 }

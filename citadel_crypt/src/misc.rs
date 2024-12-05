@@ -50,13 +50,14 @@ use rand::thread_rng;
 use std::fmt::{Display, Formatter};
 
 /// Default Error type for this crate
+#[derive(Clone)]
 pub enum CryptError<T = String> {
     /// Encrypt Error
     Encrypt(T),
     /// Decrypt Error
     Decrypt(T),
     /// Drill update error
-    DrillUpdateError(T),
+    RekeyUpdateError(T),
     /// Out of bounds
     OutOfBoundsError,
     /// This occurs if the byte-valued security level desired does not correspond to an actual [SecurityLevel]
@@ -72,7 +73,7 @@ impl<T> CryptError<T> {
         match self {
             CryptError::Encrypt(s) => s.into(),
             CryptError::Decrypt(s) => s.into(),
-            CryptError::DrillUpdateError(s) => s.into(),
+            CryptError::RekeyUpdateError(s) => s.into(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception".to_string(),
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string(),
         }
@@ -85,7 +86,7 @@ impl<T> CryptError<T> {
         match self {
             CryptError::Encrypt(s) => s.as_ref(),
             CryptError::Decrypt(s) => s.as_ref(),
-            CryptError::DrillUpdateError(s) => s.as_ref(),
+            CryptError::RekeyUpdateError(s) => s.as_ref(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception",
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting",
         }

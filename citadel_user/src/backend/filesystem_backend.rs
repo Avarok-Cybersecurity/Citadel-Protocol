@@ -219,14 +219,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError> {
         self.memory_backend
-            .register_p2p_as_client(implicated_cid, peer_cid, peer_username)
+            .register_p2p_as_client(session_cid, peer_cid, peer_username)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await
+        self.save_cnac_by_cid(session_cid).await
     }
 
     /// Deregisters a peer-to-peer relationship between two clients.
@@ -258,14 +258,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let res = self
             .memory_backend
-            .deregister_p2p_as_client(implicated_cid, peer_cid)
+            .deregister_p2p_as_client(session_cid, peer_cid)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
     /// Retrieves a list of hyperlan peers for a client.
@@ -273,10 +273,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the list of hyperlan peers.
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peer_list(implicated_cid)
+            .get_hyperlan_peer_list(session_cid)
             .await
     }
 
@@ -285,11 +285,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the client metadata.
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError> {
-        self.memory_backend
-            .get_client_metadata(implicated_cid)
-            .await
+        self.memory_backend.get_client_metadata(session_cid).await
     }
 
     /// Retrieves a list of metadata for all clients.
@@ -307,11 +305,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the hyperlan peer.
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peer_by_cid(implicated_cid, peer_cid)
+            .get_hyperlan_peer_by_cid(session_cid, peer_cid)
             .await
     }
 
@@ -320,11 +318,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the hyperlan peer.
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError> {
         self.memory_backend
-            .hyperlan_peer_exists(implicated_cid, peer_cid)
+            .hyperlan_peer_exists(session_cid, peer_cid)
             .await
     }
 
@@ -333,11 +331,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the hyperlan peers.
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         self.memory_backend
-            .hyperlan_peers_are_mutuals(implicated_cid, peers)
+            .hyperlan_peers_are_mutuals(session_cid, peers)
             .await
     }
 
@@ -346,11 +344,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the list of hyperlan peers.
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peers(implicated_cid, peers)
+            .get_hyperlan_peers(session_cid, peers)
             .await
     }
 
@@ -359,10 +357,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the list of hyperlan peers.
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peer_list_as_server(implicated_cid)
+            .get_hyperlan_peer_list_as_server(session_cid)
             .await
     }
 
@@ -385,13 +383,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the byte map value.
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         self.memory_backend
-            .get_byte_map_value(implicated_cid, peer_cid, key, sub_key)
+            .get_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await
     }
 
@@ -400,16 +398,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .remove_byte_map_value(implicated_cid, peer_cid, key, sub_key)
+            .remove_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
     /// Stores a byte map value for a client.
@@ -417,7 +415,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -425,9 +423,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .store_byte_map_value(implicated_cid, peer_cid, key, sub_key, value)
+            .store_byte_map_value(session_cid, peer_cid, key, sub_key, value)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
     /// Retrieves a list of byte map values for a client by key.
@@ -435,15 +433,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method checks the in-memory cache for the list of byte map values.
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .get_byte_map_values_by_key(implicated_cid, peer_cid, key)
+            .get_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
     /// Removes a list of byte map values for a client by key.
@@ -451,15 +449,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .remove_byte_map_values_by_key(implicated_cid, peer_cid, key)
+            .remove_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
     /// Streams an object to the backend.

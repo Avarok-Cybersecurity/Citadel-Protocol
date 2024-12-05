@@ -142,7 +142,7 @@ impl ExternalServiceChannel for RtdbInstance {
     async fn send(
         &mut self,
         data: RawExternalPacket,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<(), AccountError> {
         // implicated CID is sending to peer CID. Thus, access the peer CID's node, and push/post/append message under implicated CID's peer node
@@ -153,7 +153,7 @@ impl ExternalServiceChannel for RtdbInstance {
             .child("users")
             .child(peer_cid.to_string())
             .child("peers")
-            .child(implicated_cid.to_string())
+            .child(session_cid.to_string())
             .final_node("packets")
             .post(data)
             .await

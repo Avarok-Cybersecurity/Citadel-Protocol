@@ -47,19 +47,28 @@ use crate::error::NetworkError;
 use crate::prelude::{NodeResult, ReKeyResult, ReKeyReturnType, Ticket, VirtualTargetType};
 use crate::proto::outbound_sender::UnboundedSender;
 use crate::proto::transfer_stats::TransferStats;
-use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use std::collections::HashMap;
 
-#[derive(Default)]
-pub struct RatchetUpdateState {
-    pub alice_hyper_ratchet: Option<StackedRatchetConstructor>,
-    pub p2p_updates: HashMap<u64, StackedRatchetConstructor>,
+pub struct RatchetUpdateState<R: Ratchet> {
+    pub alice_stacked_ratchet: Option<R::Constructor>,
+    pub p2p_updates: HashMap<u64, R::Constructor>,
     // if this is present (in the case of manual mode), an alert will be sent
     // to the kernel once the re-key has finished
     pub current_local_requests: HashMap<VirtualTargetType, Ticket>,
 }
 
-impl RatchetUpdateState {
+impl<R: Ratchet> Default for RatchetUpdateState<R> {
+    fn default() -> Self {
+        Self {
+            alice_stacked_ratchet: None,
+            p2p_updates: HashMap::new(),
+            current_local_requests: HashMap::new(),
+        }
+    }
+}
+
+impl<R: Ratchet> RatchetUpdateState<R> {
     pub(crate) fn on_complete(
         &mut self,
         v_conn_type: VirtualTargetType,
@@ -71,7 +80,7 @@ impl RatchetUpdateState {
                 .unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
                     ticket,
                     status,
-                    implicated_cid: v_conn_type.get_implicated_cid(),
+                    session_cid: v_conn_type.get_session_cid(),
                 }))
                 .map_err(|err| NetworkError::Generic(err.to_string()))
         } else {

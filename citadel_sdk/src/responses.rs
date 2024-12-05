@@ -17,9 +17,9 @@
 //! use citadel_sdk::prelude::*;
 //! use citadel_sdk::responses;
 //!
-//! async fn handle_peer_request(
+//! async fn handle_peer_request<R: Ratchet>(
 //!     signal: PeerSignal,
-//!     remote: &impl Remote
+//!     remote: &impl Remote<R>
 //! ) -> Result<(), NetworkError> {
 //!     // Accept a peer registration request
 //!     let ticket = responses::peer_register(signal, true, remote).await?;
@@ -44,10 +44,10 @@
 use crate::prelude::*;
 
 /// Given the `input_signal` from the peer, this function sends a register response to the target peer
-pub async fn peer_register(
+pub async fn peer_register<R: Ratchet>(
     input_signal: PeerSignal,
     accept: bool,
-    remote: &impl Remote,
+    remote: &impl Remote<R>,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostRegister {
         peer_conn_type: v_conn,
@@ -85,7 +85,7 @@ pub async fn peer_register(
             .send_with_custom_ticket(
                 ticket,
                 NodeRequest::PeerCommand(PeerCommand {
-                    implicated_cid: this_cid,
+                    session_cid: this_cid,
                     command: signal,
                 }),
             )
@@ -99,10 +99,10 @@ pub async fn peer_register(
 }
 
 /// Given the `input_signal` from the peer, this function sends a connect response to the target peer
-pub async fn peer_connect(
+pub async fn peer_connect<R: Ratchet>(
     input_signal: PeerSignal,
     accept: bool,
-    remote: &impl Remote,
+    remote: &impl Remote<R>,
     peer_session_password: Option<PreSharedKey>,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostConnect {
@@ -124,7 +124,7 @@ pub async fn peer_connect(
         };
 
         let signal = NodeRequest::PeerCommand(PeerCommand {
-            implicated_cid: this_cid,
+            session_cid: this_cid,
             command: PeerSignal::PostConnect {
                 peer_conn_type: v_conn.reverse(),
                 ticket_opt: Some(ticket),
@@ -146,13 +146,13 @@ pub async fn peer_connect(
 }
 
 /// Given a group invite signal, this function sends a response to the server
-pub async fn group_invite(
+pub async fn group_invite<R: Ratchet>(
     invite_signal: NodeResult,
     accept: bool,
-    remote: &impl Remote,
+    remote: &impl Remote<R>,
 ) -> Result<Ticket, NetworkError> {
     if let NodeResult::GroupEvent(GroupEvent {
-        implicated_cid: cid,
+        session_cid: cid,
         ticket,
         event: GroupBroadcast::Invitation { sender: _, key },
     }) = invite_signal
@@ -164,7 +164,7 @@ pub async fn group_invite(
         };
 
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid: cid,
+            session_cid: cid,
             command: resp,
         });
         remote

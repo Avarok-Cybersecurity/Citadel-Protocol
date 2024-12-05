@@ -18,7 +18,7 @@
 //! use citadel_sdk::prelude::*;
 //! use citadel_sdk::prefabs::ClientServerRemote;
 //!
-//! async fn handle_remote(mut remote: ClientServerRemote) -> Result<(), NetworkError> {
+//! async fn handle_remote<R: Ratchet>(mut remote: ClientServerRemote<R>) -> Result<(), NetworkError> {
 //!     // Get list of connected peers
 //!     let peers = remote.get_peers(None).await?;
 //!     
@@ -65,8 +65,8 @@ use crate::remote_ext::ProtocolRemoteExt;
 /// A limited version of the [`NodeRemote`] designed to only allow shutdown calls to the protocol
 /// as well as several other functions
 #[derive(Clone)]
-pub struct ClientServerRemote {
-    pub(crate) inner: NodeRemote,
+pub struct ClientServerRemote<R: Ratchet> {
+    pub(crate) inner: NodeRemote<R>,
     pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult>>>>,
     pub(crate) file_transfer_handle_rx: Arc<Mutex<Option<FileTransferHandleRx>>>,
     conn_type: VirtualTargetType,
@@ -75,11 +75,11 @@ pub struct ClientServerRemote {
 
 impl_remote!(ClientServerRemote);
 
-impl ClientServerRemote {
+impl<R: Ratchet> ClientServerRemote<R> {
     /// constructs a new [`ClientServerRemote`] from a [`NodeRemote`] and a [`VirtualTargetType`]
     pub fn new(
         conn_type: VirtualTargetType,
-        remote: NodeRemote,
+        remote: NodeRemote<R>,
         session_security_settings: SessionSecuritySettings,
         unprocessed_signals_rx: Option<UnboundedReceiver<NodeResult>>,
         file_transfer_handle_rx: Option<FileTransferHandleRx>,
@@ -111,11 +111,11 @@ impl ClientServerRemote {
     }
 }
 
-impl TargetLockedRemote for ClientServerRemote {
+impl<R: Ratchet> TargetLockedRemote<R> for ClientServerRemote<R> {
     fn user(&self) -> &VirtualTargetType {
         &self.conn_type
     }
-    fn remote(&self) -> &NodeRemote {
+    fn remote(&self) -> &NodeRemote<R> {
         &self.inner
     }
     fn target_username(&self) -> Option<&str> {
@@ -130,7 +130,7 @@ impl TargetLockedRemote for ClientServerRemote {
     }
 }
 
-impl ClientServerRemote {
+impl<R: Ratchet> ClientServerRemote<R> {
     /// Gracefully closes the protocol and kernel executor
     pub async fn shutdown_kernel(self) -> Result<(), NetworkError> {
         self.inner.shutdown().await
@@ -140,11 +140,8 @@ impl ClientServerRemote {
         &mut self,
         limit: Option<usize>,
     ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
-        let implicated_cid = self.conn_type.get_implicated_cid();
-        let peer_info = self
-            .inner
-            .get_local_group_peers(implicated_cid, limit)
-            .await?;
+        let session_cid = self.conn_type.get_session_cid();
+        let peer_info = self.inner.get_local_group_peers(session_cid, limit).await?;
         Ok(peer_info
             .iter()
             .map(|info| LocalGroupPeer {

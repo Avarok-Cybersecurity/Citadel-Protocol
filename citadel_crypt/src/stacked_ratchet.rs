@@ -61,7 +61,6 @@
 
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::entropy_bank::EntropyBank;
-use crate::fcm::fcm_ratchet::ThinRatchet;
 use crate::misc::CryptError;
 use crate::stacked_ratchet::constructor::StackedRatchetConstructor;
 use bytes::BytesMut;
@@ -87,44 +86,100 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
     type Constructor: EndpointRatchetConstructor<Self> + Serialize + for<'a> Deserialize<'a>;
 
     /// Returns the client ID
-    fn get_cid(&self) -> u64;
+    fn get_cid(&self) -> u64 {
+        self.get_message_pqc_and_entropy_bank_at_layer(None)
+            .expect("StackedRatchet::get_cid")
+            .1
+            .cid
+    }
 
     /// Returns the version
-    fn version(&self) -> u32;
+    fn version(&self) -> u32 {
+        self.get_message_pqc_and_entropy_bank_at_layer(None)
+            .expect("StackedRatchet::version")
+            .1
+            .version
+    }
 
     /// Determines if any of the ratchets have verified packets
-    fn has_verified_packets(&self) -> bool;
+    fn has_verified_packets(&self) -> bool {
+        let max = self.message_ratchet_count();
+        for n in 0..max {
+            if let Ok((pqc, _entropy_bank)) =
+                self.get_message_pqc_and_entropy_bank_at_layer(Some(n))
+            {
+                if pqc.has_verified_packets() {
+                    return true;
+                }
+            }
+        }
+
+        self.get_scramble_pqc_and_entropy_bank()
+            .0
+            .has_verified_packets()
+    }
 
     /// Resets the anti-replay attack counters
-    fn reset_ara(&self);
+    fn reset_ara(&self) {
+        let max = self.message_ratchet_count();
+        for n in 0..max {
+            if let Ok((pqc, _entropy_bank)) =
+                self.get_message_pqc_and_entropy_bank_at_layer(Some(n))
+            {
+                pqc.reset_counters();
+            }
+        }
+
+        self.get_scramble_pqc_and_entropy_bank().0.reset_counters()
+    }
 
     /// Returns the default security level
     fn get_default_security_level(&self) -> SecurityLevel;
 
-    /// Returns the message PQC and drill for the specified index
-    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank);
+    /// Returns the message PQC and entropy_bank for the specified index
+    fn get_message_pqc_and_entropy_bank_at_layer(
+        &self,
+        idx: Option<usize>,
+    ) -> Result<(&PostQuantumContainer, &EntropyBank), CryptError>;
 
-    /// Returns the scramble drill
-    fn get_scramble_drill(&self) -> &EntropyBank;
+    /// Returns the scramble entropy_bank
+    fn get_scramble_pqc_and_entropy_bank(&self) -> (&PostQuantumContainer, &EntropyBank);
 
     /// Returns the next constructor options
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts>;
 
-    /// Protects a message packet
+    /// Protects a message packet using the entire ratchet's security features
     fn protect_message_packet<T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
         header_len_bytes: usize,
         packet: &mut T,
-    ) -> Result<(), CryptError<String>>;
+    ) -> Result<(), CryptError<String>> {
+        let idx = self.verify_level(security_level)?;
 
-    /// Validates a message packet
+        for n in 0..=idx {
+            let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
+            entropy_bank.protect_packet(pqc, header_len_bytes, packet)?;
+        }
+
+        Ok(())
+    }
+
+    /// Validates a message packet using the entire ratchet's security features
     fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
         &self,
         security_level: Option<SecurityLevel>,
         header: H,
         packet: &mut T,
-    ) -> Result<(), CryptError<String>>;
+    ) -> Result<(), CryptError<String>> {
+        let idx = self.verify_level(security_level)?;
+        for n in (0..=idx).rev() {
+            let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
+            entropy_bank.validate_packet_in_place_split(pqc, &header, packet)?;
+        }
+
+        Ok(())
+    }
 
     /// Returns the next Alice constructor
     fn next_alice_constructor(&self) -> Option<Self::Constructor> {
@@ -132,75 +187,114 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
             self.get_next_constructor_opts(),
             self.get_cid(),
             self.version().wrapping_add(1),
-            Some(self.get_default_security_level()),
         )
     }
 
-    /// Encrypts data locally
+    /// Encrypts using a local key that is not shared with anyone. Relevant for RE-VFS
     fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
         &self,
         contents: T,
         security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError>;
+    ) -> Result<Vec<u8>, CryptError> {
+        let idx = self.verify_level(Some(security_level))?;
+        let mut data = contents.into();
+        for n in 0..=idx {
+            let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
+            data = Cow::Owned(entropy_bank.local_encrypt(pqc, &data)?);
+        }
 
-    /// Decrypts data locally
+        Ok(data.into_owned())
+    }
+
+    /// Decrypts using a local key that is not shared with anyone. Relevant for RE-VFS
     fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
         &self,
         contents: T,
         security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError>;
-}
-
-/// For returning a variable hyper ratchet from a function
-pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
-    Default(R),
-    Fcm(Fcm),
-}
-
-impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
-    /// Returns the default ratchet if it exists
-    pub fn assume_default(self) -> Option<R> {
-        if let RatchetType::Default(r) = self {
-            Some(r)
-        } else {
-            None
+    ) -> Result<Vec<u8>, CryptError> {
+        let mut data = contents.into();
+        if data.is_empty() {
+            return Ok(vec![]);
         }
+
+        let idx = self.verify_level(Some(security_level))?;
+        for n in (0..=idx).rev() {
+            let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
+            data = Cow::Owned(entropy_bank.local_decrypt(pqc, &data)?);
+        }
+
+        Ok(data.into_owned())
+    }
+
+    fn message_ratchet_count(&self) -> usize;
+
+    /// Verifies the target security level, returning the corresponding idx
+    fn verify_level(
+        &self,
+        security_level: Option<SecurityLevel>,
+    ) -> Result<usize, CryptError<String>> {
+        let security_level = security_level.unwrap_or(SecurityLevel::Standard);
+        let message_ratchet_count = self.message_ratchet_count();
+        if security_level.value() as usize >= message_ratchet_count {
+            log::warn!(target: "citadel", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, message_ratchet_count- 1, self.get_default_security_level(), self.version());
+            Err(CryptError::OutOfBoundsError)
+        } else {
+            Ok(security_level.value() as usize)
+        }
+    }
+
+    /// Validates in-place when the header + payload have already been split
+    fn validate_message_packet_in_place_split<H: AsRef<[u8]>>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        header: H,
+        packet: &mut BytesMut,
+    ) -> Result<(), CryptError<String>> {
+        let idx = self.verify_level(security_level)?;
+        for n in (0..=idx).rev() {
+            let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
+            entropy_bank.validate_packet_in_place_split(pqc, &header, packet)?;
+        }
+
+        Ok(())
+    }
+
+    /// decrypts using a custom nonce configuration
+    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+        let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
+        entropy_bank.decrypt(pqc, contents)
+    }
+
+    /// Encrypts the data into a Vec<u8>
+    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+        let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
+        entropy_bank.encrypt(pqc, contents)
     }
 }
 
 impl Ratchet for StackedRatchet {
     type Constructor = StackedRatchetConstructor;
 
-    fn get_cid(&self) -> u64 {
-        self.get_cid()
-    }
-
-    fn version(&self) -> u32 {
-        self.version()
-    }
-
-    fn has_verified_packets(&self) -> bool {
-        self.has_verified_packets()
-    }
-
-    fn reset_ara(&self) {
-        for ratchet in self.inner.message.inner.iter() {
-            ratchet.pqc.reset_counters();
-        }
-
-        self.inner.scramble.pqc.reset_counters();
-    }
-
+    /// Gets the default security level (will use all available keys)
     fn get_default_security_level(&self) -> SecurityLevel {
-        self.get_default_security_level()
+        self.inner.default_security_level
     }
 
-    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
-        self.message_pqc_drill(idx)
+    fn get_message_pqc_and_entropy_bank_at_layer(
+        &self,
+        idx: Option<usize>,
+    ) -> Result<(&PostQuantumContainer, &EntropyBank), CryptError> {
+        let idx = idx.unwrap_or(0);
+        self.inner
+            .message
+            .inner
+            .get(idx)
+            .map(|r| (&r.pqc, &r.entropy_bank))
+            .ok_or(CryptError::OutOfBoundsError)
     }
 
-    fn get_scramble_drill(&self) -> &EntropyBank {
-        self.get_scramble_drill()
+    fn get_scramble_pqc_and_entropy_bank(&self) -> (&PostQuantumContainer, &EntropyBank) {
+        (&self.inner.scramble.pqc, &self.inner.scramble.entropy_bank)
     }
 
     // This may panic if any of the ratchets are in an incomplete state
@@ -227,219 +321,13 @@ impl Ratchet for StackedRatchet {
                 let next_chain =
                     RecursiveChain::new(&meta_chain[..], prev_chain.alice, prev_chain.bob, false)
                         .unwrap();
-                ConstructorOpts::new_from_previous(Some(r.pqc.params), next_chain)
+                ConstructorOpts::new_ratcheted(Some(r.pqc.params), next_chain)
             })
             .collect()
     }
 
-    fn protect_message_packet<T: EzBuffer>(
-        &self,
-        security_level: Option<SecurityLevel>,
-        header_len_bytes: usize,
-        packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
-        self.protect_message_packet(security_level, header_len_bytes, packet)
-    }
-
-    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
-        &self,
-        security_level: Option<SecurityLevel>,
-        header: H,
-        packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
-        self.validate_message_packet(security_level, header, packet)
-    }
-
-    fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
-        &self,
-        contents: T,
-        security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError> {
-        let idx = self.verify_level(Some(security_level))?;
-        let mut data = contents.into();
-        for n in 0..=idx {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            data = Cow::Owned(drill.local_encrypt(pqc, &data)?);
-        }
-
-        Ok(data.into_owned())
-    }
-
-    fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
-        &self,
-        contents: T,
-        security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError> {
-        let mut data = contents.into();
-        if data.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let idx = self.verify_level(Some(security_level))?;
-        for n in (0..=idx).rev() {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            data = Cow::Owned(drill.local_decrypt(pqc, &data)?);
-        }
-
-        Ok(data.into_owned())
-    }
-}
-
-impl StackedRatchet {
-    /// Determines if either the PQC's anti-replay attack containers have been engaged
-    pub fn has_verified_packets(&self) -> bool {
-        let max = self.inner.message.inner.len();
-        for n in 0..max {
-            if self.get_message_pqc(Some(n)).has_verified_packets() {
-                return true;
-            }
-        }
-
-        self.get_scramble_pqc().has_verified_packets()
-    }
-
-    /// returns the scramble PQC
-    pub fn get_scramble_pqc(&self) -> &PostQuantumContainer {
-        &self.inner.scramble.pqc
-    }
-
-    /// returns the message pqc and drill. Panics if idx is OOB
-    #[inline]
-    pub fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
-        let idx = idx.unwrap_or(0);
-        (
-            &self.inner.message.inner[idx].pqc,
-            &self.inner.message.inner[idx].drill,
-        )
-    }
-
-    /// returns the message pqc and drill
-    #[inline]
-    pub fn scramble_pqc_drill(&self) -> (&PostQuantumContainer, &EntropyBank) {
-        (&self.inner.scramble.pqc, &self.inner.scramble.drill)
-    }
-
-    /// Verifies the target security level, returning the corresponding idx
-    pub fn verify_level(
-        &self,
-        security_level: Option<SecurityLevel>,
-    ) -> Result<usize, CryptError<String>> {
-        let security_level = security_level.unwrap_or(SecurityLevel::Standard);
-        if security_level.value() as usize >= self.inner.message.inner.len() {
-            log::warn!(target: "citadel", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len() - 1, self.get_default_security_level(), self.version());
-            Err(CryptError::OutOfBoundsError)
-        } else {
-            Ok(security_level.value() as usize)
-        }
-    }
-
-    /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
-    pub fn protect_message_packet<T: EzBuffer>(
-        &self,
-        security_level: Option<SecurityLevel>,
-        header_len_bytes: usize,
-        packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
-        let idx = self.verify_level(security_level)?;
-
-        for n in 0..=idx {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            drill.protect_packet(pqc, header_len_bytes, packet)?;
-        }
-
-        Ok(())
-    }
-
-    /// Validates a packet in place
-    pub fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
-        &self,
-        security_level: Option<SecurityLevel>,
-        header: H,
-        packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
-        let idx = self.verify_level(security_level)?;
-        for n in (0..=idx).rev() {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            drill.validate_packet_in_place_split(pqc, &header, packet)?;
-        }
-
-        Ok(())
-    }
-
-    /// Validates in-place when the header + payload have already been split
-    pub fn validate_message_packet_in_place_split<H: AsRef<[u8]>>(
-        &self,
-        security_level: Option<SecurityLevel>,
-        header: H,
-        packet: &mut BytesMut,
-    ) -> Result<(), CryptError<String>> {
-        let idx = self.verify_level(security_level)?;
-        for n in (0..=idx).rev() {
-            let (pqc, drill) = self.message_pqc_drill(Some(n));
-            drill.validate_packet_in_place_split(pqc, &header, packet)?;
-        }
-
-        Ok(())
-    }
-
-    /// Encrypts the data into a Vec<u8>
-    pub fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.encrypt(pqc, contents)
-    }
-
-    /// Encrypts the data into a Vec<u8>
-    pub fn encrypt_scrambler<T: AsRef<[u8]>>(
-        &self,
-        contents: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.encrypt(pqc, contents)
-    }
-
-    /// decrypts using a custom nonce configuration
-    pub fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.decrypt(pqc, contents)
-    }
-
-    /// decrypts using a custom nonce configuration
-    pub fn decrypt_scrambler<T: AsRef<[u8]>>(
-        &self,
-        contents: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, drill) = self.scramble_pqc_drill();
-        drill.decrypt(pqc, contents)
-    }
-
-    /// Returns the message drill
-    pub fn get_message_drill(&self, idx: Option<usize>) -> &EntropyBank {
-        &self.inner.message.inner[idx.unwrap_or(0)].drill
-    }
-
-    /// Returns the message pqc
-    pub fn get_message_pqc(&self, idx: Option<usize>) -> &PostQuantumContainer {
-        &self.inner.message.inner[idx.unwrap_or(0)].pqc
-    }
-
-    /// Returns the scramble drill
-    pub fn get_scramble_drill(&self) -> &EntropyBank {
-        &self.inner.scramble.drill
-    }
-
-    /// Returns the [StackedRatchet]'s version
-    pub fn version(&self) -> u32 {
-        self.inner.message.inner[0].drill.version
-    }
-
-    /// Returns the CID
-    pub fn get_cid(&self) -> u64 {
-        self.inner.message.inner[0].drill.cid
-    }
-
-    /// Gets the default security level (will use all available keys)
-    pub fn get_default_security_level(&self) -> SecurityLevel {
-        self.inner.default_security_level
+    fn message_ratchet_count(&self) -> usize {
+        self.inner.message.inner.len()
     }
 }
 
@@ -457,13 +345,13 @@ pub(crate) struct MessageRatchet {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchetInner {
-    pub(crate) drill: EntropyBank,
+    pub(crate) entropy_bank: EntropyBank,
     pub(crate) pqc: PostQuantumContainer,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ScrambleRatchet {
-    pub(crate) drill: EntropyBank,
+    pub(crate) entropy_bank: EntropyBank,
     pub(crate) pqc: PostQuantumContainer,
 }
 
@@ -477,21 +365,23 @@ impl From<StackedRatchetInner> for StackedRatchet {
 
 /// For constructing the StackedRatchet during KEM stage
 pub mod constructor {
-    use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+    use crate::endpoint_crypto_container::{
+        AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
+    };
     use crate::entropy_bank::EntropyBank;
-    use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
     use crate::prelude::CryptError;
-    use crate::stacked_ratchet::{Ratchet, StackedRatchet};
+    use crate::stacked_ratchet::StackedRatchet;
     use arrayvec::ArrayVec;
     use bytes::BufMut;
     use bytes::BytesMut;
-    use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+    use citadel_pqcrypto::constructor_opts::{ConstructorOpts, ImpliedSecurityLevel};
     use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
     use citadel_pqcrypto::PostQuantumContainer;
     use citadel_types::crypto::CryptoParameters;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::LARGEST_NONCE_LEN;
     use serde::{Deserialize, Serialize};
+    use std::fmt::{Debug, Formatter};
 
     /// Used during the key exchange process
     #[derive(Serialize, Deserialize)]
@@ -506,137 +396,188 @@ pub mod constructor {
         params: CryptoParameters,
     }
 
-    /// For differentiating between two types when inputting into function parameters
-    #[derive(Serialize, Deserialize)]
-    pub enum ConstructorType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
-        Default(R::Constructor),
-        Fcm(Fcm::Constructor),
-    }
-
-    impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
-        pub fn stage1_alice(
-            &mut self,
-            transfer: BobToAliceTransferType,
-            psks: &[Vec<u8>],
-        ) -> Result<(), CryptError> {
-            match self {
-                ConstructorType::Default(con) => con.stage1_alice(transfer, psks),
-                ConstructorType::Fcm(con) => con.stage1_alice(transfer, psks),
-            }
-        }
-
-        pub fn assume_default(self) -> Option<R::Constructor> {
-            if let ConstructorType::Default(c) = self {
-                Some(c)
-            } else {
-                None
-            }
-        }
-
-        pub fn assume_fcm(self) -> Option<Fcm::Constructor> {
-            if let ConstructorType::Fcm(c) = self {
-                Some(c)
-            } else {
-                None
-            }
-        }
-
-        pub fn assume_default_ref(&self) -> Option<&R::Constructor> {
-            if let ConstructorType::Default(c) = self {
-                Some(c)
-            } else {
-                None
-            }
-        }
-
-        pub fn assume_fcm_ref(&self) -> Option<&Fcm::Constructor> {
-            if let ConstructorType::Fcm(c) = self {
-                Some(c)
-            } else {
-                None
-            }
-        }
-
-        pub fn is_fcm(&self) -> bool {
-            matches!(self, Self::Fcm(..))
-        }
-    }
-
-    /// For denoting the different transfer types that have local lifetimes
-    #[derive(Serialize, Deserialize)]
-    pub enum AliceToBobTransferType {
-        Default(AliceToBobTransfer),
-        Fcm(FcmAliceToBobTransfer),
-    }
-
-    impl AliceToBobTransferType {
-        pub fn get_declared_new_version(&self) -> u32 {
-            match self {
-                AliceToBobTransferType::Default(tx) => tx.new_version,
-                AliceToBobTransferType::Fcm(tx) => tx.version,
-            }
+    impl Debug for StackedRatchetConstructor {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ThinRatchetConstructor")
+                .field("params", &self.params)
+                .field("cid", &self.cid)
+                .field("version", &self.new_version)
+                .finish()
         }
     }
 
     impl EndpointRatchetConstructor<StackedRatchet> for StackedRatchetConstructor {
-        fn new_alice(
-            opts: Vec<ConstructorOpts>,
+        type AliceToBobWireTransfer = AliceToBobTransfer;
+        type BobToAliceWireTransfer = BobToAliceTransfer;
+
+        fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
+            StackedRatchetConstructor::new_alice_constructor(opts, cid, new_version)
+        }
+
+        fn new_bob<T: AsRef<[u8]>>(
             cid: u64,
-            new_version: u32,
-            security_level: Option<SecurityLevel>,
-        ) -> Option<Self> {
-            StackedRatchetConstructor::new_alice(opts, cid, new_version, security_level)
-        }
-
-        fn new_bob(
-            cid: u64,
-            new_drill_vers: u32,
             opts: Vec<ConstructorOpts>,
-            transfer: AliceToBobTransferType,
-            psks: &[Vec<u8>],
+            transfer: Self::AliceToBobWireTransfer,
+            psks: &[T],
         ) -> Option<Self> {
-            match transfer {
-                AliceToBobTransferType::Default(transfer) => {
-                    StackedRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer, psks)
-                }
-
-                _ => {
-                    log::error!(target: "citadel", "Incompatible Ratchet Type passed! [X-22]");
-                    None
-                }
-            }
+            StackedRatchetConstructor::new_bob_constructor(
+                cid,
+                transfer.new_version,
+                opts,
+                transfer,
+                psks,
+            )
         }
 
-        fn stage0_alice(&self) -> Option<AliceToBobTransferType> {
-            Some(AliceToBobTransferType::Default(self.stage0_alice()?))
+        fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer> {
+            self.stage0_alice()
         }
 
-        fn stage0_bob(&self) -> Option<BobToAliceTransferType> {
-            Some(BobToAliceTransferType::Default(self.stage0_bob()?))
+        fn stage0_bob(&mut self) -> Option<Self::BobToAliceWireTransfer> {
+            self.stage0_bob()
         }
 
-        fn stage1_alice(
+        fn stage1_alice<T: AsRef<[u8]>>(
             &mut self,
-            transfer: BobToAliceTransferType,
-            psks: &[Vec<u8>],
+            transfer: Self::BobToAliceWireTransfer,
+            psks: &[T],
         ) -> Result<(), CryptError> {
-            self.stage1_alice(transfer, psks)
+            let nonce_msg = &self.nonce_message;
+            for (container, bob_param_tx) in self
+                .message
+                .inner
+                .iter_mut()
+                .zip(transfer.msg_bob_params_txs.clone())
+            {
+                container
+                    .pqc
+                    .alice_on_receive_ciphertext(bob_param_tx, psks)
+                    .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+            }
+
+            for (idx, container) in self.message.inner.iter_mut().enumerate() {
+                // now, using the message pqc, decrypt the message entropy_bank
+                let decrypted_msg_entropy_bank = match container.pqc.decrypt(
+                    &transfer
+                        .encrypted_msg_entropy_banks
+                        .get(idx)
+                        .ok_or_else(|| {
+                            CryptError::RekeyUpdateError(
+                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+                            )
+                        })?[..],
+                    nonce_msg,
+                ) {
+                    Ok(entropy_bank) => entropy_bank,
+                    Err(err) => {
+                        return Err(CryptError::RekeyUpdateError(err.to_string()));
+                    }
+                };
+                let decrypted_entropy_bank =
+                    EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
+                container.entropy_bank = Some(decrypted_entropy_bank);
+            }
+
+            let nonce_scramble = &self.nonce_scramble;
+            self.scramble
+                .pqc
+                .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
+                .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+            // do the same as above
+            let decrypted_scramble_entropy_bank = self
+                .scramble
+                .pqc
+                .decrypt(
+                    &transfer.encrypted_scramble_entropy_bank[..],
+                    nonce_scramble,
+                )
+                .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+
+            let decrypted_entropy_bank =
+                EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
+            self.scramble.entropy_bank = Some(decrypted_entropy_bank);
+
+            // version check
+            if self
+                .scramble
+                .entropy_bank
+                .as_ref()
+                .ok_or_else(|| {
+                    CryptError::RekeyUpdateError(
+                        "Unable to get encrypted_msg_entropy_banks".to_string(),
+                    )
+                })?
+                .version
+                != self.message.inner[0]
+                    .entropy_bank
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CryptError::RekeyUpdateError(
+                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+                        )
+                    })?
+                    .version
+            {
+                return Err(CryptError::RekeyUpdateError(
+                    "Message entropy_bank version != scramble entropy_bank version".to_string(),
+                ));
+            }
+
+            if self
+                .scramble
+                .entropy_bank
+                .as_ref()
+                .ok_or_else(|| {
+                    CryptError::RekeyUpdateError(
+                        "Unable to get encrypted_msg_entropy_banks".to_string(),
+                    )
+                })?
+                .cid
+                != self.message.inner[0]
+                    .entropy_bank
+                    .as_ref()
+                    .ok_or_else(|| {
+                        CryptError::RekeyUpdateError(
+                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+                        )
+                    })?
+                    .cid
+            {
+                return Err(CryptError::RekeyUpdateError(
+                    "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
+                ));
+            }
+
+            Ok(())
         }
 
         fn update_version(&mut self, version: u32) -> Option<()> {
-            self.update_version(version)
+            self.new_version = version;
+
+            for container in self.message.inner.iter_mut() {
+                container.entropy_bank.as_mut()?.version = version;
+            }
+
+            self.scramble.entropy_bank.as_mut()?.version = version;
+            Some(())
         }
 
-        fn finish_with_custom_cid(self, cid: u64) -> Option<StackedRatchet> {
-            self.finish_with_custom_cid(cid)
+        fn finish_with_custom_cid(mut self, cid: u64) -> Option<StackedRatchet> {
+            for container in self.message.inner.iter_mut() {
+                container.entropy_bank.as_mut()?.cid = cid;
+            }
+
+            self.scramble.entropy_bank.as_mut()?.cid = cid;
+
+            self.finish()
         }
 
         fn finish(self) -> Option<StackedRatchet> {
-            self.finish()
+            StackedRatchet::try_from(self).ok()
         }
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     /// Transferred during KEM
     pub struct AliceToBobTransfer {
         pub params: CryptoParameters,
@@ -649,22 +590,33 @@ pub mod constructor {
         new_version: u32,
     }
 
-    #[derive(Serialize, Deserialize)]
+    impl AssociatedSecurityLevel for AliceToBobTransfer {
+        fn security_level(&self) -> SecurityLevel {
+            self.security_level
+        }
+    }
+
+    impl AssociatedCryptoParams for AliceToBobTransfer {
+        fn crypto_params(&self) -> CryptoParameters {
+            self.params
+        }
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
     /// Transferred during KEM
     pub struct BobToAliceTransfer {
         msg_bob_params_txs: Vec<BobToAliceTransferParameters>,
         scramble_bob_params_tx: BobToAliceTransferParameters,
-        encrypted_msg_drills: Vec<Vec<u8>>,
-        encrypted_scramble_drill: Vec<u8>,
+        encrypted_msg_entropy_banks: Vec<Vec<u8>>,
+        encrypted_scramble_entropy_bank: Vec<u8>,
         // the security level
         pub security_level: SecurityLevel,
     }
 
-    /// for denoting different types
-    #[derive(Serialize, Deserialize)]
-    pub enum BobToAliceTransferType {
-        Default(BobToAliceTransfer),
-        Fcm(FcmBobToAliceTransfer),
+    impl AssociatedSecurityLevel for BobToAliceTransfer {
+        fn security_level(&self) -> SecurityLevel {
+            self.security_level
+        }
     }
 
     impl BobToAliceTransfer {
@@ -701,13 +653,12 @@ pub mod constructor {
 
     impl StackedRatchetConstructor {
         /// Called during the initialization stage
-        pub fn new_alice(
+        pub fn new_alice_constructor(
             opts: Vec<ConstructorOpts>,
             cid: u64,
             new_version: u32,
-            security_level: Option<SecurityLevel>,
         ) -> Option<Self> {
-            let security_level = security_level.unwrap_or(SecurityLevel::Standard);
+            let security_level = opts.implied_security_level();
             log::trace!(target: "citadel", "[ALICE] creating container with {:?} security level", security_level);
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
@@ -716,7 +667,7 @@ pub mod constructor {
                 .into_iter()
                 .filter_map(|opts| {
                     Some(MessageRatchetConstructorInner {
-                        drill: None,
+                        entropy_bank: None,
                         pqc: PostQuantumContainer::new_alice(opts).ok()?,
                     })
                 })
@@ -730,7 +681,7 @@ pub mod constructor {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
                 scramble: ScrambleRatchetConstructor {
-                    drill: None,
+                    entropy_bank: None,
                     pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params)))
                         .ok()?,
                 },
@@ -743,12 +694,12 @@ pub mod constructor {
         }
 
         /// Called when bob receives alice's pk's
-        pub fn new_bob(
+        pub fn new_bob_constructor<T: AsRef<[u8]>>(
             cid: u64,
-            new_drill_vers: u32,
+            new_version: u32,
             opts: Vec<ConstructorOpts>,
             transfer: AliceToBobTransfer,
-            psks: &[Vec<u8>],
+            psks: &[T],
         ) -> Option<Self> {
             log::trace!(target: "citadel", "[BOB] creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
@@ -758,11 +709,10 @@ pub mod constructor {
                 .into_iter()
                 .zip(opts)
                 .filter_map(|(params_tx, opts)| {
+                    let entropy_bank =
+                        EntropyBank::new(cid, new_version, params.encryption_algorithm).ok()?;
                     Some(MessageRatchetConstructorInner {
-                        drill: Some(
-                            EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm)
-                                .ok()?,
-                        ),
+                        entropy_bank: Some(entropy_bank),
                         pqc: PostQuantumContainer::new_bob(opts, params_tx, psks).ok()?,
                     })
                 })
@@ -773,13 +723,14 @@ pub mod constructor {
                 return None;
             }
 
+            let scramble_entropy_bank =
+                EntropyBank::new(cid, new_version, params.encryption_algorithm).ok()?;
+
             Some(Self {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
                 scramble: ScrambleRatchetConstructor {
-                    drill: Some(
-                        EntropyBank::new(cid, new_drill_vers, params.encryption_algorithm).ok()?,
-                    ),
+                    entropy_bank: Some(scramble_entropy_bank),
                     pqc: PostQuantumContainer::new_bob(
                         ConstructorOpts::new_init(Some(params)),
                         transfer.scramble_alice_params,
@@ -790,7 +741,7 @@ pub mod constructor {
                 nonce_message: transfer.msg_nonce,
                 nonce_scramble: transfer.scramble_nonce,
                 cid,
-                new_version: new_drill_vers,
+                new_version,
                 security_level: transfer.security_level,
             })
         }
@@ -828,8 +779,8 @@ pub mod constructor {
             })
         }
 
-        /// Returns the (message_bob_ct, scramble_bob_ct, msg_drill_serialized, scramble_drill_serialized)
-        pub fn stage0_bob(&self) -> Option<BobToAliceTransfer> {
+        /// Returns the (message_bob_ct, scramble_bob_ct, msg_entropy_bank_serialized, scramble_entropy_bank_serialized)
+        pub fn stage0_bob(&mut self) -> Option<BobToAliceTransfer> {
             let expected_count = self.message.inner.len();
             let security_level = self.security_level;
             let msg_bob_cts: Vec<BobToAliceTransferParameters> = self
@@ -843,155 +794,163 @@ pub mod constructor {
             }
 
             let scramble_bob_ct = self.scramble.pqc.generate_bob_to_alice_transfer().ok()?;
+
             // now, generate the serialized bytes
             let nonce_msg = &self.nonce_message;
             let nonce_scramble = &self.nonce_scramble;
 
-            let encrypted_msg_drills: Vec<Vec<u8>> = self
+            let encrypted_msg_entropy_banks: Vec<Vec<u8>> = self
                 .message
                 .inner
-                .iter()
+                .iter_mut()
                 .filter_map(|inner| {
-                    inner
-                        .pqc
-                        .encrypt(inner.drill.as_ref()?.serialize_to_vec().ok()?, nonce_msg)
-                        .ok()
+                    let entropy_bank = inner.entropy_bank.as_mut()?;
+                    let serialized = entropy_bank.serialize_to_vec().ok()?;
+                    let encrypted = inner.pqc.encrypt(serialized, nonce_msg).ok()?;
+                    Some(encrypted)
                 })
                 .collect();
-            if encrypted_msg_drills.len() != expected_count {
+            if encrypted_msg_entropy_banks.len() != expected_count {
                 return None;
             }
 
-            let encrypted_scramble_drill = self
-                .scramble
-                .pqc
-                .encrypt(
-                    self.scramble.drill.as_ref()?.serialize_to_vec().ok()?,
-                    nonce_scramble,
-                )
-                .ok()?;
+            let scramble_entropy_bank = self.scramble.entropy_bank.as_mut()?;
+            let serialized = scramble_entropy_bank.serialize_to_vec().ok()?;
+            let encrypted_scramble_entropy_bank =
+                self.scramble.pqc.encrypt(serialized, nonce_scramble).ok()?;
 
             let transfer = BobToAliceTransfer {
                 msg_bob_params_txs: msg_bob_cts,
                 scramble_bob_params_tx: scramble_bob_ct,
-                encrypted_msg_drills,
-                encrypted_scramble_drill,
+                encrypted_msg_entropy_banks,
+                encrypted_scramble_entropy_bank,
                 security_level,
             };
 
             Some(transfer)
         }
 
-        /// Returns Some(()) if process succeeded
-        pub fn stage1_alice(
+        /// Returns Ok(()) if process succeeded
+        pub fn stage1_alice<T: AsRef<[u8]>>(
             &mut self,
-            transfer: BobToAliceTransferType,
-            psks: &[Vec<u8>],
+            transfer: BobToAliceTransfer,
+            psks: &[T],
         ) -> Result<(), CryptError> {
-            if let BobToAliceTransferType::Default(transfer) = transfer {
-                let nonce_msg = &self.nonce_message;
-
-                for (container, bob_param_tx) in self
-                    .message
-                    .inner
-                    .iter_mut()
-                    .zip(transfer.msg_bob_params_txs)
-                {
-                    container
-                        .pqc
-                        .alice_on_receive_ciphertext(bob_param_tx, psks)
-                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
-                }
-
-                for (idx, container) in self.message.inner.iter_mut().enumerate() {
-                    // now, using the message pqc, decrypt the message drill
-                    let decrypted_msg_drill = container
-                        .pqc
-                        .decrypt(
-                            &transfer.encrypted_msg_drills.get(idx).ok_or_else(|| {
-                                CryptError::DrillUpdateError(
-                                    "Unable to get encrypted_msg_drills".to_string(),
-                                )
-                            })?[..],
-                            nonce_msg,
-                        )
-                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
-                    container.drill =
-                        Some(EntropyBank::deserialize_from(&decrypted_msg_drill[..])?);
-                }
-
-                let nonce_scramble = &self.nonce_scramble;
-                self.scramble
+            let nonce_msg = &self.nonce_message;
+            for (container, bob_param_tx) in self
+                .message
+                .inner
+                .iter_mut()
+                .zip(transfer.msg_bob_params_txs.clone())
+            {
+                container
                     .pqc
-                    .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
-                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
-                // do the same as above
-                let decrypted_scramble_drill = self
-                    .scramble
-                    .pqc
-                    .decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble)
-                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
-                self.scramble.drill = Some(EntropyBank::deserialize_from(
-                    &decrypted_scramble_drill[..],
-                )?);
+                    .alice_on_receive_ciphertext(bob_param_tx, psks)
+                    .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+            }
 
-                // version check
-                if self
-                    .scramble
-                    .drill
+            for (idx, container) in self.message.inner.iter_mut().enumerate() {
+                // now, using the message pqc, decrypt the message entropy_bank
+                let decrypted_msg_entropy_bank = match container.pqc.decrypt(
+                    &transfer
+                        .encrypted_msg_entropy_banks
+                        .get(idx)
+                        .ok_or_else(|| {
+                            CryptError::RekeyUpdateError(
+                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+                            )
+                        })?[..],
+                    nonce_msg,
+                ) {
+                    Ok(entropy_bank) => entropy_bank,
+                    Err(err) => {
+                        return Err(CryptError::RekeyUpdateError(err.to_string()));
+                    }
+                };
+                let mut decrypted_entropy_bank =
+                    EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
+                // Overwrite the CID since the entropy bank bob encrypted had his CID
+                decrypted_entropy_bank.cid = self.cid;
+                container.entropy_bank = Some(decrypted_entropy_bank);
+            }
+
+            let nonce_scramble = &self.nonce_scramble;
+            self.scramble
+                .pqc
+                .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
+                .map_err(|err| {
+                    println!(
+                        "[DEBUG] Checkpoint 3 - Alice on receive scramble ciphertext error: {:?}",
+                        err
+                    );
+                    CryptError::RekeyUpdateError(err.to_string())
+                })?;
+            // do the same as above
+            let decrypted_scramble_entropy_bank = self
+                .scramble
+                .pqc
+                .decrypt(
+                    &transfer.encrypted_scramble_entropy_bank[..],
+                    nonce_scramble,
+                )
+                .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+            let mut decrypted_entropy_bank =
+                EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
+            // Overwrite the CID since the entropy bank bob encrypted had his CID
+            decrypted_entropy_bank.cid = self.cid;
+            self.scramble.entropy_bank = Some(decrypted_entropy_bank);
+            // version check
+            if self
+                .scramble
+                .entropy_bank
+                .as_ref()
+                .ok_or_else(|| {
+                    CryptError::RekeyUpdateError(
+                        "Unable to get encrypted_msg_entropy_banks".to_string(),
+                    )
+                })?
+                .version
+                != self.message.inner[0]
+                    .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        CryptError::DrillUpdateError(
-                            "Unable to get encrypted_msg_drills".to_string(),
+                        CryptError::RekeyUpdateError(
+                            "Unable to get encrypted_msg_entropy_banks".to_string(),
                         )
                     })?
                     .version
-                    != self.message.inner[0]
-                        .drill
-                        .as_ref()
-                        .ok_or_else(|| {
-                            CryptError::DrillUpdateError(
-                                "Unable to get encrypted_msg_drills".to_string(),
-                            )
-                        })?
-                        .version
-                {
-                    return Err(CryptError::DrillUpdateError(
-                        "Message drill version != scramble drill version".to_string(),
-                    ));
-                }
+            {
+                return Err(CryptError::RekeyUpdateError(
+                    "Message entropy_bank version != scramble entropy_bank version".to_string(),
+                ));
+            }
 
-                if self
-                    .scramble
-                    .drill
+            if self
+                .scramble
+                .entropy_bank
+                .as_ref()
+                .ok_or_else(|| {
+                    CryptError::RekeyUpdateError(
+                        "Unable to get encrypted_msg_entropy_banks".to_string(),
+                    )
+                })?
+                .cid
+                != self.message.inner[0]
+                    .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        CryptError::DrillUpdateError(
-                            "Unable to get encrypted_msg_drills".to_string(),
+                        CryptError::RekeyUpdateError(
+                            "Unable to get encrypted_msg_entropy_banks".to_string(),
                         )
                     })?
                     .cid
-                    != self.message.inner[0]
-                        .drill
-                        .as_ref()
-                        .ok_or_else(|| {
-                            CryptError::DrillUpdateError(
-                                "Unable to get encrypted_msg_drills".to_string(),
-                            )
-                        })?
-                        .cid
-                {
-                    return Err(CryptError::DrillUpdateError(
-                        "Message drill cid != scramble drill cid".to_string(),
-                    ));
-                }
-
-                Ok(())
-            } else {
-                Err(CryptError::DrillUpdateError(
-                    "Incompatible Ratchet Type passed! [X-40]".to_string(),
-                ))
+            {
+                return Err(CryptError::RekeyUpdateError(
+                    "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
+                ));
             }
+
+            Ok(())
         }
 
         /// Upgrades the construction into the StackedRatchet
@@ -1004,41 +963,41 @@ pub mod constructor {
             self.new_version = version;
 
             for container in self.message.inner.iter_mut() {
-                container.drill.as_mut()?.version = version;
+                container.entropy_bank.as_mut()?.version = version;
             }
 
-            self.scramble.drill.as_mut()?.version = version;
+            self.scramble.entropy_bank.as_mut()?.version = version;
             Some(())
         }
 
-        /// Sometimes, replacing the CID is useful such as during peer KEM exhcange wherein
+        /// Sometimes, replacing the CID is useful such as during peer KEM exchange wherein
         /// the CIDs between both parties are different. If a version is supplied, the version
         /// will be updated
         pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<StackedRatchet> {
             for container in self.message.inner.iter_mut() {
-                container.drill.as_mut()?.cid = cid;
+                container.entropy_bank.as_mut()?.cid = cid;
             }
 
-            self.scramble.drill.as_mut()?.cid = cid;
+            self.scramble.entropy_bank.as_mut()?.cid = cid;
 
             self.finish()
         }
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub(super) struct MessageRatchetConstructor {
         pub(super) inner: Vec<MessageRatchetConstructorInner>,
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub(super) struct MessageRatchetConstructorInner {
-        pub(super) drill: Option<EntropyBank>,
+        pub(super) entropy_bank: Option<EntropyBank>,
         pub(super) pqc: PostQuantumContainer,
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub(super) struct ScrambleRatchetConstructor {
-        pub(super) drill: Option<EntropyBank>,
+        pub(super) entropy_bank: Option<EntropyBank>,
         pub(super) pqc: PostQuantumContainer,
     }
 }
@@ -1053,22 +1012,22 @@ impl TryFrom<StackedRatchetConstructor> for StackedRatchet {
         let default_security_level = SecurityLevel::for_value(message.inner.len() - 1).ok_or(())?;
         // make sure the shared secret is loaded
         let _ = scramble.pqc.get_shared_secret().map_err(|_| ())?;
-        let scramble_drill = scramble.drill.ok_or(())?;
+        let scramble_entropy_bank = scramble.entropy_bank.ok_or(())?;
 
         let mut inner = Vec::with_capacity(message.inner.len());
         for container in message.inner {
             // make sure shared secret is loaded
             let _ = container.pqc.get_shared_secret().map_err(|_| ())?;
-            let message_drill = container.drill.ok_or(())?;
+            let message_entropy_bank = container.entropy_bank.ok_or(())?;
 
-            if message_drill.version != scramble_drill.version
-                || message_drill.cid != scramble_drill.cid
+            if message_entropy_bank.version != scramble_entropy_bank.version
+                || message_entropy_bank.cid != scramble_entropy_bank.cid
             {
                 return Err(());
             }
 
             inner.push(MessageRatchetInner {
-                drill: message_drill,
+                entropy_bank: message_entropy_bank,
                 pqc: container.pqc,
             });
         }
@@ -1076,7 +1035,7 @@ impl TryFrom<StackedRatchetConstructor> for StackedRatchet {
         let message = MessageRatchet { inner };
 
         let scramble = ScrambleRatchet {
-            drill: scramble_drill,
+            entropy_bank: scramble_entropy_bank,
             pqc: scramble.pqc,
         };
 

@@ -31,14 +31,23 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
+use citadel_crypt::stacked_ratchet::Ratchet;
 
 /// This will handle an inbound group packet
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_udp_packet(
-    _session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub fn process_udp_packet<R: Ratchet>(
+    _session: &CitadelSession<R>,
     packet: HdpPacket,
     hr_version: u32,
-    accessor: &EndpointCryptoAccessor,
+    accessor: &EndpointCryptoAccessor<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
 

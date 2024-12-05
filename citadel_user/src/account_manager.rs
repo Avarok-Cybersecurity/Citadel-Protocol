@@ -102,7 +102,7 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
+use citadel_crypt::fcm::ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_types::prelude::PeerInfo;
@@ -206,7 +206,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         &self,
         conn_info: ConnectionInfo,
         creds: ProposedCredentials,
-        init_hyper_ratchet: R,
+        init_stacked_ratchet: R,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let reserved_cid = self
             .persistence_handler
@@ -239,7 +239,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             false,
             conn_info,
             auth_store,
-            init_hyper_ratchet,
+            init_stacked_ratchet,
         )
         .await?;
         log::trace!(target: "citadel", "Created impersonal CNAC ...");
@@ -252,7 +252,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// HyperLAN Client (Alice) runs this function below
     pub async fn register_personal_hyperlan_server(
         &self,
-        hyper_ratchet: R,
+        stacked_ratchet: R,
         creds: ProposedCredentials,
         conn_info: ConnectionInfo,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
@@ -262,7 +262,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let client_auth_store = creds.into_auth_store();
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             valid_cid,
-            hyper_ratchet,
+            stacked_ratchet,
             client_auth_store,
             conn_info,
         )
@@ -357,14 +357,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// returns true if success, false otherwise
     pub async fn register_hyperlan_p2p_at_endpoints<T: Into<String>>(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         adjacent_username: T,
     ) -> Result<(), AccountError> {
         let adjacent_username = adjacent_username.into();
-        log::trace!(target: "citadel", "Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, implicated_cid);
+        log::trace!(target: "citadel", "Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, session_cid);
         self.persistence_handler
-            .register_p2p_as_client(implicated_cid, peer_cid, adjacent_username)
+            .register_p2p_as_client(session_cid, peer_cid, adjacent_username)
             .await
     }
 
@@ -388,10 +388,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Gets a list of hyperlan peers for the given peer
     pub async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         self.persistence_handler
-            .get_hyperlan_peer_list(implicated_cid)
+            .get_hyperlan_peer_list(session_cid)
             .await
     }
 
@@ -401,7 +401,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         implicated_user: impl Into<UserIdentifier>,
         target_user: impl Into<UserIdentifier>,
     ) -> Result<Option<(u64, MutualPeer)>, AccountError> {
-        let implicated_cid = match implicated_user.into() {
+        let session_cid = match implicated_user.into() {
             UserIdentifier::ID(id) => id,
 
             UserIdentifier::Username(uname) => {
@@ -412,15 +412,15 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         match target_user.into() {
             UserIdentifier::ID(peer_cid) => Ok(self
                 .persistence_handler
-                .get_hyperlan_peer_by_cid(implicated_cid, peer_cid)
+                .get_hyperlan_peer_by_cid(session_cid, peer_cid)
                 .await?
-                .map(|r| (implicated_cid, r))),
+                .map(|r| (session_cid, r))),
 
             UserIdentifier::Username(uname) => Ok(self
                 .persistence_handler
-                .get_hyperlan_peer_by_username(implicated_cid, &uname)
+                .get_hyperlan_peer_by_username(session_cid, &uname)
                 .await?
-                .map(|r| (implicated_cid, r))),
+                .map(|r| (session_cid, r))),
         }
     }
 

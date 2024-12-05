@@ -55,9 +55,9 @@ pub mod prelude {
 
 /// For argon-related functionality
 pub mod argon;
-/// An abstraction binding the drill and the PQC
+/// An abstraction binding the entropy_bank and the PQC
 pub mod endpoint_crypto_container;
-/// Organizes the different types of drills that can be used. Currently, there is only one: The Standard Drill
+/// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
 pub mod entropy_bank;
 /// Contains the cryptographic primitives for handling FCM interactions on the network
 pub mod fcm;
@@ -69,11 +69,13 @@ pub mod packet_vector;
 pub mod scramble;
 /// For secure byte handling
 pub mod secure_buffer;
-/// This is a container for holding the drill and PQC, and is intended to replace the separate use of the drill/PQC
+/// This is a container for holding the entropy_bank and PQC, and is intended to replace the separate use of the entropy_bank/PQC
 pub mod stacked_ratchet;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod streaming_crypt_scrambler;
 
+///
+pub mod ratchet_manager;
 pub mod sync_toggle;
-/// Provides drill management, update, and versioning. This is what's exposed to the citadel_user api. The drills themselves are abstracted beneath
+/// Provides entropy_bank management, update, and versioning. This is what's exposed to the citadel_user api. The entropy_banks themselves are abstracted beneath
 pub mod toolset;

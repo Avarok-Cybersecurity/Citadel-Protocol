@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
+use citadel_crypt::fcm::ratchet::ThinRatchet;
 use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
 
 #[cfg(all(feature = "redis", not(coverage)))]
@@ -216,7 +216,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// registers p2p as client
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError>;
@@ -225,18 +225,18 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Deregisters two peers from each other
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError>;
     /// Returns a list of hyperlan peers for the client
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError>;
     /// Returns the metadata for a client
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError>;
     /// Gets all the metadata for many clients
     async fn get_clients_metadata(
@@ -246,40 +246,40 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Gets hyperlan peer
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError>;
     /// Determines if the peer exists or not
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError>;
     /// Determines if the input cids are mutual to the implicated cid in order
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError>;
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError>;
     /// Gets hyperland peer by username
     async fn get_hyperlan_peer_by_username(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         username: &str,
     ) -> Result<Option<MutualPeer>, AccountError> {
-        self.get_hyperlan_peer_by_cid(implicated_cid, user::username_to_cid(username))
+        self.get_hyperlan_peer_by_cid(session_cid, user::username_to_cid(username))
             .await
     }
     /// Gets all peers for client
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
     async fn synchronize_hyperlan_peer_list_as_client(
@@ -290,7 +290,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Returns a vector of bytes from the byte map
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -298,7 +298,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Removes a value from the byte map, returning the previous value
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -306,7 +306,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Stores a value in the byte map, either creating or overwriting any pre-existing value
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -315,14 +315,14 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Obtains a list of K,V pairs such that they reside inside `key`
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError>;

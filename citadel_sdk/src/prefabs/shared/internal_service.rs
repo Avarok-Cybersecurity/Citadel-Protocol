@@ -38,7 +38,7 @@
 //! - [`SecBuffer`]: Secure data handling
 //!
 
-use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
+use crate::prelude::{ConnectionSuccess, Ratchet, TargetLockedRemote};
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_proto::prelude::NetworkError;
@@ -49,7 +49,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub async fn internal_service<F, Fut, R>(
+pub async fn internal_service<F, Fut, R, Ra: Ratchet>(
     remote: R,
     connect_success: ConnectionSuccess,
     service: F,
@@ -57,7 +57,7 @@ pub async fn internal_service<F, Fut, R>(
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
-    R: TargetLockedRemote,
+    R: TargetLockedRemote<Ra>,
 {
     let (tx_to_service, rx_from_kernel) = citadel_io::tokio::sync::mpsc::unbounded_channel();
     let (tx_to_kernel, mut rx_from_service) = citadel_io::tokio::sync::mpsc::unbounded_channel();

@@ -34,7 +34,7 @@ attempt_simultaneous_hole_punch(
     ticket,
     session,
     peer_nat_info,
-    implicated_cid,
+    session_cid,
     kernel_tx,
     channel_signal,
     sync_time,
@@ -79,6 +79,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::prelude::UdpMode;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
@@ -130,17 +131,17 @@ impl Drop for DirectP2PRemote {
     }
 }
 
-async fn setup_listener_non_initiator(
+async fn setup_listener_non_initiator<R: Ratchet>(
     local_bind_addr: SocketAddr,
     remote_addr: SocketAddr,
-    session: CitadelSession,
+    session: CitadelSession<R>,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
     udp_mode: UdpMode,
 ) -> Result<(), NetworkError> {
     // TODO: use custom self-signed
-    let (listener, _) = Node::create_listen_socket(
+    let (listener, _) = Node::<R>::create_listen_socket(
         ServerUnderlyingProtocol::new_quic_self_signed(),
         None,
         None,
@@ -158,9 +159,9 @@ async fn setup_listener_non_initiator(
     .await
 }
 
-async fn p2p_conn_handler(
+async fn p2p_conn_handler<R: Ratchet>(
     mut p2p_listener: GenericNetworkListener,
-    session: CitadelSession,
+    session: CitadelSession<R>,
     _necessary_remote_addr: SocketAddr,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
@@ -168,7 +169,7 @@ async fn p2p_conn_handler(
     udp_mode: UdpMode,
 ) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
-    let implicated_cid = session.implicated_cid.clone();
+    let session_cid = session.session_cid.clone();
     let weak = &session.as_weak();
 
     std::mem::drop(session);
@@ -182,7 +183,7 @@ async fn p2p_conn_handler(
 
             handle_p2p_stream(
                 p2p_stream,
-                implicated_cid,
+                session_cid,
                 session,
                 kernel_tx,
                 true,
@@ -210,10 +211,10 @@ async fn p2p_conn_handler(
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
 #[allow(clippy::too_many_arguments)]
-fn handle_p2p_stream(
+fn handle_p2p_stream<R: Ratchet>(
     mut p2p_stream: GenericNetworkStream,
-    implicated_cid: DualRwLock<Option<u64>>,
-    session: CitadelSession,
+    session_cid: DualRwLock<Option<u64>>,
+    session: CitadelSession<R>,
     kernel_tx: UnboundedSender<NodeResult>,
     from_listener: bool,
     v_conn: VirtualConnectionType,
@@ -247,12 +248,12 @@ fn handle_p2p_stream(
     let p2p_handle = P2PInboundHandle::new(
         remote_peer,
         local_bind_addr.port(),
-        implicated_cid,
+        session_cid,
         kernel_tx,
         p2p_primary_stream_tx.clone(),
         peer_cid,
     );
-    let writer_future = CitadelSession::outbound_stream(p2p_primary_stream_rx, sink);
+    let writer_future = CitadelSession::<R>::outbound_stream(p2p_primary_stream_rx, sink);
     let reader_future =
         CitadelSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
     let stopper_future = p2p_stopper(stopper_rx);
@@ -313,7 +314,7 @@ pub struct P2PInboundHandle {
     pub remote_peer: SocketAddr,
     pub local_bind_port: u16,
     // this has to be the CID of the local session, not the peer's CID
-    pub implicated_cid: DualRwLock<Option<u64>>,
+    pub session_cid: DualRwLock<Option<u64>>,
     pub kernel_tx: UnboundedSender<NodeResult>,
     pub to_primary_stream: OutboundPrimaryStreamSender,
     pub peer_cid: u64,
@@ -323,7 +324,7 @@ impl P2PInboundHandle {
     fn new(
         remote_peer: SocketAddr,
         local_bind_port: u16,
-        implicated_cid: DualRwLock<Option<u64>>,
+        session_cid: DualRwLock<Option<u64>>,
         kernel_tx: UnboundedSender<NodeResult>,
         to_primary_stream: OutboundPrimaryStreamSender,
         peer_cid: u64,
@@ -331,7 +332,7 @@ impl P2PInboundHandle {
         Self {
             remote_peer,
             local_bind_port,
-            implicated_cid,
+            session_cid,
             kernel_tx,
             to_primary_stream,
             peer_cid,
@@ -353,16 +354,16 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
     skip_all,
     ret,
     err,
-    fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid()
+    fields(session_cid=session_cid.get(), peer_cid=peer_connection_type.get_original_target_cid()
     )
 ))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn attempt_simultaneous_hole_punch(
+pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     peer_connection_type: PeerConnectionType,
     ticket: Ticket,
-    session: CitadelSession,
+    session: CitadelSession<R>,
     peer_nat_info: PeerNatInfo,
-    implicated_cid: DualRwLock<Option<u64>>,
+    session_cid: DualRwLock<Option<u64>>,
     kernel_tx: UnboundedSender<NodeResult>,
     channel_signal: NodeResult,
     sync_time: Instant,
@@ -400,7 +401,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
                 client_config.clone(),
             )
             .map_err(generic_error)?;
-            let p2p_stream = Node::quic_p2p_connect_defaults(
+            let p2p_stream = Node::<R>::quic_p2p_connect_defaults(
                 quic_endpoint.endpoint,
                 None,
                 peer_nat_info.tls_domain,
@@ -412,7 +413,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(
             log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch + QUIC finished successfully for INITIATOR @!~");
             handle_p2p_stream(
                 p2p_stream,
-                implicated_cid,
+                session_cid,
                 session.clone(),
                 kernel_tx.clone(),
                 false,

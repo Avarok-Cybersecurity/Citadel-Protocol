@@ -1,5 +1,5 @@
 use citadel_io::tokio;
-use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
+use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -12,15 +12,16 @@ async fn main() {
     let stun2 = get_env("STUN_2_ADDR");
 
     let finished = &AtomicBool::new(false);
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        addr,
-        "test-username",
-        "Test user",
-        "notsecurepassword",
-    )
-    .with_udp_mode(UdpMode::Enabled)
-    .build()
-    .unwrap();
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            addr,
+            "test-username",
+            "Test user",
+            "notsecurepassword",
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .build()
+        .unwrap();
 
     let client =
         citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel::new(
@@ -39,7 +40,7 @@ async fn main() {
             },
         );
 
-    let _ = NodeBuilder::default()
+    let _ = DefaultNodeBuilder::default()
         .with_node_type(NodeType::Peer)
         .with_stun_servers([stun0, stun1, stun2])
         .build(client)

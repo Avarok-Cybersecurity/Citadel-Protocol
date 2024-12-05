@@ -17,7 +17,7 @@
 //! ```rust
 //! use citadel_sdk::prelude::*;
 //!
-//! async fn example(remote: NodeRemote) -> Result<(), NetworkError> {
+//! async fn example<R: Ratchet>(remote: NodeRemote<R>) -> Result<(), NetworkError> {
 //!     // Register a new user
 //!     let reg = remote.register_with_defaults(
 //!         "127.0.0.1:25021",
@@ -71,14 +71,14 @@ pub(crate) mod user_ids {
 
     #[derive(Debug)]
     /// A reference to a user identifier
-    pub struct SymmetricIdentifierHandleRef<'a> {
+    pub struct SymmetricIdentifierHandleRef<'a, R: Ratchet> {
         pub(crate) user: VirtualTargetType,
-        pub(crate) remote: &'a NodeRemote,
+        pub(crate) remote: &'a NodeRemote<R>,
         pub(crate) target_username: Option<String>,
     }
 
-    impl SymmetricIdentifierHandleRef<'_> {
-        pub fn into_owned(self) -> SymmetricIdentifierHandle {
+    impl<R: Ratchet> SymmetricIdentifierHandleRef<'_, R> {
+        pub fn into_owned(self) -> SymmetricIdentifierHandle<R> {
             SymmetricIdentifierHandle {
                 user: self.user,
                 remote: self.remote.clone(),
@@ -89,25 +89,25 @@ pub(crate) mod user_ids {
 
     #[derive(Clone, Debug)]
     /// A convenience structure for executing commands that depend on a specific registered user
-    pub struct SymmetricIdentifierHandle {
+    pub struct SymmetricIdentifierHandle<R: Ratchet> {
         user: VirtualTargetType,
-        remote: NodeRemote,
+        remote: NodeRemote<R>,
         target_username: Option<String>,
     }
 
-    pub trait TargetLockedRemote: Send + Sync {
+    pub trait TargetLockedRemote<R: Ratchet>: Send + Sync {
         fn user(&self) -> &VirtualTargetType;
-        fn remote(&self) -> &NodeRemote;
+        fn remote(&self) -> &NodeRemote<R>;
         fn target_username(&self) -> Option<&str>;
         fn user_mut(&mut self) -> &mut VirtualTargetType;
         fn session_security_settings(&self) -> Option<&SessionSecuritySettings>;
     }
 
-    impl TargetLockedRemote for SymmetricIdentifierHandleRef<'_> {
+    impl<R: Ratchet> TargetLockedRemote<R> for SymmetricIdentifierHandleRef<'_, R> {
         fn user(&self) -> &VirtualTargetType {
             &self.user
         }
-        fn remote(&self) -> &NodeRemote {
+        fn remote(&self) -> &NodeRemote<R> {
             self.remote
         }
         fn target_username(&self) -> Option<&str> {
@@ -122,11 +122,11 @@ pub(crate) mod user_ids {
         }
     }
 
-    impl TargetLockedRemote for SymmetricIdentifierHandle {
+    impl<R: Ratchet> TargetLockedRemote<R> for SymmetricIdentifierHandle<R> {
         fn user(&self) -> &VirtualTargetType {
             &self.user
         }
-        fn remote(&self) -> &NodeRemote {
+        fn remote(&self) -> &NodeRemote<R> {
             &self.remote
         }
         fn target_username(&self) -> Option<&str> {
@@ -141,22 +141,22 @@ pub(crate) mod user_ids {
         }
     }
 
-    impl From<SymmetricIdentifierHandleRef<'_>> for SymmetricIdentifierHandle {
-        fn from(this: SymmetricIdentifierHandleRef<'_>) -> Self {
+    impl<R: Ratchet> From<SymmetricIdentifierHandleRef<'_, R>> for SymmetricIdentifierHandle<R> {
+        fn from(this: SymmetricIdentifierHandleRef<'_, R>) -> Self {
             this.into_owned()
         }
     }
 
-    impl Deref for SymmetricIdentifierHandle {
-        type Target = NodeRemote;
+    impl<R: Ratchet> Deref for SymmetricIdentifierHandle<R> {
+        type Target = NodeRemote<R>;
 
         fn deref(&self) -> &Self::Target {
             &self.remote
         }
     }
 
-    impl Deref for SymmetricIdentifierHandleRef<'_> {
-        type Target = NodeRemote;
+    impl<R: Ratchet> Deref for SymmetricIdentifierHandleRef<'_, R> {
+        type Target = NodeRemote<R>;
 
         fn deref(&self) -> &Self::Target {
             self.remote
@@ -183,18 +183,18 @@ pub struct RegisterSuccess {
 
 #[async_trait]
 /// Endows the [NodeRemote](NodeRemote) with additional functions
-pub trait ProtocolRemoteExt: Remote {
+pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register<
         T: std::net::ToSocketAddrs + Send,
-        R: Into<String> + Send,
+        P: Into<String> + Send,
         V: Into<String> + Send,
         K: Into<SecBuffer> + Send,
     >(
         &self,
         addr: T,
-        full_name: R,
+        full_name: P,
         username: V,
         proposed_password: K,
         default_security_settings: SessionSecuritySettings,
@@ -216,10 +216,8 @@ pub trait ProtocolRemoteExt: Remote {
         let mut subscription = self.send_callback_subscription(register_request).await?;
         while let Some(status) = subscription.next().await {
             match map_errors(status)? {
-                NodeResult::RegisterOkay(RegisterOkay { cnac, .. }) => {
-                    return Ok(RegisterSuccess {
-                        cid: cnac.get_cid(),
-                    });
+                NodeResult::RegisterOkay(RegisterOkay { cid, .. }) => {
+                    return Ok(RegisterSuccess { cid });
                 }
                 NodeResult::RegisterFailure(err) => {
                     return Err(NetworkError::Generic(err.error_message));
@@ -242,13 +240,13 @@ pub trait ProtocolRemoteExt: Remote {
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register_with_defaults<
         T: std::net::ToSocketAddrs + Send,
-        R: Into<String> + Send,
+        P: Into<String> + Send,
         V: Into<String> + Send,
         K: Into<SecBuffer> + Send,
     >(
         &self,
         addr: T,
-        full_name: R,
+        full_name: P,
         username: V,
         proposed_password: K,
     ) -> Result<RegisterSuccess, NetworkError> {
@@ -294,7 +292,7 @@ pub trait ProtocolRemoteExt: Remote {
         return match map_errors(status)? {
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: _,
-                implicated_cid: cid,
+                session_cid: cid,
                 remote_addr: _,
                 is_personal: _,
                 v_conn_type: _,
@@ -346,18 +344,18 @@ pub trait ProtocolRemoteExt: Remote {
     /// use citadel_sdk::prelude::*;
     /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     ///
-    /// let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
+    /// let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
     ///
     /// # SingleClientServerConnectionKernel::new(server_connection_settings, |_, mut remote| async move {
     /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
     /// // or: remote.find_target(1234, "my_peer").await? [...]
     /// # });
     /// ```
-    async fn find_target<T: Into<UserIdentifier> + Send, R: Into<UserIdentifier> + Send>(
+    async fn find_target<T: Into<UserIdentifier> + Send, P: Into<UserIdentifier> + Send>(
         &self,
         local_user: T,
-        peer: R,
-    ) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
+        peer: P,
+    ) -> Result<SymmetricIdentifierHandleRef<'_, R>, NetworkError> {
         let account_manager = self.account_manager();
         account_manager
             .find_target_information(local_user, peer)
@@ -366,7 +364,7 @@ pub trait ProtocolRemoteExt: Remote {
                 if peer.parent_icid != 0 {
                     SymmetricIdentifierHandleRef {
                         user: VirtualTargetType::ExternalGroupPeer {
-                            implicated_cid: cid,
+                            session_cid: cid,
                             interserver_cid: peer.parent_icid,
                             peer_cid: peer.cid,
                         },
@@ -376,7 +374,7 @@ pub trait ProtocolRemoteExt: Remote {
                 } else {
                     SymmetricIdentifierHandleRef {
                         user: VirtualTargetType::LocalGroupPeer {
-                            implicated_cid: cid,
+                            session_cid: cid,
                             peer_cid: peer.cid,
                         },
                         remote: self.remote_ref(),
@@ -393,12 +391,12 @@ pub trait ProtocolRemoteExt: Remote {
         &self,
         local_user: T,
         peer: P,
-    ) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
-        let local_cid = self.get_implicated_cid(local_user).await?;
+    ) -> Result<SymmetricIdentifierHandleRef<'_, R>, NetworkError> {
+        let local_cid = self.get_session_cid(local_user).await?;
         match peer.into() {
             UserIdentifier::ID(peer_cid) => Ok(SymmetricIdentifierHandleRef {
                 user: VirtualTargetType::LocalGroupPeer {
-                    implicated_cid: local_cid,
+                    session_cid: local_cid,
                     peer_cid,
                 },
                 remote: self.remote_ref(),
@@ -414,7 +412,7 @@ pub trait ProtocolRemoteExt: Remote {
                     .unwrap_or(0);
                 Ok(SymmetricIdentifierHandleRef {
                     user: VirtualTargetType::LocalGroupPeer {
-                        implicated_cid: local_cid,
+                        session_cid: local_cid,
                         peer_cid,
                     },
                     remote: self.remote_ref(),
@@ -431,9 +429,9 @@ pub trait ProtocolRemoteExt: Remote {
         local_user: T,
         limit: Option<usize>,
     ) -> Result<Vec<LocalGroupPeerFullInfo>, NetworkError> {
-        let local_cid = self.get_implicated_cid(local_user).await?;
+        let local_cid = self.get_session_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
-            implicated_cid: local_cid,
+            session_cid: local_cid,
             command: PeerSignal::GetRegisteredPeers {
                 peer_conn_type: NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
                 response: None,
@@ -480,9 +478,9 @@ pub trait ProtocolRemoteExt: Remote {
         &self,
         local_user: T,
     ) -> Result<Vec<LocalGroupPeerFullInfo>, NetworkError> {
-        let local_cid = self.get_implicated_cid(local_user).await?;
+        let local_cid = self.get_session_cid(local_user).await?;
         let command = NodeRequest::PeerCommand(PeerCommand {
-            implicated_cid: local_cid,
+            session_cid: local_cid,
             command: PeerSignal::GetMutuals {
                 v_conn_type: NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
                 response: None,
@@ -523,10 +521,10 @@ pub trait ProtocolRemoteExt: Remote {
     }
 
     #[doc(hidden)]
-    fn remote_ref(&self) -> &NodeRemote;
+    fn remote_ref(&self) -> &NodeRemote<R>;
 
     #[doc(hidden)]
-    async fn get_implicated_cid<T: Into<UserIdentifier> + Send>(
+    async fn get_session_cid<T: Into<UserIdentifier> + Send>(
         &self,
         local_user: T,
     ) -> Result<u64, NetworkError> {
@@ -568,21 +566,21 @@ pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
     }
 }
 
-impl ProtocolRemoteExt for NodeRemote {
-    fn remote_ref(&self) -> &NodeRemote {
+impl<R: Ratchet> ProtocolRemoteExt<R> for NodeRemote<R> {
+    fn remote_ref(&self) -> &NodeRemote<R> {
         self
     }
 }
 
-impl ProtocolRemoteExt for ClientServerRemote {
-    fn remote_ref(&self) -> &NodeRemote {
+impl<R: Ratchet> ProtocolRemoteExt<R> for ClientServerRemote<R> {
+    fn remote_ref(&self) -> &NodeRemote<R> {
         &self.inner
     }
 }
 
 #[async_trait]
 /// Some functions require that a target exists
-pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
+pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
     async fn send_file_with_custom_opts<T: ObjectSource>(
         &self,
@@ -595,7 +593,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         } else {
             Some(chunk_size)
         };
-        let implicated_cid = self.user().get_implicated_cid();
+        let session_cid = self.user().get_session_cid();
         let user = *self.user();
         let remote = self.remote();
 
@@ -603,7 +601,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             .send_callback_subscription(NodeRequest::SendObject(SendObject {
                 source: Box::new(source),
                 chunk_size,
-                implicated_cid,
+                session_cid,
                 v_conn_type: user,
                 transfer_type,
             }))
@@ -642,11 +640,11 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Only this local node may decrypt the information send to the adjacent node.
     async fn remote_encrypted_virtual_filesystem_push_custom_chunking<
         T: ObjectSource,
-        R: Into<PathBuf> + Send,
+        P: Into<PathBuf> + Send,
     >(
         &self,
         source: T,
-        virtual_directory: R,
+        virtual_directory: P,
         chunk_size: usize,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
@@ -665,10 +663,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
     /// Sends a file to the provided target using the default chunking size with local encryption.
     /// Only this local node may decrypt the information send to the adjacent node.
-    async fn remote_encrypted_virtual_filesystem_push<T: ObjectSource, R: Into<PathBuf> + Send>(
+    async fn remote_encrypted_virtual_filesystem_push<T: ObjectSource, P: Into<PathBuf> + Send>(
         &self,
         source: T,
-        virtual_directory: R,
+        virtual_directory: P,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
         self.remote_encrypted_virtual_filesystem_push_custom_chunking(
@@ -682,9 +680,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
     /// will be taken from the RE-VFS
-    async fn remote_encrypted_virtual_filesystem_pull<R: Into<PathBuf> + Send>(
+    async fn remote_encrypted_virtual_filesystem_pull<P: Into<PathBuf> + Send>(
         &self,
-        virtual_directory: R,
+        virtual_directory: P,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
     ) -> Result<PathBuf, NetworkError> {
@@ -729,9 +727,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Deletes the file from the RE-VFS. If the contents are desired on delete,
     /// consider calling `Self::remote_encrypted_virtual_filesystem_pull` with the delete
     /// parameter set to true
-    async fn remote_encrypted_virtual_filesystem_delete<R: Into<PathBuf> + Send>(
+    async fn remote_encrypted_virtual_filesystem_delete<P: Into<PathBuf> + Send>(
         &self,
-        virtual_directory: R,
+        virtual_directory: P,
     ) -> Result<(), NetworkError> {
         self.can_use_revfs()?;
         let request = NodeRequest::DeleteObject(DeleteObject {
@@ -766,14 +764,14 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         session_security_settings: SessionSecuritySettings,
         udp_mode: UdpMode,
         peer_session_password: Option<PreSharedKey>,
-    ) -> Result<PeerConnectSuccess, NetworkError> {
-        let implicated_cid = self.user().get_implicated_cid();
+    ) -> Result<PeerConnectSuccess<R>, NetworkError> {
+        let session_cid = self.user().get_session_cid();
         let peer_target = self.try_as_peer_connection().await?;
 
         let mut stream = self
             .remote()
             .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
-                implicated_cid,
+                session_cid,
                 command: PeerSignal::PostConnect {
                     peer_conn_type: peer_target,
                     ticket_opt: None,
@@ -834,20 +832,20 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Connects to the target peer with default settings
-    async fn connect_to_peer(&self) -> Result<PeerConnectSuccess, NetworkError> {
+    async fn connect_to_peer(&self) -> Result<PeerConnectSuccess<R>, NetworkError> {
         self.connect_to_peer_custom(Default::default(), Default::default(), Default::default())
             .await
     }
 
     /// Posts a registration request to a peer
     async fn register_to_peer(&self) -> Result<PeerRegisterStatus, NetworkError> {
-        let implicated_cid = self.user().get_implicated_cid();
+        let session_cid = self.user().get_session_cid();
         let peer_target = self.try_as_peer_connection().await?;
         // TODO: Get rid of this step. Should be handled by the protocol
         let local_username = self
             .remote()
             .account_manager()
-            .get_username_by_cid(implicated_cid)
+            .get_username_by_cid(session_cid)
             .await?
             .ok_or_else(|| NetworkError::msg("Unable to find username for local user"))?;
         let peer_username_opt = self.target_username().map(ToString::to_string);
@@ -855,7 +853,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let mut stream = self
             .remote()
             .send_callback_subscription(NodeRequest::PeerCommand(PeerCommand {
-                implicated_cid,
+                session_cid,
                 command: PeerSignal::PostRegister {
                     peer_conn_type: peer_target,
                     inviter_username: local_username,
@@ -903,9 +901,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let peer_request = PeerSignal::Deregister {
                 peer_conn_type: peer_conn,
             };
-            let implicated_cid = self.user().get_implicated_cid();
+            let session_cid = self.user().get_session_cid();
             let request = NodeRequest::PeerCommand(PeerCommand {
-                implicated_cid,
+                session_cid,
                 command: peer_request,
             });
 
@@ -922,21 +920,21 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         } else {
             // c2s conn
-            let cid = self.user().get_implicated_cid();
+            let cid = self.user().get_session_cid();
             let request = NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
-                implicated_cid: cid,
+                session_cid: cid,
                 v_conn_type: *self.user(),
             });
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(result) = subscription.next().await {
                 match map_errors(result)? {
                     NodeResult::DeRegistration(DeRegistration {
-                        implicated_cid: _,
+                        session_cid: _,
                         ticket_opt: _,
                         success: true,
                     }) => return Ok(()),
                     NodeResult::DeRegistration(DeRegistration {
-                        implicated_cid: _,
+                        session_cid: _,
                         ticket_opt: _,
                         success: false,
                     }) => {
@@ -956,12 +954,12 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     async fn disconnect(&self) -> Result<(), NetworkError> {
         if let Ok(peer_conn) = self.try_as_peer_connection().await {
             if let PeerConnectionType::LocalGroupPeer {
-                implicated_cid,
+                session_cid,
                 peer_cid: _,
             } = peer_conn
             {
                 let request = NodeRequest::PeerCommand(PeerCommand {
-                    implicated_cid,
+                    session_cid,
                     command: PeerSignal::Disconnect {
                         peer_conn_type: peer_conn,
                         disconnect_response: None,
@@ -995,10 +993,9 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             }
         } else {
             //c2s conn
-            let cid = self.user().get_implicated_cid();
-            let request = NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode {
-                implicated_cid: cid,
-            });
+            let cid = self.user().get_session_cid();
+            let request =
+                NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid: cid });
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(event) = subscription.next().await {
@@ -1024,7 +1021,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         &self,
         initial_users_to_invite: Option<Vec<UserIdentifier>>,
     ) -> Result<GroupChannel, NetworkError> {
-        let implicated_cid = self.user().get_implicated_cid();
+        let session_cid = self.user().get_session_cid();
 
         let mut initial_users = vec![];
         // TODO: allow for custom message group options. For now, don't
@@ -1037,12 +1034,12 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
                 initial_users.push(
                     self.remote()
                         .account_manager()
-                        .find_target_information(implicated_cid, user.clone())
+                        .find_target_information(session_cid, user.clone())
                         .await
                         .map_err(|err| NetworkError::msg(err.into_string()))?
                         .ok_or_else(|| {
                             NetworkError::msg(format!(
-                                "Account {user:?} not found for local user {implicated_cid:?}"
+                                "Account {user:?} not found for local user {session_cid:?}"
                             ))
                         })
                         .map(|r| r.1.cid)?,
@@ -1055,7 +1052,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             options,
         };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid,
+            session_cid,
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
@@ -1065,7 +1062,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             if let NodeResult::GroupChannelCreated(GroupChannelCreated {
                 ticket: _,
                 channel,
-                implicated_cid: _,
+                session_cid: _,
             }) = evt
             {
                 return Ok(channel);
@@ -1079,16 +1076,16 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
     /// Lists all groups that which the current peer owns
     async fn list_owned_groups(&self) -> Result<Vec<MessageGroupKey>, NetworkError> {
-        let implicated_cid = self.user().get_implicated_cid();
+        let session_cid = self.user().get_session_cid();
         let cid_to_check_for = match self.try_as_peer_connection().await {
             Ok(res) => res.get_original_target_cid(),
-            _ => implicated_cid,
+            _ => session_cid,
         };
         let group_request = GroupBroadcast::ListGroupsFor {
             cid: cid_to_check_for,
         };
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid,
+            session_cid,
             command: group_request,
         });
 
@@ -1096,7 +1093,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
         while let Some(evt) = subscription.next().await {
             if let NodeResult::GroupEvent(GroupEvent {
-                implicated_cid: _,
+                session_cid: _,
                 ticket: _,
                 event: GroupBroadcast::ListResponse { groups },
             }) = map_errors(evt)?
@@ -1138,7 +1135,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     async fn is_peer_registered(&self) -> Result<bool, NetworkError> {
         let target = self.try_as_peer_connection().await?;
         if let PeerConnectionType::LocalGroupPeer {
-            implicated_cid: local_cid,
+            session_cid: local_cid,
             peer_cid,
         } = target
         {
@@ -1165,7 +1162,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let peer_username = self
                 .target_username()
                 .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?;
-            let implicated_cid = self.user().get_implicated_cid();
+            let session_cid = self.user().get_session_cid();
             let expected_peer_cid = self
                 .remote()
                 .account_manager()
@@ -1176,7 +1173,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             let peer_cid = self
                 .remote()
                 .account_manager()
-                .find_target_information(implicated_cid, peer_username)
+                .find_target_information(session_cid, peer_username)
                 .await
                 .map_err(|err| NetworkError::Generic(err.into_string()))?
                 .map(|r| r.1.cid)
@@ -1208,26 +1205,35 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 }
 
-impl<T: TargetLockedRemote> ProtocolRemoteTargetExt for T {}
+impl<T: TargetLockedRemote<R>, R: Ratchet> ProtocolRemoteTargetExt<R> for T {}
 
 pub mod results {
     use crate::prefabs::client::peer_connection::FileTransferHandleRx;
     use crate::prelude::{PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
     use citadel_io::tokio::sync::oneshot::Receiver;
-    use citadel_proto::prelude::NetworkError;
+    use citadel_proto::prelude::{NetworkError, Ratchet};
+    use std::fmt::Debug;
 
-    #[derive(Debug)]
-    pub struct PeerConnectSuccess {
+    pub struct PeerConnectSuccess<R: Ratchet> {
         pub channel: PeerChannel,
         pub udp_channel_rx: Option<Receiver<UdpChannel>>,
-        pub remote: PeerRemote,
+        pub remote: PeerRemote<R>,
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
         pub(crate) incoming_object_transfer_handles: Option<FileTransferHandleRx>,
     }
 
-    impl PeerConnectSuccess {
+    impl<R: Ratchet> Debug for PeerConnectSuccess<R> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("PeerConnectSuccess")
+                .field("channel", &self.channel)
+                .field("udp_channel_rx", &self.udp_channel_rx)
+                .finish()
+        }
+    }
+
+    impl<R: Ratchet> PeerConnectSuccess<R> {
         /// Obtains a receiver which yields incoming file/object transfer handles
         pub fn get_incoming_file_transfer_handle(
             &mut self,
@@ -1265,18 +1271,18 @@ pub mod remote_specialization {
     use crate::prelude::*;
 
     #[derive(Debug, Clone)]
-    pub struct PeerRemote {
-        pub(crate) inner: NodeRemote,
+    pub struct PeerRemote<R: Ratchet> {
+        pub(crate) inner: NodeRemote<R>,
         pub(crate) peer: VirtualTargetType,
         pub(crate) username: Option<String>,
         pub(crate) session_security_settings: SessionSecuritySettings,
     }
 
-    impl TargetLockedRemote for PeerRemote {
+    impl<R: Ratchet> TargetLockedRemote<R> for PeerRemote<R> {
         fn user(&self) -> &VirtualTargetType {
             &self.peer
         }
-        fn remote(&self) -> &NodeRemote {
+        fn remote(&self) -> &NodeRemote<R> {
             &self.inner
         }
         fn target_username(&self) -> Option<&str> {
@@ -1295,7 +1301,7 @@ pub mod remote_specialization {
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prefabs::client::ServerConnectionSettingsBuilder;
+    use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use citadel_io::tokio;
     use rstest::rstest;
@@ -1304,11 +1310,14 @@ mod tests {
     use std::sync::Arc;
     use uuid::Uuid;
 
-    pub struct ReceiverFileTransferKernel(pub Option<NodeRemote>, pub Arc<AtomicBool>);
+    pub struct ReceiverFileTransferKernel<R: Ratchet>(
+        pub Option<NodeRemote<R>>,
+        pub Arc<AtomicBool>,
+    );
 
     #[async_trait]
-    impl NetKernel for ReceiverFileTransferKernel {
-        fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
+    impl<R: Ratchet> NetKernel<R> for ReceiverFileTransferKernel<R> {
+        fn load_remote(&mut self, node_remote: NodeRemote<R>) -> Result<(), NetworkError> {
             self.0 = Some(node_remote);
             Ok(())
         }
@@ -1366,9 +1375,9 @@ mod tests {
         }
     }
 
-    pub fn server_info<'a>(
+    pub fn server_info<'a, R: Ratchet>(
         switch: Arc<AtomicBool>,
-    ) -> (NodeFuture<'a, ReceiverFileTransferKernel>, SocketAddr) {
+    ) -> (NodeFuture<'a, ReceiverFileTransferKernel<R>>, SocketAddr) {
         crate::test_common::server_test_node(ReceiverFileTransferKernel(None, switch), |_| {})
     }
 
@@ -1393,7 +1402,7 @@ mod tests {
         citadel_logging::setup_log();
         let client_success = &AtomicBool::new(false);
         let server_success = &Arc::new(AtomicBool::new(false));
-        let (server, server_addr) = server_info(server_success.clone());
+        let (server, server_addr) = server_info::<StackedRatchet>(server_success.clone());
         let uuid = Uuid::new_v4();
 
         let session_security_settings = SessionSecuritySettingsBuilder::default()
@@ -1402,7 +1411,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_session_security_settings(session_security_settings)
                 .disable_udp()
                 .build()
@@ -1426,7 +1435,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 

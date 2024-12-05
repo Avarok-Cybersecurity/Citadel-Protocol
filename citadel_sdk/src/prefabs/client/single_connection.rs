@@ -19,7 +19,7 @@
 //!
 //! # fn main() -> Result<(), NetworkError> {
 //! async fn connect_to_server() -> Result<(), NetworkError> {
-//!     let settings = ServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
 //!         .with_udp_mode(UdpMode::Enabled)
 //!         .build()?;
 //!     
@@ -65,14 +65,14 @@ use uuid::Uuid;
 /// This [`SingleClientServerConnectionKernel`] is the base kernel type for other built-in implementations of [`NetKernel`].
 /// It establishes connections to a central node for purposes of NAT traversal and peer discovery, and depending on the application layer,
 /// can leverage the client to server connection for other purposes that require communication between the two.
-pub struct SingleClientServerConnectionKernel<F, Fut> {
+pub struct SingleClientServerConnectionKernel<F, Fut, R: Ratchet> {
     handler: Mutex<Option<F>>,
     udp_mode: UdpMode,
     auth_info: Mutex<Option<ConnectionType>>,
     session_security_settings: SessionSecuritySettings,
     unprocessed_signal_filter_tx:
         Mutex<Option<citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
-    remote: Option<NodeRemote>,
+    remote: Option<NodeRemote<R>>,
     server_password: Option<PreSharedKey>,
     rx_incoming_object_transfer_handle: Mutex<Option<FileTransferHandleRx>>,
     tx_incoming_object_transfer_handle:
@@ -99,9 +99,9 @@ pub(crate) enum ConnectionType {
     },
 }
 
-impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
+impl<F, Fut, R: Ratchet> SingleClientServerConnectionKernel<F, Fut, R>
 where
-    F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
+    F: FnOnce(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     fn generate_object_transfer_handle() -> (
@@ -111,14 +111,14 @@ where
         let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let rx = FileTransferHandleRx {
             inner: rx,
-            conn_type: VirtualTargetType::LocalGroupServer { implicated_cid: 0 },
+            conn_type: VirtualTargetType::LocalGroupServer { session_cid: 0 },
         };
         (tx, Mutex::new(Some(rx)))
     }
 
     /// Creates a new [`SingleClientServerConnectionKernel`] with the given settings.
     /// The [`ServerConnectionSettings`] must be provided, and the `on_channel_received` function will be called when the connection is established.
-    pub fn new(settings: ServerConnectionSettings, on_channel_received: F) -> Self {
+    pub fn new(settings: ServerConnectionSettings<R>, on_channel_received: F) -> Self {
         let (udp_mode, session_security_settings) =
             (settings.udp_mode(), settings.session_security_settings());
         let server_password = settings.pre_shared_key().cloned();
@@ -169,12 +169,12 @@ where
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
+impl<F, Fut, R: Ratchet> NetKernel<R> for SingleClientServerConnectionKernel<F, Fut, R>
 where
-    F: FnOnce(ConnectionSuccess, ClientServerRemote) -> Fut + Send,
+    F: FnOnce(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
-    fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
+    fn load_remote(&mut self, server_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         self.remote = Some(server_remote);
         Ok(())
     }
@@ -242,7 +242,7 @@ where
             )
             .await?;
         let conn_type = VirtualTargetType::LocalGroupServer {
-            implicated_cid: connect_success.cid,
+            session_cid: connect_success.cid,
         };
 
         let mut handle = {
@@ -250,7 +250,7 @@ where
             lock.take().expect("Should not have been called before")
         };
 
-        handle.conn_type.set_implicated_cid(connect_success.cid);
+        handle.conn_type.set_session_cid(connect_success.cid);
 
         let (reroute_tx, reroute_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
@@ -297,7 +297,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prefabs::client::ServerConnectionSettingsBuilder;
+    use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prefabs::ClientServerRemote;
     use crate::prelude::*;
     use crate::test_common::{server_info_reactive, wait_for_peers, TestBarrier};
@@ -313,7 +313,6 @@ mod tests {
     async fn on_server_received_conn(
         udp_mode: UdpMode,
         conn: ConnectionSuccess,
-        _remote: ClientServerRemote,
     ) -> Result<(), NetworkError> {
         crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
         Ok(())
@@ -323,14 +322,14 @@ mod tests {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
-    async fn default_server_harness(
+    async fn default_server_harness<R: Ratchet>(
         udp_mode: UdpMode,
         conn: ConnectionSuccess,
-        remote: ClientServerRemote,
+        remote: ClientServerRemote<R>,
         server_success: &AtomicBool,
     ) -> Result<(), NetworkError> {
         wait_for_peers().await;
-        on_server_received_conn(udp_mode, conn, remote.clone()).await?;
+        on_server_received_conn(udp_mode, conn).await?;
         server_success.store(true, Ordering::SeqCst);
         wait_for_peers().await;
         remote.shutdown_kernel().await
@@ -357,7 +356,7 @@ mod tests {
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
 
-        let (server, server_addr) = server_info_reactive(
+        let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             move |conn, remote| async move {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
@@ -366,7 +365,7 @@ mod tests {
             },
         );
 
-        let client_settings = ServerConnectionSettingsBuilder::credentialed_registration(
+        let client_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration(
             server_addr,
             "nologik",
             "Some Alias",
@@ -388,7 +387,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -412,7 +411,7 @@ mod tests {
 
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info_reactive(
+        let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             |conn, remote| async move {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
@@ -426,7 +425,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let mut server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode);
 
         if let Some(server_password) = server_password {
@@ -449,7 +448,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -470,7 +469,7 @@ mod tests {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
 
-        let (server, server_addr) = server_info_reactive(
+        let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             |_conn, _remote| async move { panic!("Server should not have connected") },
             |opts| {
                 if let Some(password) = server_password {
@@ -482,7 +481,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .with_session_password("wrong-password")
                 .build()
@@ -493,7 +492,7 @@ mod tests {
             |_channel, _remote| async move { panic!("Client should not have connected") },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         tokio::select! {
             _res0 = server => {
@@ -521,7 +520,7 @@ mod tests {
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
 
-        let (server, server_addr) = server_info_reactive(
+        let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             |conn, remote| async move {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
@@ -531,7 +530,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .build()
                 .unwrap();
@@ -549,7 +548,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -570,7 +569,7 @@ mod tests {
 
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info_reactive(
+        let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             |conn, remote| async move {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
@@ -580,7 +579,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .build()
                 .unwrap();
@@ -626,7 +625,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -647,7 +646,7 @@ mod tests {
 
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info_reactive(
+        let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             |conn, remote| async move {
                 default_server_harness(udp_mode, conn, remote, server_success).await
             },
@@ -657,7 +656,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
                 .build()
                 .unwrap();
@@ -679,7 +678,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 

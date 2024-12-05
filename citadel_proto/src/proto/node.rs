@@ -32,8 +32,7 @@ use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::StreamExt;
-
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::io::AsyncRead;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
@@ -43,6 +42,7 @@ use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
 use citadel_wire::tls::client_config_to_tls_connector;
+use futures::StreamExt;
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
@@ -72,13 +72,13 @@ pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(Node, NodeInner);
+define_outer_struct_wrapper!(Node, NodeInner, <R: Ratchet>, <R>);
 
 /// Inner device for the [`Node`]
-pub struct NodeInner {
+pub struct NodeInner<R: Ratchet> {
     primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
-    session_manager: CitadelSessionManager,
+    session_manager: CitadelSessionManager<R>,
     to_kernel: UnboundedSender<NodeResult>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
@@ -91,20 +91,20 @@ pub struct NodeInner {
     server_only_c2s_session_password: PreSharedKey,
 }
 
-impl Node {
+impl<R: Ratchet> Node<R> {
     /// Creates a new [`Node`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
         local_node_type: NodeType,
         to_kernel: UnboundedSender<NodeResult>,
-        account_manager: AccountManager,
+        account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
         underlying_proto: ServerUnderlyingProtocol,
         client_config: Option<Arc<ClientConfig>>,
         stun_servers: Option<Vec<String>>,
         server_only_c2s_session_password: Option<PreSharedKey>,
     ) -> io::Result<(
-        NodeRemote,
+        NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
         Option<LocalSet>,
         KernelAsyncCallbackHandler,
@@ -168,13 +168,14 @@ impl Node {
     /// To handle the shutdown process, we need
     /// This will panic if called twice in succession without a proper server reload.
     /// Returns a handle to communicate with the [Node].
+    #[allow(clippy::type_complexity)]
     #[allow(unused_results, unused_must_use)]
     fn load(
-        this: Node,
-        account_manager: AccountManager,
+        this: Node<R>,
+        account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> (
-        NodeRemote,
+        NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
         Option<LocalSet>,
         KernelAsyncCallbackHandler,
@@ -188,7 +189,7 @@ impl Node {
         let node_type = read.local_node_type;
 
         let (session_spawner_tx, session_spawner_rx) = unbounded();
-        let session_spawner = CitadelSession::session_future_receiver(session_spawner_rx);
+        let session_spawner = CitadelSession::<R>::session_future_receiver(session_spawner_rx);
 
         let (outbound_send_request_tx, outbound_send_request_rx) =
             BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
@@ -430,8 +431,8 @@ impl Node {
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
     /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
-    pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(
-        remote: R,
+    pub(crate) async fn create_session_transport_init<T: ToSocketAddrs>(
+        remote: T,
         default_client_config: &Arc<ClientConfig>,
     ) -> io::Result<GenericNetworkStream> {
         // We start by creating a client to server connection
@@ -445,9 +446,9 @@ impl Node {
     /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
     /// This takes the local socket AND QuicNode instance
     #[allow(dead_code)]
-    pub async fn create_p2p_quic_connect_socket<R: ToSocketAddrs>(
+    pub async fn create_p2p_quic_connect_socket<T: ToSocketAddrs>(
         quic_endpoint: Endpoint,
-        remote: R,
+        remote: T,
         tls_domain: TlsDomain,
         timeout: Option<Duration>,
         secure_client_config: Arc<ClientConfig>,
@@ -507,8 +508,8 @@ impl Node {
     }
 
     /// Only for client to server conns
-    pub async fn create_c2s_connect_socket<R: ToSocketAddrs>(
-        remote: R,
+    pub async fn create_c2s_connect_socket<T: ToSocketAddrs>(
+        remote: T,
         timeout: Option<Duration>,
         default_client_config: &Arc<ClientConfig>,
     ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
@@ -602,8 +603,8 @@ impl Node {
         }
     }
 
-    async fn read_first_packet<R: AsyncRead + Unpin>(
-        stream: R,
+    async fn read_first_packet<Read: AsyncRead + Unpin>(
+        stream: Read,
         timeout: Option<Duration>,
     ) -> std::io::Result<FirstPacket> {
         let (_stream, ret) = citadel_io::tokio::time::timeout(
@@ -623,7 +624,7 @@ impl Node {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
-        server: Node,
+        server: Node<R>,
         _tt: TimeTracker,
         to_kernel: UnboundedSender<NodeResult>,
         server_only_session_password: PreSharedKey,
@@ -651,7 +652,7 @@ impl Node {
     async fn primary_session_creator_loop(
         to_kernel: UnboundedSender<NodeResult>,
         local_nat_type: NatType,
-        session_manager: CitadelSessionManager,
+        session_manager: CitadelSessionManager<R>,
         mut socket: DualListener,
         server_session_password: PreSharedKey,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
@@ -707,7 +708,7 @@ impl Node {
     }
 
     async fn outbound_kernel_request_handler(
-        this: Node,
+        this: Node<R>,
         to_kernel_tx: UnboundedSender<NodeResult>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
         session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
@@ -760,12 +761,12 @@ impl Node {
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
             match outbound_request {
                 NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-                    implicated_cid,
+                    session_cid,
                     command: cmd,
                 }) => {
                     if let Err(err) = session_manager.process_outbound_broadcast_command(
                         ticket_id,
-                        implicated_cid,
+                        session_cid,
                         cmd,
                     ) {
                         send_error(ticket_id, err)?;
@@ -842,11 +843,8 @@ impl Node {
                     }
                 }
 
-                NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode {
-                    implicated_cid,
-                }) => {
-                    if let Err(err) = session_manager.initiate_disconnect(implicated_cid, ticket_id)
-                    {
+                NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid }) => {
+                    if let Err(err) = session_manager.initiate_disconnect(session_cid, ticket_id) {
                         send_error(ticket_id, err)?;
                     }
                 }
@@ -854,19 +852,19 @@ impl Node {
                 NodeRequest::ReKey(ReKey {
                     v_conn_type: virtual_target,
                 }) => {
-                    if let Err(err) =
-                        session_manager.initiate_update_drill_subroutine(virtual_target, ticket_id)
+                    if let Err(err) = session_manager
+                        .initiate_update_entropy_bank_subroutine(virtual_target, ticket_id)
                     {
                         send_error(ticket_id, err)?;
                     }
                 }
 
                 NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
-                    implicated_cid,
+                    session_cid,
                     v_conn_type: virtual_connection_type,
                 }) => {
                     if let Err(err) = session_manager.initiate_deregistration_subroutine(
-                        implicated_cid,
+                        session_cid,
                         virtual_connection_type,
                         ticket_id,
                     ) {
@@ -876,12 +874,12 @@ impl Node {
 
                 // TODO: Update this to include security levels (FCM conflicts though)
                 NodeRequest::PeerCommand(PeerCommand {
-                    implicated_cid,
+                    session_cid,
                     command: peer_command,
                 }) => {
                     if let Err(err) = session_manager
                         .dispatch_peer_command(
-                            implicated_cid,
+                            session_cid,
                             ticket_id,
                             peer_command,
                             SecurityLevel::Standard,
@@ -895,7 +893,7 @@ impl Node {
                 NodeRequest::SendObject(SendObject {
                     source: path,
                     chunk_size,
-                    implicated_cid,
+                    session_cid,
                     v_conn_type: virtual_target,
                     transfer_type,
                 }) => {
@@ -903,7 +901,7 @@ impl Node {
                         ticket_id,
                         chunk_size,
                         path,
-                        implicated_cid,
+                        session_cid,
                         virtual_target,
                         SecurityLevel::Standard,
                         transfer_type,
@@ -920,7 +918,7 @@ impl Node {
                 }) => {
                     if let Err(err) = session_manager.revfs_pull(
                         ticket_id,
-                        v_conn.get_implicated_cid(),
+                        v_conn.get_session_cid(),
                         v_conn,
                         virtual_dir,
                         delete_on_pull,
@@ -937,7 +935,7 @@ impl Node {
                 }) => {
                     if let Err(err) = session_manager.revfs_delete(
                         ticket_id,
-                        v_conn.get_implicated_cid(),
+                        v_conn.get_session_cid(),
                         v_conn,
                         virtual_dir,
                         security_level,
@@ -967,8 +965,8 @@ impl Node {
     }
 }
 
-pub(crate) struct HdpServerRemoteInner {
+pub(crate) struct CitadelNodeRemoteInner<R: Ratchet> {
     pub callback_handler: KernelAsyncCallbackHandler,
     pub node_type: NodeType,
-    pub account_manager: AccountManager,
+    pub account_manager: AccountManager<R, R>,
 }

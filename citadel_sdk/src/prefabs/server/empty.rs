@@ -36,15 +36,21 @@
 //!
 
 use citadel_proto::prelude::*;
+use std::marker::PhantomData;
 
 /// A kernel that does nothing to events in the protocol, nor does it cause any requests. A server that allows any and all connections with no special handlers would benefit from the use of this kernel.
 /// This should never be used for interacting with peers/clients from the server, since to do so would deny the possibility of interacting with channels.
-#[derive(Default)]
-pub struct EmptyKernel;
+pub struct EmptyKernel<R: Ratchet>(PhantomData<R>);
+
+impl<R: Ratchet> Default for EmptyKernel<R> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
 
 #[async_trait]
-impl NetKernel for EmptyKernel {
-    fn load_remote(&mut self, _server_remote: NodeRemote) -> Result<(), NetworkError> {
+impl<R: Ratchet> NetKernel<R> for EmptyKernel<R> {
+    fn load_remote(&mut self, _server_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         Ok(())
     }
 

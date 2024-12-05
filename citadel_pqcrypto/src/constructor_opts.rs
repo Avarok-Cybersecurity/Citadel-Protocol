@@ -44,16 +44,36 @@
 //! - [`citadel_pqcrypto::key_store`] - Secure key storage functionality
 
 use citadel_types::crypto::CryptoParameters;
+use citadel_types::prelude::SecurityLevel;
 use serde::{Deserialize, Serialize};
 
-/// WARNING! `previous_shared_secret` should never leave a node; it should only be extracted from the previous PQC when bob is constructing his PQC
+/// WARNING! this struct, especially the `chain`, should never leave a node; it should only be extracted from the previous PQC when bob is constructing his PQC
 #[derive(Clone, Default)]
 pub struct ConstructorOpts {
     pub cryptography: Option<CryptoParameters>,
     pub chain: Option<RecursiveChain>,
 }
 
+pub trait ImpliedSecurityLevel {
+    fn implied_security_level(&self) -> SecurityLevel;
+}
+
+impl ImpliedSecurityLevel for Vec<ConstructorOpts> {
+    fn implied_security_level(&self) -> SecurityLevel {
+        assert!(
+            !self.is_empty(),
+            "Security level cannot be derived from an empty vector"
+        );
+        assert!(
+            self.len() < u8::MAX as usize,
+            "Security level does not fit in u8"
+        );
+        SecurityLevel::from(self.len().saturating_sub(1) as u8)
+    }
+}
+
 impl ConstructorOpts {
+    /// Starts off a f(0) chain with a single layer of ratcheting
     pub fn new_init(cryptography: Option<impl Into<CryptoParameters>>) -> Self {
         Self {
             cryptography: cryptography.map(|r| r.into()),
@@ -63,13 +83,15 @@ impl ConstructorOpts {
 
     pub fn new_vec_init(
         cryptography: Option<impl Into<CryptoParameters>>,
-        count: usize,
+        security_level: SecurityLevel,
     ) -> Vec<Self> {
+        let count = security_level.value() as usize + 1;
         let settings = cryptography.map(|r| r.into()).unwrap_or_default();
         (0..count).map(|_| Self::new_init(Some(settings))).collect()
     }
 
-    pub fn new_from_previous(
+    /// Generates a new f(n) -> f(n +1) chain
+    pub fn new_ratcheted(
         cryptography: Option<impl Into<CryptoParameters>>,
         previous_shared_secret: RecursiveChain,
     ) -> Self {

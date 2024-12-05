@@ -52,18 +52,18 @@ if state.local_is_initiator {
 
 use crate::prelude::PreSharedKey;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::proto::SessionSecuritySettings;
 
-pub struct PeerKemStateContainer {
-    pub(crate) constructor: Option<StackedRatchetConstructor>,
+pub struct PeerKemStateContainer<R: Ratchet> {
+    pub(crate) constructor: Option<R::Constructor>,
     pub(crate) local_is_initiator: bool,
     pub(crate) session_security_settings: SessionSecuritySettings,
     pub(crate) udp_channel_sender: UdpChannelSender,
     pub(crate) session_password: PreSharedKey,
 }
 
-impl PeerKemStateContainer {
+impl<R: Ratchet> PeerKemStateContainer<R> {
     pub fn new(
         session_security_settings: SessionSecuritySettings,
         udp_enabled: bool,

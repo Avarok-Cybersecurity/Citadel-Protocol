@@ -2047,5 +2047,17 @@
             "Add test network simulation",
             "Consider adding test monitoring tools"
         ]
+    },
+    {
+        "file": "./citadel_crypt/src/ratchet_manager.rs",
+        "suggestions": [
+            "Consider adding error recovery mechanisms for interrupted rekeying operations",
+            "Add metrics/telemetry for monitoring rekeying performance and success rates",
+            "Consider implementing ratchet state backup/recovery mechanisms",
+            "Add more detailed logging for debugging complex rekeying scenarios",
+            "Consider adding configuration options for ratchet truncation policies",
+            "Add comprehensive unit tests for edge cases in the rekeying protocol",
+            "Consider implementing rate limiting for rekey operations to prevent DoS"
+        ]
     }
 ]

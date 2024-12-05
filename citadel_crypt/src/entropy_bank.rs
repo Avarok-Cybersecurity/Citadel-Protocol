@@ -74,7 +74,7 @@ pub const BYTES_PER_STORE: usize = LARGEST_NONCE_LEN;
 pub type DrillEndian = BigEndian;
 
 impl EntropyBank {
-    /// Creates a new drill
+    /// Creates a new entropy_bank
     pub fn new(
         cid: u64,
         version: u32,
@@ -94,7 +94,7 @@ impl EntropyBank {
         })
     }
 
-    /// For generating a random nonce, independent to any drill
+    /// For generating a random nonce, independent to any entropy_bank
     pub fn generate_public_nonce(
         enx_algorithm: EncryptionAlgorithm,
     ) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
@@ -282,12 +282,18 @@ impl EntropyBank {
         self.cid
     }
 
-    /// Gets the version of the drill
+    /// Gets the version of the entropy_bank
     pub fn get_version(&self) -> u32 {
         self.version
     }
 
-    /// Downloads the data necessary to create a drill
+    /// Updates the version of the entropy_bank
+    pub fn update_version(&mut self, version: u32) -> Result<(), CryptError<String>> {
+        self.version = version;
+        Ok(())
+    }
+
+    /// Downloads the data necessary to create a entropy_bank
     fn generate_random_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
         let mut bytes: [u8; BYTES_PER_STORE] = [0u8; BYTES_PER_STORE];
         let mut trng = thread_rng();
@@ -298,13 +304,13 @@ impl EntropyBank {
 
     /// Serializes self to a vector
     pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError<String>> {
-        bincode::serialize(self).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+        bincode::serialize(self).map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
     }
 
     /// Deserializes self from a set of bytes
-    pub fn deserialize_from<T: AsRef<[u8]>>(drill: T) -> Result<Self, CryptError<String>> {
-        bincode::deserialize(drill.as_ref())
-            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+    pub fn deserialize_from<T: AsRef<[u8]>>(entropy_bank: T) -> Result<Self, CryptError<String>> {
+        bincode::deserialize(entropy_bank.as_ref())
+            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
     }
 }
 
@@ -328,7 +334,7 @@ pub struct EntropyBank {
 }
 
 /// Returns the approximate number of bytes needed to serialize a Drill
-pub const fn get_approx_serialized_drill_len() -> usize {
+pub const fn get_approx_serialized_entropy_bank_len() -> usize {
     4 + 8 + BYTES_PER_STORE + (DRILL_RANGE * 16 * 2)
 }
 

@@ -91,7 +91,7 @@ pub(crate) mod packet_flags {
                 pub(crate) const FINAL: u8 = 1;
             }
 
-            pub(crate) mod do_drill_update {
+            pub(crate) mod do_stacked_ratchet_update {
                 pub(crate) const STAGE0: u8 = 0;
                 pub(crate) const STAGE1: u8 = 1;
 
@@ -167,7 +167,7 @@ pub(crate) mod packet_sizes {
     pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + 1;
     pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 1 + 4 + 4;
 
-    pub(crate) mod do_drill_update {
+    pub(crate) mod do_entropy_bank_update {
         use crate::constants::HDP_HEADER_BYTE_LEN;
 
         pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
@@ -195,8 +195,8 @@ pub struct HdpHeader {
     pub wave_id: U32,
     /// Multiple clients may be connected from the same node. NOTE: This can also be equal to the ticket id
     pub session_cid: U64,
-    /// The drill version applied to encrypt the data
-    pub drill_version: U32,
+    /// The entropy_bank version applied to encrypt the data
+    pub entropy_bank_version: U32,
     /// Before a packet is sent outbound, the local time is placed into the packet header
     pub timestamp: I64,
     /// The target_cid (0 if hyperLAN server)

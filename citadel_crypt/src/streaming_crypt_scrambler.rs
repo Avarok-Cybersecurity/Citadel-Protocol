@@ -47,7 +47,7 @@
 //!         group_sender,
 //!         stop_receiver,
 //!         SecurityLevel::Standard,
-//!         hyper_ratchet,
+//!         stacked_ratchet,
 //!         static_aux_ratchet,
 //!         header_size,
 //!         target_cid,
@@ -84,7 +84,7 @@ use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
 use crate::misc::CryptError;
-use crate::stacked_ratchet::StackedRatchet;
+use crate::stacked_ratchet::Ratchet;
 use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_io::Mutex;
 use citadel_types::crypto::SecurityLevel;
@@ -236,15 +236,20 @@ impl<T: Into<Vec<u8>>> From<T> for BytesSource {
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(clippy::too_many_arguments)]
-pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: usize>(
+pub fn scramble_encrypt_source<
+    S: ObjectSource,
+    F: HeaderInscriberFn,
+    const N: usize,
+    R: Ratchet,
+>(
     mut source: S,
     max_group_size: Option<usize>,
     object_id: ObjectId,
     group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
     stop: Receiver<()>,
     security_level: SecurityLevel,
-    hyper_ratchet: StackedRatchet,
-    static_aux_ratchet: StackedRatchet,
+    stacked_ratchet: R,
+    static_aux_ratchet: R,
     header_size_bytes: usize,
     target_cid: u64,
     group_id: u64,
@@ -286,7 +291,7 @@ pub fn scramble_encrypt_source<S: ObjectSource, F: HeaderInscriberFn, const N: u
         target_cid,
         group_id,
         security_level,
-        hyper_ratchet,
+        stacked_ratchet,
         static_aux_ratchet,
         reader,
         transfer_type,
@@ -320,9 +325,9 @@ async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {
         .map_err(|err| CryptError::Encrypt(err.to_string()))
 }
 
-async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(
+async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet>(
     group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
-    mut file_scrambler: AsyncCryptScrambler<F, R, N>,
+    mut file_scrambler: AsyncCryptScrambler<F, R, N, Ra>,
 ) -> Result<(), CryptError> {
     while let Some(val) = file_scrambler.next().await {
         group_sender
@@ -335,10 +340,10 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(
 }
 
 #[allow(dead_code)]
-struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
+struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> {
     reader: BufReader<R>,
-    hyper_ratchet: StackedRatchet,
-    static_aux_ratchet: StackedRatchet,
+    stacked_ratchet: Ra,
+    static_aux_ratchet: Ra,
     security_level: SecurityLevel,
     transfer_type: TransferType,
     file_len: usize,
@@ -356,7 +361,7 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
 }
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
+impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScrambler<F, R, N, Ra> {
     fn poll_task(
         groups_rendered: &mut usize,
         read_cursor: &mut usize,
@@ -378,15 +383,18 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     }
 }
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize> Unpin for AsyncCryptScrambler<F, R, N> {}
+impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> Unpin
+    for AsyncCryptScrambler<F, R, N, Ra>
+{
+}
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
+impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScrambler<F, R, N, Ra> {
     fn poll_scramble_next_group(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<GroupSenderDevice<N>>> {
         let Self {
-            hyper_ratchet,
+            stacked_ratchet,
             static_aux_ratchet,
             file_len,
             read_cursor,
@@ -421,7 +429,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 let header_inscriber = header_inscriber.clone();
                 let buffer = buffer.clone();
                 let security_level = *security_level;
-                let hyper_ratchet = hyper_ratchet.clone();
+                let stacked_ratchet = stacked_ratchet.clone();
                 let static_aux_ratchet = static_aux_ratchet.clone();
                 let header_size_bytes = *header_size_bytes;
                 let target_cid = *target_cid;
@@ -432,7 +440,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,
-                        &hyper_ratchet,
+                        &stacked_ratchet,
                         &static_aux_ratchet,
                         header_size_bytes,
                         target_cid,
@@ -457,7 +465,9 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
     }
 }
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize> Stream for AsyncCryptScrambler<F, R, N> {
+impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> Stream
+    for AsyncCryptScrambler<F, R, N, Ra>
+{
     type Item = GroupSenderDevice<N>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

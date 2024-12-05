@@ -70,7 +70,7 @@ use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualTargetType;
 use citadel_crypt::scramble::crypt_splitter::oneshot_unencrypted_group_unified;
 use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
-use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_types::prelude::ObjectId;
 
 /// A secure packet container that provides zero-copy buffer management and
@@ -170,8 +170,8 @@ impl From<SecureProtocolPacket> for SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
 ///     time_tracker,
 /// )?;
 /// ```
-pub struct GroupTransmitter {
-    pub hyper_ratchet_container: RatchetPacketCrafterContainer,
+pub struct GroupTransmitter<R: Ratchet> {
+    pub ratchet_container: RatchetPacketCrafterContainer<R>,
     to_primary_stream: OutboundPrimaryStreamSender,
     // Handles the encryption and scrambling asynchronously. Also manages missing packets
     pub(crate) group_transmitter: GroupSenderDevice<HDP_HEADER_BYTE_LEN>,
@@ -193,7 +193,7 @@ pub struct GroupTransmitter {
 /// Fcm may be present, in which case, the innermost encryption pass goes through the fcm ratchet to ensure
 /// Google can't see the information. The fcm constructor may not be present either, since a concurrent update may
 /// be occurring
-pub struct RatchetPacketCrafterContainer<R: Ratchet = StackedRatchet> {
+pub struct RatchetPacketCrafterContainer<R: Ratchet> {
     pub base: R,
     pub base_constructor: Option<R::Constructor>,
 }
@@ -208,12 +208,12 @@ impl<R: Ratchet> RatchetPacketCrafterContainer<R> {
     }
 }
 
-impl GroupTransmitter {
+impl<R: Ratchet> GroupTransmitter<R> {
     /// Scrambled packets will use this
     pub fn new_from_group_sender(
         to_primary_stream: OutboundPrimaryStreamSender,
         group_sender: GroupSenderDevice<HDP_HEADER_BYTE_LEN>,
-        hyper_ratchet: RatchetPacketCrafterContainer,
+        stacked_ratchet: RatchetPacketCrafterContainer<R>,
         object_id: ObjectId,
         ticket: Ticket,
         security_level: SecurityLevel,
@@ -223,7 +223,7 @@ impl GroupTransmitter {
         let group_id = cfg.group_id;
         let bytes_encrypted = cfg.plaintext_length as usize;
         Self {
-            hyper_ratchet_container: hyper_ratchet,
+            ratchet_container: stacked_ratchet,
             // This must be false
             is_message: false,
             group_transmitter: group_sender,
@@ -243,15 +243,15 @@ impl GroupTransmitter {
     pub fn new_message(
         to_primary_stream: OutboundPrimaryStreamSender,
         object_id: ObjectId,
-        hyper_ratchet: RatchetPacketCrafterContainer,
+        stacked_ratchet: RatchetPacketCrafterContainer<R>,
         input_packet: SecureProtocolPacket,
         security_level: SecurityLevel,
         group_id: u64,
         ticket: Ticket,
         time_tracker: TimeTracker,
     ) -> Option<Self> {
-        // Gets the latest drill version by default for this operation
-        log::trace!(target: "citadel", "Will use StackedRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
+        // Gets the latest entropy_bank version by default for this operation
+        log::trace!(target: "citadel", "Will use R v{} to encrypt group {}", stacked_ratchet.base.version(), group_id);
 
         let plaintext_len = input_packet.inner.message_len(); //the number of bytes that will be encrypted
                                                               // + 1 byte source port offset (needed for sending across port-address-translation networks)
@@ -259,7 +259,7 @@ impl GroupTransmitter {
 
         let is_empty = plaintext_len == 0;
         const HDP_HEADER_EXTENDED_BYTE_LEN: usize = HDP_HEADER_BYTE_LEN + 2;
-        //let res = encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
+        //let res = encrypt_group_unified(input_packet.into_buffer(), &stacked_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
         let res = oneshot_unencrypted_group_unified(
             input_packet.into(),
             HDP_HEADER_EXTENDED_BYTE_LEN,
@@ -272,7 +272,7 @@ impl GroupTransmitter {
             Ok(group_transmitter) => {
                 let group_config: GroupReceiverConfig = group_transmitter.get_receiver_config();
                 Some(Self {
-                    hyper_ratchet_container: hyper_ratchet,
+                    ratchet_container: stacked_ratchet,
                     is_message: true,
                     object_id,
                     to_primary_stream,
@@ -354,15 +354,15 @@ pub(crate) mod group {
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use crate::proto::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
-    use citadel_crypt::endpoint_crypto_container::KemTransferStatus;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, KemTransferStatus};
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::proto::ObjectId;
     use citadel_user::serialization::SyncIO;
     use std::ops::RangeInclusive;
 
     /// Crafts a group header packet for a given group transmitter and virtual target
-    pub(super) fn craft_group_header_packet(
-        processor: &mut GroupTransmitter,
+    pub(super) fn craft_group_header_packet<R: Ratchet>(
+        processor: &mut GroupTransmitter<R>,
         virtual_target: VirtualTargetType,
     ) -> BytesMut {
         let target_cid = virtual_target.get_target_cid();
@@ -377,8 +377,8 @@ pub(crate) mod group {
             context_info: U128::new(processor.ticket.0),
             group: U64::new(processor.group_id),
             wave_id: U32::new(0),
-            session_cid: U64::new(processor.hyper_ratchet_container.base.get_cid()),
-            drill_version: U32::new(processor.hyper_ratchet_container.base.version()),
+            session_cid: U64::new(processor.ratchet_container.base.get_cid()),
+            entropy_bank_version: U32::new(processor.ratchet_container.base.version()),
             timestamp: I64::new(processor.time_tracker.get_global_time_ns()),
             target_cid: U64::new(target_cid),
         };
@@ -393,9 +393,9 @@ pub(crate) mod group {
                 .unwrap();
             // both the header and payload are now written. Just have to extend the kem info
             let kem = processor
-                .hyper_ratchet_container
+                .ratchet_container
                 .base_constructor
-                .as_ref()
+                .as_mut()
                 .map(|res| res.stage0_alice().unwrap());
             let expected_len = kem.serialized_size().unwrap();
             packet
@@ -416,7 +416,7 @@ pub(crate) mod group {
         packet.put_u128(processor.object_id.0);
 
         processor
-            .hyper_ratchet_container
+            .ratchet_container
             .base
             .protect_message_packet(
                 Some(processor.security_level),
@@ -430,8 +430,8 @@ pub(crate) mod group {
 
     /// Crafts a group header acknowledgement packet for a given group transmitter and virtual target
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn craft_group_header_ack(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_group_header_ack<R: Ratchet>(
+        stacked_ratchet: &R,
         group_id: u64,
         target_cid: u64,
         object_id: ObjectId,
@@ -439,7 +439,7 @@ pub(crate) mod group {
         initial_wave_window: Option<RangeInclusive<u32>>,
         fast_msg: bool,
         timestamp: i64,
-        transfer: KemTransferStatus,
+        transfer: KemTransferStatus<R>,
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
@@ -451,8 +451,8 @@ pub(crate) mod group {
             context_info: U128::new(ticket.0),
             group: U64::new(group_id),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -470,7 +470,7 @@ pub(crate) mod group {
 
         header_ack.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -479,7 +479,7 @@ pub(crate) mod group {
     /// Crafts a wave payload packet for a given group transmitter and virtual target
     pub(crate) fn craft_wave_payload_packet_into(
         coords: &PacketVector,
-        scramble_drill: &EntropyBank,
+        scramble_entropy_bank: &EntropyBank,
         object_id: ObjectId,
         target_cid: u64,
         mut buffer: &mut BytesMut,
@@ -493,8 +493,8 @@ pub(crate) mod group {
             context_info: U128::new(object_id.0),
             group: U64::new(coords.group_id),
             wave_id: U32::new(coords.wave_id),
-            session_cid: U64::new(scramble_drill.get_cid()),
-            drill_version: U32::new(scramble_drill.get_version()),
+            session_cid: U64::new(scramble_entropy_bank.get_cid()),
+            entropy_bank_version: U32::new(scramble_entropy_bank.get_version()),
             timestamp: I64::new(0), // Irrelevant; supplied by the wave header anyways
             target_cid: U64::new(target_cid),
         };
@@ -503,16 +503,16 @@ pub(crate) mod group {
         header.inscribe_into(&mut buffer);
         let src_port = coords.local_port;
         let remote_port = coords.remote_port;
-        debug_assert!(src_port <= scramble_drill.get_multiport_width() as u16);
-        debug_assert!(remote_port <= scramble_drill.get_multiport_width() as u16);
+        debug_assert!(src_port <= scramble_entropy_bank.get_multiport_width() as u16);
+        debug_assert!(remote_port <= scramble_entropy_bank.get_multiport_width() as u16);
         buffer.put_u8(src_port as u8);
         buffer.put_u8(remote_port as u8);
     }
 
     /// Crafts a wave acknowledgement packet for a given group transmitter and virtual target
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn craft_wave_ack(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_wave_ack<R: Ratchet>(
+        stacked_ratchet: &R,
         object_id: ObjectId,
         target_cid: u64,
         group_id: u64,
@@ -530,8 +530,8 @@ pub(crate) mod group {
             context_info: U128::new(object_id.0),
             group: U64::new(group_id),
             wave_id: U32::new(wave_id),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -542,7 +542,7 @@ pub(crate) mod group {
         header.inscribe_into(&mut packet);
         wave_ack.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -556,7 +556,7 @@ pub(crate) mod do_connect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::MailboxTransfer;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::user::MutualPeer;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
@@ -573,8 +573,8 @@ pub(crate) mod do_connect {
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_stage0_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         proposed_credentials: ProposedCredentials,
         timestamp: i64,
         security_level: SecurityLevel,
@@ -590,8 +590,8 @@ pub(crate) mod do_connect {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -608,7 +608,7 @@ pub(crate) mod do_connect {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -637,8 +637,8 @@ pub(crate) mod do_connect {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>, R: Ratchet>(
+        stacked_ratchet: &R,
         success: bool,
         mailbox: Option<MailboxTransfer>,
         post_login_object: citadel_user::external_services::ServicesObject,
@@ -672,8 +672,8 @@ pub(crate) mod do_connect {
             context_info: U128::new(0),
             group: U64::new(is_filesystem as u64),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -683,7 +683,7 @@ pub(crate) mod do_connect {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -692,8 +692,8 @@ pub(crate) mod do_connect {
 
     /// Crafts a do-connect success acknowledgement packet for a given timestamp and security level
     #[allow(unused_results)]
-    pub(crate) fn craft_success_ack(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_success_ack<R: Ratchet>(
+        stacked_ratchet: &R,
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
@@ -706,8 +706,8 @@ pub(crate) mod do_connect {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -715,7 +715,7 @@ pub(crate) mod do_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -724,17 +724,16 @@ pub(crate) mod do_connect {
 }
 
 pub(crate) mod keep_alive {
-    use bytes::BytesMut;
-    use zerocopy::{I64, U128, U32, U64};
-
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use bytes::BytesMut;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
+    use zerocopy::{I64, U128, U32, U64};
 
     /// Crafts a keep-alive packet for a given timestamp and security level
-    pub(crate) fn craft_keep_alive_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_keep_alive_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
@@ -747,14 +746,14 @@ pub(crate) mod keep_alive {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -767,8 +766,8 @@ pub(crate) mod do_register {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::serialization::SyncIO;
@@ -776,18 +775,20 @@ pub(crate) mod do_register {
 
     /// Crafts a do-register stage 0 packet for a given transfer and passwordless flag
     #[derive(Serialize, Deserialize)]
-    pub(crate) struct DoRegisterStage0 {
-        pub(crate) transfer: AliceToBobTransfer,
+    pub(crate) struct DoRegisterStage0<R: Ratchet> {
+        #[serde(bound = "")]
+        pub(crate) transfer:
+            <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
         pub(crate) passwordless: bool,
     }
 
-    /// At this stage, the drill does not exist. There is no verifying such packets. The payload contains Alice's public key.
+    /// At this stage, the entropy_bank does not exist. There is no verifying such packets. The payload contains Alice's public key.
     /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
     /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
-    pub(crate) fn craft_stage0(
+    pub(crate) fn craft_stage0<R: Ratchet>(
         algorithm: u8,
         timestamp: i64,
-        transfer: AliceToBobTransfer,
+        transfer: <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
         passwordless: bool,
         proposed_cid: u64,
     ) -> BytesMut {
@@ -801,7 +802,7 @@ pub(crate) mod do_register {
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(proposed_cid),
-            drill_version: U32::new(0),
+            entropy_bank_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -809,7 +810,7 @@ pub(crate) mod do_register {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         packet.put(header.as_packet());
 
-        DoRegisterStage0 {
+        DoRegisterStage0::<R> {
             transfer,
             passwordless,
         }
@@ -820,10 +821,10 @@ pub(crate) mod do_register {
     }
 
     /// Crafts a do-register stage 1 packet for a given transfer and proposed CID
-    pub(crate) fn craft_stage1(
+    pub(crate) fn craft_stage1<R: Ratchet>(
         algorithm: u8,
         timestamp: i64,
-        transfer: BobToAliceTransfer,
+        transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
         proposed_cid: u64,
     ) -> BytesMut {
         let header = HdpHeader {
@@ -836,7 +837,7 @@ pub(crate) mod do_register {
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(proposed_cid),
-            drill_version: U32::new(0),
+            entropy_bank_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -844,7 +845,7 @@ pub(crate) mod do_register {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
 
         header.inscribe_into(&mut packet);
-        transfer.serialize_into(&mut packet).unwrap();
+        SyncIO::serialize_into_buf(&transfer, &mut packet).unwrap();
 
         packet
     }
@@ -857,8 +858,8 @@ pub(crate) mod do_register {
 
     /// Alice sends this. The stage 3 packet contains the encrypted username, password, and full name of the registering client
     #[allow(unused_results)]
-    pub(crate) fn craft_stage2(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_stage2<R: Ratchet>(
+        stacked_ratchet: &R,
         algorithm: u8,
         timestamp: i64,
         credentials: &ProposedCredentials,
@@ -873,8 +874,8 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(0),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -887,7 +888,7 @@ pub(crate) mod do_register {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -895,8 +896,8 @@ pub(crate) mod do_register {
     }
 
     /// Crafts a do-register success packet for a given success message and timestamp
-    pub(crate) fn craft_success<T: AsRef<[u8]>>(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_success<T: AsRef<[u8]>, R: Ratchet>(
+        stacked_ratchet: &R,
         algorithm: u8,
         timestamp: i64,
         success_message: T,
@@ -913,8 +914,8 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(0),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -923,7 +924,7 @@ pub(crate) mod do_register {
         header.inscribe_into(&mut packet);
         packet.put(success_message);
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -949,7 +950,7 @@ pub(crate) mod do_register {
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(proposed_cid),
-            drill_version: U32::new(0),
+            entropy_bank_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -969,13 +970,13 @@ pub(crate) mod do_disconnect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::remote::Ticket;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
 
     /// Crafts a do-disconnect stage 0 packet for a given ticket, timestamp, and security level
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_stage0<R: Ratchet>(
+        stacked_ratchet: &R,
         ticket: Ticket,
         timestamp: i64,
         security_level: SecurityLevel,
@@ -989,14 +990,14 @@ pub(crate) mod do_disconnect {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1005,8 +1006,8 @@ pub(crate) mod do_disconnect {
 
     /// Crafts a do-disconnect final packet for a given ticket, timestamp, and security level
     #[allow(unused_results)]
-    pub(crate) fn craft_final(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_final<R: Ratchet>(
+        stacked_ratchet: &R,
         ticket: Ticket,
         timestamp: i64,
         security_level: SecurityLevel,
@@ -1020,39 +1021,38 @@ pub(crate) mod do_disconnect {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
     }
 }
 
-pub(crate) mod do_drill_update {
+pub(crate) mod do_entropy_bank_update {
     use bytes::BytesMut;
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, packet_sizes, HdpHeader};
-    use citadel_crypt::endpoint_crypto_container::KemTransferStatus;
-    use citadel_crypt::stacked_ratchet::constructor::AliceToBobTransfer;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, KemTransferStatus};
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_user::serialization::SyncIO;
     use serde::{Deserialize, Serialize};
 
-    /// Crafts a do-drill update stage 0 packet for a given transfer, timestamp, target CID, and security level
+    /// Crafts a do-entropy_bank update stage 0 packet for a given transfer, timestamp, target CID, and security level
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0(
-        hyper_ratchet: &StackedRatchet,
-        transfer: AliceToBobTransfer,
+    pub(crate) fn craft_stage0<R: Ratchet>(
+        stacked_ratchet: &R,
+        transfer: <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
         timestamp: i64,
         target_cid: u64,
         security_level: SecurityLevel,
@@ -1060,14 +1060,14 @@ pub(crate) mod do_drill_update {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
-            cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
+            cmd_aux: packet_flags::cmd::aux::do_stacked_ratchet_update::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -1076,22 +1076,23 @@ pub(crate) mod do_drill_update {
         header.inscribe_into(&mut packet);
         transfer.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
     }
 
-    /// Crafts a do-drill update stage 1 packet for a given update status, timestamp, target CID, and security level
+    /// Crafts a do-entropy_bank update stage 1 packet for a given update status, timestamp, target CID, and security level
     #[derive(Serialize, Deserialize)]
-    pub(crate) struct Stage1UpdatePacket {
-        pub(crate) update_status: KemTransferStatus,
+    pub(crate) struct Stage1UpdatePacket<R: Ratchet> {
+        #[serde(bound = "")]
+        pub(crate) update_status: KemTransferStatus<R>,
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_stage1(
-        hyper_ratchet: &StackedRatchet,
-        update_status: KemTransferStatus,
+    pub(crate) fn craft_stage1<R: Ratchet>(
+        stacked_ratchet: &R,
+        update_status: KemTransferStatus<R>,
         timestamp: i64,
         target_cid: u64,
         security_level: SecurityLevel,
@@ -1099,39 +1100,39 @@ pub(crate) mod do_drill_update {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
-            cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE1,
+            cmd_aux: packet_flags::cmd::aux::do_stacked_ratchet_update::STAGE1,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
 
-        let mut packet = BytesMut::with_capacity(packet_sizes::do_drill_update::STAGE1);
+        let mut packet = BytesMut::with_capacity(packet_sizes::do_entropy_bank_update::STAGE1);
         header.inscribe_into(&mut packet);
 
         let stage1_packet = Stage1UpdatePacket { update_status };
         stage1_packet.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
     }
 
-    /// Crafts a do-drill update truncate packet for a given truncate version, target CID, timestamp, and security level
+    /// Crafts a do-entropy_bank update truncate packet for a given truncate version, target CID, timestamp, and security level
     #[derive(Serialize, Deserialize)]
     pub(crate) struct TruncatePacket {
         pub(crate) truncate_version: Option<u32>,
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_truncate(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_truncate<R: Ratchet>(
+        stacked_ratchet: &R,
         truncate_version: Option<u32>,
         target_cid: u64,
         timestamp: i64,
@@ -1140,39 +1141,39 @@ pub(crate) mod do_drill_update {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
-            cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE,
+            cmd_aux: packet_flags::cmd::aux::do_stacked_ratchet_update::TRUNCATE,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
 
-        let mut packet = BytesMut::with_capacity(packet_sizes::do_drill_update::STAGE1);
+        let mut packet = BytesMut::with_capacity(packet_sizes::do_entropy_bank_update::STAGE1);
         header.inscribe_into(&mut packet);
         // encrypt the nonce into the packet
         TruncatePacket { truncate_version }
             .serialize_into_buf(&mut packet)
             .unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
     }
 
-    /// Crafts a do-drill update truncate acknowledgement packet for a given truncated version, target CID, timestamp, and security level
+    /// Crafts a do-entropy_bank update truncate acknowledgement packet for a given truncated version, target CID, timestamp, and security level
     #[derive(Serialize, Deserialize)]
     pub(crate) struct TruncateAckPacket {
         pub(crate) truncated_version: u32,
     }
 
-    pub(crate) fn craft_truncate_ack(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_truncate_ack<R: Ratchet>(
+        stacked_ratchet: &R,
         truncated_version: u32,
         target_cid: u64,
         timestamp: i64,
@@ -1181,25 +1182,25 @@ pub(crate) mod do_drill_update {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
-            cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE_ACK,
+            cmd_aux: packet_flags::cmd::aux::do_stacked_ratchet_update::TRUNCATE_ACK,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
 
-        let mut packet = BytesMut::with_capacity(packet_sizes::do_drill_update::STAGE1);
+        let mut packet = BytesMut::with_capacity(packet_sizes::do_entropy_bank_update::STAGE1);
         header.inscribe_into(&mut packet);
 
         TruncateAckPacket { truncated_version }
             .serialize_into_buf(&mut packet)
             .unwrap();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -1207,38 +1208,37 @@ pub(crate) mod do_drill_update {
 }
 
 pub(crate) mod do_deregister {
-    use bytes::BytesMut;
-    use zerocopy::{I64, U128, U32, U64};
-
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use bytes::BytesMut;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
+    use zerocopy::{I64, U128, U32, U64};
 
     /// Crafts a do-deregister stage 0 packet for a given timestamp and security level
-    pub(crate) fn craft_stage0(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_stage0<R: Ratchet>(
+        stacked_ratchet: &R,
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_DEREGISTER,
-            cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
+            cmd_aux: packet_flags::cmd::aux::do_stacked_ratchet_update::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1247,8 +1247,8 @@ pub(crate) mod do_deregister {
 
     /// Crafts a do-deregister final packet for a given success flag, timestamp, and security level
     #[allow(unused_results)]
-    pub(crate) fn craft_final(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_final<R: Ratchet>(
+        stacked_ratchet: &R,
         success: bool,
         timestamp: i64,
         security_level: SecurityLevel,
@@ -1268,15 +1268,15 @@ pub(crate) mod do_deregister {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -1292,9 +1292,8 @@ pub(crate) mod pre_connect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::packet_flags::payload_identifiers;
     use crate::proto::packet::{packet_flags, HdpHeader};
-    use citadel_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
-    use citadel_crypt::toolset::StaticAuxRatchet;
+    use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::proto::ConnectMode;
     use citadel_types::proto::SessionSecuritySettings;
@@ -1306,8 +1305,9 @@ pub(crate) mod pre_connect {
 
     /// Crafts a pre-connect SYN packet for a given transfer, NAT type, UDP mode, timestamp, keep-alive timeout, security level, session security settings, peer-only connect protocol, and connect mode
     #[derive(Serialize, Deserialize)]
-    pub struct SynPacket {
-        pub transfer: AliceToBobTransfer,
+    pub struct SynPacket<R: Ratchet> {
+        #[serde(bound = "")]
+        pub transfer: <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
         pub session_security_settings: SessionSecuritySettings,
         pub peer_only_connect_protocol: ConnectProtocol,
         pub connect_mode: ConnectMode,
@@ -1317,9 +1317,9 @@ pub(crate) mod pre_connect {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn craft_syn(
-        static_aux_hr: &StaticAuxRatchet,
-        transfer: AliceToBobTransfer,
+    pub(crate) fn craft_syn<R: Ratchet>(
+        static_aux_hr: &R,
+        transfer: <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
         nat_type: NatType,
         udp_mode: UdpMode,
         timestamp: i64,
@@ -1339,7 +1339,7 @@ pub(crate) mod pre_connect {
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
-            drill_version: U32::new(static_aux_hr.version()),
+            entropy_bank_version: U32::new(static_aux_hr.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -1347,7 +1347,7 @@ pub(crate) mod pre_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynPacket {
+        SynPacket::<R> {
             transfer,
             session_security_settings,
             peer_only_connect_protocol,
@@ -1367,14 +1367,15 @@ pub(crate) mod pre_connect {
 
     /// Crafts a pre-connect SYN acknowledgement packet for a given transfer, NAT type, timestamp, and security level
     #[derive(Serialize, Deserialize)]
-    pub struct SynAckPacket {
-        pub transfer: BobToAliceTransfer,
+    pub struct SynAckPacket<R: Ratchet> {
+        #[serde(bound = "")]
+        pub transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
         pub nat_type: NatType,
     }
 
-    pub(crate) fn craft_syn_ack(
-        static_aux_hr: &StaticAuxRatchet,
-        transfer: BobToAliceTransfer,
+    pub(crate) fn craft_syn_ack<R: Ratchet>(
+        static_aux_hr: &R,
+        transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
         nat_type: NatType,
         timestamp: i64,
         security_level: SecurityLevel,
@@ -1389,7 +1390,7 @@ pub(crate) mod pre_connect {
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
-            drill_version: U32::new(static_aux_hr.version()),
+            entropy_bank_version: U32::new(static_aux_hr.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -1397,7 +1398,7 @@ pub(crate) mod pre_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynAckPacket { transfer, nat_type }
+        SynAckPacket::<R> { transfer, nat_type }
             .serialize_into_buf(&mut packet)
             .unwrap();
 
@@ -1415,8 +1416,8 @@ pub(crate) mod pre_connect {
     }
 
     // This gets sent from Alice to Bob
-    pub(crate) fn craft_stage0(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_stage0<R: Ratchet>(
+        stacked_ratchet: &R,
         timestamp: i64,
         node_type: NodeType,
         security_level: SecurityLevel,
@@ -1430,8 +1431,8 @@ pub(crate) mod pre_connect {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
@@ -1443,7 +1444,7 @@ pub(crate) mod pre_connect {
             .serialize_into_buf(&mut packet)
             .unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1451,8 +1452,8 @@ pub(crate) mod pre_connect {
     }
 
     /// Crafts a pre-connect final packet for a given success flag, TCP-only flag, timestamp, and security level
-    pub(crate) fn craft_stage_final(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_stage_final<R: Ratchet>(
+        stacked_ratchet: &R,
         success: bool,
         tcp_only: bool,
         timestamp: i64,
@@ -1479,23 +1480,23 @@ pub(crate) mod pre_connect {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
     }
 
     /// Crafts a pre-connect begin connect packet for a given timestamp and security level
-    pub(crate) fn craft_begin_connect(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_begin_connect<R: Ratchet>(
+        stacked_ratchet: &R,
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
@@ -1508,14 +1509,14 @@ pub(crate) mod pre_connect {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0),
         };
 
         let mut packet = header.as_packet();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -1533,7 +1534,7 @@ pub(crate) mod pre_connect {
             group: prev_header.group,
             wave_id: prev_header.wave_id,
             session_cid: prev_header.session_cid,
-            drill_version: prev_header.drill_version,
+            entropy_bank_version: prev_header.entropy_bank_version,
             timestamp: prev_header.timestamp,
             target_cid: U64::new(0),
         };
@@ -1555,7 +1556,7 @@ pub(crate) mod peer_cmd {
     use crate::proto::remote::Ticket;
     use bytes::BytesMut;
     use citadel_crypt::scramble::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_user::serialization::SyncIO;
     use serde::Serialize;
@@ -1568,8 +1569,8 @@ pub(crate) mod peer_cmd {
     */
     /// Peer signals, unlike channels, DO NOT get a target_cid because they require the central server's participation to increase security between the
     /// two nodes
-    pub(crate) fn craft_peer_signal<T: SyncIO + Serialize>(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_peer_signal<T: SyncIO + Serialize, R: Ratchet>(
+        stacked_ratchet: &R,
         peer_command: T,
         ticket: Ticket,
         timestamp: i64,
@@ -1584,8 +1585,8 @@ pub(crate) mod peer_cmd {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(C2S_ENCRYPTION_ONLY),
         };
@@ -1597,7 +1598,7 @@ pub(crate) mod peer_cmd {
         header.inscribe_into(&mut packet);
         peer_command.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1606,8 +1607,8 @@ pub(crate) mod peer_cmd {
 
     /// Crafts a peer signal endpoint packet for a given peer command, ticket, timestamp, target CID, and security level
     #[allow(dead_code)]
-    pub(crate) fn craft_peer_signal_endpoint<T: SyncIO + Serialize>(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_peer_signal_endpoint<T: SyncIO + Serialize, R: Ratchet>(
+        stacked_ratchet: &R,
         peer_command: T,
         ticket: Ticket,
         timestamp: i64,
@@ -1623,8 +1624,8 @@ pub(crate) mod peer_cmd {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -1636,7 +1637,7 @@ pub(crate) mod peer_cmd {
         header.inscribe_into(&mut packet);
         peer_command.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1645,8 +1646,8 @@ pub(crate) mod peer_cmd {
 
     /// Crafts a channel packet for a given payload, ticket, proxy target CID, timestamp, and security level
     #[allow(dead_code)]
-    pub(crate) fn craft_channel_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_channel_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         payload: ChannelPacket,
         ticket: Ticket,
         proxy_target_cid: u64,
@@ -1662,8 +1663,8 @@ pub(crate) mod peer_cmd {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(proxy_target_cid),
         };
@@ -1674,7 +1675,7 @@ pub(crate) mod peer_cmd {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1683,8 +1684,8 @@ pub(crate) mod peer_cmd {
 
     /// Crafts a group message packet for a given payload, ticket, proxy target CID, timestamp, and security level
     #[allow(dead_code)]
-    pub(crate) fn craft_group_message_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_group_message_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         payload: &GroupBroadcast,
         ticket: Ticket,
         proxy_target_cid: u64,
@@ -1700,8 +1701,8 @@ pub(crate) mod peer_cmd {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(proxy_target_cid),
         };
@@ -1712,7 +1713,7 @@ pub(crate) mod peer_cmd {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
         packet
@@ -1725,7 +1726,7 @@ pub(crate) mod file {
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
     use bytes::BytesMut;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::prelude::TransferType;
     use citadel_types::proto::{ObjectId, VirtualObjectMetadata};
@@ -1741,8 +1742,8 @@ pub(crate) mod file {
         pub object_id: ObjectId,
     }
 
-    pub(crate) fn craft_file_error_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_file_error_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         ticket: Ticket,
         security_level: SecurityLevel,
         virtual_target: VirtualTargetType,
@@ -1759,8 +1760,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(virtual_target.get_target_cid()),
         };
@@ -1774,7 +1775,7 @@ pub(crate) mod file {
 
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1790,8 +1791,8 @@ pub(crate) mod file {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn craft_file_header_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_file_header_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         group_start: u64,
         ticket: Ticket,
         security_level: SecurityLevel,
@@ -1809,8 +1810,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(group_start),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(virtual_target.get_target_cid()),
         };
@@ -1825,7 +1826,7 @@ pub(crate) mod file {
 
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1842,8 +1843,8 @@ pub(crate) mod file {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn craft_file_header_ack_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_file_header_ack_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         success: bool,
         object_id: ObjectId,
         target_cid: u64,
@@ -1862,8 +1863,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -1880,7 +1881,7 @@ pub(crate) mod file {
 
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1895,8 +1896,8 @@ pub(crate) mod file {
         pub security_level: SecurityLevel,
     }
 
-    pub fn craft_revfs_pull(
-        hyper_ratchet: &StackedRatchet,
+    pub fn craft_revfs_pull<R: Ratchet>(
+        stacked_ratchet: &R,
         security_level: SecurityLevel,
         ticket: Ticket,
         timestamp: i64,
@@ -1913,8 +1914,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -1929,7 +1930,7 @@ pub(crate) mod file {
         };
 
         payload.serialize_into_buf(&mut packet).unwrap();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1942,8 +1943,8 @@ pub(crate) mod file {
         pub virtual_path: PathBuf,
     }
 
-    pub fn craft_revfs_delete(
-        hyper_ratchet: &StackedRatchet,
+    pub fn craft_revfs_delete<R: Ratchet>(
+        stacked_ratchet: &R,
         security_level: SecurityLevel,
         ticket: Ticket,
         timestamp: i64,
@@ -1959,8 +1960,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -1971,7 +1972,7 @@ pub(crate) mod file {
         let payload = ReVFSDeletePacket { virtual_path };
 
         payload.serialize_into_buf(&mut packet).unwrap();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -1985,8 +1986,8 @@ pub(crate) mod file {
         pub error_msg: Option<String>,
     }
 
-    pub fn craft_revfs_ack(
-        hyper_ratchet: &StackedRatchet,
+    pub fn craft_revfs_ack<R: Ratchet>(
+        stacked_ratchet: &R,
         security_level: SecurityLevel,
         ticket: Ticket,
         timestamp: i64,
@@ -2002,8 +2003,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -2015,7 +2016,7 @@ pub(crate) mod file {
         let payload = ReVFSAckPacket { success, error_msg };
 
         payload.serialize_into_buf(&mut packet).unwrap();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -2029,8 +2030,8 @@ pub(crate) mod file {
         Error { error: String },
     }
 
-    pub fn craft_revfs_pull_ack(
-        hyper_ratchet: &StackedRatchet,
+    pub fn craft_revfs_pull_ack<R: Ratchet>(
+        stacked_ratchet: &R,
         security_level: SecurityLevel,
         ticket: Ticket,
         timestamp: i64,
@@ -2046,8 +2047,8 @@ pub(crate) mod file {
             context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(target_cid),
         };
@@ -2056,7 +2057,7 @@ pub(crate) mod file {
         header.inscribe_into(&mut packet);
 
         payload.serialize_into_buf(&mut packet).unwrap();
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -2068,13 +2069,13 @@ pub(crate) mod udp {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::BytesMut;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
     /// Crafts a UDP packet for a given command auxiliary, payload, target CID, and security level
-    pub(crate) fn craft_udp_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub(crate) fn craft_udp_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         cmd_aux: u8,
         payload: BytesMut,
         target_cid: u64,
@@ -2089,8 +2090,8 @@ pub(crate) mod udp {
             context_info: Default::default(),
             group: Default::default(),
             wave_id: Default::default(),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: Default::default(),
             target_cid: U64::new(target_cid),
         };
@@ -2099,7 +2100,7 @@ pub(crate) mod udp {
         header.inscribe_into(&mut packet);
         packet.extend_from_slice(&payload[..]);
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -2111,13 +2112,13 @@ pub(crate) mod hole_punch {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use bytes::{BufMut, BytesMut};
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::stacked_ratchet::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
     /// Crafts a hole punch packet for a given plaintext, security level, target CID, and hyper ratchet
-    pub fn generate_packet(
-        hyper_ratchet: &StackedRatchet,
+    pub fn generate_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         plaintext: &[u8],
         security_level: SecurityLevel,
         target_cid: u64,
@@ -2131,8 +2132,8 @@ pub(crate) mod hole_punch {
             context_info: Default::default(),
             group: Default::default(),
             wave_id: Default::default(),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
+            session_cid: U64::new(stacked_ratchet.get_cid()),
+            entropy_bank_version: U32::new(stacked_ratchet.version()),
             timestamp: Default::default(),
             target_cid: U64::new(target_cid),
         };
@@ -2141,7 +2142,7 @@ pub(crate) mod hole_punch {
         header.inscribe_into(&mut packet);
         packet.put(plaintext);
 
-        hyper_ratchet
+        stacked_ratchet
             .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
             .unwrap();
 
@@ -2149,10 +2150,10 @@ pub(crate) mod hole_punch {
     }
 
     /// Decrypts a hole punch packet for a given packet, hyper ratchet, security level, and target CID
-    pub fn decrypt_packet(
-        _hyper_ratchet: &StackedRatchet,
+    pub fn decrypt_packet<R: Ratchet>(
+        stacked_ratchet: &R,
         packet: &[u8],
-        _security_level: SecurityLevel,
+        security_level: SecurityLevel,
     ) -> Option<BytesMut> {
         if packet.len() < HDP_HEADER_BYTE_LEN {
             log::warn!(target: "citadel", "Bad hole-punch packet size. Len: {} | {:?}", packet.len(), packet);
@@ -2160,10 +2161,10 @@ pub(crate) mod hole_punch {
         }
 
         let mut packet = BytesMut::from(packet);
-        let _header = packet.split_to(HDP_HEADER_BYTE_LEN);
+        let header = packet.split_to(HDP_HEADER_BYTE_LEN);
 
-        _hyper_ratchet
-            .validate_message_packet_in_place_split(Some(_security_level), &_header, &mut packet)
+        stacked_ratchet
+            .validate_message_packet_in_place_split(Some(security_level), &header, &mut packet)
             .ok()?;
 
         Some(packet)

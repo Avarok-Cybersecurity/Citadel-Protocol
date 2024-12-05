@@ -25,6 +25,7 @@
 //! - `lock_holder.rs`: Resource locking
 
 use crate::macros::ContextRequirements;
+use crate::proto::session::SessionState;
 use bytemuck::NoUninit;
 
 pub struct DualCell<T: ContextRequirements> {
@@ -45,7 +46,7 @@ impl<T: ContextRequirements> DualCell<T> {
         }
         #[cfg(feature = "multi-threaded")]
         {
-            let _ = self.inner.swap(new, atomic::Ordering::SeqCst);
+            let _ = self.inner.swap(new, atomic::Ordering::Relaxed);
         }
     }
 
@@ -59,7 +60,7 @@ impl<T: ContextRequirements> DualCell<T> {
         }
         #[cfg(feature = "multi-threaded")]
         {
-            self.inner.load(atomic::Ordering::SeqCst)
+            self.inner.load(atomic::Ordering::Relaxed)
         }
     }
 }
@@ -86,5 +87,11 @@ impl<T: ContextRequirements> Clone for DualCell<T> {
         Self {
             inner: self.inner.clone(),
         }
+    }
+}
+
+impl DualCell<SessionState> {
+    pub fn is_connected(&self) -> bool {
+        self.get() == SessionState::Connected
     }
 }

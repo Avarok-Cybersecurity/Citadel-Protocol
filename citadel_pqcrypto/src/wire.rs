@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum AliceToBobTransferParameters {
     MixedAsymmetric {
         alice_pk: Arc<Zeroizing<Vec<u8>>>,
@@ -63,7 +63,7 @@ pub enum AliceToBobTransferParameters {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum BobToAliceTransferParameters {
     MixedAsymmetric {
         bob_ciphertext_signature: Arc<Zeroizing<Vec<u8>>>,

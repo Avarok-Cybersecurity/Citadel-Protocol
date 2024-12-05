@@ -246,7 +246,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_0() {
-        citadel_logging::setup_log_no_panic_hook();
+        citadel_logging::should_panic_test();
         let _ = PartitionedSecBuffer::<0>::new().unwrap();
     }
 
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_1_improper() {
-        citadel_logging::setup_log_no_panic_hook();
+        citadel_logging::should_panic_test();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(1, 10).unwrap();
     }
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_1_improper_2() {
-        citadel_logging::setup_log_no_panic_hook();
+        citadel_logging::should_panic_test();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.partition_window(1).unwrap().fill(1);
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_2_improper() {
-        citadel_logging::setup_log_no_panic_hook();
+        citadel_logging::should_panic_test();
         let mut buf = PartitionedSecBuffer::<2>::new().unwrap();
         //buf.reserve_partition(0, 10).unwrap();
         buf.reserve_partition(1, 3).unwrap();

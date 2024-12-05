@@ -111,7 +111,7 @@ pub mod macros {
     impl<T: 'static> SyncContextRequirements for T {}
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
-    pub type SessionBorrow<'a> = std::cell::RefMut<'a, CitadelSessionInner>;
+    pub type SessionBorrow<'a, R> = std::cell::RefMut<'a, CitadelSessionInner<R>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::rc::Weak<std::cell::RefCell<T>>,
@@ -152,47 +152,90 @@ pub mod macros {
 }
 
     macro_rules! define_outer_struct_wrapper {
-        ($struct_name:ident, $inner:ty) => {
-            #[derive(Clone)]
-            pub struct $struct_name {
-                pub inner: std::rc::Rc<std::cell::RefCell<$inner>>,
-            }
+    // Version with generic parameters
+    ($struct_name:ident, $inner:ident, <$($generic:ident $(: $bound:path)?),*>, <$($use_generic:ident),*>) => {
+        #[derive(Clone)]
+        pub struct $struct_name<$($generic $(: $bound)?),*> {
+            pub inner: std::rc::Rc<std::cell::RefCell<$inner<$($use_generic),*>>>,
+        }
 
-            impl $struct_name {
-                #[allow(dead_code)]
-                pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
-                    crate::macros::WeakBorrow {
-                        inner: std::rc::Rc::downgrade(&self.inner),
-                    }
-                }
-
-                #[allow(dead_code)]
-                pub fn upgrade_weak(
-                    this: &crate::macros::WeakBorrow<$inner>,
-                ) -> Option<$struct_name> {
-                    this.inner.upgrade().map(|inner| Self { inner })
-                }
-
-                #[allow(dead_code)]
-                pub fn strong_count(&self) -> usize {
-                    std::rc::Rc::strong_count(&self.inner)
-                }
-
-                #[allow(dead_code)]
-                pub fn weak_count(&self) -> usize {
-                    std::rc::Rc::weak_count(&self.inner)
+        impl<$($generic $(: $bound)?),*> $struct_name<$($use_generic),*> {
+            #[allow(dead_code)]
+            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner<$($use_generic),*>> {
+                crate::macros::WeakBorrow {
+                    inner: std::rc::Rc::downgrade(&self.inner),
                 }
             }
 
-            impl From<$inner> for $struct_name {
-                fn from(inner: $inner) -> Self {
-                    Self {
-                        inner: create_inner!(inner),
-                    }
+            #[allow(dead_code)]
+            pub fn upgrade_weak(
+                this: &crate::macros::WeakBorrow<$inner<$($use_generic),*>>,
+            ) -> Option<$struct_name<$($use_generic),*>> {
+                this.inner.upgrade().map(|inner| Self { inner })
+            }
+
+            #[allow(dead_code)]
+            pub fn strong_count(&self) -> usize {
+                std::rc::Rc::strong_count(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn weak_count(&self) -> usize {
+                std::rc::Rc::weak_count(&self.inner)
+            }
+        }
+
+        impl<$($generic $(: $bound)?),*> From<$inner<$($use_generic),*>> for $struct_name<$($use_generic),*> {
+            fn from(inner: $inner<$($use_generic),*>) -> Self {
+                Self {
+                    inner: create_inner!(inner),
                 }
             }
-        };
-    }
+        }
+    };
+
+    // Simple version without generic parameters
+    ($struct_name:ident, $inner:ty) => {
+        #[derive(Clone)]
+        pub struct $struct_name {
+            pub inner: std::rc::Rc<std::cell::RefCell<$inner>>,
+        }
+
+        impl $struct_name {
+            #[allow(dead_code)]
+            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
+                crate::macros::WeakBorrow {
+                    inner: std::rc::Rc::downgrade(&self.inner),
+                }
+            }
+
+            #[allow(dead_code)]
+            pub fn upgrade_weak(
+                this: &crate::macros::WeakBorrow<$inner>,
+            ) -> Option<$struct_name> {
+                this.inner.upgrade().map(|inner| Self { inner })
+            }
+
+            #[allow(dead_code)]
+            pub fn strong_count(&self) -> usize {
+                std::rc::Rc::strong_count(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn weak_count(&self) -> usize {
+                std::rc::Rc::weak_count(&self.inner)
+            }
+        }
+
+        impl From<$inner> for $struct_name {
+            fn from(inner: $inner) -> Self {
+                Self {
+                    inner: create_inner!(inner),
+                }
+            }
+        }
+    };
+}
 
     macro_rules! create_inner {
         ($item:expr) => {
@@ -261,7 +304,7 @@ pub mod macros {
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
 
     pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
-    pub type SessionBorrow<'a> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner>;
+    pub type SessionBorrow<'a, R> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::sync::Weak<citadel_io::RwLock<T>>,
@@ -304,47 +347,90 @@ pub mod macros {
 }
 
     macro_rules! define_outer_struct_wrapper {
-        ($struct_name:ident, $inner:ty) => {
-            #[derive(Clone)]
-            pub struct $struct_name {
-                pub inner: std::sync::Arc<citadel_io::RwLock<$inner>>,
-            }
+    // Version with generic parameters
+    ($struct_name:ident, $inner:ident, <$($generic:ident $(: $bound:path)?),*>, <$($use_generic:ident),*>) => {
+        #[derive(Clone)]
+        pub struct $struct_name<$($generic $(: $bound)?),*> {
+            pub inner: std::sync::Arc<citadel_io::RwLock<$inner<$($use_generic),*>>>,
+        }
 
-            impl $struct_name {
-                #[allow(dead_code)]
-                pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
-                    crate::macros::WeakBorrow {
-                        inner: std::sync::Arc::downgrade(&self.inner),
-                    }
-                }
-
-                #[allow(dead_code)]
-                pub fn upgrade_weak(
-                    this: &crate::macros::WeakBorrow<$inner>,
-                ) -> Option<$struct_name> {
-                    this.inner.upgrade().map(|inner| Self { inner })
-                }
-
-                #[allow(dead_code)]
-                pub fn strong_count(&self) -> usize {
-                    std::sync::Arc::strong_count(&self.inner)
-                }
-
-                #[allow(dead_code)]
-                pub fn weak_count(&self) -> usize {
-                    std::sync::Arc::weak_count(&self.inner)
+        impl<$($generic $(: $bound)?),*> $struct_name<$($use_generic),*> {
+            #[allow(dead_code)]
+            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner<$($use_generic),*>> {
+                crate::macros::WeakBorrow {
+                    inner: std::sync::Arc::downgrade(&self.inner),
                 }
             }
 
-            impl From<$inner> for $struct_name {
-                fn from(inner: $inner) -> Self {
-                    Self {
-                        inner: create_inner!(inner),
-                    }
+            #[allow(dead_code)]
+            pub fn upgrade_weak(
+                this: &crate::macros::WeakBorrow<$inner<$($use_generic),*>>,
+            ) -> Option<$struct_name<$($use_generic),*>> {
+                this.inner.upgrade().map(|inner| Self { inner })
+            }
+
+            #[allow(dead_code)]
+            pub fn strong_count(&self) -> usize {
+                std::sync::Arc::strong_count(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn weak_count(&self) -> usize {
+                std::sync::Arc::weak_count(&self.inner)
+            }
+        }
+
+        impl<$($generic $(: $bound)?),*> From<$inner<$($use_generic),*>> for $struct_name<$($use_generic),*> {
+            fn from(inner: $inner<$($use_generic),*>) -> Self {
+                Self {
+                    inner: create_inner!(inner),
                 }
             }
-        };
-    }
+        }
+    };
+
+    // Simple version without generic parameters
+    ($struct_name:ident, $inner:ty) => {
+        #[derive(Clone)]
+        pub struct $struct_name {
+            pub inner: std::sync::Arc<citadel_io::RwLock<$inner>>,
+        }
+
+        impl $struct_name {
+            #[allow(dead_code)]
+            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
+                crate::macros::WeakBorrow {
+                    inner: std::sync::Arc::downgrade(&self.inner),
+                }
+            }
+
+            #[allow(dead_code)]
+            pub fn upgrade_weak(
+                this: &crate::macros::WeakBorrow<$inner>,
+            ) -> Option<$struct_name> {
+                this.inner.upgrade().map(|inner| Self { inner })
+            }
+
+            #[allow(dead_code)]
+            pub fn strong_count(&self) -> usize {
+                std::sync::Arc::strong_count(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn weak_count(&self) -> usize {
+                std::sync::Arc::weak_count(&self.inner)
+            }
+        }
+
+        impl From<$inner> for $struct_name {
+            fn from(inner: $inner) -> Self {
+                Self {
+                    inner: create_inner!(inner),
+                }
+            }
+        }
+    };
+}
 
     macro_rules! create_inner {
         ($item:expr) => {
@@ -418,6 +504,8 @@ pub mod prelude {
     #[cfg(not(coverage))]
     pub use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     pub use citadel_crypt::fcm::keys::FcmKeys;
+    pub use citadel_crypt::fcm::ratchet::ThinRatchet;
+    pub use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     pub use citadel_types::crypto::AlgorithmsExt;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;

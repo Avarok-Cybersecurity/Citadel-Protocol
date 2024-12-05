@@ -35,8 +35,8 @@
 //! use citadel_proto::proto::packet::HdpPacket;
 //!
 //! async fn handle_disconnect(session: &CitadelSession, packet: HdpPacket) {
-//!     let header_drill_vers = 1;
-//!     match disconnect_packet::process_disconnect(session, packet, header_drill_vers).await {
+//!     let header_entropy_bank_vers = 1;
+//!     match disconnect_packet::process_disconnect(session, packet, header_entropy_bank_vers).await {
 //!         Ok(result) => {
 //!             // Handle successful disconnection
 //!         }
@@ -49,20 +49,28 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use std::sync::atomic::Ordering;
+use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
+use citadel_crypt::stacked_ratchet::Ratchet;
 
 pub const SUCCESS_DISCONNECT: &str = "Successfully Disconnected";
 
 /// Stage 0: Alice sends Bob a DO_DISCONNECT request packet
 /// Stage 1: Bob sends Alice an FINAL, whereafter Alice may disconnect
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub async fn process_disconnect(
-    session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub async fn process_disconnect<R: Ratchet>(
+    session: &CitadelSession<R>,
     packet: HdpPacket,
-    header_drill_vers: u32,
+    header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
+    if !session.state.is_connected() {
         log::error!(target: "citadel", "disconnect packet received, but session state is not connected. Dropping");
         return Ok(PrimaryProcessorResult::Void);
     }
@@ -70,13 +78,13 @@ pub async fn process_disconnect(
     let hr = {
         let state_container = inner_state!(session.state_container);
         return_if_none!(
-            get_proper_hyper_ratchet(header_drill_vers, &state_container, None),
+            get_orientation_safe_ratchet(header_entropy_bank_vers, &state_container, None),
             "Could not get proper HR [disconnect]"
         )
     };
 
     let (header, payload, _, _) = packet.decompose();
-    let (header, _, hyper_ratchet) = return_if_none!(
+    let (header, _, stacked_ratchet) = return_if_none!(
         validation::aead::validate(hr, &header, payload),
         "Unable to validate"
     );
@@ -88,7 +96,7 @@ pub async fn process_disconnect(
         packet_flags::cmd::aux::do_disconnect::STAGE0 => {
             log::trace!(target: "citadel", "STAGE 0 DISCONNECT PACKET RECEIVED");
             let packet = packet_crafter::do_disconnect::craft_final(
-                &hyper_ratchet,
+                &stacked_ratchet,
                 ticket,
                 timestamp,
                 security_level,
@@ -106,9 +114,7 @@ pub async fn process_disconnect(
         packet_flags::cmd::aux::do_disconnect::FINAL => {
             trace!(target: "citadel", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
             session.kernel_ticket.set(ticket);
-            session
-                .state
-                .store(SessionState::Disconnected, Ordering::Relaxed);
+            session.state.set(SessionState::Disconnected);
             session.send_session_dc_signal(Some(ticket), true, SUCCESS_DISCONNECT);
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }

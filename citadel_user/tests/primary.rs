@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
-
     use citadel_crypt::prelude::ConstructorOpts;
-    use citadel_crypt::stacked_ratchet::constructor::{
-        BobToAliceTransferType, StackedRatchetConstructor,
-    };
+    use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
     use citadel_crypt::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::KemAlgorithm;
     use citadel_user::account_manager::AccountManager;
@@ -860,13 +857,6 @@ mod tests {
             );
 
             assert_eq!(
-                peer_pers
-                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &[client.get_cid()])
-                    .await
-                    .unwrap(),
-                vec![true]
-            );
-            assert_eq!(
                 pers_cl
                     .hyperlan_peers_are_mutuals(client.get_cid(), &[peer_cnac.get_cid()])
                     .await
@@ -883,6 +873,13 @@ mod tests {
             assert_eq!(
                 pers_se
                     .hyperlan_peers_are_mutuals(client.get_cid(), &[peer_cnac.get_cid()])
+                    .await
+                    .unwrap(),
+                vec![true]
+            );
+            assert_eq!(
+                pers_se
+                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &[client.get_cid()])
                     .await
                     .unwrap(),
                 vec![true]
@@ -1448,11 +1445,11 @@ mod tests {
     ) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(
             Some(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256),
-            1,
+            Default::default(),
         );
         let mut alice =
-            StackedRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
-        let bob = StackedRatchetConstructor::new_bob(
+            StackedRatchetConstructor::new_alice_constructor(opts.clone(), cid, version).unwrap();
+        let mut bob = StackedRatchetConstructor::new_bob_constructor::<Vec<u8>>(
             cid,
             version,
             opts,
@@ -1461,10 +1458,7 @@ mod tests {
         )
         .unwrap();
         alice
-            .stage1_alice(
-                BobToAliceTransferType::Default(bob.stage0_bob().unwrap()),
-                &[],
-            )
+            .stage1_alice::<Vec<u8>>(bob.stage0_bob().unwrap(), &[])
             .unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid {
             bob.finish_with_custom_cid(cid).unwrap()

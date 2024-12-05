@@ -82,7 +82,7 @@ impl AuthenticationRequest {
         }
     }
 
-    pub fn implicated_cid(&self) -> Option<u64> {
+    pub fn session_cid(&self) -> Option<u64> {
         match self {
             AuthenticationRequest::Credentialed { id, .. } => {
                 if let UserIdentifier::ID(cid) = id {

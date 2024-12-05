@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build the server
-    let node = NodeBuilder::default()
+    let node = DefaultNodeBuilder::default()
         .with_node_type(NodeType::server(server_addr)?)
         .build(kernel)?;
 

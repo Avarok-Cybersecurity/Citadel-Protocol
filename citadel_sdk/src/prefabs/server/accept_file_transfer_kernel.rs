@@ -35,13 +35,19 @@
 //!
 
 use crate::prelude::*;
+use std::marker::PhantomData;
 
-#[derive(Default)]
-pub struct AcceptFileTransferKernel;
+pub struct AcceptFileTransferKernel<R: Ratchet>(PhantomData<R>);
+
+impl<R: Ratchet> Default for AcceptFileTransferKernel<R> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
 
 #[async_trait]
-impl NetKernel for AcceptFileTransferKernel {
-    fn load_remote(&mut self, _node_remote: NodeRemote) -> Result<(), NetworkError> {
+impl<R: Ratchet> NetKernel<R> for AcceptFileTransferKernel<R> {
+    fn load_remote(&mut self, _node_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         Ok(())
     }
 

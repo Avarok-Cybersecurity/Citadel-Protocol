@@ -102,7 +102,7 @@ use std::fmt::Formatter;
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::auth::DeclaredAuthenticationMode;
 use crate::serialization::SyncIO;
-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
+use citadel_crypt::fcm::ratchet::ThinRatchet;
 use citadel_crypt::prelude::Toolset;
 use citadel_crypt::stacked_ratchet::StackedRatchet;
 use citadel_types::crypto::SecBuffer;
@@ -144,7 +144,7 @@ pub struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet =
     /// if iCID == 0, then that implies a personal HyperLAN Client
     /// Suppose we input key k to retrieve tuple (i, j). If k == i, then the peer j is in k. If k != i, then j is in i (i.e., a HyperWAN client).
     pub mutuals: MultiMap<u64, MutualPeer>,
-    /// Toolset which contains all the drills
+    /// Toolset which contains all the entropy_banks
     #[serde(bound = "")]
     pub crypt_container: PeerSessionCrypto<R>,
     /// RTDB config for client-side communications
@@ -183,12 +183,12 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         is_personal: bool,
         adjacent_nac: ConnectionInfo,
         auth_store: DeclaredAuthenticationMode,
-        base_hyper_ratchet: R,
+        base_stacked_ratchet: R,
     ) -> Result<Self, AccountError> {
         log::trace!(target: "citadel", "Creating CNAC w/valid cid: {:?}", valid_cid);
         let creation_date = get_present_formatted_timestamp();
         let crypt_container = PeerSessionCrypto::<R>::new(
-            Toolset::<R>::new(valid_cid, base_hyper_ratchet),
+            Toolset::<R>::new(valid_cid, base_stacked_ratchet),
             is_personal,
         );
         let mutuals = MultiMap::new();
@@ -213,7 +213,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Resets the toolset, if necessary. If the CNAC was freshly serialized, the hyper ratchet
     /// is not updated. In either case, returns the static aux hyper ratchet
     #[allow(unused_results)]
-    pub fn refresh_static_hyper_ratchet(&self) -> R {
+    pub fn refresh_static_ratchet(&self) -> R {
         let mut write = self.write();
         write.crypt_container.toolset.verify_init_state();
         write.crypt_container.refresh_state();
@@ -238,13 +238,20 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Towards the end of the registration phase, the [`ClientNetworkAccountInner`] gets transmitted to Alice.
     pub async fn new_from_network_personal(
         valid_cid: u64,
-        hyper_ratchet: R,
+        stacked_ratchet: R,
         auth_store: DeclaredAuthenticationMode,
         conn_info: ConnectionInfo,
     ) -> Result<Self, AccountError> {
         const IS_PERSONAL: bool = true;
         // We supply none to the valid cid
-        Self::new(valid_cid, IS_PERSONAL, conn_info, auth_store, hyper_ratchet).await
+        Self::new(
+            valid_cid,
+            IS_PERSONAL,
+            conn_info,
+            auth_store,
+            stacked_ratchet,
+        )
+        .await
     }
 
     /// Returns the username of this client
@@ -307,7 +314,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// This should ONLY be used for recovery mode
-    pub fn get_static_auxiliary_hyper_ratchet(&self) -> R {
+    pub fn get_static_auxiliary_stacked_ratchet(&self) -> R {
         let this = self.read();
         this.crypt_container
             .toolset
@@ -485,7 +492,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Returns Some if success, None otherwise
     #[allow(unused_results)]
     pub(crate) fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
-        log::trace!(target: "citadel", "[remove peer] implicated_cid: {} | peer_cid: {}", self.get_cid(), cid);
+        log::trace!(target: "citadel", "[remove peer] session_cid: {} | peer_cid: {}", self.get_cid(), cid);
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {

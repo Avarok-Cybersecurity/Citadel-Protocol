@@ -294,10 +294,10 @@ impl PostQuantumContainer {
 
     /// Creates a new [PostQuantumContainer] for Bob. This will panic if the algorithm is
     /// invalid
-    pub fn new_bob(
+    pub fn new_bob<T: AsRef<[u8]>>(
         opts: ConstructorOpts,
         tx_params: AliceToBobTransferParameters,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
         let params = opts.cryptography.unwrap_or_default();
@@ -331,14 +331,14 @@ impl PostQuantumContainer {
     }
 
     /// `psks`: Pre-shared keys
-    fn generate_recursive_keystore(
+    fn generate_recursive_keystore<T: AsRef<[u8]>>(
         pq_node: PQNode,
         params: CryptoParameters,
         sig: Option<PostQuantumMetaSig>,
         ss: Arc<Zeroizing<Vec<u8>>>,
         previous_chain: Option<&RecursiveChain>,
         kex: PostQuantumMetaKex,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<(RecursiveChain, KeyStore), Error> {
         let (chain, alice_key, bob_key) = if let Some(prev) = previous_chain {
             // prev = C_n
@@ -351,7 +351,7 @@ impl PostQuantumContainer {
                     .chain
                     .iter()
                     .chain(ss.iter())
-                    .chain(psks.iter().flatten())
+                    .chain(psks.iter().flat_map(|r| r.as_ref()))
                     .copied()
                     .collect::<Vec<u8>>()[..],
             );
@@ -414,7 +414,7 @@ impl PostQuantumContainer {
             let mut hasher_temp = sha3::Sha3_512::new();
             hasher_temp.update(
                 ss.iter()
-                    .chain(psks.iter().flatten())
+                    .chain(psks.iter().flat_map(|r| r.as_ref()))
                     .copied()
                     .collect::<Vec<u8>>(),
             );
@@ -491,7 +491,7 @@ impl PostQuantumContainer {
     }
 
     /// This should always be called after deserialization
-    fn load_symmetric_keys(&mut self, psks: &[Vec<u8>]) -> Result<(), Error> {
+    fn load_symmetric_keys<T: AsRef<[u8]>>(&mut self, psks: &[T]) -> Result<(), Error> {
         let pq_node = self.node;
         let params = self.params;
         let sig = self.data.sig().cloned();
@@ -516,10 +516,10 @@ impl PostQuantumContainer {
     }
 
     /// Internally creates shared key after bob sends a response back to Alice
-    pub fn alice_on_receive_ciphertext(
+    pub fn alice_on_receive_ciphertext<T: AsRef<[u8]>>(
         &mut self,
         params: BobToAliceTransferParameters,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<(), Error> {
         self.data.alice_on_receive_ciphertext(params)?;
         let _ss = self.data.get_shared_secret()?; // call once to load internally

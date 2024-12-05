@@ -28,7 +28,7 @@
 //!         accept_registrations: true,
 //!     };
 //!     
-//!     let settings = ServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
 //!         .build()?;
 //!     
 //!     let kernel = BroadcastKernel::new(
@@ -77,8 +77,8 @@ use uuid::Uuid;
 /// to the owner alone. The owner thus serves as an "axis of consent", where each member
 /// trusts the owner, and through this trust, transitivity of trust flows to all other
 /// future members that connect to the group.
-pub struct BroadcastKernel<'a, F, Fut> {
-    inner_kernel: Box<dyn NetKernel + 'a>,
+pub struct BroadcastKernel<'a, F, Fut, R: Ratchet> {
+    inner_kernel: Box<dyn NetKernel<R> + 'a>,
     shared: Arc<BroadcastShared>,
     _pd: PhantomData<fn() -> (F, Fut)>,
 }
@@ -124,9 +124,10 @@ pub enum GroupInitRequestType {
 }
 
 #[async_trait]
-impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'a, F, Fut>
+impl<'a, F, Fut, R: Ratchet> PrefabFunctions<'a, GroupInitRequestType, R>
+    for BroadcastKernel<'a, F, Fut, R>
 where
-    F: FnOnce(GroupChannel, ClientServerRemote) -> Fut + Send + 'a,
+    F: FnOnce(GroupChannel, ClientServerRemote<R>) -> Fut + Send + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + 'a,
 {
     type UserLevelInputFunction = F;
@@ -143,12 +144,12 @@ where
     )]
     async fn on_c2s_channel_received(
         connect_success: ConnectionSuccess,
-        remote: ClientServerRemote,
+        remote: ClientServerRemote<R>,
         arg: GroupInitRequestType,
         fx: Self::UserLevelInputFunction,
         shared: Arc<BroadcastShared>,
     ) -> Result<(), NetworkError> {
-        let implicated_cid = connect_success.cid;
+        let session_cid = connect_success.cid;
         wait_for_peers().await;
         let mut creator_only_accept_inbound_registers = false;
 
@@ -166,7 +167,7 @@ where
 
                 for peer in &invite_list {
                     let peer = peer
-                        .search_peer(implicated_cid, remote.inner.account_manager())
+                        .search_peer(session_cid, remote.inner.account_manager())
                         .await?
                         .ok_or_else(|| {
                             NetworkError::msg(format!(
@@ -198,7 +199,7 @@ where
                 // ensure local is registered to owner
                 let owner_orig = owner;
                 let owner_find = owner_orig
-                    .search_peer(implicated_cid, remote.inner.account_manager())
+                    .search_peer(session_cid, remote.inner.account_manager())
                     .await?;
 
                 let owner = if let Some(owner) = owner_find {
@@ -211,7 +212,7 @@ where
                     let _ = handle.register_to_peer().await?;
                     // wait_for_peers().await;
                     owner_orig
-                        .search_peer(implicated_cid, remote.inner.account_manager())
+                        .search_peer(session_cid, remote.inner.account_manager())
                         .await?
                 } else {
                     None
@@ -261,7 +262,7 @@ where
         };
 
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid,
+            session_cid,
             command: request,
         });
 
@@ -269,7 +270,7 @@ where
             remote.inner.send_callback_subscription(request).await?,
         ));
 
-        log::trace!(target: "citadel", "Peer {implicated_cid} is attempting to join group");
+        log::trace!(target: "citadel", "Peer {session_cid} is attempting to join group");
         let acceptor_task = if creator_only_accept_inbound_registers {
             shared.route_registers.store(true, Ordering::Relaxed);
             let mut reg_rx = shared.register_rx.lock().take().unwrap();
@@ -294,7 +295,7 @@ where
                         }
                     };
 
-                    log::trace!(target: "citadel", "ACCEPTOR {implicated_cid} RECV reg_request: {:?}", post_register);
+                    log::trace!(target: "citadel", "ACCEPTOR {session_cid} RECV reg_request: {:?}", post_register);
                     if let PeerSignal::PostRegister {
                         peer_conn_type: peer_conn,
                         inviter_username: _,
@@ -304,7 +305,7 @@ where
                     } = &post_register
                     {
                         let cid = peer_conn.get_original_target_cid();
-                        if cid != implicated_cid {
+                        if cid != session_cid {
                             log::warn!(target: "citadel", "Received the wrong CID. Will not accept request");
                             continue;
                         }
@@ -357,7 +358,7 @@ where
                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                     ticket: _,
                     channel,
-                    implicated_cid: _,
+                    session_cid: _,
                 }) => {
                     // in either case, whether owner or not, we get a channel
                     // Drop the lock to allow the acceptor task to gain access to the subscription
@@ -370,7 +371,7 @@ where
                 }
 
                 NodeResult::GroupEvent(GroupEvent {
-                    implicated_cid: _,
+                    session_cid: _,
                     ticket: _,
                     event: GroupBroadcast::CreateResponse { key: None },
                 }) => {
@@ -386,7 +387,7 @@ where
         Ok(())
     }
 
-    fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
+    fn construct(kernel: Box<dyn NetKernel<R> + 'a>) -> Self {
         let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         Self {
             shared: Arc::new(BroadcastShared {
@@ -401,8 +402,8 @@ where
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
-    fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
+impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
+    fn load_remote(&mut self, node_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }
 
@@ -438,7 +439,7 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 mod tests {
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
-    use crate::prefabs::client::ServerConnectionSettingsBuilder;
+    use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::{server_info, wait_for_peers, TestBarrier};
     use citadel_io::tokio;
@@ -456,7 +457,7 @@ mod tests {
         TestBarrier::setup(peer_count);
 
         let client_success = &AtomicUsize::new(0);
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<StackedRatchet>();
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
@@ -485,7 +486,7 @@ mod tests {
             };
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
@@ -494,7 +495,7 @@ mod tests {
                 request,
                 move |channel, remote| async move {
                     wait_for_peers().await;
-                    log::trace!(target: "citadel", "***GROUP PEER {}={}={} CONNECT SUCCESS***", idx, uuid, remote.conn_type.get_implicated_cid());
+                    log::trace!(target: "citadel", "***GROUP PEER {}={}={} CONNECT SUCCESS***", idx, uuid, remote.conn_type.get_session_cid());
 
                     let owned_groups = remote.list_owned_groups().await.unwrap();
 
@@ -504,7 +505,7 @@ mod tests {
                         assert_eq!(owned_groups.len(), 0);
                     }
 
-                    log::trace!(target: "citadel", "Peer {idx}={} is COMPLETE!", remote.conn_type.get_implicated_cid());
+                    log::trace!(target: "citadel", "Peer {idx}={} is COMPLETE!", remote.conn_type.get_session_cid());
 
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
@@ -513,7 +514,7 @@ mod tests {
                 },
             );
 
-            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
@@ -550,7 +551,7 @@ mod tests {
         let client_success = &AtomicBool::new(false);
         let receiver_success = &AtomicBool::new(false);
 
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<StackedRatchet>();
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
@@ -567,7 +568,7 @@ mod tests {
                 .collect::<Vec<UserIdentifier>>();
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
@@ -575,7 +576,7 @@ mod tests {
                 server_connection_settings,
                 peers,
                 move |mut results, remote| async move {
-                    let _sender = remote.conn_type.get_implicated_cid();
+                    let _sender = remote.conn_type.get_session_cid();
                     let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
 
                     wait_for_peers().await;
@@ -598,7 +599,7 @@ mod tests {
                             log::info!(target: "citadel", "Received unprocessed signal: {:?}", evt);
                             match evt {
                                 NodeResult::GroupEvent(GroupEvent {
-                                    implicated_cid: _,
+                                    session_cid: _,
                                     ticket: _,
                                     event:
                                         GroupBroadcast::Invitation {
@@ -614,7 +615,7 @@ mod tests {
                                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                                     ticket: _,
                                     channel: _chan,
-                                    implicated_cid: _,
+                                    session_cid: _,
                                 }) => {
                                     receiver_success.store(true, Ordering::Relaxed);
                                     log::trace!(target: "citadel", "***PEER {} CONNECT***", uuid);
@@ -635,7 +636,7 @@ mod tests {
                 },
             );
 
-            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 

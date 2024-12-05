@@ -52,13 +52,13 @@
 //! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): PQ crypto operations
 //! - [`Ratchet`](crate::stacked_ratchet::Ratchet): Base ratchet trait
 
-use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+use crate::endpoint_crypto_container::{
+    AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
+};
 use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;
-use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::stacked_ratchet::Ratchet;
 use arrayvec::ArrayVec;
-use citadel_pqcrypto::bytes_in_place::EzBuffer;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
 use citadel_pqcrypto::PostQuantumContainer;
@@ -66,7 +66,7 @@ use citadel_types::crypto::CryptoParameters;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::crypto::LARGEST_NONCE_LEN;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -78,101 +78,58 @@ pub struct ThinRatchet {
 impl ThinRatchet {
     /// decrypts using a custom nonce configuration
     pub fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.decrypt(pqc, contents)
+        let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
+        entropy_bank.decrypt(pqc, contents)
     }
 
     /// Encrypts the data into a Vec<u8>
     pub fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.encrypt(pqc, contents)
+        let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
+        entropy_bank.encrypt(pqc, contents)
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ThinRatchetInner {
-    drill: EntropyBank,
+    entropy_bank: EntropyBank,
     pqc: PostQuantumContainer,
 }
 
 impl Ratchet for ThinRatchet {
     type Constructor = ThinRatchetConstructor;
 
-    fn get_cid(&self) -> u64 {
-        self.inner.drill.cid
-    }
-
-    fn version(&self) -> u32 {
-        self.inner.drill.version
-    }
-
-    fn has_verified_packets(&self) -> bool {
-        self.inner.pqc.has_verified_packets()
-    }
-
-    fn reset_ara(&self) {
-        self.inner.pqc.reset_counters()
-    }
-
     fn get_default_security_level(&self) -> SecurityLevel {
         SecurityLevel::Standard
     }
 
-    fn message_pqc_drill(&self, _idx: Option<usize>) -> (&PostQuantumContainer, &EntropyBank) {
-        (&self.inner.pqc, &self.inner.drill)
+    fn get_message_pqc_and_entropy_bank_at_layer(
+        &self,
+        idx: Option<usize>,
+    ) -> Result<(&PostQuantumContainer, &EntropyBank), CryptError> {
+        if let Some(idx) = idx {
+            if idx != 0 {
+                return Err(CryptError::OutOfBoundsError);
+            }
+        }
+
+        Ok((&self.inner.pqc, &self.inner.entropy_bank))
     }
 
-    fn get_scramble_drill(&self) -> &EntropyBank {
-        &self.inner.drill
+    fn get_scramble_pqc_and_entropy_bank(&self) -> (&PostQuantumContainer, &EntropyBank) {
+        // Thin Ratchets have no difference between scramble and message ratchets
+        self.get_message_pqc_and_entropy_bank_at_layer(None)
+            .expect("This should never fail")
     }
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
-        vec![ConstructorOpts::new_from_previous(
+        vec![ConstructorOpts::new_ratcheted(
             Some(self.inner.pqc.params),
             self.inner.pqc.get_chain().unwrap().clone(),
         )]
     }
 
-    fn protect_message_packet<T: EzBuffer>(
-        &self,
-        _security_level: Option<SecurityLevel>,
-        header_len_bytes: usize,
-        packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.protect_packet(pqc, header_len_bytes, packet)
-    }
-
-    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
-        &self,
-        _security_level: Option<SecurityLevel>,
-        header: H,
-        packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.validate_packet_in_place_split(pqc, header, packet)
-    }
-
-    fn local_encrypt<'a, T: Into<Cow<'a, [u8]>>>(
-        &self,
-        contents: T,
-        _security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        drill.local_encrypt(pqc, contents.into())
-    }
-
-    fn local_decrypt<'a, T: Into<Cow<'a, [u8]>>>(
-        &self,
-        contents: T,
-        _security_level: SecurityLevel,
-    ) -> Result<Vec<u8>, CryptError> {
-        let (pqc, drill) = self.message_pqc_drill(None);
-        let contents = contents.into();
-        if contents.is_empty() {
-            return Ok(vec![]);
-        }
-        drill.local_decrypt(pqc, contents)
+    fn message_ratchet_count(&self) -> usize {
+        1
     }
 }
 
@@ -181,61 +138,53 @@ impl Ratchet for ThinRatchet {
 pub struct ThinRatchetConstructor {
     params: CryptoParameters,
     pqc: PostQuantumContainer,
-    drill: Option<EntropyBank>,
+    entropy_bank: Option<EntropyBank>,
     nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
     cid: u64,
     version: u32,
 }
 
+impl Debug for ThinRatchetConstructor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ThinRatchetConstructor")
+            .field("params", &self.params)
+            .field("cid", &self.cid)
+            .field("version", &self.version)
+            .finish()
+    }
+}
+
 impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
-    fn new_alice(
-        mut opts: Vec<ConstructorOpts>,
-        cid: u64,
-        new_version: u32,
-        _security_level: Option<SecurityLevel>,
-    ) -> Option<Self> {
-        ThinRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
+    type AliceToBobWireTransfer = FcmAliceToBobTransfer;
+    type BobToAliceWireTransfer = FcmBobToAliceTransfer;
+
+    fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
+        ThinRatchetConstructor::new_alice_constructor(cid, new_version, opts.into_iter().next()?)
     }
 
-    fn new_bob(
+    fn new_bob<T: AsRef<[u8]>>(
         _cid: u64,
-        _new_drill_vers: u32,
-        mut opts: Vec<ConstructorOpts>,
-        transfer: AliceToBobTransferType,
-        psks: &[Vec<u8>],
+        opts: Vec<ConstructorOpts>,
+        transfer: Self::AliceToBobWireTransfer,
+        psks: &[T],
     ) -> Option<Self> {
-        match transfer {
-            AliceToBobTransferType::Fcm(transfer) => {
-                ThinRatchetConstructor::new_bob(opts.remove(0), transfer, psks)
-            }
-
-            _ => {
-                log::error!(target: "citadel", "Incompatible Ratchet Type passed! [X-43]");
-                None
-            }
-        }
+        ThinRatchetConstructor::new_bob(opts.into_iter().next()?, transfer, psks)
     }
 
-    fn stage0_alice(&self) -> Option<AliceToBobTransferType> {
-        Some(AliceToBobTransferType::Fcm(self.stage0_alice()?))
+    fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer> {
+        self.stage0_alice()
     }
 
-    fn stage0_bob(&self) -> Option<BobToAliceTransferType> {
-        Some(BobToAliceTransferType::Fcm(self.stage0_bob()?))
+    fn stage0_bob(&mut self) -> Option<Self::BobToAliceWireTransfer> {
+        self.stage0_bob()
     }
 
-    fn stage1_alice(
+    fn stage1_alice<T: AsRef<[u8]>>(
         &mut self,
-        transfer: BobToAliceTransferType,
-        psks: &[Vec<u8>],
+        transfer: Self::BobToAliceWireTransfer,
+        psks: &[T],
     ) -> Result<(), CryptError> {
-        match transfer {
-            BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer, psks),
-
-            _ => Err(CryptError::DrillUpdateError(
-                "Incompatible Ratchet Type passed! [X-44]".to_string(),
-            )),
-        }
+        self.stage1_alice(transfer, psks)
     }
 
     fn update_version(&mut self, version: u32) -> Option<()> {
@@ -262,42 +211,60 @@ pub struct FcmAliceToBobTransfer {
     pub version: u32,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+impl AssociatedSecurityLevel for FcmAliceToBobTransfer {
+    fn security_level(&self) -> SecurityLevel {
+        SecurityLevel::Standard
+    }
+}
+
+impl AssociatedCryptoParams for FcmAliceToBobTransfer {
+    fn crypto_params(&self) -> CryptoParameters {
+        self.params
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FcmBobToAliceTransfer {
     params_tx: BobToAliceTransferParameters,
-    encrypted_drill_bytes: Vec<u8>,
+    encrypted_entropy_bank_bytes: Vec<u8>,
+}
+
+impl AssociatedSecurityLevel for FcmBobToAliceTransfer {
+    fn security_level(&self) -> SecurityLevel {
+        SecurityLevel::Standard
+    }
 }
 
 impl ThinRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
-    pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
+    pub fn new_alice_constructor(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
         let params = opts.cryptography.unwrap_or_default();
         let pqc = PostQuantumContainer::new_alice(opts).ok()?;
 
         Some(Self {
             params,
             pqc,
-            drill: None,
+            entropy_bank: None,
             nonce: EntropyBank::generate_public_nonce(params.encryption_algorithm),
             cid,
             version,
         })
     }
 
-    pub fn new_bob(
+    pub fn new_bob<T: AsRef<[u8]>>(
         opts: ConstructorOpts,
         transfer: FcmAliceToBobTransfer,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Option<Self> {
         let params = transfer.params;
         let pqc = PostQuantumContainer::new_bob(opts, transfer.transfer_params, psks).ok()?;
-        let drill =
+        let entropy_bank =
             EntropyBank::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;
 
         Some(Self {
             params,
             pqc,
-            drill: Some(drill),
+            entropy_bank: Some(entropy_bank),
             nonce: transfer.nonce,
             cid: transfer.cid,
             version: transfer.version,
@@ -315,42 +282,45 @@ impl ThinRatchetConstructor {
         })
     }
 
-    pub fn stage0_bob(&self) -> Option<FcmBobToAliceTransfer> {
+    pub fn stage0_bob(&mut self) -> Option<FcmBobToAliceTransfer> {
         Some(FcmBobToAliceTransfer {
             params_tx: self.pqc.generate_bob_to_alice_transfer().ok()?,
-            encrypted_drill_bytes: self
+            encrypted_entropy_bank_bytes: self
                 .pqc
-                .encrypt(self.drill.as_ref()?.serialize_to_vec().ok()?, &self.nonce)
+                .encrypt(
+                    self.entropy_bank.as_ref()?.serialize_to_vec().ok()?,
+                    &self.nonce,
+                )
                 .ok()?,
         })
     }
 
-    pub fn stage1_alice(
+    pub fn stage1_alice<T: AsRef<[u8]>>(
         &mut self,
         transfer: FcmBobToAliceTransfer,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<(), CryptError> {
         self.pqc
             .alice_on_receive_ciphertext(transfer.params_tx, psks)
-            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
         let bytes = self
             .pqc
-            .decrypt(&transfer.encrypted_drill_bytes, &self.nonce)
-            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
-        let drill = EntropyBank::deserialize_from(&bytes[..])?;
-        self.drill = Some(drill);
+            .decrypt(&transfer.encrypted_entropy_bank_bytes, &self.nonce)
+            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+        let entropy_bank = EntropyBank::deserialize_from(&bytes[..])?;
+        self.entropy_bank = Some(entropy_bank);
         Ok(())
     }
 
     pub fn update_version(&mut self, version: u32) -> Option<()> {
         self.version = version;
-        self.drill.as_mut()?.version = version;
+        self.entropy_bank.as_mut()?.version = version;
         Some(())
     }
 
     pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<ThinRatchet> {
         self.cid = cid;
-        self.drill.as_mut()?.cid = cid;
+        self.entropy_bank.as_mut()?.cid = cid;
         self.finish()
     }
 
@@ -363,9 +333,9 @@ impl TryFrom<ThinRatchetConstructor> for ThinRatchet {
     type Error = ();
 
     fn try_from(value: ThinRatchetConstructor) -> Result<Self, Self::Error> {
-        let drill = value.drill.ok_or(())?;
+        let entropy_bank = value.entropy_bank.ok_or(())?;
         let pqc = value.pqc;
-        let inner = ThinRatchetInner { drill, pqc };
+        let inner = ThinRatchetInner { entropy_bank, pqc };
         Ok(ThinRatchet {
             inner: Arc::new(inner),
         })

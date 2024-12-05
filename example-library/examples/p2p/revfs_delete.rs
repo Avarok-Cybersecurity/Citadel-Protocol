@@ -63,15 +63,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create server connection settings
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        server_addr,
-        my_user,
-        "Name",
-        "notsecurepassword",
-    )
-    .with_session_security_settings(session_security)
-    .disable_udp()
-    .build()?;
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            server_addr,
+            my_user,
+            "Name",
+            "notsecurepassword",
+        )?
+        .with_session_security_settings(session_security)
+        .disable_udp()
+        .build()?;
 
     // Create peer connection setup
     let peer_connection = PeerConnectionSetupAggregator::default()
@@ -122,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the peer
-    let node = NodeBuilder::default().build(kernel)?;
+    let node = DefaultNodeBuilder::default().build(kernel)?;
 
     // Run the peer
     node.await?;

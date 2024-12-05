@@ -68,6 +68,7 @@ use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::SessionRequest;
 use crate::proto::state_container::VirtualConnectionType;
+use citadel_crypt::stacked_ratchet::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
@@ -87,8 +88,8 @@ pub struct PeerChannel {
 
 impl PeerChannel {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        server_remote: NodeRemote,
+    pub(crate) fn new<R: Ratchet>(
+        node_remote: NodeRemote<R>,
         target_cid: u64,
         vconn_type: VirtualConnectionType,
         channel_id: Ticket,
@@ -97,14 +98,15 @@ impl PeerChannel {
         receiver: UnboundedReceiver<SecBuffer>,
         to_outbound_stream: Sender<SessionRequest>,
     ) -> Self {
-        let implicated_cid = vconn_type.get_implicated_cid();
+        let session_cid = vconn_type.get_session_cid();
         let recv_type = ReceivePortType::OrderedReliable;
+        let server_remote = thin_remote_from_node_remote(node_remote);
 
         let send_half = PeerChannelSendHalf {
             to_outbound_stream,
             target_cid,
             vconn_type,
-            implicated_cid,
+            session_cid,
             channel_id,
             security_level,
         };
@@ -131,8 +133,8 @@ impl PeerChannel {
     }
 
     /// Gets the CID of the local user
-    pub fn get_implicated_cid(&self) -> u64 {
-        self.send_half.vconn_type.get_implicated_cid()
+    pub fn get_session_cid(&self) -> u64 {
+        self.send_half.vconn_type.get_session_cid()
     }
 
     /// Gets the metadata of the virtual connection
@@ -153,7 +155,7 @@ pub struct PeerChannelSendHalf {
     to_outbound_stream: Sender<SessionRequest>,
     target_cid: u64,
     #[allow(dead_code)]
-    implicated_cid: u64,
+    session_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
     security_level: SecurityLevel,
@@ -222,9 +224,15 @@ pub struct PeerChannelRecvHalf {
     #[allow(dead_code)]
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
-    server_remote: NodeRemote,
     recv_type: ReceivePortType,
+    server_remote: Box<dyn ThinRemoteFn>,
 }
+
+pub(crate) trait ThinRemoteFn:
+    Fn(NodeRequest) -> Result<(), NetworkError> + Send + Sync + 'static
+{
+}
+impl<T: Fn(NodeRequest) -> Result<(), NetworkError> + Send + Sync + 'static> ThinRemoteFn for T {}
 
 impl Debug for PeerChannelRecvHalf {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -255,7 +263,7 @@ impl Stream for PeerChannelRecvHalf {
 impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
         if let VirtualConnectionType::LocalGroupPeer {
-            implicated_cid: local_cid,
+            session_cid: local_cid,
             peer_cid,
         } = self.vconn_type
         {
@@ -265,10 +273,10 @@ impl Drop for PeerChannelRecvHalf {
                 ReceivePortType::OrderedReliable => {
                     self.is_alive.store(false, Ordering::SeqCst);
                     NodeRequest::PeerCommand(PeerCommand {
-                        implicated_cid: local_cid,
+                        session_cid: local_cid,
                         command: PeerSignal::Disconnect {
                             peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                implicated_cid: local_cid,
+                                session_cid: local_cid,
                                 peer_cid,
                             },
                             disconnect_response: None,
@@ -279,7 +287,7 @@ impl Drop for PeerChannelRecvHalf {
                 ReceivePortType::UnorderedUnreliable => {
                     if let Some(peer_conn_type) = self.vconn_type.try_as_peer_connection() {
                         NodeRequest::PeerCommand(PeerCommand {
-                            implicated_cid: local_cid,
+                            session_cid: local_cid,
                             command: PeerSignal::DisconnectUDP { peer_conn_type },
                         })
                     } else {
@@ -289,7 +297,7 @@ impl Drop for PeerChannelRecvHalf {
                 }
             };
 
-            if let Err(err) = self.server_remote.try_send(command) {
+            if let Err(err) = (self.server_remote)(command) {
                 log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
             }
         }
@@ -302,16 +310,28 @@ pub struct UdpChannel {
     recv_half: PeerChannelRecvHalf,
 }
 
+pub(crate) fn thin_remote_from_node_remote<R: Ratchet>(
+    node_remote: NodeRemote<R>,
+) -> Box<dyn ThinRemoteFn> {
+    Box::new(move |command| {
+        node_remote
+            .try_send(command)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
+    })
+}
+
 impl UdpChannel {
-    pub fn new(
+    pub fn new<R: Ratchet>(
         send_half: OutboundUdpSender,
         receiver: UnboundedReceiver<SecBuffer>,
         target_cid: u64,
         vconn_type: VirtualConnectionType,
         channel_id: Ticket,
         is_alive: Arc<AtomicBool>,
-        server_remote: NodeRemote,
+        server_remote: NodeRemote<R>,
     ) -> Self {
+        let server_remote = thin_remote_from_node_remote(server_remote);
+
         Self {
             send_half,
             recv_half: PeerChannelRecvHalf {

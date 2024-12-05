@@ -118,12 +118,12 @@ pub mod service {
         /// This should be called after the server validates a login [marked async for now to allow room for future async processes)
         pub async fn on_post_login_serverside(
             &self,
-            implicated_cid: u64,
+            session_cid: u64,
         ) -> Result<ServicesObject, AccountError> {
             let mut ret: ServicesObject = Default::default();
 
             if let Some(auth) = self.google_auth.as_ref() {
-                ret.google_auth_jwt = Some(auth.sign_new_custom_jwt_auth(implicated_cid)?)
+                ret.google_auth_jwt = Some(auth.sign_new_custom_jwt_auth(session_cid)?)
             }
 
             ret.rtdb = self.rtdb_config.clone();
