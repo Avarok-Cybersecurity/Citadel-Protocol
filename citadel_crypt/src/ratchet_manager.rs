@@ -106,7 +106,7 @@ pub enum RekeyState {
     Idle,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, NoUninit)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, NoUninit, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum RekeyRole {
     Idle,
@@ -116,9 +116,9 @@ pub enum RekeyRole {
 
 #[derive(Serialize, Deserialize)]
 pub enum RatchetMessage {
-    AliceToBob(Vec<u8>), // Serialized transfer
-    BobToAlice(Vec<u8>), // Serialized transfer
-    Truncate(u32),       // Version to truncate
+    AliceToBob(Vec<u8>),            // Serialized transfer
+    BobToAlice(Vec<u8>, RekeyRole), // Serialized transfer + sender's role
+    Truncate(u32),                  // Version to truncate
     LeaderCanFinish,
     LoserCanFinish,
 }
@@ -127,7 +127,7 @@ impl Debug for RatchetMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RatchetMessage::AliceToBob(_) => write!(f, "AliceToBob"),
-            RatchetMessage::BobToAlice(_) => write!(f, "BobToAlice"),
+            RatchetMessage::BobToAlice(_, role) => write!(f, "BobToAlice(sender_role: {:?})", role),
             RatchetMessage::Truncate(_) => write!(f, "Truncate"),
             RatchetMessage::LeaderCanFinish => write!(f, "LeaderCanFinish"),
             RatchetMessage::LoserCanFinish => write!(f, "LoserCanFinish"),
@@ -257,7 +257,7 @@ where
         let mut completed_as_leader = false;
         let mut completed_as_loser = false;
 
-        while !((!is_initiator && completed_as_leader) || (is_initiator && completed_as_loser)) {
+        loop {
             let msg = receiver.next().await;
             log::debug!(target: "citadel", "Client {} received message {msg:?}", self.cid);
             match msg {
@@ -303,13 +303,20 @@ where
                         KemTransferStatus::Some(transfer, _) => {
                             let serialized = bincode::serialize(&transfer)
                                 .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+
+                            {
+                                let container = self.container.write();
+                                let _ = container.update_in_progress.toggle_on_if_untoggled();
+                                drop(container);
+                            }
+
+                            self.set_role(RekeyRole::Loser);
                             self.sender
                                 .lock()
                                 .await
-                                .send(RatchetMessage::BobToAlice(serialized))
+                                .send(RatchetMessage::BobToAlice(serialized, RekeyRole::Loser))
                                 .await
                                 .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
-                            self.set_role(RekeyRole::Loser);
                             log::debug!(
                                 target: "citadel",
                                 "Client {} is {:?}. Sent BobToAlice",
@@ -331,8 +338,18 @@ where
                         }
                     }
                 }
-                Some(RatchetMessage::BobToAlice(transfer_data)) => {
-                    // Allow Leader if contention, or Idle if no contention
+                Some(RatchetMessage::BobToAlice(transfer_data, sender_role)) => {
+                    // If the sender became a Loser, they expect us to be Leader
+                    if sender_role == RekeyRole::Loser && self.role() != RekeyRole::Leader {
+                        log::debug!(
+                            target: "citadel",
+                            "Client {} transitioning to Leader as peer became Loser before we were able to transition",
+                            self.cid
+                        );
+                        self.set_role(RekeyRole::Leader);
+                    }
+
+                    // Now verify we're in a valid state to process the message
                     if self.role() == RekeyRole::Loser {
                         return Err(CryptError::RekeyUpdateError(format!(
                             "Unexpected BobToAlice message since our role is not Leader, but {:?}",
@@ -433,6 +450,7 @@ where
                         .send(RatchetMessage::LeaderCanFinish)
                         .await
                         .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                    break;
                 }
                 Some(RatchetMessage::LeaderCanFinish) => {
                     // Allow Leader if contention, or Idle if no contention
@@ -442,7 +460,7 @@ where
                             self.role()
                         )));
                     }
-                    log::debug!(target: "citadel", "Client {} received LeaderCanFinish 00", self.cid);
+                    log::debug!(target: "citadel", "Client {} received LeaderCanFinish", self.cid);
 
                     {
                         let mut container = self.container.write();
@@ -450,8 +468,8 @@ where
                         let _ = container.maybe_unlock(false);
                     }
 
-                    log::debug!("cid {} received LeaderCanFinish", self.cid);
                     completed_as_leader = true;
+                    break;
                 }
 
                 Some(RatchetMessage::LoserCanFinish) => {
@@ -478,6 +496,7 @@ where
                         .send(RatchetMessage::LeaderCanFinish)
                         .await
                         .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                    break;
                 }
 
                 None => {
@@ -567,7 +586,9 @@ mod racy {
             if let Some(delay) = delay {
                 tokio::time::sleep(delay).await;
             }
-            container.trigger_rekey().await
+            let res = container.trigger_rekey().await;
+            log::debug!(target: "citadel", "*** [FINISHED] Client {} rekey result: {res:?}", container.cid);
+            res
         };
 
         // Randomly assign a delay to Alice or Bob, if applicable
