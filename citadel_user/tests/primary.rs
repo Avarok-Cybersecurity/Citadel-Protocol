@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use citadel_crypt::prelude::ConstructorOpts;
-    use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::ratchets::stacked::stacked_ratchet::constructor::StackedRatchetConstructor;
+    use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
     use citadel_types::crypto::KemAlgorithm;
     use citadel_user::account_manager::AccountManager;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
@@ -11,6 +11,7 @@ mod tests {
     use futures::Future;
     use std::str::FromStr;
 
+    use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_io::tokio;
     use citadel_types::crypto::EncryptionAlgorithm;
     use citadel_types::crypto::SecBuffer;
@@ -1447,11 +1448,9 @@ mod tests {
             Some(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256),
             Default::default(),
         );
-        let mut alice =
-            StackedRatchetConstructor::new_alice_constructor(opts.clone(), cid, version).unwrap();
-        let mut bob = StackedRatchetConstructor::new_bob_constructor::<Vec<u8>>(
+        let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), cid, version).unwrap();
+        let mut bob = StackedRatchetConstructor::new_bob::<Vec<u8>>(
             cid,
-            version,
             opts,
             alice.stage0_alice().unwrap(),
             &[],

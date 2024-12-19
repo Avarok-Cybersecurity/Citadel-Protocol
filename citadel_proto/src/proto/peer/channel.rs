@@ -68,7 +68,7 @@ use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::SessionRequest;
 use crate::proto::state_container::VirtualConnectionType;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;

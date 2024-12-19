@@ -36,7 +36,7 @@ use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 

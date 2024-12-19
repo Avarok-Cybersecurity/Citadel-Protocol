@@ -67,7 +67,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet> {
 /// Default node builder type
 pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet>;
 
-pub type LightweightNodeBuilder = NodeBuilder<ThinRatchet>;
+pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet>;
 
 impl<R: Ratchet> Default for NodeBuilder<R> {
     fn default() -> Self {

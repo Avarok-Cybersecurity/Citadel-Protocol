@@ -37,7 +37,7 @@ use crate::proto::packet::HdpHeader;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 /// For the custom BytesCodec that doesn't overflow
 pub(crate) mod codec;

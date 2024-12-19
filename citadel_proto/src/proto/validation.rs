@@ -31,7 +31,7 @@
 //! - [`crypto`]: Cryptographic operations
 //!
 pub(crate) mod do_connect {
-    use citadel_crypt::stacked_ratchet::Ratchet;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_user::client_account::ClientNetworkAccount;
 
     use crate::error::NetworkError;
@@ -73,7 +73,7 @@ pub(crate) mod group {
     use crate::proto::packet_crafter::SecureProtocolPacket;
     use crate::proto::state_container::VirtualTargetType;
     use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, KemTransferStatus};
-    use citadel_crypt::stacked_ratchet::Ratchet;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::SecBuffer;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::proto::ObjectId;
@@ -175,7 +175,7 @@ pub(crate) mod do_register {
     use crate::proto::packet_crafter::do_register::{DoRegisterStage0, DoRegisterStage2Packet};
     use bytes::BytesMut;
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-    use citadel_crypt::stacked_ratchet::Ratchet;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_user::prelude::ConnectionInfo;
     use citadel_user::serialization::SyncIO;
 
@@ -233,7 +233,7 @@ pub(crate) mod do_stacked_ratchet_update {
         Stage1UpdatePacket, TruncateAckPacket, TruncatePacket,
     };
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-    use citadel_crypt::stacked_ratchet::Ratchet;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_user::serialization::SyncIO;
 
     pub(crate) fn validate_stage0<R: Ratchet>(
@@ -269,7 +269,7 @@ pub(crate) mod pre_connect {
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use crate::proto::session_manager::CitadelSessionManager;
-    use citadel_crypt::stacked_ratchet::Ratchet;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_types::proto::ConnectMode;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;
@@ -480,7 +480,7 @@ pub(crate) mod aead {
     use zerocopy::Ref;
 
     use crate::proto::packet::HdpHeader;
-    use citadel_crypt::stacked_ratchet::Ratchet;
+    use citadel_crypt::ratchets::Ratchet;
 
     pub(crate) type AeadValidationResult<'a, R> = (Ref<&'a [u8], HdpHeader>, Bytes, R);
 

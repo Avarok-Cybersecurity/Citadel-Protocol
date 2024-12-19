@@ -49,7 +49,7 @@
 //! - Thread-safe operations for concurrent access
 //!
 //! ## Related Components
-//! - [`StackedRatchet`](crate::stacked_ratchet::StackedRatchet): Core ratchet implementation
+//! - [`StackedRatchet`](crate::ratchets::stacked::stacked_ratchet::StackedRatchet): Core ratchet implementation
 //! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Entropy source for ratchets
 //! - [`CryptError`](crate::misc::CryptError): Error handling for cryptographic operations
 //! - [`ClientNetworkAccount`]: High-level account management
@@ -59,7 +59,8 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 
 use crate::misc::CryptError;
-use crate::stacked_ratchet::{Ratchet, StackedRatchet};
+use crate::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use crate::ratchets::Ratchet;
 use std::ops::RangeInclusive;
 
 /// The maximum number of ratchets to store in memory. Note that, most of the time, the true number in memory
@@ -178,7 +179,7 @@ impl<R: Ratchet> Toolset<R> {
         self.most_recent_stacked_ratchet_version = cur_version;
 
         let prev_version = self.most_recent_stacked_ratchet_version.wrapping_sub(1);
-        log::trace!(target: "citadel", "[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_RATCHETS_IN_MEMORY, prev_version, cur_version, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_stacked_ratchet_version(), self.map.len());
+        log::trace!(target: "citadel", "[{}] Upgraded {} to {} for cid={}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_RATCHETS_IN_MEMORY, prev_version, cur_version, self.cid, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_stacked_ratchet_version(), self.map.len());
         Some(update_status)
     }
 
@@ -225,7 +226,7 @@ impl<R: Ratchet> Toolset<R> {
             self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;
             self.oldest_stacked_ratchet_version =
                 self.oldest_stacked_ratchet_version.wrapping_add(1);
-            log::trace!(target: "citadel", "[Toolset] Deregistered version {}. New oldest: {} | LEN: {}", version, self.oldest_stacked_ratchet_version, self.len());
+            log::trace!(target: "citadel", "[Toolset] Deregistered version {} for cid={}. New oldest: {} | LEN: {}", version, self.cid, self.oldest_stacked_ratchet_version, self.len());
             Ok(())
         }
     }

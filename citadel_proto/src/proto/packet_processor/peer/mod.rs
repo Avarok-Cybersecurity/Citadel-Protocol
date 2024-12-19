@@ -29,7 +29,7 @@
 use crate::error::NetworkError;
 use crate::prelude::{ConnectFail, NodeResult, Ticket};
 use crate::proto::session::CitadelSession;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 pub mod group_broadcast;
 pub mod peer_cmd_packet;

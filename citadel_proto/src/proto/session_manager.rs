@@ -42,7 +42,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};

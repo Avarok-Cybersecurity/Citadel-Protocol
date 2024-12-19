@@ -59,18 +59,16 @@ pub mod argon;
 pub mod endpoint_crypto_container;
 /// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
 pub mod entropy_bank;
-/// Contains the cryptographic primitives for handling FCM interactions on the network
-pub mod fcm;
 /// Error type
 pub mod misc;
 /// For endowing packets with coordinates
 pub mod packet_vector;
+/// Contains the cryptographic primitives for handling FCM interactions on the network
+pub mod ratchets;
 /// Contains the subroutines for network-related functionality
 pub mod scramble;
 /// For secure byte handling
 pub mod secure_buffer;
-/// This is a container for holding the entropy_bank and PQC, and is intended to replace the separate use of the entropy_bank/PQC
-pub mod stacked_ratchet;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod streaming_crypt_scrambler;
 

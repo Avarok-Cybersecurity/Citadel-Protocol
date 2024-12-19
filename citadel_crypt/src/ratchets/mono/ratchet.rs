@@ -14,7 +14,7 @@
 //!
 //! ## Usage Example
 //! ```rust
-//! use citadel_crypt::fcm::fcm_ratchet::{ThinRatchet, ThinRatchetConstructor};
+//! use citadel_crypt::ratchets::fcm_ratchet::{ThinRatchet, ThinRatchetConstructor};
 //! use citadel_crypt::stacked_ratchet::Ratchet;
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 //! use citadel_types::crypto::SecurityLevel;
@@ -50,14 +50,14 @@
 //! - [`FcmKeys`](super::keys::FcmKeys): FCM credential management
 //! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Entropy source
 //! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): PQ crypto operations
-//! - [`Ratchet`](crate::stacked_ratchet::Ratchet): Base ratchet trait
+//! - [`Ratchet`](crate::ratchets::Ratchet): Base ratchet trait
 
 use crate::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
 };
 use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;
-use crate::stacked_ratchet::Ratchet;
+use crate::ratchets::Ratchet;
 use arrayvec::ArrayVec;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
@@ -70,33 +70,19 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
-/// A compact ratchet meant for thin protocol messages
-pub struct ThinRatchet {
-    inner: Arc<ThinRatchetInner>,
-}
-
-impl ThinRatchet {
-    /// decrypts using a custom nonce configuration
-    pub fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
-        entropy_bank.decrypt(pqc, contents)
-    }
-
-    /// Encrypts the data into a Vec<u8>
-    pub fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
-        let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
-        entropy_bank.encrypt(pqc, contents)
-    }
+/// A compact ratchet meant for protocols that require smaller payloads
+pub struct MonoRatchet {
+    inner: Arc<MonoRatchetInner>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ThinRatchetInner {
+pub struct MonoRatchetInner {
     entropy_bank: EntropyBank,
     pqc: PostQuantumContainer,
 }
 
-impl Ratchet for ThinRatchet {
-    type Constructor = ThinRatchetConstructor;
+impl Ratchet for MonoRatchet {
+    type Constructor = MonoRatchetConstructor;
 
     fn get_default_security_level(&self) -> SecurityLevel {
         SecurityLevel::Standard
@@ -135,7 +121,7 @@ impl Ratchet for ThinRatchet {
 
 /// Used for constructing the ratchet
 #[derive(Serialize, Deserialize)]
-pub struct ThinRatchetConstructor {
+pub struct MonoRatchetConstructor {
     params: CryptoParameters,
     pqc: PostQuantumContainer,
     entropy_bank: Option<EntropyBank>,
@@ -144,7 +130,7 @@ pub struct ThinRatchetConstructor {
     version: u32,
 }
 
-impl Debug for ThinRatchetConstructor {
+impl Debug for MonoRatchetConstructor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ThinRatchetConstructor")
             .field("params", &self.params)
@@ -154,12 +140,12 @@ impl Debug for ThinRatchetConstructor {
     }
 }
 
-impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
-    type AliceToBobWireTransfer = FcmAliceToBobTransfer;
-    type BobToAliceWireTransfer = FcmBobToAliceTransfer;
+impl EndpointRatchetConstructor<MonoRatchet> for MonoRatchetConstructor {
+    type AliceToBobWireTransfer = MonoAliceToBobTransfer;
+    type BobToAliceWireTransfer = MonoBobToAliceTransfer;
 
     fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
-        ThinRatchetConstructor::new_alice_constructor(cid, new_version, opts.into_iter().next()?)
+        MonoRatchetConstructor::new_alice_constructor(cid, new_version, opts.into_iter().next()?)
     }
 
     fn new_bob<T: AsRef<[u8]>>(
@@ -168,7 +154,7 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         transfer: Self::AliceToBobWireTransfer,
         psks: &[T],
     ) -> Option<Self> {
-        ThinRatchetConstructor::new_bob(opts.into_iter().next()?, transfer, psks)
+        MonoRatchetConstructor::new_bob(opts.into_iter().next()?, transfer, psks)
     }
 
     fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer> {
@@ -191,17 +177,17 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
         self.update_version(version)
     }
 
-    fn finish_with_custom_cid(self, cid: u64) -> Option<ThinRatchet> {
+    fn finish_with_custom_cid(self, cid: u64) -> Option<MonoRatchet> {
         self.finish_with_custom_cid(cid)
     }
 
-    fn finish(self) -> Option<ThinRatchet> {
+    fn finish(self) -> Option<MonoRatchet> {
         self.finish()
     }
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct FcmAliceToBobTransfer {
+pub struct MonoAliceToBobTransfer {
     transfer_params: AliceToBobTransferParameters,
     pub params: CryptoParameters,
     nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
@@ -211,31 +197,31 @@ pub struct FcmAliceToBobTransfer {
     pub version: u32,
 }
 
-impl AssociatedSecurityLevel for FcmAliceToBobTransfer {
+impl AssociatedSecurityLevel for MonoAliceToBobTransfer {
     fn security_level(&self) -> SecurityLevel {
         SecurityLevel::Standard
     }
 }
 
-impl AssociatedCryptoParams for FcmAliceToBobTransfer {
+impl AssociatedCryptoParams for MonoAliceToBobTransfer {
     fn crypto_params(&self) -> CryptoParameters {
         self.params
     }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct FcmBobToAliceTransfer {
+pub struct MonoBobToAliceTransfer {
     params_tx: BobToAliceTransferParameters,
     encrypted_entropy_bank_bytes: Vec<u8>,
 }
 
-impl AssociatedSecurityLevel for FcmBobToAliceTransfer {
+impl AssociatedSecurityLevel for MonoBobToAliceTransfer {
     fn security_level(&self) -> SecurityLevel {
         SecurityLevel::Standard
     }
 }
 
-impl ThinRatchetConstructor {
+impl MonoRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
     pub fn new_alice_constructor(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
         let params = opts.cryptography.unwrap_or_default();
@@ -253,7 +239,7 @@ impl ThinRatchetConstructor {
 
     pub fn new_bob<T: AsRef<[u8]>>(
         opts: ConstructorOpts,
-        transfer: FcmAliceToBobTransfer,
+        transfer: MonoAliceToBobTransfer,
         psks: &[T],
     ) -> Option<Self> {
         let params = transfer.params;
@@ -271,9 +257,9 @@ impl ThinRatchetConstructor {
         })
     }
 
-    pub fn stage0_alice(&self) -> Option<FcmAliceToBobTransfer> {
+    pub fn stage0_alice(&self) -> Option<MonoAliceToBobTransfer> {
         let pk = self.pqc.generate_alice_to_bob_transfer().ok()?;
-        Some(FcmAliceToBobTransfer {
+        Some(MonoAliceToBobTransfer {
             params: self.params,
             transfer_params: pk,
             nonce: self.nonce.clone(),
@@ -282,8 +268,8 @@ impl ThinRatchetConstructor {
         })
     }
 
-    pub fn stage0_bob(&mut self) -> Option<FcmBobToAliceTransfer> {
-        Some(FcmBobToAliceTransfer {
+    pub fn stage0_bob(&mut self) -> Option<MonoBobToAliceTransfer> {
+        Some(MonoBobToAliceTransfer {
             params_tx: self.pqc.generate_bob_to_alice_transfer().ok()?,
             encrypted_entropy_bank_bytes: self
                 .pqc
@@ -297,7 +283,7 @@ impl ThinRatchetConstructor {
 
     pub fn stage1_alice<T: AsRef<[u8]>>(
         &mut self,
-        transfer: FcmBobToAliceTransfer,
+        transfer: MonoBobToAliceTransfer,
         psks: &[T],
     ) -> Result<(), CryptError> {
         self.pqc
@@ -318,25 +304,25 @@ impl ThinRatchetConstructor {
         Some(())
     }
 
-    pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<ThinRatchet> {
+    pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<MonoRatchet> {
         self.cid = cid;
         self.entropy_bank.as_mut()?.cid = cid;
         self.finish()
     }
 
-    pub fn finish(self) -> Option<ThinRatchet> {
-        ThinRatchet::try_from(self).ok()
+    pub fn finish(self) -> Option<MonoRatchet> {
+        MonoRatchet::try_from(self).ok()
     }
 }
 
-impl TryFrom<ThinRatchetConstructor> for ThinRatchet {
+impl TryFrom<MonoRatchetConstructor> for MonoRatchet {
     type Error = ();
 
-    fn try_from(value: ThinRatchetConstructor) -> Result<Self, Self::Error> {
+    fn try_from(value: MonoRatchetConstructor) -> Result<Self, Self::Error> {
         let entropy_bank = value.entropy_bank.ok_or(())?;
         let pqc = value.pqc;
-        let inner = ThinRatchetInner { entropy_bank, pqc };
-        Ok(ThinRatchet {
+        let inner = MonoRatchetInner { entropy_bank, pqc };
+        Ok(MonoRatchet {
             inner: Arc::new(inner),
         })
     }

@@ -56,7 +56,7 @@ use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::time::error::Error;
 use citadel_io::tokio::time::Duration;
 use citadel_io::tokio_util::time::{delay_queue, delay_queue::DelayQueue};

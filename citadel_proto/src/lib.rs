@@ -503,9 +503,10 @@ pub mod prelude {
     pub use citadel_crypt::argon::argon_container::ArgonDefaultServerSettings;
     #[cfg(not(coverage))]
     pub use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
-    pub use citadel_crypt::fcm::keys::FcmKeys;
-    pub use citadel_crypt::fcm::ratchet::ThinRatchet;
-    pub use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+    pub use citadel_crypt::ratchets::mono::keys::FcmKeys;
+    pub use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
+    pub use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+    pub use citadel_crypt::ratchets::Ratchet;
     pub use citadel_types::crypto::AlgorithmsExt;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;

@@ -109,7 +109,7 @@ pub enum NodeRequest {
     PeerCommand(PeerCommand),
     /// For submitting a de-register request
     DeregisterFromHypernode(DeregisterFromHypernode),
-    /// Implicated CID, creds, connect mode, fcm keys, TCP/TLS only, keep alive timeout, security settings
+    /// Implicated CID, creds, connect mode, ratchets keys, TCP/TLS only, keep alive timeout, security settings
     ConnectToHypernode(ConnectToHypernode),
     /// Updates the entropy_bank for the given CID
     ReKey(ReKey),

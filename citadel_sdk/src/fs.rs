@@ -44,8 +44,9 @@
 //! - [`NetworkError`]: Error handling
 //!
 
-use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, Ratchet, TargetLockedRemote};
+use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, TargetLockedRemote};
 
+use citadel_crypt::ratchets::Ratchet;
 use citadel_proto::prelude::NetworkError;
 use citadel_types::crypto::SecurityLevel;
 use std::path::PathBuf;

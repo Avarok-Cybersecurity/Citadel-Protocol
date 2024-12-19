@@ -10,8 +10,9 @@ mod tests {
     use citadel_crypt::entropy_bank::EntropyBank;
     #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::packet_vector::PacketVector;
+    use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
-    use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
     #[cfg(not(target_family = "wasm"))]
     use citadel_io::tokio;
@@ -153,8 +154,8 @@ mod tests {
     #[test]
     fn onion_packets() {
         onion_packet::<StackedRatchet>();
-        #[cfg(feature = "fcm")]
-            onion_packet::<citadel_crypt::fcm::fcm_ratchet::FcmRatchet>();
+        #[cfg(feature = "ratchets")]
+            onion_packet::<citadel_crypt::ratchets::fcm_ratchet::FcmRatchet>();
     }
 
     fn onion_packet<R: Ratchet>() {
@@ -223,17 +224,15 @@ mod tests {
         citadel_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::Extreme.value() {
-                let _ = stacked_ratchet::<StackedRatchet, _>(
+                let _ = gen_ratchet::<StackedRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
-                    false,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = stacked_ratchet::<StackedRatchet, _>(
+                let _ = gen_ratchet::<StackedRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
-                    false,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
@@ -242,21 +241,40 @@ mod tests {
     }
 
     #[test]
-    fn stacked_ratchets_fcm() {
+    fn mono_ratchets() {
         citadel_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
-            for sec in 0..SecurityLevel::Extreme.value() {
-                let _ = stacked_ratchet::<citadel_crypt::fcm::ratchet::ThinRatchet, _>(
+            for _sec in 0..SecurityLevel::Extreme.value() {
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
-                    Some(sec.into()),
-                    true,
+                    None,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = stacked_ratchet::<citadel_crypt::fcm::ratchet::ThinRatchet, _>(
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
+                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
+                    None,
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "[CryptError] Out of bounds exception")]
+    fn mono_ratchets_fail() {
+        for x in 0u8..KEM_ALGORITHM_COUNT {
+            for sec in 1..SecurityLevel::Extreme.value() {
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
+                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    Some(sec.into()),
+                    &PRE_SHARED_KEYS,
+                    &PRE_SHARED_KEYS,
+                );
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
-                    true,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
@@ -268,10 +286,9 @@ mod tests {
     fn security_levels() {
         citadel_logging::setup_log();
         for sec in 0..SecurityLevel::Extreme.value() {
-            let ratchet = stacked_ratchet::<StackedRatchet, _>(
+            let ratchet = gen_ratchet::<StackedRatchet, _>(
                 KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
-                false,
                 &PRE_SHARED_KEYS,
                 &PRE_SHARED_KEYS,
             );
@@ -285,15 +302,14 @@ mod tests {
         }
     }
 
-    fn stacked_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(
+    fn gen_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(
         algorithm: Z,
         security_level: Option<SecurityLevel>,
-        is_fcm: bool,
         bob_psks: &[Vec<u8>],
         alice_psks: &[Vec<u8>],
     ) -> R {
         let algorithm = algorithm.into();
-        log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
+        log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
         let algorithm = Some(algorithm);
         let security_level = security_level.unwrap_or_default();
         let mut alice_stacked_ratchet = R::Constructor::new_alice(
@@ -377,7 +393,7 @@ mod tests {
     ) {
         toolset::<StackedRatchet>(enx, kem, sig);
         #[cfg(feature = "fcm")]
-        toolset::<citadel_crypt::fcm::ratchet::ThinRatchet>(enx, kem, sig);
+        toolset::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet>(enx, kem, sig);
     }
 
     fn toolset<R: Ratchet>(enx: EncryptionAlgorithm, kem: KemAlgorithm, sig: SigAlgorithm) {
@@ -527,7 +543,7 @@ mod tests {
     ) {
         toolset_wrapping_vers::<StackedRatchet>(enx, kem, sig);
         #[cfg(feature = "fcm")]
-        toolset_wrapping_vers::<citadel_crypt::fcm::ratchet::ThinRatchet>(enx, kem, sig);
+        toolset_wrapping_vers::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet>(enx, kem, sig);
     }
 
     fn toolset_wrapping_vers<R: Ratchet>(
@@ -631,7 +647,7 @@ mod tests {
             |decrypted, plaintext, _, _| debug_assert_eq!(decrypted, plaintext),
         );
         #[cfg(feature = "fcm")]
-        scrambler_transmission_spectrum::<citadel_crypt::fcm::ratchet::ThinRatchet>(
+        scrambler_transmission_spectrum::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet>(
             enx,
             kem,
             sig,
@@ -689,7 +705,7 @@ mod tests {
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
         #[cfg(feature = "fcm")]
-        scrambler_transmission_spectrum::<citadel_crypt::fcm::ratchet::ThinRatchet>(
+        scrambler_transmission_spectrum::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet>(
             enx, kem, sig, tx_type, verifier,
         );
     }

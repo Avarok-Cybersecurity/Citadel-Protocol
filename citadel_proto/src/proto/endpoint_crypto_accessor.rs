@@ -25,7 +25,7 @@ use crate::error::NetworkError;
 use crate::inner_arg::ExpectedInnerTargetMut;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 #[derive(Clone)]
 pub enum EndpointCryptoAccessor<R: Ratchet> {

@@ -32,7 +32,7 @@ use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
 use crate::proto::remote::NodeRemote;
 use auto_impl::auto_impl;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 /// The [`NetKernel`] is the thread-safe interface between the single-threaded OR multi-threaded async
 /// protocol and your network application

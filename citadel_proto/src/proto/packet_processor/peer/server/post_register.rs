@@ -35,7 +35,7 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::Username;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(

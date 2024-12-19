@@ -42,7 +42,7 @@ use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio;
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;

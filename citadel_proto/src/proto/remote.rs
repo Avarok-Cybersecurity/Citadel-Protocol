@@ -49,7 +49,7 @@ use crate::prelude::NodeRequest;
 use crate::proto::node::CitadelNodeRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
 use bytemuck::NoUninit;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::error::TrySendError;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;

@@ -65,7 +65,7 @@ use citadel_crypt::endpoint_crypto_container::{
     EndpointRatchetConstructor, KemTransferStatus, PeerSessionCrypto,
 };
 use citadel_crypt::misc::CryptError;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecrecyMode;
 use citadel_types::prelude::ObjectId;
 use citadel_types::proto::UdpMode;

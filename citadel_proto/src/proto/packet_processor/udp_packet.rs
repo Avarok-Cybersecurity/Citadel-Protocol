@@ -31,7 +31,7 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 /// This will handle an inbound group packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(

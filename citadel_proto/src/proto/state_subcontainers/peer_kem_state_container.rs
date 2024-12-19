@@ -52,7 +52,7 @@ if state.local_is_initiator {
 
 use crate::prelude::PreSharedKey;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::SessionSecuritySettings;
 
 pub struct PeerKemStateContainer<R: Ratchet> {

@@ -52,7 +52,7 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::state_container::StateContainerInner;
 use async_trait::async_trait;
 use bytes::Bytes;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use netbeam::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};

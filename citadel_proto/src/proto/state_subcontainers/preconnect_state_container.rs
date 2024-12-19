@@ -54,7 +54,7 @@ if let Some(ratchet) = state.generated_ratchet {
 use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::channel::UdpChannel;
 use crate::proto::remote::Ticket;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_wire::hypernode_type::NodeType;
 

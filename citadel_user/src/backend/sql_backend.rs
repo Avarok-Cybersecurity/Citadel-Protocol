@@ -37,8 +37,9 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
-use citadel_crypt::fcm::ratchet::ThinRatchet;
-use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
+use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
@@ -65,7 +66,7 @@ use std::time::Duration;
 ///
 /// * `R`: The ratchet type used for encryption
 /// * `Fcm`: The ratchet type used for FCM (Firebase Cloud Messaging)
-pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     url: String,
     conn: Option<AnyPool>,
     variant: SqlVariant,

@@ -102,9 +102,9 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
-use citadel_crypt::fcm::ratchet::ThinRatchet;
-use citadel_crypt::stacked_ratchet::Ratchet;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
+use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::prelude::PeerInfo;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
@@ -117,7 +117,7 @@ use std::pin::Pin;
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
 #[derive(Clone)]
-pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
     node_argon_settings: ArgonSettings,

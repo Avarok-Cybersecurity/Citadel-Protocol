@@ -68,7 +68,7 @@ use bytes::BytesMut;
 
 use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
 use citadel_crypt::prelude::ConstructorOpts;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_types::proto::UdpMode;
 use citadel_user::backend::BackendType;

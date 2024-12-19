@@ -53,7 +53,7 @@
 //! ## Related Components
 //! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Provides cryptographic entropy
 //! - [`PacketVector`](crate::packet_vector::PacketVector): Handles packet orientation
-//! - [`Ratchet`](crate::stacked_ratchet::Ratchet): Manages encryption keys
+//! - [`Ratchet`](crate::ratchets::Ratchet): Manages encryption keys
 //! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): Post-quantum cryptography
 
 use std::borrow::Cow;
@@ -70,7 +70,7 @@ use rand::Rng;
 use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
-use crate::stacked_ratchet::Ratchet;
+use crate::ratchets::Ratchet;
 pub use citadel_types::prelude::ObjectId;
 #[cfg(not(target_family = "wasm"))]
 use rayon::prelude::*;

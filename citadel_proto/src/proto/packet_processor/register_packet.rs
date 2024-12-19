@@ -59,7 +59,7 @@ use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
 };
 use citadel_crypt::prelude::ConstructorOpts;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_user::serialization::SyncIO;
 
 /// This will handle a registration packet

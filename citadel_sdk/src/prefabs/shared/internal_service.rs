@@ -38,8 +38,9 @@
 //! - [`SecBuffer`]: Secure data handling
 //!
 
-use crate::prelude::{ConnectionSuccess, Ratchet, TargetLockedRemote};
+use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
 use bytes::Bytes;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_proto::prelude::NetworkError;
 use citadel_proto::re_imports::{StreamReader, UnboundedReceiverStream};

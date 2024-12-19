@@ -1211,8 +1211,9 @@ pub mod results {
     use crate::prefabs::client::peer_connection::FileTransferHandleRx;
     use crate::prelude::{PeerChannel, UdpChannel};
     use crate::remote_ext::remote_specialization::PeerRemote;
+    use citadel_crypt::ratchets::Ratchet;
     use citadel_io::tokio::sync::oneshot::Receiver;
-    use citadel_proto::prelude::{NetworkError, Ratchet};
+    use citadel_proto::prelude::NetworkError;
     use std::fmt::Debug;
 
     pub struct PeerConnectSuccess<R: Ratchet> {

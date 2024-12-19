@@ -13,7 +13,7 @@
 //!
 //! ## Usage Example
 //! ```rust
-//! use citadel_crypt::fcm::keys::FcmKeys;
+//! use citadel_crypt::ratchets::keys::FcmKeys;
 //!
 //! // Create new FCM keys
 //! let keys = FcmKeys::new(

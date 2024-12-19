@@ -384,7 +384,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(240))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging_thin_ratchet() {
-        stress_test_p2p_messaging_with_ratchet::<ThinRatchet>(
+        stress_test_p2p_messaging_with_ratchet::<MonoRatchet>(
             500,
             SecrecyMode::Perfect,
             None,

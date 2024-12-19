@@ -52,7 +52,7 @@ use crate::directory_store::*;
 use crate::hypernode_account::CNAC_SERIALIZED_EXTENSION;
 use crate::misc::AccountError;
 use crate::prelude::ClientNetworkAccount;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use std::collections::HashMap;
 
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac in case improper shutdown)

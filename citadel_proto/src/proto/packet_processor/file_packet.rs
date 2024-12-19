@@ -58,7 +58,7 @@ use crate::proto::packet_processor::primary_group_packet::{
     get_orientation_safe_ratchet, get_resp_target_cid_from_header,
 };
 use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::TransferType;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(

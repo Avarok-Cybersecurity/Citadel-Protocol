@@ -36,7 +36,7 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::ConnectMode;
 use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
@@ -418,7 +418,7 @@ pub async fn process_connect<R: Ratchet>(
 
                                 if let ConnectMode::Fetch { .. } = connect_mode {
                                     log::trace!(target: "citadel", "[FETCH] complete ...");
-                                    // we can end the session now. The fcm packets have already been sent alongside the connect signal above
+                                    // we can end the session now. The ratchets packets have already been sent alongside the connect signal above
                                     return Ok(PrimaryProcessorResult::EndSession(
                                         "Fetch succeeded",
                                     ));

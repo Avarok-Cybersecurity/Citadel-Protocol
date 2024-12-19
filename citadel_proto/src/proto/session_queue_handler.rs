@@ -43,7 +43,7 @@ use std::task::{Context, Poll, Waker};
 
 use crate::inner_arg::ExpectedInnerTargetMut;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use std::sync::atomic::{AtomicUsize, Ordering};
 

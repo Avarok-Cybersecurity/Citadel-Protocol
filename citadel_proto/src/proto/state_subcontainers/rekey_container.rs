@@ -47,7 +47,7 @@ use crate::error::NetworkError;
 use crate::prelude::{NodeResult, ReKeyResult, ReKeyReturnType, Ticket, VirtualTargetType};
 use crate::proto::outbound_sender::UnboundedSender;
 use crate::proto::transfer_stats::TransferStats;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use std::collections::HashMap;
 
 pub struct RatchetUpdateState<R: Ratchet> {

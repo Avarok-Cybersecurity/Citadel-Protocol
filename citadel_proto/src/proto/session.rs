@@ -58,7 +58,7 @@ use bytes::{Bytes, BytesMut};
 use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::UdpMode;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;

@@ -39,7 +39,7 @@
 
 use crate::proto::packet_processor::peer::peer_cmd_packet;
 use bytes::BytesMut;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 use super::includes::*;
 use crate::error::NetworkError;

@@ -32,7 +32,7 @@ use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::AsyncRead;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;

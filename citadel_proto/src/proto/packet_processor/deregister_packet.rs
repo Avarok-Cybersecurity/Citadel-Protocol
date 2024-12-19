@@ -51,7 +51,7 @@ use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::DeRegistration;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(

@@ -68,7 +68,7 @@
 //! - [`crypt_splitter`](crate::scramble::crypt_splitter): Core encryption and packet splitting
 //! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Cryptographic entropy source
 //! - [`PacketVector`](crate::packet_vector::PacketVector): Packet orientation management
-//! - [`StackedRatchet`](crate::stacked_ratchet::StackedRatchet): Key management
+//! - [`StackedRatchet`](crate::ratchets::stacked::stacked_ratchet::StackedRatchet): Key management
 
 use bytes::BytesMut;
 use citadel_io::tokio;
@@ -84,7 +84,7 @@ use crate::packet_vector::PacketVector;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
 use crate::misc::CryptError;
-use crate::stacked_ratchet::Ratchet;
+use crate::ratchets::Ratchet;
 use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_io::Mutex;
 use citadel_types::crypto::SecurityLevel;

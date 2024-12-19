@@ -48,7 +48,7 @@
 //! # Related Components
 //!
 //! - [`crate::entropy_bank`] - Uses toggle for state transitions
-//! - [`crate::stacked_ratchet`] - Ratchet state management
+//! - [`crate::ratchets::stacked::stacked_ratchet`] - Ratchet state management
 //!
 
 use serde::{Deserialize, Serialize};

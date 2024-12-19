@@ -48,7 +48,7 @@
 //! ```
 
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use netbeam::sync::RelativeNodeType;

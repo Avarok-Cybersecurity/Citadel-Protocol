@@ -44,8 +44,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use citadel_crypt::fcm::ratchet::ThinRatchet;
-use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
+use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 
 #[cfg(all(feature = "redis", not(coverage)))]
 use crate::backend::redis_backend::RedisConnectionOptions;
@@ -359,7 +360,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
-pub struct PersistenceHandler<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct PersistenceHandler<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     inner: Arc<dyn BackendConnection<R, Fcm>>,
 }
 

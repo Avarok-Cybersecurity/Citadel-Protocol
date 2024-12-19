@@ -95,16 +95,16 @@ use crate::prelude::ConnectionInfo;
 use multimap::MultiMap;
 
 use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt::Formatter;
 
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::auth::DeclaredAuthenticationMode;
 use crate::serialization::SyncIO;
-use citadel_crypt::fcm::ratchet::ThinRatchet;
 use citadel_crypt::prelude::Toolset;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
+use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
@@ -123,7 +123,7 @@ pub const HYPERLAN_IDX: u64 = 0;
 ///use futures::{TryFutureExt, TryStreamExt};
 #[derive(Serialize, Deserialize)]
 /// Inner device
-pub struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     /// The client identification number
     pub cid: u64,
     /// While this NAC should be session-oriented, it may be replaced if [PINNED_IP_MODE] is disabled, meaning, a new IP
@@ -163,12 +163,12 @@ pub struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet =
 ///
 /// SAFETY: The `cid`, `adjacent_nid`, and `is_personal` is private. These values
 /// should NEVER be edited within this source file
-pub struct ClientNetworkAccount<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct ClientNetworkAccount<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     /// The inner thread-safe device
     inner: Arc<MetaInner<R, Fcm>>,
 }
 
-struct MetaInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+struct MetaInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     cid: u64,
     is_personal: bool,
     passwordless: bool,

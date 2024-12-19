@@ -58,7 +58,7 @@ use crate::proto::packet_processor::primary_group_packet::{
     attempt_kem_as_alice_finish, attempt_kem_as_bob, get_orientation_safe_ratchet,
     get_resp_target_cid_from_header, ToolsetUpdate,
 };
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecrecyMode;
 use std::ops::Deref;
 

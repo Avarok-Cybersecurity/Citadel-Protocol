@@ -76,7 +76,7 @@ use crate::account_manager::AccountManager;
 use crate::misc::AccountError;
 use crate::prelude::ClientNetworkAccount;
 use async_trait::async_trait;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
 

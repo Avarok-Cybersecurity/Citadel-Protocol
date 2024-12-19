@@ -50,7 +50,7 @@ let stage_state = RegisterState::from(stage_number);
 use citadel_io::tokio::time::Instant;
 
 use crate::proto::packet::packet_flags;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_register::*
 pub struct RegisterState<R: Ratchet> {

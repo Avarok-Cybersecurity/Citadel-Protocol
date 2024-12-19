@@ -40,7 +40,7 @@
 
 use std::pin::Pin;
 
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
 use futures::TryStreamExt;
