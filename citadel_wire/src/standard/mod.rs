@@ -16,7 +16,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::standard::{
+//! use citadel_wire::{
 //!     nat_identification::NatType,
 //!     socket_helpers,
 //!     upnp_handler::UPnPHandler
@@ -24,7 +24,7 @@
 //!
 //! async fn setup_network() -> Result<(), anyhow::Error> {
 //!     // Identify NAT type
-//!     let nat = NatType::identify(None)?;
+//!     let nat = NatType::identify(None).await?;
 //!     
 //!     // Setup UPnP if available
 //!     if let Ok(upnp) = UPnPHandler::new(None).await {
@@ -32,7 +32,7 @@
 //!     }
 //!     
 //!     // Create network sockets
-//!     let addr = "127.0.0.1:8080".parse()?;
+//!     let addr: std::net::SocketAddr = "127.0.0.1:8080".parse()?;
 //!     let socket = socket_helpers::get_reuse_udp_socket(addr)?;
 //!     
 //!     Ok(())

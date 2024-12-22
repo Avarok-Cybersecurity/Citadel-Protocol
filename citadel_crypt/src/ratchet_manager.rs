@@ -18,6 +18,8 @@
 //! ```rust,no_run
 //! use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 //! use citadel_crypt::ratchet_manager::{RatchetManager, RatchetMessage};
+//! use futures::{Sink, Stream};
+//! use citadel_crypt::ratchets::Ratchet;
 //!
 //! async fn example<S, I, R>(
 //!     sender: S,
@@ -26,13 +28,14 @@
 //!     psks: &[Vec<u8>]
 //! ) -> Result<(), Box<dyn std::error::Error>>
 //! where
-//!     S: Sink<RatchetMessage> + Unpin,
-//!     I: Stream<Item = RatchetMessage> + Unpin,
+//!     S: Sink<RatchetMessage> + Unpin + Send + 'static,
+//!     <S as futures::Sink<RatchetMessage>>::Error: std::fmt::Debug,
+//!     I: Stream<Item = RatchetMessage> + Unpin + Send + 'static,
 //!     R: Ratchet,
 //! {
 //!     let mut manager = RatchetManager::new(sender, receiver, container, psks);
 //!     // Trigger a ratchet update
-//!     manager.rekey().await?;
+//!     manager.trigger_rekey().await?;
 //!     Ok(())
 //! }
 //! ```
@@ -631,7 +634,7 @@ mod tests {
     use crate::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
     use crate::prelude::Toolset;
     use crate::ratchet_manager::{RatchetManager, RatchetMessage};
-    use crate::ratchets::stacked::stacked_ratchet::StackedRatchet;
+    use crate::ratchets::stacked::ratchet::StackedRatchet;
     use crate::ratchets::Ratchet;
     use citadel_io::tokio;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;

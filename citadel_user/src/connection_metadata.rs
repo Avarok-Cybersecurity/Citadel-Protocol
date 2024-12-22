@@ -63,6 +63,7 @@
 //! * `citadel_wire` - Network communication
 //!
 
+use crate::misc::AccountError;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
@@ -72,6 +73,16 @@ use std::net::SocketAddr;
 pub struct ConnectionInfo {
     /// The address of the adjacent node
     pub addr: SocketAddr,
+}
+
+impl ConnectionInfo {
+    pub fn new<T: std::net::ToSocketAddrs>(addr: T) -> Result<ConnectionInfo, AccountError> {
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| AccountError::msg("No socket address"))?;
+        Ok(ConnectionInfo { addr })
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

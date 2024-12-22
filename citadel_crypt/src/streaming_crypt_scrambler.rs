@@ -12,52 +12,6 @@
 //! - Custom header inscription for packets
 //! - Progress tracking and cancellation support
 //!
-//! ## Usage Example
-//! ```rust
-//! use citadel_crypt::{
-//!     streaming_crypt_scrambler::{scramble_encrypt_source, BytesSource},
-//!     SecurityLevel, ObjectId, TransferType
-//! };
-//! use tokio::sync::mpsc;
-//! use tokio::sync::oneshot;
-//!
-//! async fn encrypt_stream() {
-//!     // Create channels for group sending and stopping
-//!     let (group_sender, mut group_receiver) = mpsc::channel(10);
-//!     let (stop_sender, stop_receiver) = oneshot::channel();
-//!     
-//!     // Create a source (e.g., from bytes)
-//!     let data = vec![0u8; 1024];
-//!     let source = BytesSource::from(data);
-//!     
-//!     // Header inscriber function
-//!     let header_inscriber = |vector: &PacketVector,
-//!                            bank: &EntropyBank,
-//!                            obj_id: ObjectId,
-//!                            cid: u64,
-//!                            bytes: &mut BytesMut| {
-//!         // Inscribe header data
-//!     };
-//!     
-//!     // Start encryption
-//!     let result = scramble_encrypt_source(
-//!         source,
-//!         None, // Use default group size
-//!         ObjectId::new(),
-//!         group_sender,
-//!         stop_receiver,
-//!         SecurityLevel::Standard,
-//!         stacked_ratchet,
-//!         static_aux_ratchet,
-//!         header_size,
-//!         target_cid,
-//!         group_id,
-//!         TransferType::Standard,
-//!         header_inscriber,
-//!     ).await;
-//! }
-//! ```
-//!
 //! ## Important Notes
 //! - Maximum group size is limited to prevent excessive memory usage
 //! - Sources are consumed during streaming and cannot be reused
@@ -68,7 +22,7 @@
 //! - [`crypt_splitter`](crate::scramble::crypt_splitter): Core encryption and packet splitting
 //! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Cryptographic entropy source
 //! - [`PacketVector`](crate::packet_vector::PacketVector): Packet orientation management
-//! - [`StackedRatchet`](crate::ratchets::stacked::stacked_ratchet::StackedRatchet): Key management
+//! - [`StackedRatchet`](crate::ratchets::stacked::ratchet::StackedRatchet): Key management
 
 use bytes::BytesMut;
 use citadel_io::tokio;

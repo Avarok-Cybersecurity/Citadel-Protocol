@@ -16,14 +16,15 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::standard::nat_identification::NatType;
+//! use citadel_wire::nat_identification::NatType;
+//! use citadel_wire::nat_identification::TraversalTypeRequired;
 //!
-//! async fn identify_nat() -> Result<(), anyhow::Error> {
+//! async fn identify_nat() -> Result<(), citadel_wire::error::FirewallError> {
 //!     // Identify NAT type using default STUN servers
-//!     let nat = NatType::identify(None)?;
+//!     let nat = NatType::identify(None).await?;
 //!     
 //!     // Check if peer-to-peer connection is possible
-//!     if nat.traversal_type_required().is_direct() {
+//!     if nat.traversal_type_required() == TraversalTypeRequired::Direct {
 //!         println!("Direct connection possible");
 //!     }
 //!     

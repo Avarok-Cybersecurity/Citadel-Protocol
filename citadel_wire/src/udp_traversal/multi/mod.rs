@@ -18,7 +18,11 @@
 //!
 //! ```rust
 //! use citadel_wire::udp_traversal::multi::DualStackUdpHolePuncher;
+//! use citadel_wire::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
+//! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
+//! use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 //! use netbeam::sync::RelativeNodeType;
+//! use netbeam::sync::network_endpoint::NetworkEndpoint;
 //!
 //! async fn establish_connection(
 //!     node_type: RelativeNodeType,
@@ -55,9 +59,9 @@
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
-use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use futures::future::select_ok;
@@ -78,7 +82,7 @@ use std::time::Duration;
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
 /// allows the inclusion of a "breadth" variable to allow opening multiple ports for traversing across multiple ports
-pub(crate) struct DualStackUdpHolePuncher {
+pub struct DualStackUdpHolePuncher {
     // the key is the local bind addr
     future:
         Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'static>>,

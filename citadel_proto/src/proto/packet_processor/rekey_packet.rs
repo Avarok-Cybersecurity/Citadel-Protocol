@@ -263,10 +263,11 @@ pub fn process_rekey<R: Ratchet>(
             // We update the internal latest version usable
             method.post_stage1_alice_or_bob();
 
-            let lock_set_by_alice = return_if_none!(method.unlock(false)).1;
+            let _lock_set_by_alice = return_if_none!(method.unlock(false));
 
             // if lock set by bob, do poll
-            let do_poll = lock_set_by_alice.map(|r| !r).unwrap_or(false);
+            //let do_poll = lock_set_by_alice.map(|r| !r).unwrap_or(false);
+            let do_poll = true;
 
             // If we didn't have to deregister, then our job is done. alice does not need to hear from Bob
             // But, if deregistration occurred, we need to alert alice that way she can unlock hers

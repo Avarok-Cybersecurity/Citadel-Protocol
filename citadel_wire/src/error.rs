@@ -51,12 +51,6 @@ pub enum FirewallError {
     LocalIPAddrFail,
 }
 
-impl FirewallError {
-    pub fn std(self) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::Other, self.to_string())
-    }
-}
-
 impl std::fmt::Display for FirewallError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -72,6 +66,8 @@ impl std::fmt::Display for FirewallError {
         )
     }
 }
+
+impl std::error::Error for FirewallError {}
 
 impl From<FirewallError> for std::io::Error {
     fn from(val: FirewallError) -> Self {

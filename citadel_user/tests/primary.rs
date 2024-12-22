@@ -1,15 +1,14 @@
 #[cfg(test)]
 mod tests {
     use citadel_crypt::prelude::ConstructorOpts;
-    use citadel_crypt::ratchets::stacked::stacked_ratchet::constructor::StackedRatchetConstructor;
-    use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::ratchets::stacked::constructor::StackedRatchetConstructor;
+    use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_types::crypto::KemAlgorithm;
     use citadel_user::account_manager::AccountManager;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::backend::{BackendType, PersistenceHandler};
     use citadel_user::client_account::ClientNetworkAccount;
     use futures::Future;
-    use std::str::FromStr;
 
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_io::tokio;
@@ -20,7 +19,6 @@ mod tests {
     use citadel_user::misc::{AccountError, CNACMetadata};
     use citadel_user::prelude::ConnectionInfo;
     use std::collections::HashMap;
-    use std::net::SocketAddr;
 
     #[derive(Clone)]
     struct TestContainer {
@@ -45,9 +43,7 @@ mod tests {
             password: &str,
             full_name: &str,
         ) -> (ClientNetworkAccount, ClientNetworkAccount) {
-            let conn_info = ConnectionInfo {
-                addr: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
-            };
+            let conn_info = ConnectionInfo::new("127.0.0.1:12345").unwrap();
             let cid = self
                 .server_acc_mgr
                 .get_persistence_handler()
@@ -95,9 +91,7 @@ mod tests {
             peer_backend: BackendType,
         ) -> (ClientNetworkAccount, TestContainer) {
             // we assume same server node
-            let conn_info = ConnectionInfo {
-                addr: SocketAddr::from_str("127.0.0.1:54321").unwrap(),
-            };
+            let conn_info = ConnectionInfo::new("127.0.0.1:54321").unwrap();
             let server_acc_mgr = self.server_acc_mgr.clone();
             let client_acc_mgr = acc_mgr(peer_backend).await;
 

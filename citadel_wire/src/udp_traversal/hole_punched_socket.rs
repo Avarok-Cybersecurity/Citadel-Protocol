@@ -5,7 +5,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+//! use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 //! use std::net::SocketAddr;
 //!
 //! fn example() {
@@ -36,7 +36,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::udp_traversal::targetted_udp_socket_addr::{
+//! use citadel_wire::udp_traversal::hole_punched_socket::{
 //!     TargettedSocketAddr, HolePunchedUdpSocket
 //! };
 //! use std::net::SocketAddr;
@@ -182,7 +182,7 @@ impl HolePunchedUdpSocket {
     }
     // After hole-punching, some packets may be sent that need to be flushed
     // this cleanses the stream
-    pub(crate) fn cleanse(&self) -> std::io::Result<()> {
+    pub fn cleanse(&self) -> std::io::Result<()> {
         let buf = &mut [0u8; 4096];
         loop {
             match self.socket.try_recv(buf) {

@@ -10,7 +10,7 @@ mod tests {
     use citadel_crypt::entropy_bank::EntropyBank;
     #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::packet_vector::PacketVector;
-    use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::ratchets::stacked::ratchet::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};

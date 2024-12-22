@@ -13,20 +13,22 @@
 //! - Support for local encryption/decryption
 //!
 //! ## Usage Example
-//! ```rust
-//! use citadel_crypt::ratchets::fcm_ratchet::{ThinRatchet, ThinRatchetConstructor};
-//! use citadel_crypt::stacked_ratchet::Ratchet;
+//! ```rust. no_run
+//! use crate::citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+//! use citadel_crypt::ratchets::mono::{MonoRatchet, MonoRatchetConstructor};
+//! use citadel_crypt::ratchets::Ratchet;
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 //! use citadel_types::crypto::SecurityLevel;
 //!
+//! # fn get_opts() -> Vec<ConstructorOpts> { todo!() }
 //! // Create a new ratchet for Alice
 //! let cid = 12345;
 //! let version = 0;
-//! let opts = ConstructorOpts::new_default();
-//! let constructor = ThinRatchetConstructor::new_alice(
+//! let opts = get_opts();
+//! let constructor = MonoRatchetConstructor::new_alice(
+//!     opts,
 //!     cid,
 //!     version,
-//!     opts,
 //! ).unwrap();
 //!
 //! // Build the ratchet

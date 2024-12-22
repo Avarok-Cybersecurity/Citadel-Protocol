@@ -18,7 +18,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::standard::tls;
+//! use citadel_wire::tls;
 //!
 //! async fn setup_tls() -> Result<(), anyhow::Error> {
 //!     // Create self-signed server config
@@ -28,7 +28,7 @@
 //!     let certs = tls::load_native_certs_async().await?;
 //!     
 //!     // Create secure client config
-//!     let client_config = tls::create_client_config(&[&certs])?;
+//!     let client_config = tls::create_client_config(&certs).await?;
 //!     
 //!     Ok(())
 //! }
@@ -44,10 +44,10 @@
 //!
 //! # Related Components
 //!
-//! - [`crate::standard::quic`] - QUIC protocol support
+//! - [`crate::quic`] - QUIC protocol support
 //! - [`crate::exports::Certificate`] - Certificate types
 //! - [`crate::exports::PrivateKey`] - Key management
-//! - [`crate::standard::socket_helpers`] - Socket utilities
+//! - [`crate::socket_helpers`] - Socket utilities
 //!
 
 use crate::exports::{Certificate, PrivateKey};
@@ -111,7 +111,9 @@ pub fn cert_vec_to_secure_client_config(
     Ok(crate::quic::secure::client_config(root_store))
 }
 
-pub async fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
+pub async fn create_client_config<T: AsRef<[u8]>>(
+    allowed_certs: &[T],
+) -> Result<TlsConnector, anyhow::Error> {
     Ok(client_config_to_tls_connector(Arc::new(
         create_rustls_client_config(allowed_certs)?,
     )))

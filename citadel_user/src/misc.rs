@@ -65,7 +65,6 @@ impl AccountError {
     pub(crate) fn msg<T: Into<String>>(msg: T) -> Self {
         Self::Generic(msg.into())
     }
-
     /// Consumes self and returns the underlying error message
     pub fn into_string(self) -> String {
         match self {
@@ -82,11 +81,19 @@ impl AccountError {
     }
 }
 
-impl<T: ToString> From<T> for AccountError {
-    fn from(err: T) -> Self {
-        AccountError::Generic(err.to_string())
+impl std::fmt::Display for AccountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
+
+impl From<std::io::Error> for AccountError {
+    fn from(e: std::io::Error) -> Self {
+        AccountError::IoError(format!("{e}"))
+    }
+}
+
+impl std::error::Error for AccountError {}
 
 /// For passing metadata from a cnac
 #[derive(Debug)]

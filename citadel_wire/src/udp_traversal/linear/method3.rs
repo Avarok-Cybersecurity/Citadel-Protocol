@@ -70,8 +70,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::FirewallError;
 use crate::socket_helpers::ensure_ipv6;
+use crate::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-use crate::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use crate::udp_traversal::HolePunchID;
 use citadel_io::Mutex;
 use netbeam::sync::RelativeNodeType;

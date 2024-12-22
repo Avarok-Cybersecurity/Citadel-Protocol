@@ -14,7 +14,7 @@
 //!
 //! ## Usage Example
 //! ```rust
-//! use citadel_crypt::argon::argon_container::{ArgonSettings, ClientArgonContainer, AsyncArgon};
+//! use citadel_crypt::argon::argon_container::{ServerArgonContainer, ArgonSettings, ClientArgonContainer, AsyncArgon};
 //! use citadel_types::crypto::SecBuffer;
 //!
 //! async fn hash_password() {

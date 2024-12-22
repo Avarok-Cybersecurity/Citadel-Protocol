@@ -25,11 +25,14 @@
 //!
 //! ```rust
 //! use citadel_user::prelude::*;
+//! use citadel_user::account_manager::AccountManager;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//! use citadel_user::backend::BackendType;
 //! use citadel_types::user::UserIdentifier;
 //!
 //! async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create account manager
-//!     let manager = AccountManager::new(
+//!     let manager = AccountManager::<StackedRatchet, StackedRatchet>::new(
 //!         BackendType::InMemory,
 //!         None,
 //!         None,

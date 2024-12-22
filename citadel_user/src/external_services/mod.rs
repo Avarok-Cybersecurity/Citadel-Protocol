@@ -16,6 +16,8 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
+//! #[cfg(feature = "google-services")]
+//! # fn test() {
 //! use citadel_user::external_services::{ServicesConfig, RtdbConfig};
 //!
 //! // Create service configuration
@@ -26,6 +28,7 @@
 //!
 //! // Initialize services handler
 //! let handler = config.into_services_handler()?;
+//! # }
 //! ```
 //!
 //! ## Important Notes

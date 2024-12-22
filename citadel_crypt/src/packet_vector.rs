@@ -18,8 +18,9 @@
 //! ```rust
 //! use citadel_crypt::packet_vector::{PacketVector, generate_packet_vector};
 //! use citadel_crypt::entropy_bank::EntropyBank;
+//! use citadel_crypt::misc::CryptError;
 //!
-//! fn coordinate_packets() -> Result<(), anyhow::Error> {
+//! fn coordinate_packets() -> Result<(), CryptError> {
 //!     // Create entropy bank for port scrambling
 //!     let bank = EntropyBank::new(1234, 1, Default::default())?;
 //!     

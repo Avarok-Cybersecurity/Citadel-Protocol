@@ -1,2 +1,3 @@
 pub mod keys;
-pub mod ratchet;
+pub(crate) mod ratchet;
+pub use ratchet::*;

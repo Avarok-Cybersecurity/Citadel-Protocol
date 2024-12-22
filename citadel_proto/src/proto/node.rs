@@ -145,9 +145,7 @@ impl<R: Ratchet> Node<R> {
             stun_servers.clone(),
         );
 
-        let nat_type = NatType::identify(stun_servers)
-            .await
-            .map_err(|err| err.std())?;
+        let nat_type = NatType::identify(stun_servers).await?;
 
         let inner = NodeInner {
             underlying_proto,

@@ -37,11 +37,11 @@
 //!
 //! // Create a new Bob instance using Alice's parameters
 //! let params = alice.generate_alice_to_bob_transfer().unwrap();
-//! let bob = PostQuantumContainer::new_bob(opts, params, &[]).unwrap();
+//! let bob = PostQuantumContainer::new_bob(opts, params, &[b"my-psk"]).unwrap();
 //!
 //! // Complete the key exchange
 //! let bob_params = bob.generate_bob_to_alice_transfer().unwrap();
-//! alice.alice_on_receive_ciphertext(bob_params, &[]).unwrap();
+//! alice.alice_on_receive_ciphertext(bob_params, &[b"my-psk"]).unwrap();
 //!
 //! // Now both parties can communicate securely
 //! ```

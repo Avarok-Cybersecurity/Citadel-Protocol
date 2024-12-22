@@ -64,7 +64,7 @@ use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::client_account::ClientNetworkAccount;
 use citadel_wire::hypernode_type::NodeType;
-use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use netbeam::time_tracker::TimeTracker;
 
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};

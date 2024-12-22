@@ -219,7 +219,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                 } => (
                                     *server_addr,
                                     None,
-                                    ProposedCredentials::passwordless(username.clone()),
+                                    ProposedCredentials::transient(username.clone()),
                                 ),
 
                                 AuthenticationRequest::Credentialed { id, password } => {

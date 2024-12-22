@@ -626,8 +626,7 @@ impl<R: Ratchet> ToolsetUpdate<'_, R> {
         constructor: R::Constructor,
         local_is_alice: bool,
     ) -> Result<KemTransferStatus<R>, CryptError> {
-        self.crypt
-            .update_sync_safe(constructor, local_is_alice, self.local_cid)
+        self.crypt.update_sync_safe(constructor, local_is_alice)
     }
 
     /// This should only be called after an update
@@ -642,11 +641,8 @@ impl<R: Ratchet> ToolsetUpdate<'_, R> {
     }
 
     /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
-    pub(crate) fn unlock(&mut self, requires_locked_by_alice: bool) -> Option<(R, Option<bool>)> {
-        let lock_src = self.crypt.lock_set_by_alice;
-        self.crypt
-            .maybe_unlock(requires_locked_by_alice)
-            .map(|r| (r.clone(), lock_src))
+    pub(crate) fn unlock(&mut self, _requires_locked_by_alice: bool) -> Option<R> {
+        self.crypt.maybe_unlock().map(|r| r.clone())
     }
 
     pub(crate) fn get_local_cid(&self) -> u64 {
@@ -747,7 +743,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet>(
                                     .ok_or(())?,
                             ))
                         } else {
-                            Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
+                            Ok(Some(toolset_update_method.unlock(true).ok_or(())?))
                         }
                     }
                 }
@@ -758,8 +754,8 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet>(
         }
 
         KemTransferStatus::Contended => match secrecy_mode {
-            SecrecyMode::Perfect => Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0)),
-            SecrecyMode::BestEffort => Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0)),
+            SecrecyMode::Perfect => Ok(Some(toolset_update_method.unlock(true).ok_or(())?)),
+            SecrecyMode::BestEffort => Ok(Some(toolset_update_method.unlock(true).ok_or(())?)),
         },
 
         KemTransferStatus::StatusNoTransfer(_status) => {

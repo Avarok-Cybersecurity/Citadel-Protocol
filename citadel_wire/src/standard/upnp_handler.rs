@@ -16,11 +16,11 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::standard::upnp_handler::UPnPHandler;
+//! use citadel_wire::upnp_handler::UPnPHandler;
 //! use igd::PortMappingProtocol;
 //! use std::time::Duration;
 //!
-//! async fn setup_port_forwarding() -> Result<(), anyhow::Error> {
+//! async fn setup_port_forwarding() -> Result<(), citadel_wire::error::FirewallError> {
 //!     // Create UPnP handler with 5 second timeout
 //!     let upnp = UPnPHandler::new(Some(Duration::from_secs(5))).await?;
 //!     

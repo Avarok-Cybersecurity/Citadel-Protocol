@@ -19,30 +19,20 @@
 //! ```rust
 //! use citadel_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 //! use citadel_crypt::toolset::Toolset;
-//! use citadel_crypt::stacked_ratchet::StackedRatchet;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//! use citadel_crypt::misc::CryptError;
 //!
+//! # fn get_ratchet() -> StackedRatchet { todo!() }
 //! fn setup_session() -> Result<(), CryptError> {
+//!     // Create ratchet
+//!     let ratchet = get_ratchet();
+//!     let cid = 12345;
 //!     // Create toolset with default parameters
-//!     let toolset = Toolset::new_with_defaults();
-//!     
+//!     let toolset = Toolset::new(cid, ratchet);
+//!
 //!     // Initialize peer session (as initiator)
-//!     let mut session = PeerSessionCrypto::new(toolset, true);
-//!     
-//!     // Get constructor for next update
-//!     if let Some(constructor) = session.get_next_constructor(false) {
-//!         // Perform update
-//!         let status = session.update_sync_safe(
-//!             constructor,
-//!             true,  // is_alice
-//!             1234   // local_cid
-//!         )?;
-//!         
-//!         // Handle transfer status
-//!         if status.has_some() {
-//!             println!("Update requires transfer");
-//!         }
-//!     }
-//!     
+//!     let session = PeerSessionCrypto::new(toolset, true);
+//!     // Set to "false" for the other peer
 //!     Ok(())
 //! }
 //! ```
@@ -58,7 +48,7 @@
 //! # Related Components
 //!
 //! - [`crate::toolset::Toolset`] - Cryptographic toolset
-//! - [`crate::ratchets::stacked::stacked_ratchet::StackedRatchet`] - Ratchet implementation
+//! - [`crate::ratchets::stacked::ratchet::StackedRatchet`] - Ratchet implementation
 //! - [`crate::misc::CryptError`] - Error handling
 //!
 

@@ -44,8 +44,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
-use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 
 #[cfg(all(feature = "redis", not(coverage)))]

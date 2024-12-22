@@ -13,17 +13,18 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust, no_run
 //! use citadel_user::account_loader;
 //! use citadel_user::directory_store::DirectoryStore;
-//! use citadel_crypt::stacked_ratchet::DefaultRatchet;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
 //!
+//! # fn get_store() -> DirectoryStore { todo!() }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a directory store for account management
-//! let store = DirectoryStore::new("./accounts")?;
+//! let store = get_store();
 //!
 //! // Load all client network accounts
-//! let accounts = account_loader::load_cnac_files::<DefaultRatchet, DefaultRatchet>(&store)?;
+//! let accounts = account_loader::load_cnac_files::<StackedRatchet, StackedRatchet>(&store)?;
 //!
 //! // Process loaded accounts
 //! for (cid, account) in accounts {

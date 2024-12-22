@@ -12,38 +12,6 @@
 //! - Implements timeout mechanisms for both individual waves and entire groups
 //! - Handles packet reconstruction with missing packet detection
 //!
-//! ## Usage Example
-//! ```rust
-//! use citadel_crypt::scramble::crypt_splitter::{
-//!     GroupSenderDevice, GroupReceiver, GroupReceiverConfig,
-//!     SecurityLevel, TransferType
-//! };
-//!
-//! // Create sender configuration
-//! let cfg = GroupReceiverConfig::new_refresh(
-//!     group_id,           // Unique group identifier
-//!     object_id,         // Object being transferred
-//!     header_size,       // Size of packet headers
-//!     plaintext_length,  // Length of data to send
-//!     max_packet_size,   // Maximum size per packet
-//!     full_waves,        // Number of full waves
-//!     partial_waves,     // Number of partial waves
-//!     max_bytes_per_wave,// Maximum bytes per wave
-//!     last_wave_bytes,   // Bytes in last wave
-//!     packets_per_wave,  // Packets per wave
-//!     last_cipher_len,   // Last wave ciphertext length
-//!     &transfer_type,    // Transfer type
-//!     false,             // Empty transfer flag
-//! );
-//!
-//! // Create receiver
-//! let mut receiver = GroupReceiver::new(
-//!     cfg.clone(),
-//!     wave_timeout_ms,   // Wave timeout in milliseconds
-//!     group_timeout_ms,  // Group timeout in milliseconds
-//! );
-//! ```
-//!
 //! ## Important Notes
 //! - Maximum packet size is determined by the security level and encryption algorithm
 //! - Wave-based transmission allows for efficient packet organization and retransmission

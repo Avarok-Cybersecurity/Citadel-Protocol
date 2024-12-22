@@ -17,7 +17,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::standard::quic::{QuicServer, QuicClient};
+//! use citadel_wire::quic::{QuicServer, QuicClient};
 //! use citadel_io::tokio::net::UdpSocket;
 //!
 //! async fn setup_quic() -> Result<(), anyhow::Error> {

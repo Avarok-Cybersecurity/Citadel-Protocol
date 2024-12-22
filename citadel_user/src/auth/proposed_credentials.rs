@@ -93,8 +93,10 @@ impl ProposedCredentials {
     }
 
     /// Generates an empty skeleton for authless mode
-    pub const fn passwordless(username: String) -> Self {
-        Self::Disabled { username }
+    pub fn transient<T: Into<String>>(username: T) -> Self {
+        Self::Disabled {
+            username: username.into(),
+        }
     }
 
     /// Generates the proper registration credentials. Trims the username, password, and full name, removing any whitespace from the ends. Should only be called client-side

@@ -38,7 +38,7 @@ use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
-use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::stacked::ratchet::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};

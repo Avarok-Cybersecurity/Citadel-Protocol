@@ -103,8 +103,8 @@ use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::auth::DeclaredAuthenticationMode;
 use crate::serialization::SyncIO;
 use citadel_crypt::prelude::Toolset;
-use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
-use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
@@ -299,7 +299,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                     username.clone(),
                 ),
                 DeclaredAuthenticationMode::Passwordless { username, .. } => {
-                    return Ok(ProposedCredentials::passwordless(username.clone()))
+                    return Ok(ProposedCredentials::transient(username.clone()))
                 }
             }
         };

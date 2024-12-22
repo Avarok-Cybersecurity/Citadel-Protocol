@@ -30,7 +30,7 @@
 //!     }
 //!     
 //!     // Check current state
-//!     let state = toggle.get();
+//!     let state = toggle.state();
 //!     
 //!     // Reset to off
 //!     toggle.toggle_off();
@@ -48,7 +48,7 @@
 //! # Related Components
 //!
 //! - [`crate::entropy_bank`] - Uses toggle for state transitions
-//! - [`crate::ratchets::stacked::stacked_ratchet`] - Ratchet state management
+//! - [`crate::ratchets::stacked::ratchet`] - Ratchet state management
 //!
 
 use serde::{Deserialize, Serialize};

@@ -17,8 +17,9 @@
 //!
 //! ```rust
 //! use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
+//! use citadel_crypt::misc::CryptError;
 //!
-//! async fn configure_argon() -> Result<(), CryptError<String>> {
+//! async fn configure_argon() -> Result<(), CryptError> {
 //!     // Configure Argon2 to take at least 500ms
 //!     let optimal_params = calculate_optimal_argon_params(
 //!         500,                    // minimum milliseconds

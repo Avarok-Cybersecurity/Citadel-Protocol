@@ -17,8 +17,10 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_crypt::stacked_ratchet::{StackedRatchet, constructor::StackedRatchetConstructor};
+//! use citadel_crypt::ratchets::stacked::{StackedRatchet, constructor::StackedRatchetConstructor};
+//! use crate::citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+//! use citadel_crypt::ratchets::Ratchet;
 //! use citadel_types::crypto::SecurityLevel;
 //!
 //! fn setup_ratchet() -> Option<StackedRatchet> {
@@ -30,7 +32,6 @@
 //!         opts,
 //!         1234,  // Client ID
 //!         1,     // Version
-//!         Some(SecurityLevel::Standard)
 //!     )?;
 //!     
 //!     // Generate Alice's initial ratchet
@@ -61,7 +62,7 @@
 
 use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;
-use crate::ratchets::stacked::stacked_ratchet::constructor::StackedRatchetConstructor;
+use crate::ratchets::stacked::ratchet::constructor::StackedRatchetConstructor;
 use crate::ratchets::Ratchet;
 use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
 use citadel_pqcrypto::PostQuantumContainer;
@@ -176,7 +177,7 @@ pub mod constructor {
     };
     use crate::entropy_bank::EntropyBank;
     use crate::prelude::CryptError;
-    use crate::ratchets::stacked::stacked_ratchet::StackedRatchet;
+    use crate::ratchets::stacked::ratchet::StackedRatchet;
     use arrayvec::ArrayVec;
     use citadel_pqcrypto::constructor_opts::{ConstructorOpts, ImpliedSecurityLevel};
     use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};

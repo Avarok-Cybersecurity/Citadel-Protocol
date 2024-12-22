@@ -152,7 +152,7 @@ jobs:
       - run: cargo clippy --tests --examples -- -D warnings
       - run: cargo fmt --check
       - run: RUSTDOCFLAGS="-D warnings" cargo make docs
-      - run: cargo test --package citadel_sdk --doc
+      - run: cargo test --doc
       #      - name: cargo build pq_kems
   #        run: cargo build --bin pq_kems_test
   #      # Run with valgrind

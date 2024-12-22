@@ -105,6 +105,8 @@ impl<T: AsRef<str>> Display for CryptError<T> {
     }
 }
 
+impl std::error::Error for CryptError {}
+
 /// Creates a port pair mapping at random
 pub fn create_port_mapping() -> Vec<(u16, u16)> {
     let mut input_ports = Vec::with_capacity(DRILL_RANGE);

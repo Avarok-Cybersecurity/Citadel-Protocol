@@ -1980,7 +1980,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     let latest_stacked_ratchet =
                         crypt_container.get_ratchet(None).cloned().unwrap();
                     latest_stacked_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_stacked_ratchet.get_default_security_level())))?;
-                    let constructor = crypt_container.get_next_constructor(called_from_poll);
+                    let constructor = crypt_container.get_next_constructor();
 
                     let result = match secrecy_mode {
                         SecrecyMode::BestEffort => {
@@ -2079,9 +2079,8 @@ impl<R: Ratchet> StateContainerInner<R> {
                                 .unwrap()
                                 .clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
-                            let constructor = endpoint_container
-                                .endpoint_crypto
-                                .get_next_constructor(called_from_poll);
+                            let constructor =
+                                endpoint_container.endpoint_crypto.get_next_constructor();
 
                             match secrecy_mode {
                                 SecrecyMode::BestEffort => {
@@ -2147,7 +2146,6 @@ impl<R: Ratchet> StateContainerInner<R> {
                                         //assert!(!called_from_poll);
                                         // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent
                                         if called_from_poll {
-                                            log::error!(target: "citadel", "Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
                                             std::process::exit(1); // for dev purposes
                                         }
 
@@ -2267,7 +2265,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     .unwrap()
                     .peer_session_crypto;
 
-                match crypt_container.get_next_constructor(false) {
+                match crypt_container.get_next_constructor() {
                     Some(alice_constructor) => {
                         let ratchet = crypt_container.get_ratchet(None).unwrap();
                         let stage0_packet = packet_crafter::do_entropy_bank_update::craft_stage0(
@@ -2327,7 +2325,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     .as_mut()
                     .ok_or(MISSING)?;
                 let crypt = &mut endpoint_container.endpoint_crypto;
-                let alice_constructor = crypt.get_next_constructor(false);
+                let alice_constructor = crypt.get_next_constructor();
                 let latest_stacked_ratchet = crypt
                     .get_ratchet(None)
                     .cloned()

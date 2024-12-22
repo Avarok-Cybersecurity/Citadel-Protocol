@@ -37,7 +37,7 @@ use bytes::{Bytes, BytesMut};
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::tokio_util::udp::UdpFramed;
 use citadel_wire::exports::Connection;
-use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{Sink, Stream, StreamExt};
 use std::net::SocketAddr;

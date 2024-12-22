@@ -14,33 +14,6 @@
 //! - Post-quantum cryptography support
 //! - Transient counter management
 //!
-//! # Examples
-//!
-//! ```rust
-//! use citadel_crypt::entropy_bank::EntropyBank;
-//! use citadel_pqcrypto::PostQuantumContainer;
-//!
-//! fn protect_data() -> Result<(), CryptError<String>> {
-//!     // Create new entropy bank
-//!     let bank = EntropyBank::new(
-//!         1234,  // Client ID
-//!         1,     // Version
-//!         EncryptionAlgorithm::default()
-//!     )?;
-//!     
-//!     // Create quantum container
-//!     let container = PostQuantumContainer::new();
-//!     
-//!     // Encrypt data
-//!     let ciphertext = bank.encrypt(&container, b"secret data")?;
-//!     
-//!     // Decrypt data
-//!     let plaintext = bank.decrypt(&container, &ciphertext)?;
-//!     
-//!     Ok(())
-//! }
-//! ```
-//!
 //! # Important Notes
 //!
 //! - Nonce reuse is prevented by design

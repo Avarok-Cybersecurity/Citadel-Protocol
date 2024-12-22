@@ -14,34 +14,6 @@
 //! - Connection state tracking
 //! - Ping-based timing control
 //!
-//! # Examples
-//!
-//! ```rust
-//! use citadel_wire::udp_traversal::linear::{SingleUDPHolePuncher, NatTraversalMethod};
-//! use netbeam::sync::RelativeNodeType;
-//! use std::net::SocketAddr;
-//!
-//! async fn establish_server_connection(
-//!     socket: UdpSocket,
-//!     server_addrs: Vec<SocketAddr>,
-//!     config: HolePunchConfigContainer
-//! ) -> Result<HolePunchedUdpSocket, FirewallError> {
-//!     let mut puncher = SingleUDPHolePuncher::new(
-//!         RelativeNodeType::Client,
-//!         config,
-//!         socket,
-//!         server_addrs
-//!     )?;
-//!     
-//!     // Try UPnP first
-//!     if let Some(method) = puncher.get_next_method() {
-//!         puncher.try_method(method, kill_switch, post_kill_rebuild).await
-//!     } else {
-//!         Err(FirewallError::AllMethodsExhausted)
-//!     }
-//! }
-//! ```
-//!
 //! # Important Notes
 //!
 //! - Pre-process stage required
@@ -67,9 +39,9 @@ use either::Either;
 use igd::PortMappingProtocol;
 
 use crate::error::FirewallError;
+use crate::udp_traversal::hole_punched_socket::{HolePunchedUdpSocket, TargettedSocketAddr};
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::method3::Method3;
-use crate::udp_traversal::targetted_udp_socket_addr::{HolePunchedUdpSocket, TargettedSocketAddr};
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use crate::upnp_handler::UPnPHandler;
 use netbeam::sync::RelativeNodeType;

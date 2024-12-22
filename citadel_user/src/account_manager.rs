@@ -31,10 +31,14 @@
 //!
 //! ## Usage Example
 //!
-//! ```rust
+//! ```rust, no_run
 //! use citadel_user::prelude::*;
-//! use citadel_crypt::stacked_ratchet::StackedRatchet;
+//! use citadel_user::backend::BackendType;
+//! use citadel_user::account_manager::AccountManager;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//! use citadel_user::auth::proposed_credentials::ProposedCredentials;
 //!
+//! # fn get_ratchet() -> StackedRatchet { todo!() }
 //! async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Initialize account manager with in-memory backend
 //!     let manager = AccountManager::<StackedRatchet>::new(
@@ -45,28 +49,20 @@
 //!     ).await?;
 //!
 //!     // Register a new client account
-//!     let conn_info = ConnectionInfo::new(
-//!         SecurityLevel::Standard,
-//!         None,
-//!         None
-//!     );
+//!     let conn_info = ConnectionInfo::new("127.0.0.1:12345")?;
 //!
-//!     let creds = ProposedCredentials::new(
-//!         "username".to_string(),
-//!         "password".to_string(),
-//!         None
-//!     );
+//!     let creds = ProposedCredentials::transient("some-unique-id");
 //!
-//!     let ratchet = StackedRatchet::new(1234, 0);
+//!     let ratchet = get_ratchet();
 //!
 //!     let account = manager.register_impersonal_hyperlan_client_network_account(
 //!         conn_info,
 //!         creds,
 //!         ratchet
-//!     )?;
+//!     ).await?;
 //!
 //!     // Retrieve peer information
-//!     if let Some(peers) = manager.get_hyperlan_peer_list(account.get_cid())? {
+//!     if let Some(peers) = manager.get_hyperlan_peer_list(account.get_cid()).await? {
 //!         for peer_cid in peers {
 //!             println!("Connected to peer: {}", peer_cid);
 //!         }
@@ -102,8 +98,8 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
-use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
-use citadel_crypt::ratchets::stacked::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::prelude::PeerInfo;
 use citadel_types::user::MutualPeer;

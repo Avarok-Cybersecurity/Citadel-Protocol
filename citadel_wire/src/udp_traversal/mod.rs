@@ -60,7 +60,7 @@ use uuid::Uuid;
 /// Linear hole-punching
 pub mod linear;
 
-pub mod targetted_udp_socket_addr;
+pub mod hole_punched_socket;
 
 pub mod udp_hole_puncher;
 

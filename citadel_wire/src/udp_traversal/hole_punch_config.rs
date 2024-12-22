@@ -44,7 +44,7 @@
 //! use std::net::SocketAddr;
 //!
 //! async fn setup_hole_punch() -> Result<(), anyhow::Error> {
-//!     let peer_nat = NatType::identify(None)?;
+//!     let peer_nat = NatType::identify(None).await?;
 //!     let peer_addr = "192.168.1.2:8080".parse()?;
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     
@@ -56,7 +56,7 @@
 //!     
 //!     for addrs in config {
 //!         // Try connecting to predicted addresses
-//!         println!("Trying addresses: {:?}", addrs);
+//!         println!("Trying addresses: {addrs:?}");
 //!     }
 //!     
 //!     Ok(())

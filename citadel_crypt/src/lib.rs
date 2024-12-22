@@ -72,7 +72,7 @@ pub mod secure_buffer;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod streaming_crypt_scrambler;
 
-///
+/// `RatchetManager` provides a robust, sync-safe method to rekey across networks between two nodes
 pub mod ratchet_manager;
 pub mod sync_toggle;
 /// Provides entropy_bank management, update, and versioning. This is what's exposed to the citadel_user api. The entropy_banks themselves are abstracted beneath

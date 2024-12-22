@@ -17,7 +17,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use citadel_wire::standard::socket_helpers;
+//! use citadel_wire::socket_helpers;
 //! use std::net::SocketAddr;
 //! use std::time::Duration;
 //!
@@ -31,7 +31,7 @@
 //!     let tcp = socket_helpers::get_tcp_listener(addr)?;
 //!     
 //!     // Create TCP client with timeout
-//!     let stream = socket_helpers::get_tcp_stream(addr, Duration::from_secs(5))?;
+//!     let stream = socket_helpers::get_tcp_stream(addr, Duration::from_secs(5)).await?;
 //!     
 //!     Ok(())
 //! }

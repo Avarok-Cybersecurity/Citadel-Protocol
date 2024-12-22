@@ -13,7 +13,7 @@
 //!
 //! ## Usage Example
 //! ```rust
-//! use citadel_crypt::ratchets::keys::FcmKeys;
+//! use citadel_crypt::ratchets::mono::keys::FcmKeys;
 //!
 //! // Create new FCM keys
 //! let keys = FcmKeys::new(
@@ -29,7 +29,7 @@
 //! let keys_clone = keys.clone();
 //!
 //! // Serialize for storage if needed
-//! let serialized = serde_json::to_string(&keys).unwrap();
+//! let serialized = bincode::serialize(&keys).unwrap();
 //! ```
 //!
 //! ## Important Notes
