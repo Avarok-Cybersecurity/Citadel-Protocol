@@ -28,25 +28,6 @@
 //! - `RatchetUpdateState`: Tracks key updates
 //! - `SecurityLevel`: Manages encryption levels
 //!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::rekey_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! fn handle_rekey(session: &CitadelSession, packet: HdpPacket) {
-//!     let header_entropy_bank_vers = 1;
-//!     let proxy_info = None;
-//!     match rekey_packet::process_rekey(session, packet, header_entropy_bank_vers, proxy_info) {
-//!         Ok(result) => {
-//!             // Handle successful rekey
-//!         }
-//!         Err(err) => {
-//!             // Handle rekey error
-//!         }
-//!     }
-//! }
 //! ```
 
 use super::includes::*;

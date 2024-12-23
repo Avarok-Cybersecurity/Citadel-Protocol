@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "my_username",
             "My Name",
             "notsecurepassword",
-        )?
+        )
         .with_session_security_settings(session_security)
         .disable_udp()
         .build()?;
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let message = "Hello from client!";
             // Send initial message
             let msg = SecBuffer::from(message);
-            if let Err(e) = tx.send_message(msg.into()).await {
+            if let Err(e) = tx.send_message(msg).await {
                 println!("Error sending message: {}", e);
                 return Err(e);
             }

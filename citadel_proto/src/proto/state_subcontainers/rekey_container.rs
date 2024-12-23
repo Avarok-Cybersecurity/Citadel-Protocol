@@ -10,21 +10,8 @@
 //! - Provides configurable security levels
 //! - Implements adaptive update frequency based on security needs
 //!
-//! ## Example Usage
-//! ```rust
-//! use citadel_proto::proto::state_subcontainers::RatchetUpdateState;
-//! use citadel_proto::proto::transfer_stats::TransferStats;
-//!
-//! // Create new ratchet update state
-//! let mut state = RatchetUpdateState::default();
-//!
-//! // Calculate update frequency based on security level
-//! let stats = TransferStats::default();
-//! let frequency = calculate_update_frequency(2, &stats);
-//! ```
-//!
 //! ## Important Notes
-//! - Security levels range from 0 (low) to 4 (divine)
+//! - Security levels range from 0 (low) to 4 (extreme)
 //! - Update frequencies are in nanoseconds
 //! - P2P updates are tracked per connection
 //! - Manual mode requires kernel notification
@@ -39,9 +26,8 @@
 use citadel_io::tokio::time::Duration;
 
 use crate::constants::{
-    DRILL_UPDATE_FREQUENCY_DIVINE_BASE, DRILL_UPDATE_FREQUENCY_HIGH_BASE,
-    DRILL_UPDATE_FREQUENCY_LOW_BASE, DRILL_UPDATE_FREQUENCY_MEDIUM_BASE,
-    DRILL_UPDATE_FREQUENCY_ULTRA_BASE,
+    REKEY_UPDATE_FREQUENCY_EXTREME, REKEY_UPDATE_FREQUENCY_HIGH, REKEY_UPDATE_FREQUENCY_REINFORCED,
+    REKEY_UPDATE_FREQUENCY_STANDARD, REKEY_UPDATE_FREQUENCY_ULTRA,
 };
 use crate::error::NetworkError;
 use crate::prelude::{NodeResult, ReKeyResult, ReKeyReturnType, Ticket, VirtualTargetType};
@@ -92,14 +78,10 @@ impl<R: Ratchet> RatchetUpdateState<R> {
 /// Calculates the frequency, in nanoseconds per update
 pub fn calculate_update_frequency(security_level: u8, _transfer_stats: &TransferStats) -> Duration {
     match security_level {
-        0 => Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE),
-
-        1 => Duration::from_nanos(DRILL_UPDATE_FREQUENCY_MEDIUM_BASE),
-
-        2 => Duration::from_nanos(DRILL_UPDATE_FREQUENCY_HIGH_BASE),
-
-        3 => Duration::from_nanos(DRILL_UPDATE_FREQUENCY_ULTRA_BASE),
-
-        _ => Duration::from_nanos(DRILL_UPDATE_FREQUENCY_DIVINE_BASE),
+        0 => Duration::from_nanos(REKEY_UPDATE_FREQUENCY_STANDARD),
+        1 => Duration::from_nanos(REKEY_UPDATE_FREQUENCY_REINFORCED),
+        2 => Duration::from_nanos(REKEY_UPDATE_FREQUENCY_HIGH),
+        3 => Duration::from_nanos(REKEY_UPDATE_FREQUENCY_ULTRA),
+        _ => Duration::from_nanos(REKEY_UPDATE_FREQUENCY_EXTREME),
     }
 }

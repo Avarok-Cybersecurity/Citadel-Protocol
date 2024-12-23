@@ -17,31 +17,24 @@
 //! ## Example Usage
 //!
 //! ```no_run
-//! use citadel_proto::peer::channel::PeerChannel;
+//! use citadel_proto::prelude::*;
+//! use futures::StreamExt;
 //! use citadel_types::crypto::SecurityLevel;
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! // Create a new peer channel
-//! let channel = PeerChannel::new(
-//!     server_remote,
-//!     target_cid,
-//!     vconn_type,
-//!     channel_id,
-//!     SecurityLevel::Standard,
-//!     is_alive,
-//!     receiver,
-//!     outbound_stream
-//! );
-//!
+//! # let channel: PeerChannel = todo!();
 //! // Split into send and receive halves
 //! let (send_half, recv_half) = channel.split();
 //!
 //! // Send a message
-//! send_half.send_message(secure_packet)?;
+//! send_half.send_message("Hello, world!").await?;
 //!
 //! // Receive messages asynchronously
 //! while let Some(message) = recv_half.next().await {
 //!     // Process received message
 //! }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Important Notes
@@ -173,8 +166,11 @@ impl PeerChannelSendHalf {
     }
 
     /// Sends a message through the channel
-    pub async fn send_message(&self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
-        let (ticket, packet, target, security_level) = self.get_args(message);
+    pub async fn send_message<T: Into<SecureProtocolPacket>>(
+        &self,
+        message: T,
+    ) -> Result<(), NetworkError> {
+        let (ticket, packet, target, security_level) = self.get_args(message.into());
         let request = SessionRequest::SendMessage {
             ticket,
             packet,

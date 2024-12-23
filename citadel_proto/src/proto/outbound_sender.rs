@@ -32,21 +32,6 @@
 //! - **BoundedSender**: Rate-limited channel with backpressure
 //! - **OutboundPrimaryStreamSender**: TCP stream management
 //! - **OutboundUdpSender**: UDP datagram handling with keep-alive
-//!
-//! ## Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::outbound_sender::{UnboundedSender, BoundedSender};
-//!
-//! // Create an unbounded channel
-//! let (tx, rx) = UnboundedSender::unbounded();
-//!
-//! // Create a bounded channel with rate limiting
-//! let (tx, rx) = BoundedSender::new(100);
-//!
-//! // Send messages
-//! tx.send(message)?;
-//! ```
 
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;

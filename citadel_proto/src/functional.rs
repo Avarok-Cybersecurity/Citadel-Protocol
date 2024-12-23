@@ -12,22 +12,6 @@
 //! - Lazy evaluation support
 //! - Type-safe conditional operations
 //!
-//! # Usage Example
-//!
-//! ```rust
-//! use citadel_proto::functional::Then;
-//! use citadel_proto::functional::IfTrueConditional;
-//!
-//! // Method chaining
-//! let result = 42.then(|x| x * 2)
-//!               .then(|x| x.to_string());
-//!
-//! // Conditional operations
-//! let value = true.if_true(1)
-//!                 .if_false(0);
-//! assert_eq!(value, 1);
-//! ```
-//!
 //! # Important Notes
 //!
 //! - All operations are zero-cost abstractions

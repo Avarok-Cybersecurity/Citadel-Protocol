@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If post-connection client-server bidirectional communication is needed, use a
     // `ClientConnectListenerKernel` instead which runs each time a new connection is
     // established with a client
-    let kernel = server::empty::EmptyKernel;
+    let kernel = server::empty::EmptyKernel::default();
 
     // Build the server. It is password-protected, meaning that each time
     // a client attempts to register or connect, they must provide the password.

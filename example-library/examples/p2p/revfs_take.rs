@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::fs::read_to_string(&locally_downloaded_file).await?;
                 assert_eq!(file_contents, downloaded_file_contents);
                 // Alert the other side that the file has been successfully processed
-                tx.send_message(SecBuffer::from("success").into()).await?;
+                tx.send_message(SecBuffer::from("success")).await?;
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             } else {
                 let incoming_file_requests = remote.get_incoming_file_transfer_handle().unwrap();

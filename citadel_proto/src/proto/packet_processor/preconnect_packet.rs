@@ -26,26 +26,6 @@
 //! - `StackedRatchet`: Provides cryptographic primitives for secure channels
 //! - `UdpHolePuncher`: Handles NAT traversal operations
 //! - `SessionManager`: Tracks active protocol sessions
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::preconnect_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! async fn handle_preconnect(session: &CitadelSession, packet: HdpPacket) {
-//!     let header_entropy_bank_vers = 1;
-//!     match preconnect_packet::process_preconnect(session, packet, header_entropy_bank_vers).await {
-//!         Ok(result) => {
-//!             // Handle successful preconnect processing
-//!         }
-//!         Err(err) => {
-//!             // Handle preconnect error
-//!         }
-//!     }
-//! }
-//! ```
 
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;

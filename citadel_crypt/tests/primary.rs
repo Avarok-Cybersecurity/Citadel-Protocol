@@ -10,7 +10,7 @@ mod tests {
     use citadel_crypt::entropy_bank::EntropyBank;
     #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::packet_vector::PacketVector;
-    use citadel_crypt::ratchets::stacked::ratchet::StackedRatchet;
+    use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
@@ -245,13 +245,13 @@ mod tests {
         citadel_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for _sec in 0..SecurityLevel::Extreme.value() {
-                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     None,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     None,
                     &PRE_SHARED_KEYS,
@@ -266,13 +266,13 @@ mod tests {
     fn mono_ratchets_fail() {
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 1..SecurityLevel::Extreme.value() {
-                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::ratchet::MonoRatchet, _>(
+                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,

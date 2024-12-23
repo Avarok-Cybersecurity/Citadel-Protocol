@@ -29,19 +29,6 @@
 //! - `GroupBroadcastPayload`: Message handling
 //! - `MessageGroupOptions`: Group configuration
 //! - `MemberState`: Member status tracking
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
-//! use citadel_types::proto::MessageGroupOptions;
-//!
-//! // Create a new group broadcast message
-//! let broadcast = GroupBroadcast::Create {
-//!     initial_invitees: vec![1, 2, 3], // CIDs of initial members
-//!     options: MessageGroupOptions::default(),
-//! };
-//! ```
 
 use super::super::includes::*;
 use crate::error::NetworkError;

@@ -27,19 +27,19 @@
 //!
 //! # fn main() -> Result<(), NetworkError> {
 //! // Create a basic server with file transfer support
-//! let kernel = Box::new(AcceptFileTransferKernel::default());
+//! let kernel = Box::new(AcceptFileTransferKernel::<StackedRatchet>::default());
 //!
 //! // Create a server that listens for client connections
-//! let kernel = Box::new(ClientConnectListenerKernel::new(|conn, remote| async move {
+//! let kernel = Box::new(ClientConnectListenerKernel::<_, _, StackedRatchet>::new(|conn, remote| async move {
 //!     println!("Client connected!");
 //!     Ok(())
 //! }));
 //!
 //! // Create a minimal server with no additional processing
-//! let kernel = Box::new(EmptyKernel::default());
+//! let kernel = Box::new(EmptyKernel::<StackedRatchet>::default());
 //!
 //! // Create a server with internal service support (e.g., HTTP server)
-//! let kernel = Box::new(InternalServiceKernel::new(|_comm| async move {
+//! let kernel = Box::new(InternalServiceKernel::<_, _, StackedRatchet>::new(|_comm| async move {
 //!     let service = service_fn(|_req: Request<Body>| async move {
 //!         Ok::<_, Infallible>(Response::new(Body::empty()))
 //!     });

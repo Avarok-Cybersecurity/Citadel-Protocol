@@ -10,22 +10,6 @@
 //! - Support for different connection modes
 //! - State recovery mechanisms for connection resilience
 //!
-//! ## Example Usage
-//! ```rust
-//! use citadel_proto::proto::state_subcontainers::ConnectState;
-//!
-//! // Create new connection state
-//! let mut state = ConnectState::default();
-//!
-//! // Handle successful connection
-//! state.on_success();
-//! state.on_connect_packet_received();
-//!
-//! // Handle connection failure
-//! state.on_fail();
-//! state.on_connect_packet_received();
-//! ```
-//!
 //! ## Important Notes
 //! - State transitions must update both local and global session state
 //! - Packet timing is tracked for timeout management

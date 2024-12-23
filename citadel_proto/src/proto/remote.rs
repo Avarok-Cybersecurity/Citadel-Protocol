@@ -28,17 +28,23 @@
 //! ## Usage Example
 //!
 //! ```no_run
-//! use citadel_proto::remote::NodeRemote;
-//! use citadel_proto::prelude::NodeRequest;
+//! use citadel_proto::prelude::*;
+//! # async fn test() -> Result<(), NetworkError> {
+//! # fn get_request() -> NodeRequest { todo!() }
+//! # let remote: NodeRemote<StackedRatchet> = todo!();
 //!
 //! // Create a request
-//! let request = NodeRequest::new();
+//! let request = get_request();
 //!
 //! // Send request and get ticket
-//! let ticket = remote.send(request)?;
+//! let ticket = remote.send(request).await?;
+//!
+//! let request_expects_multiple_responses = get_request();
 //!
 //! // Or use callback subscription
-//! let subscription = remote.send_callback_subscription(request)?;
+//! let subscription = remote.send_callback_subscription(request_expects_multiple_responses).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::error::NetworkError;

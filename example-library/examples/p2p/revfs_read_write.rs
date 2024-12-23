@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             my_user,
             "Name",
             "notsecurepassword",
-        )?
+        )
         .with_session_security_settings(session_security)
         .disable_udp()
         .build()?;
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::fs::read_to_string(&locally_downloaded_file).await?;
                 assert_eq!(file_contents, downloaded_file_contents);
                 // Alert the other side that the file has been successfully stored
-                tx.send_message(SecBuffer::from("success").into()).await?;
+                tx.send_message(SecBuffer::from("success")).await?;
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             } else {
                 let incoming_file_requests = remote.get_incoming_file_transfer_handle().unwrap();

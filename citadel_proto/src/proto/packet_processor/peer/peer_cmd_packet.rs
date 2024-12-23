@@ -30,37 +30,6 @@
 //! - `HyperNodePeerLayerInner`: Peer layer
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::peer::peer_cmd_packet;
-//! use citadel_proto::proto::peer::peer_layer::PeerSignal;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! async fn handle_peer_cmd(
-//!     session: &CitadelSession,
-//!     packet: HdpPacket,
-//!     header_version: u32,
-//! ) {
-//!     let aux_cmd = 0;
-//!     let endpoint_info = None;
-//!     match peer_cmd_packet::process_peer_cmd(
-//!         session,
-//!         aux_cmd,
-//!         packet,
-//!         header_version,
-//!         endpoint_info,
-//!     ).await {
-//!         Ok(result) => {
-//!             // Handle successful peer command
-//!         }
-//!         Err(err) => {
-//!             // Handle peer command error
-//!         }
-//!     }
-//! }
-//! ```
 
 use std::sync::atomic::Ordering;
 

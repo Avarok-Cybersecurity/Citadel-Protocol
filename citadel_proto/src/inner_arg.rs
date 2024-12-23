@@ -12,26 +12,6 @@
 //! - Zero-cost abstractions
 //! - Generic over target types
 //!
-//! # Usage Example
-//!
-//! ```rust
-//! use citadel_proto::inner_arg::{InnerParameter, InnerParameterMut};
-//! use std::ops::{Deref, DerefMut};
-//!
-//! struct Wrapper<T>(T);
-//! impl<T> Deref for Wrapper<T> {
-//!     type Target = T;
-//!     fn deref(&self) -> &T { &self.0 }
-//! }
-//! impl<T> DerefMut for Wrapper<T> {
-//!     fn deref_mut(&mut self) -> &mut T { &mut self.0 }
-//! }
-//!
-//! let mut value = Wrapper(42);
-//! let param = InnerParameterMut::from(&mut value);
-//! assert_eq!(*param, 42);
-//! ```
-//!
 //! # Important Notes
 //!
 //! - Zero runtime overhead

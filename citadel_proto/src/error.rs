@@ -12,7 +12,7 @@
 //!
 //! # Usage
 //! ```rust
-//! use citadel_proto::NetworkError;
+//! use citadel_proto::prelude::NetworkError;
 //!
 //! // Create a generic error with a message
 //! let error = NetworkError::msg("Connection failed");
@@ -60,6 +60,7 @@ pub enum NetworkError {
         reason: String,
     },
     ProperShutdown,
+    IoError(std::io::Error),
 }
 
 impl Error for NetworkError {}
@@ -87,6 +88,7 @@ impl NetworkError {
             NetworkError::InvalidPacket(err) => (*err).to_string(),
             NetworkError::ProperShutdown => "Proper shutdown called".to_string(),
             NetworkError::NodeRemoteSendError { reason, .. } => reason.clone(),
+            NetworkError::IoError(err) => err.to_string(),
         }
     }
 
@@ -108,6 +110,7 @@ impl NetworkError {
             NetworkError::ProperShutdown => {
                 format!("{:?}", NetworkError::ProperShutdown)
             }
+            NetworkError::IoError(err) => err.to_string(),
         }
     }
 
@@ -148,6 +151,6 @@ impl From<CryptError> for NetworkError {
 
 impl From<std::io::Error> for NetworkError {
     fn from(err: std::io::Error) -> Self {
-        NetworkError::Generic(err.to_string())
+        NetworkError::IoError(err)
     }
 }

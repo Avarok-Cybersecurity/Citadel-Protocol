@@ -26,26 +26,6 @@
 //! - `KernelInterface`: Handles disconnect signals
 //! - `SessionManager`: Tracks session lifecycle
 //! - `PrimaryStream`: Handles packet transmission
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::disconnect_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! async fn handle_disconnect(session: &CitadelSession, packet: HdpPacket) {
-//!     let header_entropy_bank_vers = 1;
-//!     match disconnect_packet::process_disconnect(session, packet, header_entropy_bank_vers).await {
-//!         Ok(result) => {
-//!             // Handle successful disconnection
-//!         }
-//!         Err(err) => {
-//!             // Handle disconnection error
-//!         }
-//!     }
-//! }
-//! ```
 
 use super::includes::*;
 use crate::error::NetworkError;

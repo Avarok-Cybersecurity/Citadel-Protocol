@@ -28,27 +28,6 @@
 //! - `StackedRatchet`: Provides cryptographic primitives
 //! - `PeerSessionCrypto`: Handles peer-to-peer encryption
 //! - `VirtualConnection`: Manages group connections
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::primary_group_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! fn handle_group_packet(session: &CitadelSession, packet: HdpPacket) {
-//!     let cmd_aux = 0; // Command auxiliary value
-//!     let proxy_info = None; // No proxy information
-//!     match primary_group_packet::process_primary_packet(session, cmd_aux, packet, proxy_info) {
-//!         Ok(result) => {
-//!             // Handle successful group packet processing
-//!         }
-//!         Err(err) => {
-//!             // Handle group packet error
-//!         }
-//!     }
-//! }
-//! ```
 
 use super::includes::*;
 use crate::constants::GROUP_EXPIRE_TIME_MS;
@@ -642,7 +621,7 @@ impl<R: Ratchet> ToolsetUpdate<'_, R> {
 
     /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
     pub(crate) fn unlock(&mut self, _requires_locked_by_alice: bool) -> Option<R> {
-        self.crypt.maybe_unlock().map(|r| r.clone())
+        self.crypt.maybe_unlock().cloned()
     }
 
     pub(crate) fn get_local_cid(&self) -> u64 {

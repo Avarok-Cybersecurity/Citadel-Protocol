@@ -40,9 +40,9 @@
 
 use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
 use bytes::Bytes;
-use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_proto::prelude::NetworkError;
+use citadel_proto::prelude::*;
 use citadel_proto::re_imports::{StreamReader, UnboundedReceiverStream};
 use citadel_types::crypto::SecBuffer;
 use futures::StreamExt;
@@ -86,7 +86,7 @@ where
     // from_webserver forwards packets from the internal server to the proto
     let from_webserver = async move {
         while let Some(packet) = rx_from_service.recv().await {
-            sink.send_message(packet.into()).await?;
+            sink.send_message(packet).await?;
         }
 
         Ok(())

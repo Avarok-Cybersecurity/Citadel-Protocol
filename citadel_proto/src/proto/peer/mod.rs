@@ -19,20 +19,6 @@ This module is the root of the peer-to-peer networking implementation in the Cit
 - `p2p_conn_handler`: Direct P2P connection management
 - `hole_punch_compat_sink_stream`: NAT traversal compatibility layer
 
-## Example Usage
-```rust
-use citadel_proto::proto::peer::{
-    channel::PeerChannel,
-    group_channel::GroupChannel,
-    peer_layer::HyperNodePeerLayer,
-};
-
-// Create peer components as needed
-let peer_layer = HyperNodePeerLayer::new(persistence_handler);
-let channel = PeerChannel::new(/* ... */);
-let group = GroupChannel::new(/* ... */);
-```
-
 ## Important Notes
 1. All peer communication is encrypted by default
 2. NAT traversal is handled automatically

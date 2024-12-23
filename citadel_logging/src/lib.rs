@@ -21,16 +21,14 @@
 //! setup_log();
 //!
 //! // Log at different levels
+//! # #[derive(Debug)]
+//! # struct Config;
+//! # let config = Config;
+//! # let error = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "Connection failed");
+//!
 //! info!(target: "citadel", "Starting application...");
 //! debug!(target: "citadel", "Configuration loaded: {:?}", config);
 //! error!(target: "citadel", "Failed to connect: {}", error);
-//!
-//! // Use instrumentation for async functions
-//! #[instrument]
-//! async fn process_request() {
-//!     debug!(target: "citadel", "Processing request...");
-//!     // ... processing ...
-//! }
 //! ```
 //!
 //! ## Log Levels

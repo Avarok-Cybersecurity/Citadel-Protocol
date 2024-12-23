@@ -42,20 +42,6 @@
 //! 2. Payload serialization and encryption
 //! 3. Security level enforcement
 //! 4. Timestamp and sequence number management
-//!
-//! ## Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::packet_crafter::{SecureProtocolPacket, GroupTransmitter};
-//!
-//! // Create a secure packet
-//! let packet = SecureProtocolPacket::new();
-//! packet.write_payload(data)?;
-//!
-//! // Create a group transmitter for file transfer
-//! let transmitter = GroupTransmitter::new(stream, config)?;
-//! transmitter.transmit_group_header(target)?;
-//! ```
 
 use bytes::BytesMut;
 
@@ -86,14 +72,9 @@ use citadel_types::prelude::ObjectId;
 ///
 /// # Example
 ///
-/// ```no_run
-/// use citadel_proto::packet_crafter::SecureProtocolPacket;
-///
-/// let mut packet = SecureProtocolPacket::new();
-/// packet.write_payload(data_len, |buf| {
-///     buf.copy_from_slice(data);
-///     Ok(())
-/// })?;
+/// ```rust
+/// use citadel_proto::prelude::SecureProtocolPacket;
+/// let mut packet = SecureProtocolPacket::from("Hello, world!");
 /// ```
 #[derive(Debug)]
 /// A thin wrapper used for convenient creation of zero-copy outgoing buffers
@@ -153,23 +134,6 @@ impl From<SecureProtocolPacket> for SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
 /// - Automatic packet chunking
 /// - Progress tracking
 /// - Error handling
-///
-/// # Example
-///
-/// ```no_run
-/// use citadel_proto::packet_crafter::GroupTransmitter;
-///
-/// let transmitter = GroupTransmitter::new_message(
-///     stream,
-///     object_id,
-///     ratchet,
-///     packet,
-///     security_level,
-///     group_id,
-///     ticket,
-///     time_tracker,
-/// )?;
-/// ```
 pub struct GroupTransmitter<R: Ratchet> {
     pub ratchet_container: RatchetPacketCrafterContainer<R>,
     to_primary_stream: OutboundPrimaryStreamSender,

@@ -27,30 +27,6 @@
 //! - `AccountManager`: Handles account creation
 //! - `StackedRatchet`: Provides cryptographic primitives
 //! - `SessionManager`: Tracks registration process
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::register_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//! use std::net::SocketAddr;
-//!
-//! async fn handle_register(
-//!     session: &CitadelSession,
-//!     packet: HdpPacket,
-//!     remote_addr: SocketAddr
-//! ) {
-//!     match register_packet::process_register(session, packet, remote_addr).await {
-//!         Ok(result) => {
-//!             // Handle successful registration
-//!         }
-//!         Err(err) => {
-//!             // Handle registration error
-//!         }
-//!     }
-//! }
-//! ```
 
 use super::includes::*;
 use crate::error::NetworkError;

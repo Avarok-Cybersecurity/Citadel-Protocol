@@ -36,38 +36,6 @@
 //! - Connection states are protected against replay attacks
 //! - Group keys are securely managed
 //! - File transfers are encrypted end-to-end
-//!
-//! ## Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::state_container::{StateContainer, VirtualConnectionType};
-//!
-//! // Create a new state container
-//! let container = StateContainer::create(
-//!     kernel_tx,
-//!     remote,
-//!     timeout,
-//!     state,
-//!     account,
-//!     tracker,
-//!     settings,
-//!     is_server,
-//!     stats,
-//!     udp_mode,
-//! );
-//!
-//! // Handle a virtual connection
-//! container.insert_new_peer_virtual_connection_as_endpoint(
-//!     peer_addr,
-//!     settings,
-//!     ticket,
-//!     target_cid,
-//!     conn_type,
-//!     crypto,
-//!     session,
-//!     true,
-//! )?;
-//! ```
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};

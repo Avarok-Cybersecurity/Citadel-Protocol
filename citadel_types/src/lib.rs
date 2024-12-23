@@ -40,14 +40,8 @@
 //! use citadel_types::prelude::*;
 //!
 //! // Use crypto types
-//! let secure_buffer = SecBuffer::new();
+//! let secure_buffer = SecBuffer::empty();
 //! let params = CryptoParameters::default();
-//!
-//! // Use protocol types
-//! let message = Message::new();
-//!
-//! // Use user types
-//! let user_id = UserId::new();
 //! ```
 //!
 //! ## Features

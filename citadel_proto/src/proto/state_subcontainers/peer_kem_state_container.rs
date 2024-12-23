@@ -16,26 +16,6 @@ This module manages the state of peer-to-peer key exchange processes in the Cita
 - `SessionSecuritySettings`: Configures security parameters
 - `UdpChannelSender`: Manages UDP channel communication
 
-## Example Usage
-```rust
-use citadel_proto::proto::state_subcontainers::PeerKemStateContainer;
-
-// Create new key exchange state
-let state = PeerKemStateContainer::new(
-    security_settings,
-    udp_enabled,
-    session_password
-);
-
-// Access security settings
-let settings = state.session_security_settings;
-
-// Check if local peer is initiator
-if state.local_is_initiator {
-    // Handle initiator-specific logic
-}
-```
-
 ## Important Notes
 1. Key exchange state is critical for secure communication
 2. UDP channels are optional based on configuration

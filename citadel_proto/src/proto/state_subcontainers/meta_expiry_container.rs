@@ -10,21 +10,6 @@
 //! - Handles file transfer expiry tracking
 //! - Provides adaptive expiry timing based on workload
 //!
-//! ## Example Usage
-//! ```rust
-//! use citadel_proto::proto::state_subcontainers::MetaExpiryState;
-//!
-//! let mut state = MetaExpiryState::default();
-//!
-//! // Update state on packet confirmation
-//! state.on_event_confirmation();
-//!
-//! // Check if expired
-//! if state.expired() {
-//!     // Handle expiration
-//! }
-//! ```
-//!
 //! ## Important Notes
 //! - Critical for high-traffic workload scenarios
 //! - Prevents false expiration during async processing delays

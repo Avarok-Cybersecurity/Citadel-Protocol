@@ -28,26 +28,6 @@
 //! - `VirtualFileSystem`: Handles file operations
 //! - `ObjectTransferHandle`: Tracks transfer progress
 //! - `SecurityLevel`: Manages encryption levels
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::file_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! fn handle_file_packet(session: &CitadelSession, packet: HdpPacket) {
-//!     let proxy_info = None;
-//!     match file_packet::process_file_packet(session, packet, proxy_info) {
-//!         Ok(result) => {
-//!             // Handle successful file operation
-//!         }
-//!         Err(err) => {
-//!             // Handle file operation error
-//!         }
-//!     }
-//! }
-//! ```
 
 use super::includes::*;
 use crate::error::NetworkError;

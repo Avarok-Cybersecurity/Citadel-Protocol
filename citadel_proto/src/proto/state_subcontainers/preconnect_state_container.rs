@@ -16,27 +16,6 @@ This module manages the state of pre-connection setup in the Citadel Protocol, h
 - `StackedRatchetConstructor`: Handles cryptographic setup
 - `NodeType`: Configures node behavior
 
-## Example Usage
-```rust
-use citadel_proto::proto::state_subcontainers::PreConnectState;
-
-// Create new pre-connection state
-let mut state = PreConnectState::default();
-
-// Handle packet reception
-state.on_packet_received();
-
-// Check connection success
-if state.success {
-    // Handle successful pre-connection
-}
-
-// Access generated ratchet
-if let Some(ratchet) = state.generated_ratchet {
-    // Use the ratchet for encryption
-}
-```
-
 ## Important Notes
 1. Pre-connection state is critical for secure setup
 2. UDP channels are managed through oneshot channels

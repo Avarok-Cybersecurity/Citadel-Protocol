@@ -80,19 +80,6 @@
 //! - All packets are encrypted using post-quantum cryptography
 //! - Headers are protected against tampering
 //! - Replay attacks are prevented through sequence numbers
-//!
-//! ## Example
-//!
-//! ```no_run
-//! use citadel_proto::packet_processor::{PrimaryProcessorResult, HdpPacket};
-//!
-//! // Process an incoming packet
-//! match process_packet(packet) {
-//!     PrimaryProcessorResult::Void => { /* No response needed */ }
-//!     PrimaryProcessorResult::ReplyToSender(response) => { /* Send response */ }
-//!     PrimaryProcessorResult::EndSession(reason) => { /* Handle session end */ }
-//! }
-//! ```
 
 use crate::proto::packet::HdpHeader;
 use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;

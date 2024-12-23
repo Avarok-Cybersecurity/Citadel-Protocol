@@ -15,24 +15,6 @@ This module implements a compatibility layer for UDP hole punching in the Citade
 - `ConnAddr`: Address management for connection endpoints
 - `StackedRatchet`: Encryption layer for secure communication
 
-## Example Usage
-```rust
-// Create a new compatibility stream
-let compat_stream = ReliableOrderedCompatStream::new(
-    primary_stream,
-    state_container,
-    target_cid,
-    stacked_ratchet,
-    security_level
-);
-
-// Send data through the stream
-compat_stream.send_to_peer(&data)?;
-
-// Receive data from the stream
-let received = compat_stream.recv()?;
-```
-
 ## Important Notes
 1. Supports both client-server and peer-to-peer modes
 2. Requires pre-loaded ratchets for P2P communication

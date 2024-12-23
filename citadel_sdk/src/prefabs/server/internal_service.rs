@@ -24,7 +24,7 @@
 //! use citadel_sdk::prefabs::server::internal_service::InternalServiceKernel;
 //!
 //! // Create a kernel with an HTTP server
-//! let kernel = InternalServiceKernel::new(|comm| async move {
+//! let kernel = InternalServiceKernel::<_, _, StackedRatchet>::new(|comm| async move {
 //!
 //!     let make_svc = make_service_fn(|socket: &AddrStream| {
 //!         let remote_addr = socket.remote_addr();

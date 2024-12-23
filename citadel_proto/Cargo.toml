@@ -12,7 +12,7 @@ categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["filesystem", "multi-threaded", "std"]
+default = ["filesystem", "std"]
 filesystem = ["citadel_user/filesystem"]
 multi-threaded = []
 sql = ["citadel_user/sql"]

@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Echo the message back
-            if let Err(e) = tx.send_message(msg.into()).await {
+            if let Err(e) = tx.send_message(msg).await {
                 println!("Error sending response: {}", e);
             }
         }

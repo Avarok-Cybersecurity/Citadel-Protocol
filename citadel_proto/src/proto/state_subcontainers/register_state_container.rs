@@ -16,23 +16,6 @@ This module manages the state of user registration processes in the Citadel Prot
 - `StackedRatchet`: Provides secure communication
 - `packet_flags`: Defines registration stages
 
-## Example Usage
-```rust
-use citadel_proto::proto::state_subcontainers::RegisterState;
-
-// Create new registration state
-let mut state = RegisterState::default();
-
-// Handle registration packet
-state.on_register_packet_received();
-
-// Handle registration failure
-state.on_fail();
-
-// Create state from specific stage
-let stage_state = RegisterState::from(stage_number);
-```
-
 ## Important Notes
 1. Registration stages must follow proper sequence
 2. Cryptographic setup is essential for security

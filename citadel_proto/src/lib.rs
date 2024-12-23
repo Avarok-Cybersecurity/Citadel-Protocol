@@ -56,10 +56,7 @@
 //!
 //! ## Feature Flags
 //!
-//! - `multi-threaded`: Enables multi-threaded support (default)
-//! - `compression`: Enables packet compression
-//! - `file-transfer`: Enables secure file transfer support
-//! - `group-chat`: Enables group communication features
+//! - `multi-threaded`: Enables multi-threaded support
 //!
 //! ## Version Compatibility
 //!

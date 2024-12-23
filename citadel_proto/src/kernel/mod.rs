@@ -14,27 +14,6 @@
 //! - Protocol type abstraction
 //! - Session security management
 //!
-//! # Usage Example
-//!
-//! ```rust
-//! use citadel_proto::kernel::{KernelExecutor, KernelExecutorSettings};
-//! use citadel_proto::kernel::kernel_trait::NetKernel;
-//! use citadel_wire::hypernode_type::NodeType;
-//!
-//! // Configure kernel settings
-//! let settings = KernelExecutorSettings::default()
-//!     .with_max_concurrency(Some(10));
-//!
-//! // Create kernel executor with settings
-//! let executor = KernelExecutor::new(
-//!     runtime.handle(),
-//!     NodeType::default(),
-//!     account_manager,
-//!     kernel,
-//!     settings
-//! );
-//! ```
-//!
 //! # Important Notes
 //!
 //! - Single-threaded lower level, multi-threaded upper level

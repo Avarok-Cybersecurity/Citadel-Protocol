@@ -18,24 +18,19 @@ This module implements group communication channels in the Citadel Protocol, pro
 
 ## Example Usage
 ```rust
-// Create a new group channel
-let group_channel = GroupChannel::new(
-    node_remote,
-    tx,
-    key,
-    ticket,
-    session_cid,
-    recv
-);
-
+use citadel_proto::prelude::*;
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+# let group_channel: GroupChannel = todo!();
 // Send a message to the group
-group_channel.send_message(message)?;
+group_channel.send_message(SecBuffer::from(b"Hello, world!" as &[u8])).await?;
 
+let peer_cid = 1234;
 // Invite new members
-group_channel.invite(peer_cid)?;
+group_channel.invite(peer_cid).await?;
 
 // Split the channel for separate send/receive handling
 let (send_half, recv_half) = group_channel.split();
+# }
 ```
 
 ## Important Notes

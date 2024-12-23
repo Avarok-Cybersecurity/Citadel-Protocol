@@ -35,6 +35,7 @@
 //!     // Reset to off
 //!     toggle.toggle_off();
 //! }
+//! # manage_state();
 //! ```
 //!
 //! # Important Notes

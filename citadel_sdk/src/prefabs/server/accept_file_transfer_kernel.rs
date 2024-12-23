@@ -17,7 +17,7 @@
 //! use citadel_sdk::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 //!
 //! # fn main() -> Result<(), NetworkError> {
-//! let kernel = Box::new(AcceptFileTransferKernel::default());
+//! let kernel = Box::new(AcceptFileTransferKernel::<StackedRatchet>::default());
 //! # Ok(())
 //! # }
 //! ```

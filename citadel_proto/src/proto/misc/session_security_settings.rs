@@ -39,8 +39,7 @@ pub struct SessionSecuritySettingsBuilder {
 impl SessionSecuritySettingsBuilder {
     /// Sets the maximum security level for the session, allowing the use of multi-layered encryption on a per-message basis as well as increased difficulty in breaking the recursive chain key (default: low)
     /// ```
-    /// use citadel_proto::prelude::SessionSecuritySettingsBuilder;
-    /// use citadel_crypt::entropy_bank::SecurityLevel;
+    /// use citadel_proto::prelude::*;
     /// SessionSecuritySettingsBuilder::default()
     /// .with_security_level(SecurityLevel::Standard)
     /// .build();
@@ -66,10 +65,10 @@ impl SessionSecuritySettingsBuilder {
 
     /// Default: Firesaber + AES_GCM_256_SIV
     /// ```
-    /// use citadel_proto::prelude::SessionSecuritySettingsBuilder;
-    /// use citadel_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
+    /// use citadel_proto::prelude::*;
+    /// use citadel_pqcrypto::prelude::*;
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Kyber)
+    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::Kyber)
     /// .build();
     /// ```
     pub fn with_crypto_params(mut self, params: impl Into<CryptoParameters>) -> Self {

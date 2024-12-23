@@ -26,26 +26,6 @@
 //! - `AccountManager`: Handles account removal
 //! - `SessionManager`: Manages session cleanup
 //! - `KernelInterface`: Reports deregistration results
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::deregister_packet;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! async fn handle_deregister(session: &CitadelSession, packet: HdpPacket) {
-//!     let header_entropy_bank_vers = 1;
-//!     match deregister_packet::process_deregister(session, packet, header_entropy_bank_vers).await {
-//!         Ok(result) => {
-//!             // Handle successful deregistration
-//!         }
-//!         Err(err) => {
-//!             // Handle deregistration error
-//!         }
-//!     }
-//! }
-//! ```
 
 use super::includes::*;
 use crate::error::NetworkError;

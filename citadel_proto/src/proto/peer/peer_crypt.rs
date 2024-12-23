@@ -15,28 +15,6 @@ This module implements the cryptographic key exchange and NAT traversal function
 - `PeerNatInfo`: Handles NAT-related information and compatibility
 - `TlsDomain`: Configures TLS settings for secure connections
 
-## Example Usage
-```rust
-// Stage 0: Alice initiates key exchange
-let stage0 = KeyExchangeProcess::Stage0(
-    public_key,
-    security_settings,
-    udp_mode
-);
-
-// Stage 1: Bob responds with encrypted data
-let stage1 = KeyExchangeProcess::Stage1(
-    ciphertext,
-    Some(peer_nat_info),
-    file_transfer_compatible
-);
-
-// Check NAT compatibility
-let (needs_turn, addr) = peer_nat_info.generate_proper_listener_connect_addr(
-    &local_nat_type
-);
-```
-
 ## Important Notes
 1. Key exchange follows a three-stage protocol for security
 2. NAT compatibility is checked before direct connections

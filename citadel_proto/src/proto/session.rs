@@ -23,23 +23,6 @@
 //! - **Session Key Rotation**: Automatic rotation based on configurable parameters
 //! - **Memory Security**: Sensitive data is securely zeroed when dropped
 //!
-//! ## Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::session::{CitadelSession, SessionInitParams};
-//!
-//! // Create session parameters
-//! let params = SessionInitParams::new()
-//!     .with_node_type(NodeType::Client)
-//!     .with_protocol(ConnectProtocol::Tcp);
-//!
-//! // Initialize the session
-//! let (shutdown_tx, session) = CitadelSession::new(params)?;
-//!
-//! // Execute the session with a network stream
-//! session.execute(stream, peer_addr)?;
-//! ```
-//!
 //! ## Security Considerations
 //!
 //! - All session data is encrypted using post-quantum cryptographic primitives
@@ -70,9 +53,9 @@ use netbeam::time_tracker::TimeTracker;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::constants::{
-    DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS,
-    HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS,
-    KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME,
+    FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN,
+    INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS,
+    LOGIN_EXPIRATION_TIME, REKEY_UPDATE_FREQUENCY_STANDARD,
 };
 use crate::error::NetworkError;
 use crate::kernel::RuntimeFuture;
@@ -1167,7 +1150,7 @@ impl<R: Ratchet> CitadelSession<R> {
             );
 
             if !is_server {
-                queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE), move |state_container| {
+                queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(REKEY_UPDATE_FREQUENCY_STANDARD), move |state_container| {
                     let ticket = kernel_ticket;
 
                     if state_container.state.is_connected() {

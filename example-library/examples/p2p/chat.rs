@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             my_user,
             "Name",
             "notsecurepassword",
-        )?
+        )
         .with_session_security_settings(session_security)
         .disable_udp()
         .build()?;
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     line = stdin.next_line() => {
                         match line {
                             Ok(Some(msg)) if !msg.is_empty() => {
-                                tx.send_message(msg.into_bytes().into()).await?;
+                                tx.send_message(msg.into_bytes()).await?;
                             }
                             Ok(None) => break, // EOF
                             _ => continue,

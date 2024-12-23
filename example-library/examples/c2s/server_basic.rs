@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If post-connection client-server bidirectional communication is needed, use a
     // `ClientConnectListenerKernel` instead which runs a closure each time a new connection is
     // established with a client
-    let kernel = server::empty::EmptyKernel;
+    let kernel = server::empty::EmptyKernel::default();
 
     // Build the server
     let node = DefaultNodeBuilder::default()

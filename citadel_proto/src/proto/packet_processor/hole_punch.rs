@@ -26,27 +26,6 @@
 //! - `HolePuncherPipe`: Handles connection establishment
 //! - `StackedRatchet`: Provides packet security
 //! - `ProxyManager`: Handles proxied connections
-//!
-//! # Example Usage
-//!
-//! ```no_run
-//! use citadel_proto::proto::packet_processor::hole_punch;
-//! use citadel_proto::proto::CitadelSession;
-//! use citadel_proto::proto::packet::HdpPacket;
-//!
-//! fn handle_hole_punch(session: &CitadelSession, packet: HdpPacket) {
-//!     let hr_version = 1;
-//!     let proxy_info = None;
-//!     match hole_punch::process_hole_punch(session, packet, hr_version, proxy_info) {
-//!         Ok(result) => {
-//!             // Handle successful hole punch
-//!         }
-//!         Err(err) => {
-//!             // Handle hole punch error
-//!         }
-//!     }
-//! }
-//! ```
 
 use super::includes::*;
 use crate::error::NetworkError;

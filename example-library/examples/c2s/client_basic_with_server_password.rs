@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "my_username",
             "My Name",
             "notsecurepassword",
-        )?
+        )
         .with_session_security_settings(session_security)
         .with_session_password(connect_password)
         .disable_udp()

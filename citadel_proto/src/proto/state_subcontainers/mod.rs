@@ -19,26 +19,6 @@ This module implements specialized state containers for managing different aspec
 - `rekey_container`: Handles key rotation states
 - `meta_expiry_container`: Manages state expiration
 
-## Example Usage
-```rust
-use citadel_proto::proto::state_subcontainers::{
-    ConnectState,
-    RegisterState,
-    PreConnectState,
-};
-
-// Initialize connection state
-let mut connect_state = ConnectState::default();
-connect_state.on_connect_packet_received();
-
-// Handle registration
-let mut register_state = RegisterState::default();
-register_state.on_register_packet_received();
-
-// Manage pre-connection
-let pre_connect = PreConnectState::default();
-```
-
 ## Important Notes
 1. Each state container manages a specific phase of connection
 2. State transitions should be handled atomically

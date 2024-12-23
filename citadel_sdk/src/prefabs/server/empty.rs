@@ -17,7 +17,7 @@
 //! use citadel_sdk::prefabs::server::empty::EmptyKernel;
 //!
 //! # fn main() -> Result<(), NetworkError> {
-//! let kernel = Box::new(EmptyKernel::default());
+//! let kernel = Box::new(EmptyKernel::<StackedRatchet>::default());
 //! # Ok(())
 //! # }
 //! ```

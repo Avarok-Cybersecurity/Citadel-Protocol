@@ -9,22 +9,6 @@
 //! - Maintains running totals of plaintext bytes sent
 //! - Thread-safe statistics accumulation
 //!
-//! # Usage
-//! ```rust
-//! use citadel_proto::proto::transfer_stats::TransferStats;
-//!
-//! // Create initial stats
-//! let mut stats = TransferStats::new(current_timestamp_ns, bytes_sent);
-//!
-//! // Update stats with new measurement
-//! let new_stats = TransferStats::new(new_timestamp_ns, new_bytes_sent);
-//! stats += new_stats;
-//!
-//! // Access calculated statistics
-//! println!("Transfer rate: {} bytes/sec", stats.transfer_rate);
-//! println!("Total bytes sent: {}", stats.total_plaintext_bytes_sent);
-//! ```
-//!
 //! # Important Notes
 //! - Timestamps are in nanoseconds for high precision rate calculations
 //! - Transfer rates are calculated in bytes per second

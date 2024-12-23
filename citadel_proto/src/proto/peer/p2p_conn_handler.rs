@@ -14,36 +14,7 @@ This module implements direct peer-to-peer connection handling and NAT traversal
 - `DirectP2PRemote`: Manages direct P2P connection state and lifecycle
 - `P2PInboundHandle`: Handles incoming P2P connections and related state
 - `attempt_simultaneous_hole_punch`: Implements NAT traversal via UDP hole punching
-
-## Example Usage
-```rust
-// Setup a non-initiator listener
-setup_listener_non_initiator(
-    local_bind_addr,
-    remote_addr,
-    session,
-    v_conn,
-    hole_punched_addr,
-    ticket,
-    udp_mode
-)?;
-
-// Attempt NAT traversal
-attempt_simultaneous_hole_punch(
-    peer_connection_type,
-    ticket,
-    session,
-    peer_nat_info,
-    session_cid,
-    kernel_tx,
-    channel_signal,
-    sync_time,
-    app,
-    encrypted_config_container,
-    client_config,
-    udp_mode
-)?;
-```
+- `PeerNatInfo`: Handles NAT detection and compatibility checking
 
 ## Important Notes
 1. Supports both TCP and UDP connections with automatic fallback
