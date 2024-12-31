@@ -26,7 +26,7 @@
 //!
 //! # Related Components
 //!
-//! - [`crate::streaming_crypt_scrambler`] - Uses secure buffers for streaming
+//! - [`crate::scramble::streaming_crypt_scrambler`] - Uses secure buffers for streaming
 //! - [`crate::packet_vector`] - Packet handling utilities
 //!
 

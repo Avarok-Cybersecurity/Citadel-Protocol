@@ -41,10 +41,10 @@
 //!
 //! # Related Components
 //!
-//! - [`crate::entropy_bank`] - Uses port mappings
+//! - [`crate::ratchets::entropy_bank`] - Uses port mappings
 //! - [`citadel_types::crypto::SecurityLevel`] - Security settings
 
-use crate::entropy_bank::DRILL_RANGE;
+use crate::ratchets::entropy_bank::DRILL_RANGE;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use std::fmt::{Display, Formatter};
@@ -62,6 +62,8 @@ pub enum CryptError<T = String> {
     OutOfBoundsError,
     /// This occurs if the byte-valued security level desired does not correspond to an actual [SecurityLevel]
     BadSecuritySetting,
+    /// Implies a component is no longer working
+    FatalError(String),
 }
 
 impl<T> CryptError<T> {
@@ -76,6 +78,7 @@ impl<T> CryptError<T> {
             CryptError::RekeyUpdateError(s) => s.into(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception".to_string(),
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string(),
+            CryptError::FatalError(s) => s,
         }
     }
 
@@ -89,6 +92,7 @@ impl<T> CryptError<T> {
             CryptError::RekeyUpdateError(s) => s.as_ref(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception",
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting",
+            CryptError::FatalError(s) => s.as_ref(),
         }
     }
 }

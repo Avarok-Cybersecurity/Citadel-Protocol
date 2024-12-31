@@ -46,7 +46,7 @@ pub enum DeclaredAuthenticationMode {
         full_name: String,
         argon: ArgonContainerType,
     },
-    Passwordless {
+    Transient {
         username: String,
         full_name: String,
     },
@@ -56,28 +56,28 @@ impl DeclaredAuthenticationMode {
     pub fn username(&self) -> &str {
         match self {
             Self::Argon { username, .. } => username.as_str(),
-            Self::Passwordless { username, .. } => username.as_str(),
+            Self::Transient { username, .. } => username.as_str(),
         }
     }
 
     pub fn full_name(&self) -> &str {
         match self {
             Self::Argon { full_name, .. } => full_name.as_str(),
-            Self::Passwordless { full_name, .. } => full_name.as_str(),
+            Self::Transient { full_name, .. } => full_name.as_str(),
         }
     }
 
     pub fn argon_container(&self) -> Option<&ArgonContainerType> {
         match self {
             Self::Argon { argon, .. } => Some(argon),
-            Self::Passwordless { .. } => None,
+            Self::Transient { .. } => None,
         }
     }
 
-    pub fn is_passwordless(&self) -> bool {
+    pub fn is_transient(&self) -> bool {
         match self {
             Self::Argon { .. } => false,
-            Self::Passwordless { .. } => true,
+            Self::Transient { .. } => true,
         }
     }
 }

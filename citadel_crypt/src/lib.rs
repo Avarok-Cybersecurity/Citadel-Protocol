@@ -44,10 +44,10 @@ pub mod prelude {
     pub use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     pub use citadel_pqcrypto::{bytes_in_place::EzBuffer, PostQuantumContainer};
 
-    pub use crate::entropy_bank::EntropyBank;
     pub use crate::misc::CryptError;
     pub use crate::packet_vector::PacketVector;
-    pub use crate::streaming_crypt_scrambler::FixedSizedSource;
+    pub use crate::ratchets::entropy_bank::EntropyBank;
+    pub use crate::scramble::streaming_crypt_scrambler::FixedSizedSource;
     pub use crate::toolset::Toolset;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_types::crypto::SecurityLevel;
@@ -57,8 +57,6 @@ pub mod prelude {
 pub mod argon;
 /// An abstraction binding the entropy_bank and the PQC
 pub mod endpoint_crypto_container;
-/// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
-pub mod entropy_bank;
 /// Error type
 pub mod misc;
 /// For endowing packets with coordinates
@@ -69,11 +67,10 @@ pub mod ratchets;
 pub mod scramble;
 /// For secure byte handling
 pub mod secure_buffer;
-/// Allows thread-pooled asynchronous and parallel file processing
-pub mod streaming_crypt_scrambler;
 
-/// `RatchetManager` provides a robust, sync-safe method to rekey across networks between two nodes
-pub mod ratchet_manager;
 pub mod sync_toggle;
 /// Provides entropy_bank management, update, and versioning. This is what's exposed to the citadel_user api. The entropy_banks themselves are abstracted beneath
 pub mod toolset;
+
+/// For secure messaging with concurrent ratcheting operations
+pub mod messsaging;

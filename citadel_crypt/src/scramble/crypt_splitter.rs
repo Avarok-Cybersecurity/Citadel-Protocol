@@ -19,7 +19,7 @@
 //! - Supports both encrypted and unencrypted packet transmission
 //!
 //! ## Related Components
-//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Provides cryptographic entropy
+//! - [`EntropyBank`](crate::ratchets::entropy_bank::EntropyBank): Provides cryptographic entropy
 //! - [`PacketVector`](crate::packet_vector::PacketVector): Handles packet orientation
 //! - [`Ratchet`](crate::ratchets::Ratchet): Manages encryption keys
 //! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): Post-quantum cryptography
@@ -35,9 +35,9 @@ use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 use rand::Rng;
 
-use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
+use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
 pub use citadel_types::prelude::ObjectId;
 #[cfg(not(target_family = "wasm"))]

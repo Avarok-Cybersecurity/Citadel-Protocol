@@ -52,7 +52,7 @@
 //!
 //! - [`PartitionedSecBuffer`] - Underlying buffer implementation
 //! - [`crate::packet_vector`] - Packet vector operations
-//! - [`crate::streaming_crypt_scrambler`] - Streaming encryption
+//! - [`crate::scramble::streaming_crypt_scrambler`] - Streaming encryption
 //!
 
 use crate::secure_buffer::partitioned_sec_buffer::{PartitionedSecBuffer, SliceHandle};

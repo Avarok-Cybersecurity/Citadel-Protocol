@@ -48,7 +48,7 @@
 //!
 //! # Related Components
 //!
-//! - [`crate::entropy_bank`] - Uses toggle for state transitions
+//! - [`crate::ratchets::entropy_bank`] - Uses toggle for state transitions
 //! - [`crate::ratchets::stacked::ratchet`] - Ratchet state management
 //!
 

@@ -60,8 +60,8 @@
 //! - [`crate::endpoint_crypto_container`] - Endpoint state management
 //!
 
-use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;
+use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::stacked::ratchet::constructor::StackedRatchetConstructor;
 use crate::ratchets::Ratchet;
 use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
@@ -175,8 +175,8 @@ pub mod constructor {
     use crate::endpoint_crypto_container::{
         AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
     };
-    use crate::entropy_bank::EntropyBank;
     use crate::prelude::CryptError;
+    use crate::ratchets::entropy_bank::EntropyBank;
     use crate::ratchets::stacked::ratchet::StackedRatchet;
     use arrayvec::ArrayVec;
     use citadel_pqcrypto::constructor_opts::{ConstructorOpts, ImpliedSecurityLevel};

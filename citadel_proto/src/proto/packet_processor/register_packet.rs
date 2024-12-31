@@ -31,10 +31,8 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
-use citadel_crypt::endpoint_crypto_container::{
-    AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
-};
-use citadel_crypt::prelude::ConstructorOpts;
+use citadel_crypt::endpoint_crypto_container::{AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto};
+use citadel_crypt::prelude::{ConstructorOpts, Toolset};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::serialization::SyncIO;
 
@@ -252,14 +250,14 @@ pub async fn process_register<R: Ratchet>(
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
                             std::mem::drop(state_container);
-
+                            let session_crypto_state = initialize_peer_session_crypto(stacked_ratchet.get_cid(), stacked_ratchet.clone(), true);
                             // we must now create the CNAC
                             async move {
                                 match account_manager
                                     .register_impersonal_hyperlan_client_network_account(
                                         conn_info,
                                         creds,
-                                        stacked_ratchet.clone(),
+                                        session_crypto_state,
                                     )
                                     .await
                                 {
@@ -355,10 +353,13 @@ pub async fn process_register<R: Ratchet>(
                             let account_manager = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
 
+                            let session_crypto_state = initialize_peer_session_crypto(stacked_ratchet.get_cid(), stacked_ratchet, false);
+
+
                             async move {
                                 match account_manager
                                     .register_personal_hyperlan_server(
-                                        stacked_ratchet,
+                                        session_crypto_state,
                                         credentials,
                                         conn_info,
                                     )
@@ -432,7 +433,6 @@ pub async fn process_register<R: Ratchet>(
                             error_message: String::from_utf8(error_message)
                                 .unwrap_or_else(|_| "Non-UTF8 error message".to_string()),
                         }))?;
-                        //session.needs_close_message.set(false);
                         session.shutdown();
                     } else {
                         log::error!(target: "citadel", "Error validating FAILURE packet");
@@ -456,4 +456,9 @@ pub async fn process_register<R: Ratchet>(
     };
 
     to_concurrent_processor!(task)
+}
+
+// Only for registration; does not start the messenger/ratchet manager
+fn initialize_peer_session_crypto<R: Ratchet>(cid: u64, initial_ratchet: R, is_server: bool) -> PeerSessionCrypto<R> {
+    PeerSessionCrypto::new(Toolset::new(cid, initial_ratchet), !is_server)
 }

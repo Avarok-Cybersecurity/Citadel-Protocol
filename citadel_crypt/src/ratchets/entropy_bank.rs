@@ -298,12 +298,12 @@ use zeroize::Zeroizing;
 /// A entropy bank is a fundamental dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
 pub struct EntropyBank {
-    pub(super) algorithm: EncryptionAlgorithm,
-    pub(super) version: u32,
-    pub(super) cid: u64,
-    pub(super) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
-    pub(super) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
-    pub(super) transient_counter: AtomicU64,
+    pub(crate) algorithm: EncryptionAlgorithm,
+    pub(crate) version: u32,
+    pub(crate) cid: u64,
+    pub(crate) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
+    pub(crate) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
+    pub(crate) transient_counter: AtomicU64,
 }
 
 /// Returns the approximate number of bytes needed to serialize a Drill

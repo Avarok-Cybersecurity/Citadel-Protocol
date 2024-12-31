@@ -50,15 +50,15 @@
 //!
 //! ## Related Components
 //! - [`FcmKeys`](super::keys::FcmKeys): FCM credential management
-//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Entropy source
+//! - [`EntropyBank`](crate::ratchets::entropy_bank::EntropyBank): Entropy source
 //! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): PQ crypto operations
 //! - [`Ratchet`](crate::ratchets::Ratchet): Base ratchet trait
 
 use crate::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor,
 };
-use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;
+use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
 use arrayvec::ArrayVec;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;

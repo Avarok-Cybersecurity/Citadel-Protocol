@@ -857,8 +857,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         self.updates_in_progress
             .insert(target_cid, endpoint_crypto.update_in_progress.clone());
-
-        //let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
+        
         let peer_channel = PeerChannel::new(
             self.node_remote.clone(),
             target_cid,
@@ -927,7 +926,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             is_active,
             to_primary_stream: session.to_primary_stream.clone().unwrap(),
             channel_signal: None,
-            peer_session_crypto: cnac.read().crypt_container.new_session(),
+            peer_session_crypto: cnac.get_session_crypto().new_session(),
         };
 
         let updates_in_progress = c2s.peer_session_crypto.update_in_progress.clone();

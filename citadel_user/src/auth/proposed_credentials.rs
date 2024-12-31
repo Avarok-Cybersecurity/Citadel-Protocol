@@ -195,7 +195,7 @@ impl ProposedCredentials {
 
     pub(crate) fn into_auth_store(self) -> DeclaredAuthenticationMode {
         match self {
-            Self::Disabled { username } => DeclaredAuthenticationMode::Passwordless {
+            Self::Disabled { username } => DeclaredAuthenticationMode::Transient {
                 username,
                 full_name: "authless.client".to_string(),
             },

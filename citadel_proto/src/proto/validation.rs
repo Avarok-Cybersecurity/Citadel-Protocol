@@ -363,7 +363,7 @@ pub(crate) mod pre_connect {
             new_stacked_ratchet.clone(),
         ));
 
-        cnac.replace_toolset(toolset);
+        cnac.on_session_init(toolset);
         Ok((
             static_auxiliary_ratchet,
             transfer,
@@ -401,7 +401,7 @@ pub(crate) mod pre_connect {
         let new_stacked_ratchet = alice_constructor.finish()?;
         let _ = new_stacked_ratchet.verify_level(lvl.into()).ok()?;
         let toolset = Toolset::from((static_auxiliary_ratchet, new_stacked_ratchet.clone()));
-        cnac.replace_toolset(toolset);
+        cnac.on_session_init(toolset);
         Some((new_stacked_ratchet, packet.nat_type))
     }
 

@@ -20,7 +20,7 @@
 //!
 //! ## Related Components
 //! - [`crypt_splitter`](crate::scramble::crypt_splitter): Core encryption and packet splitting
-//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Cryptographic entropy source
+//! - [`EntropyBank`](crate::ratchets::entropy_bank::EntropyBank): Cryptographic entropy source
 //! - [`PacketVector`](crate::packet_vector::PacketVector): Packet orientation management
 //! - [`StackedRatchet`](crate::ratchets::stacked::ratchet::StackedRatchet): Key management
 
@@ -33,8 +33,8 @@ use std::pin::Pin;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 
-use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::PacketVector;
+use crate::ratchets::entropy_bank::EntropyBank;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
 
 use crate::misc::CryptError;

@@ -55,44 +55,54 @@ use crate::endpoint_crypto_container::{
     EndpointRatchetConstructor, KemTransferStatus, PeerSessionCrypto,
 };
 use crate::misc::CryptError;
+use crate::prelude::Toolset;
 use crate::ratchets::Ratchet;
 use atomic::Atomic;
 use bytemuck::NoUninit;
 use citadel_io::tokio::sync::Mutex as TokioMutex;
 use citadel_io::tokio_stream::Stream;
-use citadel_io::{Mutex, RwLock};
+use citadel_io::{tokio, Mutex};
 use futures::{Sink, SinkExt, StreamExt};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-pub struct RatchetManager<S, I, R>
+pub struct RatchetManager<S, I, R, P: AttachedPayload = ()>
 where
     R: Ratchet,
 {
-    sender: Arc<TokioMutex<S>>,
+    pub(crate) sender: Arc<TokioMutex<S>>,
     receiver: Arc<Mutex<Option<I>>>,
-    container: Arc<RwLock<PeerSessionCrypto<R>>>,
+    pub(crate) session_crypto_state: PeerSessionCrypto<R>,
+    attached_payload_tx: UnboundedSender<P>,
+    attached_payload_rx: Arc<Mutex<Option<UnboundedReceiver<P>>>>,
+    rekey_done_notifier: Arc<Mutex<Option<UnboundedReceiver<R>>>>,
     cid: u64,
     psks: Arc<Vec<Vec<u8>>>,
     role: Arc<Atomic<RekeyRole>>,
     constructor: Arc<Mutex<Option<R::Constructor>>>,
     is_initiator: bool,
     state: Arc<Atomic<RekeyState>>,
-    local_listener:
-        Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<Option<CryptError>>>>>,
+    local_listener: LocalListener<R>,
 }
 
-impl<S, I, R: Ratchet> Clone for RatchetManager<S, I, R> {
+pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
+
+impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
             receiver: self.receiver.clone(),
-            container: self.container.clone(),
+            session_crypto_state: self.session_crypto_state.clone(),
             cid: self.cid,
             psks: self.psks.clone(),
             role: self.role.clone(),
+            attached_payload_tx: self.attached_payload_tx.clone(),
+            attached_payload_rx: self.attached_payload_rx.clone(),
+            rekey_done_notifier: self.rekey_done_notifier.clone(),
             constructor: self.constructor.clone(),
             is_initiator: self.is_initiator,
             state: self.state.clone(),
@@ -118,11 +128,14 @@ pub enum RekeyRole {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum RatchetMessage {
+pub enum RatchetMessage<P: AttachedPayload> {
     AliceToBob {
         payload: Vec<u8>,
         earliest_ratchet_version: u32,
         latest_ratchet_version: u32,
+        // Note: it is up to the underlying stream to handle encryption, if necessary, of the attached payload
+        #[serde(bound = "")]
+        attached_payload: Option<P>,
     }, // Serialized transfer
     BobToAlice(Vec<u8>, RekeyRole), // Serialized transfer + sender's role
     Truncate(u32),                  // Version to truncate
@@ -130,9 +143,11 @@ pub enum RatchetMessage {
         latest_version: u32,
     },
     LoserCanFinish,
+    #[serde(bound = "")]
+    JustMessage(P),
 }
 
-impl Debug for RatchetMessage {
+impl<P: AttachedPayload> Debug for RatchetMessage<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RatchetMessage::AliceToBob { .. } => write!(f, "AliceToBob"),
@@ -140,16 +155,46 @@ impl Debug for RatchetMessage {
             RatchetMessage::Truncate(_) => write!(f, "Truncate"),
             RatchetMessage::LeaderCanFinish { .. } => write!(f, "LeaderCanFinish"),
             RatchetMessage::LoserCanFinish => write!(f, "LoserCanFinish"),
+            RatchetMessage::JustMessage(_) => write!(f, "JustMessage"),
         }
     }
 }
 
-impl<S, I, R> RatchetManager<S, I, R>
+pub trait RatchetManagerSink<P: AttachedPayload>:
+    Sink<RatchetMessage<P>> + Send + Unpin + 'static
+{
+}
+
+impl<S, P: AttachedPayload> RatchetManagerSink<P> for S where
+    S: Sink<RatchetMessage<P>> + Send + Unpin + 'static
+{
+}
+
+pub trait RatchetManagerStream<P: AttachedPayload>:
+    Stream<Item = RatchetMessage<P>> + Send + Unpin + 'static
+{
+}
+impl<I, P: AttachedPayload> RatchetManagerStream<P> for I where
+    I: Stream<Item = RatchetMessage<P>> + Send + Unpin + 'static
+{
+}
+
+pub trait AttachedPayload: Send + Sync + 'static + Serialize + DeserializeOwned {}
+impl<T: Send + Sync + 'static + Serialize + DeserializeOwned> AttachedPayload for T {}
+
+pub type DefaultRatchetManager<E, R, P> = RatchetManager<
+    Box<dyn RatchetManagerSink<P, Error = E>>,
+    Box<dyn RatchetManagerStream<P>>,
+    R,
+    P,
+>;
+
+impl<S, I, R, P> RatchetManager<S, I, R, P>
 where
-    S: Sink<RatchetMessage> + Send + Unpin + 'static,
-    I: Stream<Item = RatchetMessage> + Send + Unpin + 'static,
+    S: RatchetManagerSink<P>,
+    I: RatchetManagerStream<P>,
     R: Ratchet,
-    <S as futures::Sink<RatchetMessage>>::Error: std::fmt::Debug,
+    P: AttachedPayload,
 {
     pub fn new<T: AsRef<[u8]>>(
         sender: S,
@@ -157,28 +202,53 @@ where
         container: PeerSessionCrypto<R>,
         psks: &[T],
     ) -> Self {
-        let cid = container.toolset.cid;
-        let is_initiator = container.local_is_initiator;
-
+        let cid = container.cid();
+        let is_initiator = container.local_is_initiator();
+        let (attached_payload_tx, attached_payload_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (rekey_done_notifier_tx, rekey_done_notifier) = tokio::sync::mpsc::unbounded_channel();
+        let rekey_done_notifier = Arc::new(Mutex::new(Some(rekey_done_notifier)));
         let this = Self {
             sender: Arc::new(TokioMutex::new(sender)),
             receiver: Arc::new(Mutex::new(Some(receiver))),
-            container: Arc::new(RwLock::new(container)),
+            session_crypto_state: container,
             cid,
             is_initiator,
             constructor: Arc::new(Mutex::new(None)),
+            attached_payload_tx,
+            attached_payload_rx: Arc::new(Mutex::new(Some(attached_payload_rx))),
+            rekey_done_notifier,
             psks: Arc::new(psks.iter().map(|psk| psk.as_ref().to_vec()).collect()),
             role: Arc::new(Atomic::new(RekeyRole::Idle)),
             state: Arc::new(Atomic::new(RekeyState::Idle)),
             local_listener: Arc::new(Mutex::new(None)),
         };
 
-        this.clone().spawn_rekey_process();
+        this.clone().spawn_rekey_process(rekey_done_notifier_tx);
         this
     }
 
-    /// Returns true if the re-key was a success, false if no re-key was needed
-    pub async fn trigger_rekey(&self) -> Result<bool, CryptError> {
+    pub fn new_from_components<T: AsRef<[u8]>>(
+        toolset: Toolset<R>,
+        local_is_initiator: bool,
+        sender: S,
+        receiver: I,
+        psks: &[T],
+    ) -> Self {
+        let container = PeerSessionCrypto::new(toolset, local_is_initiator);
+        Self::new(sender, receiver, container, psks)
+    }
+
+    /// Triggers a rekey without sending an attached payload
+    pub async fn trigger_rekey(&self) -> Result<(), CryptError> {
+        self.trigger_rekey_with_payload(None).await.map(|_| ())
+    }
+
+    /// Supposing the payload is Some: Returns Ok(None) if the payload was sent along with the rekey bundle,
+    /// otherwise, returns the attached payload for later use.
+    pub async fn trigger_rekey_with_payload(
+        &self,
+        attached_payload: Option<P>,
+    ) -> Result<Option<P>, CryptError> {
         log::info!(target: "citadel", "Client {} manually triggering rekey", self.cid);
         let state = self.state();
         if state == RekeyState::Halted {
@@ -189,14 +259,17 @@ where
 
         if self.role() != RekeyRole::Idle {
             // We are already in a rekey process
-            return Ok(false);
+            return Ok(attached_payload);
         }
 
         let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
-            let mut container = self.container.write();
-            let constructor = container.get_next_constructor();
-            let earliest_ratchet_version = container.toolset.get_oldest_stacked_ratchet_version();
-            let latest_ratchet_version = container.latest_usable_version;
+            let constructor = self.session_crypto_state.get_next_constructor();
+            let earliest_ratchet_version = self
+                .session_crypto_state
+                .toolset()
+                .read()
+                .get_oldest_stacked_ratchet_version();
+            let latest_ratchet_version = self.session_crypto_state.latest_usable_version();
             (
                 constructor,
                 earliest_ratchet_version,
@@ -219,30 +292,27 @@ where
                     payload,
                     earliest_ratchet_version,
                     latest_ratchet_version,
+                    attached_payload,
                 })
                 .await
-                .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
             log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
 
             *self.constructor.lock() = Some(constructor);
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
 
             *self.local_listener.lock() = Some(tx);
-            let err = rx.await.map_err(|_| {
+            let _res = rx.await.map_err(|_| {
                 CryptError::RekeyUpdateError("Failed to wait for local listener".to_string())
             })?;
 
-            if let Some(err) = err {
-                return Err(err);
-            }
-
-            Ok(true)
+            Ok(None)
         } else {
-            Ok(false)
+            Ok(attached_payload)
         }
     }
 
-    fn spawn_rekey_process(self) {
+    fn spawn_rekey_process(self, rekey_done_notifier_tx: tokio::sync::mpsc::UnboundedSender<R>) {
         struct DropWrapper {
             state: Arc<Atomic<RekeyState>>,
         }
@@ -257,6 +327,7 @@ where
             let _drop_wrapper = DropWrapper {
                 state: self.state.clone(),
             };
+
             let mut listener = { self.receiver.lock().take().unwrap() };
             loop {
                 self.set_state(RekeyState::Running);
@@ -264,15 +335,24 @@ where
                 self.set_state(RekeyState::Idle);
                 self.set_role(RekeyRole::Idle);
 
-                let err = result.err();
+                match result {
+                    Ok(latest_ratchet) => {
+                        // Alert any local callers waiting for rekeying to finish
+                        if let Err(_err) = rekey_done_notifier_tx.send(latest_ratchet.clone()) {
+                            log::warn!(target: "citadel", "Failed to send rekey done notification");
+                        }
 
-                if let Some(notifier) = self.local_listener.lock().take() {
-                    let _ = notifier.send(err.clone());
-                }
+                        // Alert any passive background listeners wanting to keep track of each
+                        // time a rekey finishes, independent of who initiated the rekey
+                        if let Some(notifier) = self.local_listener.lock().take() {
+                            let _ = notifier.send(latest_ratchet);
+                        }
+                    }
 
-                if let Some(err) = err {
-                    log::error!("cid {} rekey error: {err:?}", self.cid);
-                    continue;
+                    Err(err) => {
+                        log::error!("cid {} rekey error: {err:?}", self.cid);
+                        continue;
+                    }
                 }
             }
         };
@@ -283,7 +363,7 @@ where
     /// Runs a single round of re-keying, listening to events and returning
     /// once a single re-key occurs. This function is intended to be used in a loop
     /// to continuously be ready for re-keying.
-    async fn rekey(&self, receiver: &mut I) -> Result<(), CryptError> {
+    async fn rekey(&self, receiver: &mut I) -> Result<R, CryptError> {
         log::trace!(target: "citadel", "Client {} starting rekey with initial role {:?}", self.cid, self.role());
         let is_initiator = self.is_initiator;
         let mut completed_as_leader = false;
@@ -297,19 +377,27 @@ where
                     payload,
                     earliest_ratchet_version,
                     latest_ratchet_version,
+                    attached_payload,
                 }) => {
+                    if let Some(attached_payload) = attached_payload {
+                        let _ = self.attached_payload_tx.send(attached_payload);
+                    }
+
                     let status = {
                         log::debug!(target: "citadel", "Client {} received AliceToBob", self.cid);
-                        let mut container = self.container.write();
 
                         // Process the AliceToBob message as Bob
                         let transfer = bincode::deserialize(&payload)
                             .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
 
-                        let cid = container.toolset.cid;
-                        let local_earliest_ratchet_version =
-                            container.toolset.get_oldest_stacked_ratchet_version();
-                        let local_latest_ratchet_version = container.latest_usable_version;
+                        let cid = self.session_crypto_state.cid();
+                        let local_earliest_ratchet_version = self
+                            .session_crypto_state
+                            .toolset()
+                            .read()
+                            .get_oldest_stacked_ratchet_version();
+                        let local_latest_ratchet_version =
+                            self.session_crypto_state.latest_usable_version();
 
                         if earliest_ratchet_version != local_earliest_ratchet_version {
                             log::warn!(target: "citadel", "Client {cid}: Earliest declared ratchet versions do not match. Local: {local_earliest_ratchet_version}, Peer: {earliest_ratchet_version}");
@@ -322,7 +410,8 @@ where
                         }
 
                         // Get next_opts from the container
-                        let next_opts = container
+                        let next_opts = self
+                            .session_crypto_state
                             .get_ratchet(None)
                             .ok_or_else(|| {
                                 CryptError::RekeyUpdateError(
@@ -342,7 +431,8 @@ where
                                 )
                             })?;
 
-                        container.update_sync_safe(bob_constructor, false)?
+                        self.session_crypto_state
+                            .update_sync_safe(bob_constructor, false)?
                     };
 
                     match status {
@@ -353,10 +443,9 @@ where
                             log::trace!(target: "citadel", "Client {} must send BobToAlice", self.cid);
 
                             {
-                                let container = self.container.write();
+                                let container = &self.session_crypto_state;
                                 let _ = container.update_in_progress.toggle_on_if_untoggled();
                                 self.set_role(RekeyRole::Loser);
-                                drop(container);
                             }
 
                             self.sender
@@ -364,7 +453,9 @@ where
                                 .await
                                 .send(RatchetMessage::BobToAlice(serialized, RekeyRole::Loser))
                                 .await
-                                .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                                .map_err(|_err| {
+                                    CryptError::RekeyUpdateError("Sink send error".into())
+                                })?;
                             log::debug!(
                                 target: "citadel",
                                 "Client {} is {:?}. Sent BobToAlice",
@@ -425,8 +516,7 @@ where
 
                         alice_constructor.stage1_alice(transfer, &self.psks)?;
                         let status = {
-                            self.container
-                                .write()
+                            self.session_crypto_state
                                 .update_sync_safe(alice_constructor, true)?
                         };
 
@@ -440,8 +530,7 @@ where
                         if expected_status {
                             if let Some(version_to_truncate) = truncation_required {
                                 {
-                                    self.container
-                                        .write()
+                                    self.session_crypto_state
                                         .deregister_oldest_stacked_ratchet(version_to_truncate)?;
                                 }
 
@@ -450,8 +539,8 @@ where
                                     .await
                                     .send(RatchetMessage::Truncate(version_to_truncate))
                                     .await
-                                    .map_err(|err| {
-                                        CryptError::RekeyUpdateError(format!("{err:?}"))
+                                    .map_err(|_err| {
+                                        CryptError::RekeyUpdateError("Sink send error".into())
                                     })?;
                                 // We need to wait to be marked as complete
                             } else {
@@ -461,8 +550,8 @@ where
                                     .await
                                     .send(RatchetMessage::LoserCanFinish)
                                     .await
-                                    .map_err(|err| {
-                                        CryptError::RekeyUpdateError(format!("{err:?}"))
+                                    .map_err(|_err| {
+                                        CryptError::RekeyUpdateError("Sink send error".into())
                                     })?;
                             }
                         } else {
@@ -488,14 +577,14 @@ where
                     }
 
                     let latest_version = {
-                        let mut container = self.container.write();
+                        let container = &self.session_crypto_state;
                         container.deregister_oldest_stacked_ratchet(version_to_truncate)?;
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
                             .expect("Failed to fetch ratchet")
                             .version();
-                        let latest_version = container.latest_usable_version;
+                        let latest_version = container.latest_usable_version();
                         if latest_actual_ratchet_version != latest_version {
                             log::warn!(target:"citadel", "Client {} received Truncate, but, update failed. Actual: {latest_actual_ratchet_version}, Expected: {latest_version} ", self.cid);
                         }
@@ -509,7 +598,7 @@ where
                         .await
                         .send(RatchetMessage::LeaderCanFinish { latest_version })
                         .await
-                        .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                        .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
                     break;
                 }
 
@@ -525,13 +614,13 @@ where
                     log::debug!(target: "citadel", "Client {} received LoserCanFinish", self.cid);
 
                     let latest_version = {
-                        let mut container = self.container.write();
+                        let container = &self.session_crypto_state;
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
                             .expect("Failed to fetch ratchet")
                             .version();
-                        let latest_version = container.latest_usable_version;
+                        let latest_version = container.latest_usable_version();
                         if latest_actual_ratchet_version != latest_version {
                             log::warn!(target:"citadel", "Client {} received LoserCanFinish but, update failed. Actual: {latest_actual_ratchet_version}, Expected: {latest_version} ", self.cid);
                         }
@@ -546,15 +635,12 @@ where
                         .await
                         .send(RatchetMessage::LeaderCanFinish { latest_version })
                         .await
-                        .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                        .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
                     break;
                 }
 
                 Some(RatchetMessage::LeaderCanFinish { latest_version }) => {
-                    let our_latest_version = {
-                        let container = self.container.read();
-                        container.latest_usable_version
-                    };
+                    let our_latest_version = self.session_crypto_state.latest_usable_version();
 
                     log::debug!("Client {} received LeaderCanFinish w/ latest_version = {latest_version} | our latest version: {our_latest_version}", self.cid);
                     // Allow Leader if contention, or Idle if no contention
@@ -567,20 +653,27 @@ where
                     }
 
                     {
-                        let mut container = self.container.write();
+                        let container = &self.session_crypto_state;
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
                             .expect("Failed to fetch ratchet")
                             .version();
-                        let latest_declared_version = container.latest_usable_version;
+                        let latest_declared_version = container.latest_usable_version();
                         if latest_actual_ratchet_version != latest_declared_version {
-                            log::warn!(target:"citadel", "Client {} received Truncate, desynced. Actual: {latest_actual_ratchet_version}, Expected: {latest_declared_version} ", self.cid);
+                            log::warn!(target: "citadel", "Client {} received Truncate, desynced. Actual: {latest_actual_ratchet_version}, Expected: {latest_declared_version} ", self.cid);
                         }
                     }
 
                     completed_as_leader = true;
                     break;
+                }
+
+                Some(RatchetMessage::JustMessage(message)) => {
+                    // If we receive a message, just forward it to the attached payload stream
+                    if self.attached_payload_tx.send(message).is_err() {
+                        log::warn!(target:"citadel", "Attached payload send error");
+                    }
                 }
 
                 None => {
@@ -591,24 +684,33 @@ where
             }
         }
 
+        let latest_ratchet = self.get_ratchet(None).unwrap();
         log::debug!(
             target: "citadel",
             "Client {} completed re-key. Alice: {}, Bob: {}. Final version: {}. Final Declared Version: {}. Is initiator: {}",
             self.cid,
             completed_as_leader,
             completed_as_loser,
-            self.get_ratchet(None).unwrap().version(),
-            self.container.read().latest_usable_version,
+            latest_ratchet.version(),
+            self.session_crypto_state.latest_usable_version(),
             is_initiator
         );
 
-        log::debug!(target: "citadel", "*** cid {} rekey completed", self.cid);
+        log::debug!(target: "citadel", "*** Client {} rekey completed ***", self.cid);
 
-        Ok(())
+        Ok(latest_ratchet)
+    }
+
+    pub fn take_payload_rx(&self) -> Option<UnboundedReceiver<P>> {
+        self.attached_payload_rx.lock().take()
+    }
+
+    pub fn take_on_rekey_finished_event_listener(&self) -> Option<UnboundedReceiver<R>> {
+        self.rekey_done_notifier.lock().take()
     }
 
     pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
-        self.container.read().get_ratchet(version).cloned()
+        self.session_crypto_state.get_ratchet(version)
     }
 
     pub fn role(&self) -> RekeyRole {
@@ -633,14 +735,14 @@ where
 mod tests {
     use crate::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
     use crate::prelude::Toolset;
-    use crate::ratchet_manager::{RatchetManager, RatchetMessage};
+    use crate::ratchets::ratchet_manager::{
+        RatchetManager, RatchetManagerSink, RatchetManagerStream,
+    };
     use crate::ratchets::stacked::ratchet::StackedRatchet;
     use crate::ratchets::Ratchet;
     use citadel_io::tokio;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_types::prelude::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
-    use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-    use futures::{Sink, Stream};
     use rstest::rstest;
     use std::time::Duration;
 
@@ -680,8 +782,11 @@ mod tests {
         (alice_container, bob_container)
     }
 
-    type TestRatchetManager<R> =
-        RatchetManager<UnboundedSender<RatchetMessage>, UnboundedReceiver<RatchetMessage>, R>;
+    type TestRatchetManager<R> = RatchetManager<
+        Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
+        Box<dyn RatchetManagerStream<()>>,
+        R,
+    >;
 
     fn create_ratchet_managers<R: Ratchet>() -> (TestRatchetManager<R>, TestRatchetManager<R>) {
         let security_level = SecurityLevel::Standard;
@@ -695,8 +800,20 @@ mod tests {
         let (tx_alice, rx_bob) = futures::channel::mpsc::unbounded();
         let (tx_bob, rx_alice) = futures::channel::mpsc::unbounded();
 
-        let alice_manager = RatchetManager::new(tx_alice, rx_alice, alice_container, TEST_PSKS);
-        let bob_manager = RatchetManager::new(tx_bob, rx_bob, bob_container, TEST_PSKS);
+        let alice_manager = RatchetManager::new(
+            Box::new(tx_alice)
+                as Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
+            Box::new(rx_alice) as Box<dyn RatchetManagerStream<()>>,
+            alice_container,
+            TEST_PSKS,
+        );
+        let bob_manager = RatchetManager::new(
+            Box::new(tx_bob)
+                as Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
+            Box::new(rx_bob) as Box<dyn RatchetManagerStream<()>>,
+            bob_container,
+            TEST_PSKS,
+        );
         (alice_manager, bob_manager)
     }
 
@@ -713,35 +830,31 @@ mod tests {
         assert_eq!(bob_container.get_ratchet(None).unwrap().get_cid(), bob_cid);
 
         let start_version = alice_container
-            .toolset
+            .toolset()
+            .read()
             .get_most_recent_stacked_ratchet_version();
         let new_version = start_version + 1;
         let new_version_bob = bob_container
-            .toolset
+            .toolset()
+            .read()
             .get_most_recent_stacked_ratchet_version()
             + 1;
         assert_eq!(new_version, new_version_bob);
         (start_version, new_version)
     }
 
-    async fn run_round_racy<
-        S: Sink<RatchetMessage> + Unpin + Send + 'static,
-        I: Stream<Item = RatchetMessage> + Unpin + Send + 'static,
-        R: Ratchet,
-    >(
+    async fn run_round_racy<S: RatchetManagerSink<()>, I: RatchetManagerStream<()>, R: Ratchet>(
         container_0: RatchetManager<S, I, R>,
         container_1: RatchetManager<S, I, R>,
         container_0_delay: Option<Duration>,
-    ) where
-        <S as futures::Sink<RatchetMessage>>::Error: std::fmt::Debug,
-    {
+    ) {
         let cid_0 = container_0.cid;
         let cid_1 = container_1.cid;
 
         let (_start_version, _next_version) = pre_round_assertions(
-            &*container_0.container.read(),
+            &container_0.session_crypto_state,
             cid_0,
-            &*container_1.container.read(),
+            &container_1.session_crypto_state,
             cid_1,
         );
 
@@ -776,36 +889,34 @@ mod tests {
         let (alice_result, bob_result) = tokio::join!(alice_handle, bob_handle);
 
         // Update original containers with final state
-        let _rekey_0_res = alice_result.unwrap().unwrap();
-        let _rekey_1_res = bob_result.unwrap().unwrap();
+        alice_result.unwrap().unwrap();
+        bob_result.unwrap().unwrap();
 
         post_checks(&container_0, &container_1);
         log::info!(target: "citadel", "~~~~ Round ended! ~~~~");
     }
 
     async fn run_round_one_node_only<
-        S: Sink<RatchetMessage> + Unpin + Send + 'static,
-        I: Stream<Item = RatchetMessage> + Unpin + Send + 'static,
+        S: RatchetManagerSink<()>,
+        I: RatchetManagerStream<()>,
         R: Ratchet,
     >(
         container_0: RatchetManager<S, I, R>,
         container_1: RatchetManager<S, I, R>,
-    ) where
-        <S as futures::Sink<RatchetMessage>>::Error: std::fmt::Debug,
-    {
+    ) {
         let cid_0 = container_0.cid;
         let cid_1 = container_1.cid;
 
         let (_start_version, _next_version) = pre_round_assertions(
-            &*container_0.container.read(),
+            &container_0.session_crypto_state,
             cid_0,
-            &*container_1.container.read(),
+            &container_1.session_crypto_state,
             cid_1,
         );
 
         let task = |container: RatchetManager<S, I, R>, skip: bool| async move {
             if skip {
-                return Ok(false);
+                return Ok(());
             }
             let res = container.trigger_rekey().await;
             log::debug!(target: "citadel", "*** [FINISHED] Client {} rekey result: {res:?}", container.cid);
@@ -831,10 +942,8 @@ mod tests {
         let (alice_result, bob_result) = tokio::join!(alice_handle, bob_handle);
 
         // Update original containers with final state
-        let rekey_0_res = alice_result.unwrap().unwrap();
-        let rekey_1_res = bob_result.unwrap().unwrap();
-        assert_eq!(rekey_0_res, !alice_skips);
-        assert_eq!(rekey_1_res, !bob_skips);
+        alice_result.unwrap().unwrap();
+        bob_result.unwrap().unwrap();
 
         post_checks(&container_0, &container_1);
     }
@@ -859,21 +968,16 @@ mod tests {
         assert_eq!(test_message.to_vec(), decrypted);
     }
 
-    fn post_checks<
-        S: Sink<RatchetMessage> + Unpin + Send + 'static,
-        I: Stream<Item = RatchetMessage> + Unpin + Send + 'static,
-        R: Ratchet,
-    >(
+    fn post_checks<S: RatchetManagerSink<()>, I: RatchetManagerStream<()>, R: Ratchet>(
         container_0: &RatchetManager<S, I, R>,
         container_1: &RatchetManager<S, I, R>,
-    ) where
-        <S as futures::Sink<RatchetMessage>>::Error: std::fmt::Debug,
-    {
+    ) {
         // Verify final state
         let cid_0 = container_0.cid;
         let cid_1 = container_1.cid;
-        let alice_declared_latest_version = container_0.container.read().latest_usable_version;
-        let bob_declared_latest_version = container_1.container.read().latest_usable_version;
+        let alice_declared_latest_version =
+            container_0.session_crypto_state.latest_usable_version();
+        let bob_declared_latest_version = container_1.session_crypto_state.latest_usable_version();
         assert_eq!(alice_declared_latest_version, bob_declared_latest_version);
         let alice_ratchet = container_0.get_ratchet(None).unwrap();
         let bob_ratchet = container_1.get_ratchet(None).unwrap();
@@ -882,9 +986,9 @@ mod tests {
         let alice_ratchet_version = alice_ratchet.version();
 
         ratchet_encrypt_decrypt_test(
-            &*container_0.container.read(),
+            &container_0.session_crypto_state,
             cid_0,
-            &*container_1.container.read(),
+            &container_1.session_crypto_state,
             cid_1,
             alice_ratchet_version,
         );
@@ -902,11 +1006,11 @@ mod tests {
         }
 
         assert_eq!(
-            alice_manager.container.read().latest_usable_version,
+            alice_manager.session_crypto_state.latest_usable_version(),
             ROUNDS as u32
         );
         assert_eq!(
-            bob_manager.container.read().latest_usable_version,
+            bob_manager.session_crypto_state.latest_usable_version(),
             ROUNDS as u32
         );
     }
@@ -939,11 +1043,11 @@ mod tests {
         }
 
         assert_eq!(
-            alice_manager.container.read().latest_usable_version,
+            alice_manager.session_crypto_state.latest_usable_version(),
             ROUNDS as u32
         );
         assert_eq!(
-            bob_manager.container.read().latest_usable_version,
+            bob_manager.session_crypto_state.latest_usable_version(),
             ROUNDS as u32
         );
     }

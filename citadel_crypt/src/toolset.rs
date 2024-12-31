@@ -20,7 +20,7 @@
 //!
 //! ## Related Components
 //! - [`StackedRatchet`](crate::ratchets::stacked::ratchet::StackedRatchet): Core ratchet implementation
-//! - [`EntropyBank`](crate::entropy_bank::EntropyBank): Entropy source for ratchets
+//! - [`EntropyBank`](crate::ratchets::entropy_bank::EntropyBank): Entropy source for ratchets
 //! - [`CryptError`](crate::misc::CryptError): Error handling for cryptographic operations
 //! - [`ClientNetworkAccount`]: High-level account management
 
@@ -39,7 +39,7 @@ use std::ops::RangeInclusive;
 #[cfg(debug_assertions)]
 pub const MAX_RATCHETS_IN_MEMORY: usize = 6;
 #[cfg(not(debug_assertions))]
-pub const MAX_RATCHETS_IN_MEMORY: usize = 128;
+pub const MAX_RATCHETS_IN_MEMORY: usize = 32;
 
 /// The reserved version for the static aux ratchet
 pub const STATIC_AUX_VERSION: u32 = 0;

@@ -551,7 +551,7 @@ pub mod prelude {
     pub use crate::auth::AuthenticationRequest;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
-    pub use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+    pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
     pub use citadel_types::crypto::EncryptionAlgorithm;
     pub use citadel_types::crypto::KemAlgorithm;
     pub use citadel_types::crypto::SecurityLevel;

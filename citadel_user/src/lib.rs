@@ -89,7 +89,7 @@ pub mod prelude {
     pub use crate::client_account::*;
     pub use crate::connection_metadata::*;
     pub use crate::hypernode_account::*;
-    pub use citadel_crypt::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
+    pub use citadel_crypt::scramble::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
 }
 
 /// Serde and others

@@ -98,6 +98,7 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
+use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::mono::MonoRatchet;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
@@ -202,7 +203,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         &self,
         conn_info: ConnectionInfo,
         creds: ProposedCredentials,
-        init_stacked_ratchet: R,
+        session_crypto_state: PeerSessionCrypto<R>,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let reserved_cid = self
             .persistence_handler
@@ -235,7 +236,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             false,
             conn_info,
             auth_store,
-            init_stacked_ratchet,
+            session_crypto_state,
         )
         .await?;
         log::trace!(target: "citadel", "Created impersonal CNAC ...");
@@ -248,7 +249,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// HyperLAN Client (Alice) runs this function below
     pub async fn register_personal_hyperlan_server(
         &self,
-        stacked_ratchet: R,
+        session_crypto_state: PeerSessionCrypto<R>,
         creds: ProposedCredentials,
         conn_info: ConnectionInfo,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
@@ -258,7 +259,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let client_auth_store = creds.into_auth_store();
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             valid_cid,
-            stacked_ratchet,
+            session_crypto_state,
             client_auth_store,
             conn_info,
         )

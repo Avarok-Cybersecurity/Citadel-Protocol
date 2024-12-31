@@ -103,7 +103,7 @@ use crate::proto::transfer_stats::TransferStats;
 use bytemuck::NoUninit;
 use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
-use citadel_crypt::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
+use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
@@ -1159,7 +1159,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
 
                         let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
-                            if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
+                            if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator() && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
                                 Some(vconn.1.connection_type)
                             } else {
                                 None
@@ -1465,7 +1465,8 @@ impl<R: Ratchet> CitadelSession<R> {
                 let group_id_start = crypt_container.get_and_increment_group_id();
                 let latest_hr = crypt_container.get_ratchet(None).cloned().unwrap();
                 let static_aux_ratchet = crypt_container
-                    .toolset
+                    .toolset()
+                    .read()
                     .get_static_auxiliary_ratchet()
                     .clone();
 
@@ -1508,7 +1509,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                 let amt_to_reserve = groups_needed.saturating_sub(1);
-                crypt_container.rolling_group_id += amt_to_reserve as u64;
+                crypt_container.incrementing_group_id += amt_to_reserve as u64;
                 let file_header = packet_crafter::file::craft_file_header_packet(
                     &latest_hr,
                     group_id_start,
@@ -1543,7 +1544,8 @@ impl<R: Ratchet> CitadelSession<R> {
                     .unwrap()
                     .peer_session_crypto;
                 let static_aux_ratchet = crypt_container_c2s
-                    .toolset
+                    .toolset()
+                    .read()
                     .get_static_auxiliary_ratchet()
                     .clone();
 
@@ -1621,7 +1623,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                 let amt_to_reserve = groups_needed.saturating_sub(1);
-                endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
+                endpoint_container.endpoint_crypto.incrementing_group_id += amt_to_reserve as u64;
 
                 (
                     preferred_primary_stream,
@@ -1900,7 +1902,6 @@ impl<R: Ratchet> CitadelSession<R> {
                     let mut state_container = inner_mut_state!(this.state_container);
 
                     match request {
-                        // (ticket, message, v_target, security_level)
                         SessionRequest::SendMessage {
                             ticket,
                             packet,
@@ -2063,7 +2064,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 .get_ratchet(None)
                 .unwrap();
             let packet = super::packet_crafter::peer_cmd::craft_peer_signal(
-                stacked_ratchet,
+                &stacked_ratchet,
                 signal_processed,
                 ticket,
                 timestamp,

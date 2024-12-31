@@ -48,7 +48,6 @@
 //! * [`AccountError`] - Error handling for account operations
 //! * [`Ratchet`] - Cryptographic operations for account security
 
-use crate::client_account::ClientNetworkAccountInner;
 use crate::directory_store::*;
 use crate::hypernode_account::CNAC_SERIALIZED_EXTENSION;
 use crate::misc::AccountError;
@@ -64,11 +63,11 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
     let hyxe_nac_dir_impersonal = ds.nac_dir_impersonal.as_str();
     let hyxe_nac_dir_personal = ds.nac_dir_personal.as_str();
 
-    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(
+    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccount<R, Fcm>, _>(
         CNAC_SERIALIZED_EXTENSION,
         hyxe_nac_dir_impersonal,
     )?;
-    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(
+    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccount<R, Fcm>, _>(
         CNAC_SERIALIZED_EXTENSION,
         hyxe_nac_dir_personal,
     )?;
@@ -77,9 +76,9 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
     Ok(cnacs_impersonal
         .into_iter()
         .chain(cnacs_personal)
-        .map(|r| {
-            let cid = r.0.cid;
-            (cid, r.0.into())
+        .map(|(cnac, _path)| {
+            let cid = cnac.get_cid();
+            (cid, cnac)
         })
         .collect())
 }

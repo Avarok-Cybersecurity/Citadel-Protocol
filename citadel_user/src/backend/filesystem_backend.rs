@@ -38,7 +38,7 @@ use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;
-use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio;
 use citadel_io::tokio_stream::StreamExt;
 use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMetadata};

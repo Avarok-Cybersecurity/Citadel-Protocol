@@ -75,7 +75,7 @@ use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode, SessionInitParams,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
-use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::ConnectMode;

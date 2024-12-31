@@ -34,11 +34,11 @@ use crate::backend::memory::no_backend_streaming;
 use crate::backend::{BackendConnection, BackendType};
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
+use crate::prelude::{AccountState, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
-use citadel_crypt::ratchets::mono::ratchet::MonoRatchet;
-use citadel_crypt::ratchets::stacked::ratchet::StackedRatchet;
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
@@ -109,6 +109,12 @@ pub struct SqlConnectionOptions {
     pub max_lifetime: Option<Duration>,
     /// Create and release (CAR) mode. Holding connections pools may be undesirable for certain platforms with execution restrictions, thus, CAR mode does not keep connections
     pub car_mode: Option<bool>,
+}
+
+impl From<sqlx::Error> for AccountError {
+    fn from(e: sqlx::Error) -> Self {
+        AccountError::IoError(e.to_string())
+    }
 }
 
 impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
@@ -238,7 +244,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
-        let serded = cnac.generate_proper_bytes()?;
+        let bytes = cnac.generate_proper_bytes()?;
 
         let metadata = cnac.get_metadata();
 
@@ -269,7 +275,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         args.add(metadata.username);
         args.add(metadata.full_name);
         args.add(metadata.creation_date);
-        args.add(serded);
+        args.add(bytes);
 
         let _query = sqlx::query_with(query.as_str(), args)
             .execute(conn)
@@ -874,8 +880,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
             let bin = row.try_get::<Vec<u8>, _>("bin")?;
-            let cnac_inner =
-                ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
+            let cnac_inner = ClientNetworkAccount::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             Ok(Some(cnac_inner.into()))
         } else {
             Ok(None)
@@ -992,7 +997,7 @@ pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountEr
         }
         AnyTypeInfoKind::Blob => {
             let blob = row.try_get::<Vec<u8>, _>(key)?;
-            let blob = String::from_utf8(blob)?;
+            let blob = String::from_utf8(blob).map_err(|err| AccountError::msg(err.to_string()))?;
             Ok(blob)
         }
         res => Err(AccountError::Generic(format!(

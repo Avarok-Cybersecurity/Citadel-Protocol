@@ -1,15 +1,19 @@
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-use crate::entropy_bank::EntropyBank;
 use crate::misc::CryptError;
 use bytes::BytesMut;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_pqcrypto::PostQuantumContainer;
 use citadel_types::crypto::SecurityLevel;
+use entropy_bank::EntropyBank;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
+/// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
+pub mod entropy_bank;
 pub mod mono;
+/// `RatchetManager` provides a robust, sync-safe method to rekey across networks between two nodes
+pub mod ratchet_manager;
 pub mod stacked;
 
 /// For allowing registration inside the toolset

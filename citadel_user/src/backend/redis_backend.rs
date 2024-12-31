@@ -34,12 +34,13 @@ use crate::backend::memory::no_backend_streaming;
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
+use crate::prelude::{AccountState, HYPERLAN_IDX};
 use crate::serialization::SyncIO;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
+use futures::TryFutureExt;
 use mobc::async_trait;
 use mobc::Manager;
 use mobc::Pool;
@@ -757,6 +758,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
             .get_conn()
             .await?
             .hget::<_, _, Option<Vec<u8>>>(get_cid_to_cnac_key(), cid)
+            .map_err(|err| AccountError::msg(err.to_string()))
             .await?
         {
             self.cnac_bytes_to_cnac(value).map(Some)
@@ -769,9 +771,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
         &self,
         bytes: Vec<u8>,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        let deserialized =
-            ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(bytes.as_ref())?;
-        Ok(deserialized.into())
+        ClientNetworkAccount::<R, Fcm>::deserialize_from_vector(bytes.as_ref())
     }
 
     async fn get_conn(&self) -> Result<redis_base::aio::Connection, AccountError> {

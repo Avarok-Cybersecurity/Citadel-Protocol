@@ -7,9 +7,9 @@ mod tests {
     };
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     #[cfg(not(target_family = "wasm"))]
-    use citadel_crypt::entropy_bank::EntropyBank;
-    #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::packet_vector::PacketVector;
+    #[cfg(not(target_family = "wasm"))]
+    use citadel_crypt::ratchets::entropy_bank::EntropyBank;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
@@ -907,7 +907,7 @@ mod tests {
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
 
-        use citadel_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
+        use citadel_crypt::scramble::streaming_crypt_scrambler::scramble_encrypt_source;
 
         let (alice, bob) = gen::<StackedRatchet>(
             0,

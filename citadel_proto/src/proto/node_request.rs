@@ -27,7 +27,7 @@
 use crate::auth::AuthenticationRequest;
 use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;
-use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{ConnectMode, SessionSecuritySettings, UdpMode};

@@ -50,7 +50,7 @@
 //! - [`crate::secure_buffer::sec_packet`] - Packet buffer implementation
 //!
 
-use crate::entropy_bank::EntropyBank;
+use crate::ratchets::entropy_bank::EntropyBank;
 use num_integer::Integer;
 use zeroize::ZeroizeOnDrop;
 
