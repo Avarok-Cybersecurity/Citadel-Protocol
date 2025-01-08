@@ -1,6 +1,6 @@
 [package]
 name = "citadel_proto"
-version = "0.11.3"
+version = "0.11.4"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Networking library for the Citadel Protocol"
 edition = "2021"
