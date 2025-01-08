@@ -40,6 +40,8 @@ jobs:
 
       - name: Publish version
         run: |
+          git config user.email "bot@avarok.net"
+          git config user.name "crates.io bot"
           if [ "${{ github.event.inputs.version_type }}" = "patch" ]; then
             cargo make publish-patch
           elif [ "${{ github.event.inputs.version_type }}" = "minor" ]; then
