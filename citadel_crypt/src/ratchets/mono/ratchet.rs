@@ -77,6 +77,15 @@ pub struct MonoRatchet {
     inner: Arc<MonoRatchetInner>,
 }
 
+impl Debug for MonoRatchet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MonoRatchet")
+            .field("cid", &self.get_cid())
+            .field("version", &self.version())
+            .finish()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct MonoRatchetInner {
     entropy_bank: EntropyBank,

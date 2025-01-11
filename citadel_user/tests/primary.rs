@@ -49,9 +49,11 @@ mod tests {
                 .get_persistence_handler()
                 .get_cid_by_username(username);
             let (client_hr, server_hr) = gen(cid, 0, None);
-            let server_session_crypto_state = PeerSessionCrypto::new(Toolset::new(cid, server_hr), false);
-            let client_session_crypto_state = PeerSessionCrypto::new(Toolset::new(cid, client_hr), true);
-            
+            let server_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, server_hr), false);
+            let client_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, client_hr), true);
+
             let server_vers = self
                 .server_acc_mgr
                 .register_impersonal_hyperlan_client_network_account(
@@ -103,9 +105,11 @@ mod tests {
                 .get_persistence_handler()
                 .get_cid_by_username(username);
             let (client_hr, server_hr) = gen(cid, 0, None);
-            let server_session_crypto_state = PeerSessionCrypto::new(Toolset::new(cid, server_hr), false);
-            let client_session_crypto_state = PeerSessionCrypto::new(Toolset::new(cid, client_hr), true);
-            
+            let server_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, server_hr), false);
+            let client_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, client_hr), true);
+
             let _server_vers = self
                 .server_acc_mgr
                 .register_impersonal_hyperlan_client_network_account(

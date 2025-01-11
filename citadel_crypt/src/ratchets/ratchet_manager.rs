@@ -17,8 +17,7 @@
 //!
 //! ```rust,no_run
 //! use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
-//! use citadel_crypt::ratchet_manager::{RatchetManager, RatchetMessage};
-//! use futures::{Sink, Stream};
+//! use citadel_crypt::ratchets::ratchet_manager::{RatchetManager, RatchetMessage, RatchetManagerSink, RatchetManagerStream};
 //! use citadel_crypt::ratchets::Ratchet;
 //!
 //! async fn example<S, I, R>(
@@ -28,9 +27,8 @@
 //!     psks: &[Vec<u8>]
 //! ) -> Result<(), Box<dyn std::error::Error>>
 //! where
-//!     S: Sink<RatchetMessage> + Unpin + Send + 'static,
-//!     <S as futures::Sink<RatchetMessage>>::Error: std::fmt::Debug,
-//!     I: Stream<Item = RatchetMessage> + Unpin + Send + 'static,
+//!     S: RatchetManagerSink<RatchetMessage<()>>,
+//!     I: RatchetManagerStream<RatchetMessage<()>>,
 //!     R: Ratchet,
 //! {
 //!     let mut manager = RatchetManager::new(sender, receiver, container, psks);
@@ -87,6 +85,7 @@ where
     is_initiator: bool,
     state: Arc<Atomic<RekeyState>>,
     local_listener: LocalListener<R>,
+    shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
@@ -107,6 +106,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             is_initiator: self.is_initiator,
             state: self.state.clone(),
             local_listener: self.local_listener.clone(),
+            shutdown_tx: self.shutdown_tx.clone(),
         }
     }
 }
@@ -161,21 +161,21 @@ impl<P: AttachedPayload> Debug for RatchetMessage<P> {
 }
 
 pub trait RatchetManagerSink<P: AttachedPayload>:
-    Sink<RatchetMessage<P>> + Send + Unpin + 'static
+    Sink<RatchetMessage<P>> + Send + Sync + Unpin + 'static
 {
 }
 
 impl<S, P: AttachedPayload> RatchetManagerSink<P> for S where
-    S: Sink<RatchetMessage<P>> + Send + Unpin + 'static
+    S: Sink<RatchetMessage<P>> + Send + Sync + Unpin + 'static
 {
 }
 
 pub trait RatchetManagerStream<P: AttachedPayload>:
-    Stream<Item = RatchetMessage<P>> + Send + Unpin + 'static
+    Stream<Item = RatchetMessage<P>> + Send + Sync + Unpin + 'static
 {
 }
 impl<I, P: AttachedPayload> RatchetManagerStream<P> for I where
-    I: Stream<Item = RatchetMessage<P>> + Send + Unpin + 'static
+    I: Stream<Item = RatchetMessage<P>> + Send + Sync + Unpin + 'static
 {
 }
 
@@ -207,6 +207,7 @@ where
         let (attached_payload_tx, attached_payload_rx) = tokio::sync::mpsc::unbounded_channel();
         let (rekey_done_notifier_tx, rekey_done_notifier) = tokio::sync::mpsc::unbounded_channel();
         let rekey_done_notifier = Arc::new(Mutex::new(Some(rekey_done_notifier)));
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         let this = Self {
             sender: Arc::new(TokioMutex::new(sender)),
             receiver: Arc::new(Mutex::new(Some(receiver))),
@@ -221,9 +222,11 @@ where
             role: Arc::new(Atomic::new(RekeyRole::Idle)),
             state: Arc::new(Atomic::new(RekeyState::Idle)),
             local_listener: Arc::new(Mutex::new(None)),
+            shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
         };
 
-        this.clone().spawn_rekey_process(rekey_done_notifier_tx);
+        this.clone()
+            .spawn_rekey_process(rekey_done_notifier_tx, shutdown_rx);
         this
     }
 
@@ -236,6 +239,10 @@ where
     ) -> Self {
         let container = PeerSessionCrypto::new(toolset, local_is_initiator);
         Self::new(sender, receiver, container, psks)
+    }
+
+    pub fn is_rekeying(&self) -> bool {
+        self.role() != RekeyRole::Idle
     }
 
     /// Triggers a rekey without sending an attached payload
@@ -257,7 +264,7 @@ where
             ));
         }
 
-        if self.role() != RekeyRole::Idle {
+        if self.is_rekeying() {
             // We are already in a rekey process
             return Ok(attached_payload);
         }
@@ -268,7 +275,7 @@ where
                 .session_crypto_state
                 .toolset()
                 .read()
-                .get_oldest_stacked_ratchet_version();
+                .get_oldest_ratchet_version();
             let latest_ratchet_version = self.session_crypto_state.latest_usable_version();
             (
                 constructor,
@@ -312,20 +319,29 @@ where
         }
     }
 
-    fn spawn_rekey_process(self, rekey_done_notifier_tx: tokio::sync::mpsc::UnboundedSender<R>) {
+    fn spawn_rekey_process(
+        self,
+        rekey_done_notifier_tx: tokio::sync::mpsc::UnboundedSender<R>,
+        shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    ) {
         struct DropWrapper {
             state: Arc<Atomic<RekeyState>>,
+            role: Arc<Atomic<RekeyRole>>,
         }
 
         impl Drop for DropWrapper {
             fn drop(&mut self) {
                 self.state.store(RekeyState::Halted, Ordering::Relaxed);
+                self.role.store(RekeyRole::Idle, Ordering::Relaxed);
             }
         }
+
+        let cid = self.cid;
 
         let task = async move {
             let _drop_wrapper = DropWrapper {
                 state: self.state.clone(),
+                role: self.role.clone(),
             };
 
             let mut listener = { self.receiver.lock().take().unwrap() };
@@ -350,14 +366,31 @@ where
                     }
 
                     Err(err) => {
-                        log::error!("cid {} rekey error: {err:?}", self.cid);
-                        continue;
+                        if matches!(err, CryptError::FatalError(..)) {
+                            if self.shutdown_tx.lock().is_some() {
+                                log::error!(target: "citadel", "Client {} fatal rekey error: {err:?}", self.cid);
+                            }
+                            break;
+                        } else {
+                            log::warn!(target: "citadel", "Client {} rekey error: {err:?}", self.cid);
+                        }
                     }
                 }
             }
         };
 
-        drop(citadel_io::tokio::task::spawn(task));
+        let combined = async move {
+            tokio::select! {
+                _ = shutdown_rx => {
+                    log::warn!(target: "citadel", "Client {cid} rekey process shutting down due to shutdown signal");
+                },
+                _ = task => {
+                    log::warn!(target: "citadel", "Client {cid} rekey process shutting down");
+                }
+            }
+        };
+
+        drop(citadel_io::tokio::task::spawn(combined));
     }
 
     /// Runs a single round of re-keying, listening to events and returning
@@ -371,7 +404,6 @@ where
 
         loop {
             let msg = receiver.next().await;
-            // log::debug!(target: "citadel", "Client {} received message {msg:?}", self.cid);
             match msg {
                 Some(RatchetMessage::AliceToBob {
                     payload,
@@ -395,7 +427,7 @@ where
                             .session_crypto_state
                             .toolset()
                             .read()
-                            .get_oldest_stacked_ratchet_version();
+                            .get_oldest_ratchet_version();
                         let local_latest_ratchet_version =
                             self.session_crypto_state.latest_usable_version();
 
@@ -531,7 +563,7 @@ where
                             if let Some(version_to_truncate) = truncation_required {
                                 {
                                     self.session_crypto_state
-                                        .deregister_oldest_stacked_ratchet(version_to_truncate)?;
+                                        .deregister_oldest_ratchet(version_to_truncate)?;
                                 }
 
                                 self.sender
@@ -578,7 +610,7 @@ where
 
                     let latest_version = {
                         let container = &self.session_crypto_state;
-                        container.deregister_oldest_stacked_ratchet(version_to_truncate)?;
+                        container.deregister_oldest_ratchet(version_to_truncate)?;
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
@@ -618,7 +650,7 @@ where
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
-                            .expect("Failed to fetch ratchet")
+                            .expect("Failed to unlock container")
                             .version();
                         let latest_version = container.latest_usable_version();
                         if latest_actual_ratchet_version != latest_version {
@@ -677,7 +709,7 @@ where
                 }
 
                 None => {
-                    return Err(CryptError::RekeyUpdateError(
+                    return Err(CryptError::FatalError(
                         "Unexpected end of stream".to_string(),
                     ));
                 }
@@ -709,8 +741,16 @@ where
         self.rekey_done_notifier.lock().take()
     }
 
+    pub fn session_crypto_state(&self) -> &PeerSessionCrypto<R> {
+        &self.session_crypto_state
+    }
+
     pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
         self.session_crypto_state.get_ratchet(version)
+    }
+
+    pub fn local_is_initiator(&self) -> bool {
+        self.session_crypto_state.local_is_initiator()
     }
 
     pub fn role(&self) -> RekeyRole {
@@ -720,6 +760,11 @@ where
     fn set_role(&self, role: RekeyRole) {
         log::trace!(target: "citadel", "Client {} changing role from {:?} to {:?}", self.cid, self.role(), role);
         self.role.store(role, Ordering::SeqCst);
+    }
+
+    /// Shuts down the rekey
+    pub fn shutdown(&self) -> Option<()> {
+        self.shutdown_tx.lock().take()?.send(()).ok()
     }
 
     pub fn state(&self) -> RekeyState {
@@ -832,12 +877,12 @@ mod tests {
         let start_version = alice_container
             .toolset()
             .read()
-            .get_most_recent_stacked_ratchet_version();
+            .get_most_recent_ratchet_version();
         let new_version = start_version + 1;
         let new_version_bob = bob_container
             .toolset()
             .read()
-            .get_most_recent_stacked_ratchet_version()
+            .get_most_recent_ratchet_version()
             + 1;
         assert_eq!(new_version, new_version_bob);
         (start_version, new_version)

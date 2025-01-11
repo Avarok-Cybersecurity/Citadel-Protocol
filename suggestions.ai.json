@@ -974,7 +974,7 @@
         ]
     },
     {
-        "file": "./citadel_crypt/src/stacked_ratchet.rs",
+        "file": "./citadel_crypt/src/ratchet.rs",
         "suggestions": [
             "Consider adding benchmarks for key evolution operations",
             "Add more detailed error handling for edge cases",

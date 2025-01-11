@@ -64,7 +64,7 @@ pub async fn process_disconnect<R: Ratchet>(
     };
 
     let (header, payload, _, _) = packet.decompose();
-    let (header, _, stacked_ratchet) = return_if_none!(
+    let (header, _, ratchet) = return_if_none!(
         validation::aead::validate(hr, &header, payload),
         "Unable to validate"
     );
@@ -76,7 +76,7 @@ pub async fn process_disconnect<R: Ratchet>(
         packet_flags::cmd::aux::do_disconnect::STAGE0 => {
             log::trace!(target: "citadel", "STAGE 0 DISCONNECT PACKET RECEIVED");
             let packet = packet_crafter::do_disconnect::craft_final(
-                &stacked_ratchet,
+                &ratchet,
                 ticket,
                 timestamp,
                 security_level,

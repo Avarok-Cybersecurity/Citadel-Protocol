@@ -32,13 +32,13 @@
 //! - Thread-safe message passing
 //!
 //! # Related Components
-//! - [`ConnectionSuccess`]: Connection event data
+//! - [`CitadelClientServerConnection`]: Connection event data
 //! - [`TargetLockedRemote`]: Remote target interface
 //! - [`NetworkError`]: Error handling
 //! - [`SecBuffer`]: Secure data handling
 //!
 
-use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
+use crate::prelude::{CitadelClientServerConnection, TargetLockedRemote};
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_proto::prelude::NetworkError;
@@ -50,16 +50,15 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub async fn internal_service<F, Fut, R, Ra: Ratchet>(
-    remote: R,
-    connect_success: ConnectionSuccess,
+pub async fn internal_service<F, Fut, R: Ratchet>(
+    connection: CitadelClientServerConnection<R>,
     service: F,
 ) -> Result<(), NetworkError>
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
-    R: TargetLockedRemote<Ra>,
 {
+    let remote = connection.remote.clone();
     let (tx_to_service, rx_from_kernel) = citadel_io::tokio::sync::mpsc::unbounded_channel();
     let (tx_to_kernel, mut rx_from_service) = citadel_io::tokio::sync::mpsc::unbounded_channel();
 
@@ -71,7 +70,7 @@ where
     let internal_server = service(internal_server_communicator);
 
     // each time a client connects, we will begin listening for messages.
-    let (sink, mut stream) = connect_success.channel.split();
+    let (sink, mut stream) = connection.split();
     // from_proto forwards packets from the proto to the http server
     let from_proto = async move {
         while let Some(packet) = stream.next().await {

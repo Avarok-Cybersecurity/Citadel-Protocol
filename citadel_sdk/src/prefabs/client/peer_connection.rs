@@ -60,7 +60,6 @@
 //! - [`SessionSecuritySettings`]: Connection security
 //!
 
-use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
@@ -155,7 +154,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
     }
 
     #[allow(clippy::collapsible_else_if)]
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         match message {
             NodeResult::ObjectTransferHandle(ObjectTransferHandle {
                 ticket: _,
@@ -406,7 +405,10 @@ impl From<u64> for PeerConnectionSetupAggregator {
 impl<'a, F, Fut, T: Into<PeerConnectionSetupAggregator> + Send + 'a, R: Ratchet>
     PrefabFunctions<'a, T, R> for PeerConnectionKernel<'a, F, Fut, R>
 where
-    F: FnOnce(Receiver<Result<PeerConnectSuccess<R>, NetworkError>>, ClientServerRemote<R>) -> Fut
+    F: FnOnce(
+            Receiver<Result<PeerConnectSuccess<R>, NetworkError>>,
+            CitadelClientServerConnection<R>,
+        ) -> Fut
         + Send
         + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + 'a,
@@ -424,8 +426,7 @@ where
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn on_c2s_channel_received(
-        connect_success: ConnectionSuccess,
-        cls_remote: ClientServerRemote<R>,
+        connect_success: CitadelClientServerConnection<R>,
         peers_to_connect: T,
         f: Self::UserLevelInputFunction,
         shared: Shared,
@@ -441,12 +442,12 @@ where
             // TODO: optimize this into a single concurrent operation
             peers_already_registered.push(
                 peer.id
-                    .search_peer(session_cid, cls_remote.inner.account_manager())
+                    .search_peer(session_cid, connect_success.account_manager())
                     .await?,
             )
         }
 
-        let remote = cls_remote.inner.clone();
+        let remote = connect_success.clone();
         let (ref tx, rx) = citadel_io::tokio::sync::mpsc::channel(peers_to_connect.len());
         let requests = FuturesUnordered::new();
 
@@ -531,7 +532,7 @@ where
         // TODO: What should be done if a peer conn fails? No room for error here
         let collection_task = async move { requests.try_collect::<()>().await };
 
-        citadel_io::tokio::try_join!(collection_task, f(rx, cls_remote)).map(|_| ())
+        citadel_io::tokio::try_join!(collection_task, f(rx, connect_success)).map(|_| ())
     }
 
     fn construct(kernel: Box<dyn NetKernel<R> + 'a>) -> Self {
@@ -625,9 +626,9 @@ mod tests {
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
                 agg.clone(),
-                move |results, mut remote| async move {
+                move |results, connection| async move {
                     log::info!(target: "citadel", "***PEER {username} CONNECTED ***");
-                    let session_cid = remote.conn_type.get_session_cid();
+                    let session_cid = connection.conn_type.get_session_cid();
                     let check = move |conn: PeerConnectSuccess<_>| async move {
                         let session_cid = conn.channel.get_session_cid();
                         let _mutual_peers = conn
@@ -653,16 +654,15 @@ mod tests {
                     // By now, all the network peers have been registered to.
                     // Test that getting the peers (not necessarily mutual)
                     // show up
-                    let network_peers = remote.get_peers(None).await.unwrap();
+                    let network_peers = connection.get_peers(None).await.unwrap();
                     for user in agg.inner {
                         let peer_cid = user.id.get_cid();
                         assert!(network_peers.iter().any(|r| r.cid == peer_cid))
                     }
 
                     // test to make sure the mutuals are valid
-                    let session_cid = remote.conn_type.get_session_cid();
-                    let mutual_peers = remote
-                        .inner
+                    let session_cid = connection.conn_type.get_session_cid();
+                    let mutual_peers = connection
                         .get_local_group_mutual_peers(session_cid)
                         .await
                         .unwrap();
@@ -673,7 +673,7 @@ mod tests {
                     log::info!(target: "citadel", "***PEER {username} finished all checks***");
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
-                    remote.shutdown_kernel().await
+                    connection.shutdown_kernel().await
                 },
             );
 
@@ -689,12 +689,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case(2)]
-    #[case(3)]
+    #[case(2, HeaderObfuscatorSettings::default())]
+    #[case(2, HeaderObfuscatorSettings::Enabled)]
+    #[case(2, HeaderObfuscatorSettings::EnabledWithKey(12345))]
+    #[case(3, HeaderObfuscatorSettings::default())]
     #[timeout(Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn peer_to_peer_connect_transient(
         #[case] peer_count: usize,
+        #[case] header_obfuscator_settings: HeaderObfuscatorSettings,
     ) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
         citadel_logging::setup_log();
@@ -723,11 +726,13 @@ mod tests {
             let mut agg = PeerConnectionSetupAggregator::default();
 
             for peer in peers {
+                let mut security_settings = SessionSecuritySettings::default();
+                security_settings.header_obfuscator_settings = header_obfuscator_settings;
                 agg = agg
                     .with_peer_custom(peer)
                     .with_udp_mode(udp_mode)
                     .ensure_registered()
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(security_settings)
                     .add();
             }
 
@@ -1021,7 +1026,8 @@ mod tests {
 
                         conn
                     };
-                    let _ = handle_peer_connect_successes(
+
+                    let results = handle_peer_connect_successes(
                         results,
                         session_cid,
                         peer_count,
@@ -1030,14 +1036,14 @@ mod tests {
                     )
                     .await;
 
-                    log::info!(target: "citadel", "***PEER {uuid} finished all checks***");
+                    log::info!(target: "citadel", "***PEER {uuid} finished all check (count: {})s***", results.len());
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
                     remote.shutdown_kernel().await
                 },
             );
 
-            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default().build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -1104,6 +1110,7 @@ mod tests {
                 agg,
                 move |results, remote| async move {
                     log::info!(target: "citadel", "***PEER {uuid} CONNECTED***");
+                    wait_for_peers().await;
                     let session_cid = remote.conn_type.get_session_cid();
 
                     let check = move |conn: PeerConnectSuccess<_>| async move {
@@ -1129,7 +1136,7 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default().build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -1264,7 +1271,7 @@ mod tests {
         checks: F,
     ) -> Vec<PeerConnectSuccess<R>>
     where
-        F: for<'a> Fn(PeerConnectSuccess<R>) -> Fut + Send + Clone + 'static,
+        F: Fn(PeerConnectSuccess<R>) -> Fut + Send + Clone + 'static,
         Fut: Future<Output = PeerConnectSuccess<R>> + Send,
     {
         let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
@@ -1278,6 +1285,8 @@ mod tests {
                     break;
                 }
             }
+
+            log::info!(target: "citadel", "~~~*** Peer {session_cid} has {} connections to other peers ***~~~", conns.len());
 
             for conn in conns {
                 let conn = conn.expect("Error receiving peer connection");
@@ -1324,8 +1333,9 @@ mod tests {
         Fut: Future<Output = PeerConnectSuccess<R>> + Send,
     {
         let task = async move {
+            let chan = conn.udp_channel_rx.take();
             crate::test_common::p2p_assertions(session_cid, &conn).await;
-            crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx.take()).await;
+            crate::test_common::udp_mode_assertions(udp_mode, chan).await;
             let conn = checks(conn).await;
             done_tx
                 .send(conn)

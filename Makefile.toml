@@ -51,7 +51,7 @@ dependencies = ["install-binstall"]
 command = "cargo"
 description = "Tests all available unit/integration tests locally without using SQL/redis backends and appropriate localhost network settings"
 env = { "SKIP_EXT_BACKENDS" = "true" }
-args = ["nextest", "run", "--features", "localhost-testing"]
+args = ["nextest", "run", "--features", "localhost-testing,multi-threaded"]
 dependencies = ["install-nextest"]
 
 [tasks.test]

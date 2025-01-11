@@ -51,7 +51,7 @@
 //! - [`NodeRemote`]: Core remote interface
 //! - [`ClientServerRemote`]: Client-server communication
 //! - [`PeerRemote`]: Peer-to-peer communication
-//! - [`ConnectionSuccess`]: Connection management
+//! - [`CitadelClientServerConnection`]: Connection management
 //! - [`RegisterSuccess`]: Registration handling
 //!
 
@@ -60,6 +60,7 @@ use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::prelude::*;
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::LocalGroupPeerFullInfo;
+use std::ops::{Deref, DerefMut};
 
 use futures::StreamExt;
 use std::path::PathBuf;
@@ -165,15 +166,45 @@ pub(crate) mod user_ids {
 }
 
 /// Contains the elements required to communicate with the adjacent node
-pub struct ConnectionSuccess {
+pub struct CitadelClientServerConnection<R: Ratchet> {
     /// An interface to send ordered, reliable, and encrypted messages
-    pub channel: PeerChannel,
+    pub(crate) channel: Option<PeerChannel<R>>,
+    pub remote: ClientServerRemote<R>,
     /// Only available if UdpMode was enabled at the beginning of a session
-    pub udp_channel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub udp_channel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
     /// Contains the Google auth minted at the central server (if the central server enabled it), as well as any other services enabled by the central server
     pub services: ServicesObject,
     pub cid: u64,
     pub session_security_settings: SessionSecuritySettings,
+}
+
+impl<R: Ratchet> CitadelClientServerConnection<R> {
+    /// Splits the channel into a send and receive half. This will render
+    /// the other fields of this connection object innaccessible
+    ///
+    /// # Panics
+    ///  - If the channel has already been taken
+    pub fn split(self) -> (PeerChannelSendHalf<R>, PeerChannelRecvHalf<R>) {
+        self.channel.expect("Channel already taken").split()
+    }
+
+    pub fn take_channel(&mut self) -> Option<PeerChannel<R>> {
+        self.channel.take()
+    }
+}
+
+impl<R: Ratchet> Deref for CitadelClientServerConnection<R> {
+    type Target = ClientServerRemote<R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.remote
+    }
+}
+
+impl<R: Ratchet> DerefMut for CitadelClientServerConnection<R> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.remote
+    }
 }
 
 /// Contains the elements entailed by a successful registration
@@ -271,7 +302,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
-    ) -> Result<ConnectionSuccess, NetworkError> {
+    ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
             connect_mode,
@@ -295,14 +326,21 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 session_cid: cid,
                 remote_addr: _,
                 is_personal: _,
-                v_conn_type: _,
+                v_conn_type,
                 services,
                 welcome_message: _,
                 channel,
                 udp_rx_opt: udp_channel_rx,
                 session_security_settings,
-            }) => Ok(ConnectionSuccess {
-                channel,
+            }) => Ok(CitadelClientServerConnection {
+                remote: ClientServerRemote::new(
+                    v_conn_type,
+                    self.remote_ref().clone(),
+                    session_security_settings,
+                    None,
+                    None,
+                ),
+                channel: Some(channel),
                 udp_channel_rx,
                 services,
                 cid,
@@ -327,7 +365,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     async fn connect_with_defaults(
         &self,
         auth: AuthenticationRequest,
-    ) -> Result<ConnectionSuccess, NetworkError> {
+    ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         self.connect(
             auth,
             Default::default(),
@@ -536,7 +574,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     }
 }
 
-pub fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
+pub fn map_errors<R: Ratchet>(result: NodeResult<R>) -> Result<NodeResult<R>, NetworkError> {
     match result {
         NodeResult::ConnectFail(ConnectFail {
             ticket: _,
@@ -1121,8 +1159,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 return match result.status {
                     ReKeyReturnType::Success { version } => Ok(Some(version)),
                     ReKeyReturnType::AlreadyInProgress => Ok(None),
-                    ReKeyReturnType::Failure => {
-                        Err(NetworkError::InternalError("The rekey request failed"))
+                    ReKeyReturnType::Failure { err } => {
+                        Err(NetworkError::Generic(format!("Rekey failed: {err}")))
                     }
                 };
             }
@@ -1216,8 +1254,8 @@ pub mod results {
     use std::fmt::Debug;
 
     pub struct PeerConnectSuccess<R: Ratchet> {
-        pub channel: PeerChannel,
-        pub udp_channel_rx: Option<Receiver<UdpChannel>>,
+        pub channel: PeerChannel<R>,
+        pub udp_channel_rx: Option<Receiver<UdpChannel<R>>>,
         pub remote: PeerRemote<R>,
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
@@ -1269,6 +1307,7 @@ pub mod results {
 
 pub mod remote_specialization {
     use crate::prelude::*;
+    use std::ops::{Deref, DerefMut};
 
     #[derive(Debug, Clone)]
     pub struct PeerRemote<R: Ratchet> {
@@ -1276,6 +1315,19 @@ pub mod remote_specialization {
         pub(crate) peer: VirtualTargetType,
         pub(crate) username: Option<String>,
         pub(crate) session_security_settings: SessionSecuritySettings,
+    }
+
+    impl<R: Ratchet> Deref for PeerRemote<R> {
+        type Target = NodeRemote<R>;
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    impl<R: Ratchet> DerefMut for PeerRemote<R> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.inner
+        }
     }
 
     impl<R: Ratchet> TargetLockedRemote<R> for PeerRemote<R> {
@@ -1326,7 +1378,7 @@ mod tests {
             Ok(())
         }
 
-        async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+        async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
             log::trace!(target: "citadel", "SERVER received {:?}", message);
             if let NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) =
                 map_errors(message)?
@@ -1419,9 +1471,9 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
-                remote
+                connection
                     .send_file_with_custom_opts(
                         "../resources/TheBridge.pdf",
                         32 * 1024,
@@ -1431,7 +1483,7 @@ mod tests {
                     .unwrap();
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 

@@ -62,6 +62,11 @@ pub async fn process_raw_packet<R: Ratchet>(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
+    if packet.parse().is_none() {
+        log::warn!(target: "citadel", "Unable to parse packet {:?} | Len: {}", packet.as_bytes(), packet.get_length());
+        return Ok(PrimaryProcessorResult::Void);
+    }
+
     log::trace!(target: "citadel", "RECV Raw packet: {:?}", &packet.parse().unwrap().0);
     let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
 
@@ -119,13 +124,6 @@ pub async fn process_raw_packet<R: Ratchet>(
                 )
                 .await
             }
-
-            packet_flags::cmd::primary::DO_DRILL_UPDATE => super::rekey_packet::process_rekey(
-                session,
-                packet,
-                header_entropy_bank_vers,
-                endpoint_cid_info,
-            ),
 
             packet_flags::cmd::primary::DO_DEREGISTER => {
                 super::deregister_packet::process_deregister(

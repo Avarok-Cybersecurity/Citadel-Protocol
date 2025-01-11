@@ -20,7 +20,7 @@ async fn main() {
     } else {
         Box::new(
             citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel::new(
-                |mut conn, _c2s_remote| async move {
+                |mut conn| async move {
                     let chan = conn.udp_channel_rx.take();
                     citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                         UdpMode::Enabled,

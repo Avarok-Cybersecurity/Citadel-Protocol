@@ -1138,7 +1138,7 @@
     ]
   },
   {
-    "file": "./citadel_crypt/src/stacked_ratchet.rs",
+    "file": "./citadel_crypt/src/ratchet.rs",
     "context": [
       "Implements perfect forward secrecy",
       "Manages independent key evolution",

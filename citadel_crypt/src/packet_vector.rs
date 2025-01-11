@@ -17,7 +17,7 @@
 //!
 //! ```rust
 //! use citadel_crypt::packet_vector::{PacketVector, generate_packet_vector};
-//! use citadel_crypt::entropy_bank::EntropyBank;
+//! use citadel_crypt::ratchets::entropy_bank::EntropyBank;
 //! use citadel_crypt::misc::CryptError;
 //!
 //! fn coordinate_packets() -> Result<(), CryptError> {

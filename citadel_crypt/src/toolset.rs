@@ -50,8 +50,8 @@ pub const STATIC_AUX_VERSION: u32 = 0;
 pub struct Toolset<R: Ratchet> {
     /// the CID of the owner
     pub cid: u64,
-    most_recent_stacked_ratchet_version: u32,
-    oldest_stacked_ratchet_version: u32,
+    most_recent_ratchet_version: u32,
+    oldest_ratchet_version: u32,
     #[serde(bound = "")]
     map: VecDeque<R>,
     /// The static auxiliary entropy_bank was made to cover a unique situation that is consequence of dropping-off the back of the VecDeque upon upgrade:
@@ -62,7 +62,7 @@ pub struct Toolset<R: Ratchet> {
     /// Local filesystems should be encrypted anyways (otherwise voids warranty), but, having the HyxeFile layer is really just a "weak" layer of protection
     /// designed to derail any currently existing or historical viruses that may look for conventional means of breaking-through data
     #[serde(bound = "")]
-    static_auxiliary_stacked_ratchet: R,
+    static_auxiliary_ratchet: R,
 }
 
 // This clone should only be called in the middle of a session
@@ -70,10 +70,10 @@ impl<R: Ratchet> Clone for Toolset<R> {
     fn clone(&self) -> Self {
         Self {
             cid: self.cid,
-            most_recent_stacked_ratchet_version: self.most_recent_stacked_ratchet_version,
-            oldest_stacked_ratchet_version: self.oldest_stacked_ratchet_version,
+            most_recent_ratchet_version: self.most_recent_ratchet_version,
+            oldest_ratchet_version: self.oldest_ratchet_version,
             map: self.map.clone(),
-            static_auxiliary_stacked_ratchet: self.static_auxiliary_stacked_ratchet.clone(),
+            static_auxiliary_ratchet: self.static_auxiliary_ratchet.clone(),
         }
     }
 }
@@ -93,52 +93,52 @@ pub enum ToolsetUpdateStatus {
 }
 
 impl<R: Ratchet> Toolset<R> {
-    /// Creates a new [Toolset]. Designates the `stacked_ratchet` as the static auxiliary ratchet
-    /// stacked_ratchet should be version 0
-    pub fn new(cid: u64, stacked_ratchet: R) -> Self {
+    /// Creates a new [Toolset]. Designates the `ratchet` as the static auxiliary
+    /// ratchet should be version 0
+    pub fn new(cid: u64, ratchet: R) -> Self {
         let mut map = VecDeque::with_capacity(MAX_RATCHETS_IN_MEMORY);
-        map.push_front(stacked_ratchet.clone());
+        map.push_front(ratchet.clone());
         Toolset {
             cid,
-            most_recent_stacked_ratchet_version: 0,
-            oldest_stacked_ratchet_version: 0,
+            most_recent_ratchet_version: 0,
+            oldest_ratchet_version: 0,
             map,
-            static_auxiliary_stacked_ratchet: stacked_ratchet,
+            static_auxiliary_ratchet: ratchet,
         }
     }
 
     pub fn new_debug(
         cid: u64,
-        stacked_ratchet: R,
-        most_recent_stacked_ratchet_version: u32,
-        oldest_stacked_ratchet_version: u32,
+        ratchet: R,
+        most_recent_ratchet_version: u32,
+        oldest_ratchet_version: u32,
     ) -> Self {
         let mut map = VecDeque::with_capacity(MAX_RATCHETS_IN_MEMORY);
-        map.push_front(stacked_ratchet.clone());
+        map.push_front(ratchet.clone());
         Toolset {
             cid,
-            most_recent_stacked_ratchet_version,
-            oldest_stacked_ratchet_version,
+            most_recent_ratchet_version,
+            oldest_ratchet_version,
             map,
-            static_auxiliary_stacked_ratchet: stacked_ratchet,
+            static_auxiliary_ratchet: ratchet,
         }
     }
 
     /// Updates from an inbound DrillUpdateObject. Returns the new Drill
-    pub fn update_from(&mut self, new_stacked_ratchet: R) -> Option<ToolsetUpdateStatus> {
-        let latest_hr_version = self.get_most_recent_stacked_ratchet_version();
+    pub fn update_from(&mut self, new_ratchet: R) -> Option<ToolsetUpdateStatus> {
+        let latest_hr_version = self.get_most_recent_ratchet_version();
 
-        if new_stacked_ratchet.get_cid() != self.cid {
-            log::error!(target: "citadel", "The supplied hyper ratchet does not belong to the expected CID (expected: {}, obtained: {})", self.cid, new_stacked_ratchet.get_cid());
+        if new_ratchet.get_cid() != self.cid {
+            log::error!(target: "citadel", "The supplied hyper ratchet does not belong to the expected CID (expected: {}, obtained: {})", self.cid, new_ratchet.get_cid());
             return None;
         }
 
-        if latest_hr_version != new_stacked_ratchet.version().wrapping_sub(1) {
-            log::error!(target: "citadel", "The supplied hyper ratchet is not precedent to the entropy_bank update object (expected: {}, obtained: {})", latest_hr_version + 1, new_stacked_ratchet.version());
+        if latest_hr_version != new_ratchet.version().wrapping_sub(1) {
+            log::error!(target: "citadel", "The supplied hyper ratchet is not precedent to the entropy_bank update object (expected: {}, obtained: {})", latest_hr_version + 1, new_ratchet.version());
             return None;
         }
 
-        let update_status = self.append_stacked_ratchet(new_stacked_ratchet);
+        let update_status = self.append_ratchet(new_ratchet);
         let cur_version = match &update_status {
             ToolsetUpdateStatus::Committed { new_version }
             | ToolsetUpdateStatus::CommittedNeedsSynchronization { new_version, .. } => {
@@ -146,10 +146,10 @@ impl<R: Ratchet> Toolset<R> {
             }
         };
 
-        self.most_recent_stacked_ratchet_version = cur_version;
+        self.most_recent_ratchet_version = cur_version;
 
-        let prev_version = self.most_recent_stacked_ratchet_version.wrapping_sub(1);
-        log::trace!(target: "citadel", "[{}] Upgraded {} to {} for cid={}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_RATCHETS_IN_MEMORY, prev_version, cur_version, self.cid, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_stacked_ratchet_version(), self.map.len());
+        let prev_version = self.most_recent_ratchet_version.wrapping_sub(1);
+        log::trace!(target: "citadel", "[{}] Upgraded {} to {} for cid={}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_RATCHETS_IN_MEMORY, prev_version, cur_version, self.cid, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_ratchet_version(), self.map.len());
         Some(update_status)
     }
 
@@ -157,13 +157,13 @@ impl<R: Ratchet> Toolset<R> {
     ///Replacing entropy_banks is not allowed, and is why this subroutine returns an error when a collision is detected
     ///
     /// Returns the new hyper ratchet version
-    fn append_stacked_ratchet(&mut self, stacked_ratchet: R) -> ToolsetUpdateStatus {
+    fn append_ratchet(&mut self, ratchet: R) -> ToolsetUpdateStatus {
         //debug_assert!(self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY);
-        let new_version = stacked_ratchet.version();
-        //println!("max hypers: {} @ {} bytes ea", MAX_HYPER_RATCHETS_IN_MEMORY, get_approx_bytes_per_stacked_ratchet());
-        self.map.push_front(stacked_ratchet);
+        let new_version = ratchet.version();
+        //println!("max hypers: {} @ {} bytes ea", MAX_HYPER_RATCHETS_IN_MEMORY, get_approx_bytes_per_ratchet());
+        self.map.push_front(ratchet);
         if self.map.len() >= MAX_RATCHETS_IN_MEMORY {
-            let oldest_version = self.get_oldest_stacked_ratchet_version();
+            let oldest_version = self.get_oldest_ratchet_version();
             log::trace!(target: "citadel", "[Toolset Update] Needs Truncation. Oldest version: {}", oldest_version);
             ToolsetUpdateStatus::CommittedNeedsSynchronization {
                 new_version,
@@ -174,29 +174,28 @@ impl<R: Ratchet> Toolset<R> {
         }
     }
 
-    /// When append_stacked_ratchet returns CommittedNeedsSynchronization on Bob's side, Bob should first
+    /// When append_ratchet returns CommittedNeedsSynchronization on Bob's side, Bob should first
     /// send a packet to Alice telling her that capacity has been reached and that version V should be dropped.
     /// Alice will then prevent herself from sending any more packets using version V, and will locally run this
     /// function. Next, Alice should alert Bob telling him that it's now safe to remove version V. Bob then runs
     /// this function last. By doing this, Alice no longer sends packets that may be no longer be valid
     #[allow(unused_results)]
-    pub fn deregister_oldest_stacked_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
+    pub fn deregister_oldest_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
         if self.map.len() < MAX_RATCHETS_IN_MEMORY {
             return Err(CryptError::RekeyUpdateError(
                 "Cannot call for deregistration unless the map len is maxed out".to_string(),
             ));
         }
 
-        let oldest = self.get_oldest_stacked_ratchet_version();
+        let oldest = self.get_oldest_ratchet_version();
         if oldest != version {
             Err(CryptError::RekeyUpdateError(format!(
                 "Unable to deregister. Provided version: {version}, expected version: {oldest}",
             )))
         } else {
             self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;
-            self.oldest_stacked_ratchet_version =
-                self.oldest_stacked_ratchet_version.wrapping_add(1);
-            log::trace!(target: "citadel", "[Toolset] Deregistered version {} for cid={}. New oldest: {} | LEN: {}", version, self.cid, self.oldest_stacked_ratchet_version, self.len());
+            self.oldest_ratchet_version = self.oldest_ratchet_version.wrapping_add(1);
+            log::trace!(target: "citadel", "[Toolset] Deregistered version {} for cid={}. New oldest: {} | LEN: {}", version, self.cid, self.oldest_ratchet_version, self.len());
             Ok(())
         }
     }
@@ -208,23 +207,23 @@ impl<R: Ratchet> Toolset<R> {
     }
 
     /// Returns the latest entropy_bank version
-    pub fn get_most_recent_stacked_ratchet(&self) -> Option<&R> {
+    pub fn get_most_recent_ratchet(&self) -> Option<&R> {
         self.map.front()
     }
 
     /// Returns the oldest entropy_bank in the VecDeque
-    pub fn get_oldest_stacked_ratchet(&self) -> Option<&R> {
+    pub fn get_oldest_ratchet(&self) -> Option<&R> {
         self.map.back()
     }
 
     /// Gets the oldest entropy_bank version
-    pub fn get_oldest_stacked_ratchet_version(&self) -> u32 {
-        self.oldest_stacked_ratchet_version
+    pub fn get_oldest_ratchet_version(&self) -> u32 {
+        self.oldest_ratchet_version
     }
 
     /// Returns the most recent entropy_bank
-    pub fn get_most_recent_stacked_ratchet_version(&self) -> u32 {
-        self.most_recent_stacked_ratchet_version
+    pub fn get_most_recent_ratchet_version(&self) -> u32 {
+        self.most_recent_ratchet_version
     }
 
     /// Returns the static auxiliary entropy_bank. There is no "set" function, because this really
@@ -237,34 +236,33 @@ impl<R: Ratchet> Toolset<R> {
     /// of sync, then the static auxiliary entropy_bank is used to obtain the nonce for the AES GCM
     /// mode of encryption
     pub fn get_static_auxiliary_ratchet(&self) -> &R {
-        &self.static_auxiliary_stacked_ratchet
+        &self.static_auxiliary_ratchet
     }
 
     /// The index within the vec deque does not necessarily track the entropy_bank versions.
     /// This function adjusts for that
     #[inline]
     fn get_adjusted_index(&self, version: u32) -> usize {
-        self.most_recent_stacked_ratchet_version
-            .wrapping_sub(version) as usize
+        self.most_recent_ratchet_version.wrapping_sub(version) as usize
     }
 
     /// Returns a specific entropy_bank version
-    pub fn get_stacked_ratchet(&self, version: u32) -> Option<&R> {
+    pub fn get_ratchet(&self, version: u32) -> Option<&R> {
         let idx = self.get_adjusted_index(version);
 
         let res = self.map.get(idx);
         if res.is_none() {
-            log::error!(target: "citadel", "Attempted to get ratchet v{} for cid={}, but does not exist! len: {}. Oldest: {}. Newest: {}", version, self.cid, self.map.len(), self.oldest_stacked_ratchet_version, self.most_recent_stacked_ratchet_version);
+            log::error!(target: "citadel", "Attempted to get ratchet v{} for cid={}, but does not exist! len: {}. Oldest: {}. Newest: {}", version, self.cid, self.map.len(), self.oldest_ratchet_version, self.most_recent_ratchet_version);
         }
 
         res
     }
 
     /// Returns a range of entropy_banks. Returns None if any entropy_bank in the range is missing
-    pub fn get_stacked_ratchets(&self, versions: RangeInclusive<u32>) -> Option<Vec<&R>> {
+    pub fn get_ratchets(&self, versions: RangeInclusive<u32>) -> Option<Vec<&R>> {
         let mut ret = Vec::with_capacity((*versions.end() - *versions.start() + 1) as usize);
         for version in versions {
-            if let Some(entropy_bank) = self.get_stacked_ratchet(version) {
+            if let Some(entropy_bank) = self.get_ratchet(version) {
                 ret.push(entropy_bank);
             } else {
                 return None;
@@ -287,7 +285,7 @@ impl<R: Ratchet> Toolset<R> {
 
     /// Resets the internal state to the default, if necessary. At the beginning of each session, this should be called
     pub fn verify_init_state(&self) -> Option<()> {
-        self.static_auxiliary_stacked_ratchet.reset_ara();
+        self.static_auxiliary_ratchet.reset_ara();
         Some(())
     }
 }
@@ -297,16 +295,16 @@ impl<R: Ratchet> Toolset<R> {
 pub type StaticAuxRatchet = StackedRatchet;
 impl<R: Ratchet> From<(R, R)> for Toolset<R> {
     fn from(entropy_bank: (R, R)) -> Self {
-        let most_recent_stacked_ratchet_version = entropy_bank.1.version();
-        let oldest_stacked_ratchet_version = most_recent_stacked_ratchet_version; // for init, just like in the normal constructor
+        let most_recent_ratchet_version = entropy_bank.1.version();
+        let oldest_ratchet_version = most_recent_ratchet_version; // for init, just like in the normal constructor
         let mut map = VecDeque::with_capacity(MAX_RATCHETS_IN_MEMORY);
         map.insert(0, entropy_bank.1);
         Self {
             cid: entropy_bank.0.get_cid(),
-            oldest_stacked_ratchet_version,
-            most_recent_stacked_ratchet_version,
+            oldest_ratchet_version,
+            most_recent_ratchet_version,
             map,
-            static_auxiliary_stacked_ratchet: entropy_bank.0,
+            static_auxiliary_ratchet: entropy_bank.0,
         }
     }
 }

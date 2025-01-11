@@ -69,14 +69,24 @@ use citadel_pqcrypto::PostQuantumContainer;
 use citadel_types::crypto::SecurityLevel;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
 /// the entire file
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StackedRatchet {
     pub(crate) inner: Arc<StackedRatchetInner>,
+}
+
+impl Debug for StackedRatchet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StackedRatchet")
+            .field("cid", &self.get_cid())
+            .field("version", &self.version())
+            .finish()
+    }
 }
 
 impl Ratchet for StackedRatchet {

@@ -50,7 +50,6 @@ use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use netbeam::time_tracker::TimeTracker;
 
-//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::auth::AuthenticationRequest;
 use crate::constants::{
     FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN,
@@ -58,8 +57,7 @@ use crate::constants::{
     LOGIN_EXPIRATION_TIME, REKEY_UPDATE_FREQUENCY_STANDARD,
 };
 use crate::error::NetworkError;
-use crate::kernel::RuntimeFuture;
-use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, PreSharedKey, SecureProtocolPacket};
+use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, PreSharedKey};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 //use futures_codec::Framed;
 use crate::proto::misc;
@@ -77,9 +75,9 @@ use crate::proto::outbound_sender::{
 use crate::proto::outbound_sender::{
     OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender, OutboundUdpSender,
 };
-use crate::proto::packet::{packet_flags, HdpPacket};
-use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::proto::packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
+use crate::proto::packet::{packet_flags, HdpPacket, HeaderObfuscator};
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
+use crate::proto::packet_crafter::{self, ObjectTransmitter};
 use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
 use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
@@ -94,8 +92,9 @@ use crate::proto::session_queue_handler::{
     RESERVED_CID_IDX,
 };
 use crate::proto::state_container::{
-    FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer, StateContainer,
-    StateContainerInner, VirtualConnectionType, VirtualTargetType,
+    FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer,
+    OutgoingPeerConnectionAttempt, StateContainer, StateContainerInner, VirtualConnectionType,
+    VirtualTargetType,
 };
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
@@ -103,8 +102,9 @@ use crate::proto::transfer_stats::TransferStats;
 use bytemuck::NoUninit;
 use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
+use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
-use citadel_types::crypto::SecurityLevel;
+use citadel_types::crypto::{HeaderObfuscatorSettings, SecBuffer, SecurityLevel};
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
@@ -114,10 +114,11 @@ use citadel_user::prelude::ConnectProtocol;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::Connection;
 use citadel_wire::nat_identification::NatType;
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
+use zerocopy::AsBytes;
 //use crate::define_struct;
 
 // Defines the primary structure which wraps the inner device
@@ -204,7 +205,7 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
     // Sends results directly to the kernel
-    pub(super) kernel_tx: UnboundedSender<NodeResult>,
+    pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
     pub(super) session_manager: CitadelSessionManager<R>,
@@ -216,7 +217,7 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) remote_node_type: Option<NodeType>,
     pub(super) local_bind_addr: SocketAddr,
     pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
-    pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult>>>,
+    pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult<R>>>>,
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R>>,
@@ -231,6 +232,7 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
+    pub(super) header_obfuscator_settings: HeaderObfuscatorSettings,
     on_drop: UnboundedSender<()>,
 }
 
@@ -268,7 +270,7 @@ pub(crate) struct SessionInitParams<R: Ratchet> {
     pub citadel_remote: NodeRemote<R>,
     pub local_bind_addr: SocketAddr,
     pub local_node_type: NodeType,
-    pub kernel_tx: UnboundedSender<NodeResult>,
+    pub kernel_tx: UnboundedSender<NodeResult<R>>,
     pub session_manager: CitadelSessionManager<R>,
     pub account_manager: AccountManager<R, R>,
     pub time_tracker: TimeTracker,
@@ -281,6 +283,7 @@ pub(crate) struct SessionInitParams<R: Ratchet> {
     pub stun_servers: Option<Vec<String>>,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
+    pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings<R: Ratchet> {
@@ -294,6 +297,13 @@ pub(crate) struct ClientOnlySessionInitSettings<R: Ratchet> {
     pub connect_mode: Option<ConnectMode>,
 }
 
+#[derive(Clone, Default)]
+pub struct ServerOnlySessionInitSettings {
+    // Only useful for the header obfuscator settings
+    pub declared_header_obfuscation_setting: HeaderObfuscatorSettings,
+    pub declared_pre_shared_key: Option<PreSharedKey>,
+}
+
 impl<R: Ratchet> CitadelSession<R> {
     pub(crate) fn new(
         session_init_params: SessionInitParams<R>,
@@ -301,6 +311,14 @@ impl<R: Ratchet> CitadelSession<R> {
         let (stopper_tx, _stopper_rx) = citadel_io::tokio::sync::broadcast::channel(10);
         let client_only_settings = &session_init_params.client_only_settings;
         let is_server = client_only_settings.is_none();
+        assert_ne!(
+            client_only_settings.is_some(),
+            session_init_params
+                .server_only_session_init_settings
+                .is_some(),
+            "Must have either a client or a server"
+        );
+
         let (cnac, state, session_cid) =
             if let Some(client_init_settings) = &session_init_params.client_only_settings {
                 match &client_init_settings.init_mode {
@@ -326,6 +344,17 @@ impl<R: Ratchet> CitadelSession<R> {
                 }
             } else {
                 (None, SessionState::SocketJustOpened, None)
+            };
+
+        let header_obfuscator_settings =
+            if let Some(client_settings) = client_only_settings.as_ref() {
+                client_settings.security_settings.header_obfuscator_settings
+            } else {
+                let server_settings = session_init_params
+                    .server_only_session_init_settings
+                    .as_ref()
+                    .expect("Should be safe to unwrap");
+                server_settings.declared_header_obfuscation_setting
             };
 
         let state = DualCell::from(state);
@@ -363,6 +392,7 @@ impl<R: Ratchet> CitadelSession<R> {
         let session_password = session_init_params.session_password;
 
         let mut inner = CitadelSessionInner {
+            header_obfuscator_settings,
             hypernode_peer_layer,
             connect_mode: DualRwLock::from(connect_mode),
             primary_stream_quic_conn: DualRwLock::from(None),
@@ -449,8 +479,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 *inner_mut!(this.primary_stream_quic_conn) = Some(quic_conn);
             }
 
-            //let (obfuscator, packet_opt) = HeaderObfuscator::new(this.is_server);
-            //let sess_id = this_ref.kernel_ticket;
+            let obfuscator = HeaderObfuscator::new(this.is_server, this.header_obfuscator_settings);
 
             this.to_primary_stream
                 .set_once(Some(primary_outbound_tx.clone()));
@@ -463,8 +492,10 @@ impl<R: Ratchet> CitadelSession<R> {
             let stopper = inner!(this.stopper_tx).subscribe();
 
             // Ensure the tx forwards to the writer
-            let writer_future = Self::outbound_stream(primary_outbound_rx, writer);
-            let reader_future = Self::execute_inbound_stream(reader, this_inbound, None);
+            let writer_future =
+                Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone());
+            let reader_future =
+                Self::execute_inbound_stream(reader, this_inbound, None, obfuscator);
             //let timer_future = Self::execute_timer(this.clone());
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let stopper_future = Self::stopper(stopper);
@@ -533,17 +564,6 @@ impl<R: Ratchet> CitadelSession<R> {
             .recv()
             .await
             .map_err(|err| NetworkError::Generic(err.to_string()))?;
-        Ok(())
-    }
-
-    /// Executes each session in parallel (or concurrent if using a LocalSet)
-    pub async fn session_future_receiver(
-        mut p2p_session_rx: UnboundedReceiver<Pin<Box<dyn RuntimeFuture>>>,
-    ) -> Result<(), NetworkError> {
-        while let Some(session) = p2p_session_rx.recv().await {
-            spawn!(session);
-        }
-
         Ok(())
     }
 
@@ -658,6 +678,7 @@ impl<R: Ratchet> CitadelSession<R> {
         let connect_mode = (*inner!(session.connect_mode))
             .ok_or(NetworkError::InternalError("Connect mode not loaded"))?;
         let mut state_container = inner_mut_state!(session_ref.state_container);
+        state_container.store_session_password(C2S_IDENTITY_CID, session.session_password.clone());
 
         let udp_mode = state_container.udp_mode;
         let timestamp = session_ref.time_tracker.get_global_time_ns();
@@ -770,7 +791,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
                         log::trace!(target: "citadel", "C2S UDP subroutine inserting UDP channel ... (is_server={})", is_server);
                         if let Some(channel) = state_container.insert_udp_channel(
-                            C2S_ENCRYPTION_ONLY,
+                            C2S_IDENTITY_CID,
                             v_target,
                             ticket,
                             udp_sender,
@@ -887,21 +908,27 @@ impl<R: Ratchet> CitadelSession<R> {
     )]
     pub async fn outbound_stream(
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
-        writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
+        mut writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
+        mut header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
+        if let Some(first_packet) = header_obfuscator.first_packet.take() {
+            log::trace!(target: "citadel", "[Header Obfuscator] Sending first key packet {:?} of len {}", &first_packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(first_packet.len())], first_packet.len());
+            writer.send(first_packet.freeze()).await?;
+        };
+
         primary_outbound_rx
             .0
-            .map(|r| {
+            .map(|packet| {
                 #[cfg_attr(
                     feature = "localhost-testing",
                     tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()
                     ))
                 )]
-                fn process_outbound_packet(r: BytesMut) -> Bytes {
-                    r.freeze()
+                fn process_outbound_packet(r: BytesMut, header_obfuscator: &HeaderObfuscator) -> Bytes {
+                    header_obfuscator.prepare_outbound(r)
                 }
 
-                Ok(process_outbound_packet(r))
+                Ok(process_outbound_packet(packet, &header_obfuscator))
             })
             .forward(writer)
             .map_err(|err| NetworkError::Generic(err.to_string()))
@@ -916,9 +943,11 @@ impl<R: Ratchet> CitadelSession<R> {
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
         this_main: CitadelSession<R>,
-        p2p_handle: Option<P2PInboundHandle>,
+        p2p_handle: Option<P2PInboundHandle<R>>,
+        header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
         let this_main = &this_main;
+        let header_obfuscator = &header_obfuscator;
         log::trace!(target: "citadel", "HdpSession async inbound-stream subroutine executed");
         let (
             ref remote_peer,
@@ -960,7 +989,7 @@ impl<R: Ratchet> CitadelSession<R> {
         fn evaluate_result<R: Ratchet>(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
-            kernel_tx: &UnboundedSender<NodeResult>,
+            kernel_tx: &UnboundedSender<NodeResult<R>>,
             session: &CitadelSession<R>,
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
@@ -1062,8 +1091,22 @@ impl<R: Ratchet> CitadelSession<R> {
         };
 
         let res = reader
-            .try_for_each_concurrent(None, |packet| async move {
-                let session_cid = session_cid.get();
+            .try_for_each_concurrent(None, |mut packet| async move {
+                log::trace!(
+                    "RECV Raw packet (header only | is_server: {is_server}): {:?} | Len: {}",
+                    &packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(packet.len())],
+                    packet.len()
+                );
+                if !header_obfuscator
+                    .on_packet_received(&mut packet)
+                    .map_err(|err| {
+                        std::io::Error::new(std::io::ErrorKind::Other, err.into_string())
+                    })?
+                {
+                    return Ok(());
+                }
+
+                let session_cid: Option<u64> = session_cid.get();
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
                     session_cid,
                     this_main,
@@ -1088,7 +1131,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
     pub(crate) fn send_to_primary_stream_closure(
         to_primary_stream: &OutboundPrimaryStreamSender,
-        kernel_tx: &UnboundedSender<NodeResult>,
+        kernel_tx: &UnboundedSender<NodeResult<R>>,
         msg: BytesMut,
         ticket: Option<Ticket>,
         cid_opt: Option<u64>,
@@ -1154,23 +1197,21 @@ impl<R: Ratchet> CitadelSession<R> {
                     let ticket = kernel_ticket;
 
                     if state_container.state.is_connected() {
-                        let timestamp = time_tracker.get_global_time_ns();
-
                         let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
 
                         let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
-                            if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator() && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
+                            if vconn.1.endpoint_container.as_ref()?.ratchet_manager.local_is_initiator() && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
                                 Some(vconn.1.connection_type)
                             } else {
                                 None
                             }
                         }).collect::<Vec<VirtualTargetType>>();
 
-                        let virtual_target = VirtualTargetType::LocalGroupServer { session_cid: C2S_ENCRYPTION_ONLY };
-                        if state_container.initiate_entropy_bank_update(timestamp, virtual_target, Some(ticket)).is_ok() {
+                        let virtual_target = VirtualTargetType::LocalGroupServer { session_cid: C2S_IDENTITY_CID };
+                        if state_container.initiate_rekey(virtual_target, Some(ticket)).is_ok() {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
-                                if let Err(err) = state_container.initiate_entropy_bank_update(timestamp, vconn, None) {
+                                if let Err(err) = state_container.initiate_rekey(vconn, None) {
                                     log::warn!(target: "citadel", "Unable to initiate entropy_bank update for {:?}: {:?}", vconn, err);
                                 }
                             }
@@ -1244,26 +1285,24 @@ impl<R: Ratchet> CitadelSession<R> {
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
         self.ensure_connected(&ticket)?;
-        let mut state_container = inner_mut_state!(self.state_container);
+        let state_container = inner_state!(self.state_container);
         let ts = self.time_tracker.get_global_time_ns();
 
         match v_conn {
             VirtualConnectionType::LocalGroupServer {
                 session_cid: _session_cid,
             } => {
-                let crypt_container = &mut state_container
-                    .c2s_channel_container
-                    .as_mut()
-                    .unwrap()
-                    .peer_session_crypto;
+                let ratchet_manager = &state_container
+                    .get_endpoint_container(C2S_IDENTITY_CID)?
+                    .ratchet_manager;
 
-                let latest_hr = crypt_container.get_ratchet(None).unwrap();
+                let latest_hr = ratchet_manager.get_ratchet(None).unwrap();
                 let packet = packet_crafter::file::craft_revfs_pull(
-                    latest_hr,
+                    &latest_hr,
                     security_level,
                     ticket,
                     ts,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     virtual_path,
                     delete_on_pull,
                 );
@@ -1273,14 +1312,13 @@ impl<R: Ratchet> CitadelSession<R> {
                 session_cid: _,
                 peer_cid: target_cid,
             } => {
-                let endpoint_container =
-                    state_container.get_peer_endpoint_container_mut(target_cid)?;
+                let endpoint_container = state_container.get_endpoint_container(target_cid)?;
                 let latest_hr = endpoint_container
-                    .endpoint_crypto
+                    .ratchet_manager
                     .get_ratchet(None)
                     .unwrap();
                 let packet = packet_crafter::file::craft_revfs_pull(
-                    latest_hr,
+                    &latest_hr,
                     security_level,
                     ticket,
                     ts,
@@ -1318,19 +1356,17 @@ impl<R: Ratchet> CitadelSession<R> {
             VirtualConnectionType::LocalGroupServer {
                 session_cid: _session_cid,
             } => {
-                let crypt_container = &mut state_container
-                    .c2s_channel_container
-                    .as_mut()
-                    .unwrap()
-                    .peer_session_crypto;
+                let ratchet_manager = &state_container
+                    .get_endpoint_container(C2S_IDENTITY_CID)?
+                    .ratchet_manager;
 
-                let latest_hr = crypt_container.get_ratchet(None).unwrap();
+                let latest_hr = ratchet_manager.get_ratchet(None).unwrap();
                 let packet = packet_crafter::file::craft_revfs_delete(
-                    latest_hr,
+                    &latest_hr,
                     security_level,
                     ticket,
                     ts,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     virtual_path,
                 );
                 self.send_to_primary_stream(Some(ticket), packet)
@@ -1339,14 +1375,13 @@ impl<R: Ratchet> CitadelSession<R> {
                 session_cid: _,
                 peer_cid: target_cid,
             } => {
-                let endpoint_container =
-                    state_container.get_peer_endpoint_container_mut(target_cid)?;
+                let endpoint_container = state_container.get_endpoint_container_mut(target_cid)?;
                 let latest_hr = endpoint_container
-                    .endpoint_crypto
+                    .ratchet_manager
                     .get_ratchet(None)
                     .unwrap();
                 let packet = packet_crafter::file::craft_revfs_delete(
-                    latest_hr,
+                    &latest_hr,
                     security_level,
                     ticket,
                     ts,
@@ -1453,17 +1488,16 @@ impl<R: Ratchet> CitadelSession<R> {
                     return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
                 }
 
-                let crypt_container = &mut state_container
-                    .c2s_channel_container
-                    .as_mut()
-                    .unwrap()
-                    .peer_session_crypto;
+                let crypt_container = state_container
+                    .get_endpoint_container(C2S_IDENTITY_CID)?
+                    .ratchet_manager
+                    .session_crypto_state();
                 let object_id = virtual_object_metadata
                     .as_ref()
                     .map(|r| r.object_id)
                     .unwrap_or_else(|| crypt_container.get_next_object_id());
                 let group_id_start = crypt_container.get_and_increment_group_id();
-                let latest_hr = crypt_container.get_ratchet(None).cloned().unwrap();
+                let latest_hr = crypt_container.get_ratchet(None).unwrap();
                 let static_aux_ratchet = crypt_container
                     .toolset()
                     .read()
@@ -1509,7 +1543,9 @@ impl<R: Ratchet> CitadelSession<R> {
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                 let amt_to_reserve = groups_needed.saturating_sub(1);
-                crypt_container.incrementing_group_id += amt_to_reserve as u64;
+                crypt_container
+                    .incrementing_group_id
+                    .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
                 let file_header = packet_crafter::file::craft_file_header_packet(
                     &latest_hr,
                     group_id_start,
@@ -1538,19 +1574,17 @@ impl<R: Ratchet> CitadelSession<R> {
                 log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", session_cid, target_cid);
                 // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
                 // of the file
-                let crypt_container_c2s = &state_container
-                    .c2s_channel_container
-                    .as_ref()
-                    .unwrap()
-                    .peer_session_crypto;
-                let static_aux_ratchet = crypt_container_c2s
+                let ratchet_manager_c2s = &state_container
+                    .get_endpoint_container(C2S_IDENTITY_CID)?
+                    .ratchet_manager;
+                let static_aux_ratchet = ratchet_manager_c2s
+                    .session_crypto_state()
                     .toolset()
                     .read()
                     .get_static_auxiliary_ratchet()
                     .clone();
 
-                let endpoint_container =
-                    state_container.get_peer_endpoint_container_mut(target_cid)?;
+                let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
                 if !endpoint_container.file_transfer_compatible {
                     return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
@@ -1559,21 +1593,25 @@ impl<R: Ratchet> CitadelSession<R> {
                 let object_id = virtual_object_metadata
                     .as_ref()
                     .map(|r| r.object_id)
-                    .unwrap_or_else(|| endpoint_container.endpoint_crypto.get_next_object_id());
+                    .unwrap_or_else(|| {
+                        endpoint_container
+                            .ratchet_manager
+                            .session_crypto_state()
+                            .get_next_object_id()
+                    });
                 // reserve group ids
                 let start_group_id = endpoint_container
-                    .endpoint_crypto
+                    .ratchet_manager
+                    .session_crypto_state()
                     .get_and_increment_group_id();
 
                 let latest_usable_ratchet = endpoint_container
-                    .endpoint_crypto
+                    .ratchet_manager
                     .get_ratchet(None)
                     .unwrap();
 
-                let preferred_primary_stream = endpoint_container
-                    .get_direct_p2p_primary_stream()
-                    .cloned()
-                    .unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+                let preferred_primary_stream =
+                    state_container.get_preferred_stream(target_cid).clone();
 
                 let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
                     source,
@@ -1611,7 +1649,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 };
 
                 let file_header = packet_crafter::file::craft_file_header_packet(
-                    latest_usable_ratchet,
+                    &latest_usable_ratchet,
                     start_group_id,
                     ticket,
                     security_level,
@@ -1623,7 +1661,11 @@ impl<R: Ratchet> CitadelSession<R> {
 
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                 let amt_to_reserve = groups_needed.saturating_sub(1);
-                endpoint_container.endpoint_crypto.incrementing_group_id += amt_to_reserve as u64;
+                endpoint_container
+                    .ratchet_manager
+                    .session_crypto_state()
+                    .incrementing_group_id
+                    .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
 
                 (
                     preferred_primary_stream,
@@ -1719,45 +1761,25 @@ impl<R: Ratchet> CitadelSession<R> {
                             }
 
                             let mut state_container = inner_mut_state!(sess.state_container);
-
-                            let proper_latest_stacked_ratchet = match virtual_target {
-                                VirtualConnectionType::LocalGroupServer { session_cid: _ } => {
-                                    state_container
-                                        .c2s_channel_container
-                                        .as_ref()
-                                        .unwrap()
-                                        .peer_session_crypto
-                                        .get_ratchet(None)
-                                }
-                                VirtualConnectionType::LocalGroupPeer {
-                                    session_cid: _,
-                                    peer_cid,
-                                } => match state_container.get_peer_session_crypto(peer_cid) {
-                                    Some(peer_sess_crypt) => peer_sess_crypt.get_ratchet(None),
-
-                                    None => {
-                                        log::warn!(target: "citadel", "Since transmitting the file, the peer session ended");
-                                        return;
-                                    }
-                                },
-
-                                _ => {
-                                    log::error!(target: "citadel", "HyperWAN Functionality not implemented");
+                            let latest_proper_ratchet = match state_container
+                                .get_endpoint_container(virtual_target.get_target_cid())
+                            {
+                                Ok(r) => r.ratchet_manager.get_ratchet(None),
+                                Err(err) => {
+                                    log::error!(target: "citadel", "Unable to get endpoint container: {}", err.to_string());
                                     return;
                                 }
                             };
 
-                            if proper_latest_stacked_ratchet.is_none() {
-                                log::error!(target: "citadel", "Unable to unwrap StackedRatchet (X-05)");
+                            let Some(ratchet) = latest_proper_ratchet else {
+                                log::error!(target: "citadel", "Unable to unwrap Ratchet for {virtual_target}");
                                 return;
-                            }
+                            };
 
-                            let stacked_ratchet = proper_latest_stacked_ratchet.unwrap();
-
-                            let mut transmitter = GroupTransmitter::new_from_group_sender(
+                            let mut transmitter = ObjectTransmitter::new_from_group_sender(
                                 to_primary_stream.clone(),
                                 sender,
-                                RatchetPacketCrafterContainer::new(stacked_ratchet.clone(), None),
+                                ratchet.clone(),
                                 object_id,
                                 ticket,
                                 security_level,
@@ -1807,7 +1829,7 @@ impl<R: Ratchet> CitadelSession<R> {
                                 // as long as a wave ACK has been received, proceed with the timeout check
                                 // The reason why is because this group may be loaded, but the previous one isn't done
                                 if transmitter.has_begun {
-                                    let transmitter = &transmitter.burst_transmitter.group_transmitter;
+                                    let transmitter = transmitter.burst_transmitter.group_transmitter.as_ref().expect("transmitter should exist");
                                     if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
                                         if state_container.meta_expiry_state.expired() {
                                             log::error!(target: "citadel", "Outbound group {} has expired; dropping entire transfer", group_id);
@@ -1883,7 +1905,8 @@ impl<R: Ratchet> CitadelSession<R> {
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
         this: CitadelSession<R>,
-        mut rx: citadel_io::tokio::sync::mpsc::Receiver<SessionRequest>,
+        virtual_connection_type: VirtualConnectionType,
+        mut rx_session_requests: crate::proto::outbound_sender::Receiver<SessionRequest>,
     ) {
         let task = async move {
             let this = &this;
@@ -1898,36 +1921,90 @@ impl<R: Ratchet> CitadelSession<R> {
             };
 
             let receiver = async move {
-                while let Some(request) = rx.recv().await {
-                    let mut state_container = inner_mut_state!(this.state_container);
+                // The messages the messenger receives will automatically be sent to the user
+                // via the ProtocolMessengerRx handle
+                // However, when the user sends messages through the sink for the provided ProtocolMessengerTx,
+                // that sink sends items here. Thus, we need to receive those messages and process them outbound.
+                // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
+                // to forward these to.
+                fn send_ratchet_message<R: Ratchet>(
+                    state_container: &StateContainerInner<R>,
+                    ratchet_message: RatchetMessage<UserMessage>,
+                    v_conn: VirtualConnectionType,
+                ) -> Result<(), (NetworkError, Option<Ticket>)> {
+                    let mut attributed_ticket = None;
 
-                    match request {
-                        SessionRequest::SendMessage {
+                    let (ticket, security_level) = match &ratchet_message {
+                        RatchetMessage::JustMessage(UserMessage {
                             ticket,
-                            packet,
-                            target,
                             security_level,
-                        } => {
-                            if let Err(err) = state_container.process_outbound_message(
-                                ticket,
-                                packet,
-                                target,
-                                security_level,
-                                false,
+                            ..
+                        }) => {
+                            attributed_ticket = Some(*ticket);
+                            (*ticket, *security_level)
+                        }
+                        _other => (Ticket::default(), SecurityLevel::default()),
+                    };
+
+                    let preferred_stream =
+                        state_container.get_preferred_stream(v_conn.get_target_cid());
+                    let endpoint_container = state_container
+                        .get_virtual_connection_crypto(v_conn.get_target_cid())
+                        .ok_or_else(|| {
+                            (
+                                NetworkError::Generic(
+                                    "Unable to get virtual connection crypto".to_string(),
+                                ),
+                                attributed_ticket,
+                            )
+                        })?;
+
+                    let ratchet = endpoint_container
+                        .get_ratchet(None)
+                        .expect("ratchet should exist");
+
+                    let object_id = endpoint_container.get_next_object_id();
+                    let group_id = endpoint_container.get_and_increment_group_id();
+                    let time_tracker = state_container.time_tracker;
+
+                    ObjectTransmitter::transmit_message(
+                        preferred_stream.clone(),
+                        object_id,
+                        ratchet,
+                        ratchet_message,
+                        security_level,
+                        group_id,
+                        ticket,
+                        time_tracker,
+                        v_conn,
+                    )
+                    .map_err(|err| (err, attributed_ticket))?;
+
+                    Ok(())
+                }
+
+                while let Some(request) = rx_session_requests.recv().await {
+                    let state_container = inner_state!(this.state_container);
+                    match request {
+                        SessionRequest::SendMessage(other) => {
+                            if let Err((err, ticket_opt)) = send_ratchet_message(
+                                &state_container,
+                                other,
+                                virtual_connection_type,
                             ) {
                                 to_kernel_tx
                                     .unbounded_send(NodeResult::InternalServerError(
                                         InternalServerError {
-                                            ticket_opt: Some(ticket),
+                                            ticket_opt,
                                             cid_opt: this.session_cid.get(),
-                                            message: err.into_string(),
+                                            message: err.to_string(),
                                         },
                                     ))
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?
                             }
                         }
 
-                        SessionRequest::Group { ticket, broadcast } => {
+                        SessionRequest::Group(Group { ticket, broadcast }) => {
                             if let Err(err) = state_container
                                 .process_outbound_broadcast_command(ticket, &broadcast)
                             {
@@ -1964,12 +2041,12 @@ impl<R: Ratchet> CitadelSession<R> {
         peer_command: PeerSignal,
         security_level: SecurityLevel,
     ) -> Result<(), NetworkError> {
-        log::trace!(target: "citadel", "Dispatching peer command {:?} ...", peer_command);
+        log::trace!(target: "citadel", "Dispatching peer command {peer_command:?} ...");
         let this = self;
         let state = this.state.get();
 
         if state != SessionState::Connected {
-            log::warn!(target: "citadel", "Session is not connected (s={:?}); will still attempt send peer command {:?}", state, peer_command)
+            log::warn!(target: "citadel", "Session is not connected (s={state:?}); will still attempt send peer command {peer_command:?}")
         }
 
         let timestamp = this.time_tracker.get_global_time_ns();
@@ -2017,34 +2094,40 @@ impl<R: Ratchet> CitadelSession<R> {
                 }
 
                 PeerSignal::PostConnect {
-                    peer_conn_type: a,
-                    ticket_opt: b,
+                    peer_conn_type,
+                    ticket_opt,
                     invitee_response,
-                    session_security_settings: d,
-                    udp_mode: e,
+                    session_security_settings,
+                    udp_mode,
                     session_password,
                 } => {
                     let session_password = session_password.unwrap_or_default();
                     if state_container
                         .outgoing_peer_connect_attempts
-                        .contains_key(&a.get_original_target_cid())
+                        .contains_key(&peer_conn_type.get_original_target_cid())
                     {
-                        log::warn!(target: "citadel", "{} is already attempting to connect to {}", a.get_original_session_cid(), a.get_original_target_cid())
+                        log::warn!(target: "citadel", "{} is already attempting to connect to {}", peer_conn_type.get_original_session_cid(), peer_conn_type.get_original_target_cid())
                     }
 
-                    state_container
-                        .store_session_password(a.get_original_target_cid(), session_password);
+                    state_container.store_session_password(
+                        peer_conn_type.get_original_target_cid(),
+                        session_password,
+                    );
 
                     // in case the ticket gets mapped during simultaneous_connect, store locally
-                    let _ = state_container
-                        .outgoing_peer_connect_attempts
-                        .insert(a.get_original_target_cid(), ticket);
+                    let _ = state_container.outgoing_peer_connect_attempts.insert(
+                        peer_conn_type.get_original_target_cid(),
+                        OutgoingPeerConnectionAttempt {
+                            ticket,
+                            session_security_settings,
+                        },
+                    );
                     PeerSignal::PostConnect {
-                        peer_conn_type: a,
-                        ticket_opt: b,
+                        peer_conn_type,
+                        ticket_opt,
                         invitee_response,
-                        session_security_settings: d,
-                        udp_mode: e,
+                        session_security_settings,
+                        udp_mode,
                         session_password: None,
                     }
                 }
@@ -2052,19 +2135,13 @@ impl<R: Ratchet> CitadelSession<R> {
                 n => n,
             };
 
-            let stacked_ratchet = state_container
-                .c2s_channel_container
-                .as_ref()
-                .ok_or_else(|| {
-                    NetworkError::msg(format!(
-                        "C2S container not loaded; cannot send peer command {signal_processed:?}"
-                    ))
-                })?
-                .peer_session_crypto
+            let ratchet = state_container
+                .get_endpoint_container(C2S_IDENTITY_CID)?
+                .ratchet_manager
                 .get_ratchet(None)
                 .unwrap();
             let packet = super::packet_crafter::peer_cmd::craft_peer_signal(
-                &stacked_ratchet,
+                &ratchet,
                 signal_processed,
                 ticket,
                 timestamp,
@@ -2089,7 +2166,7 @@ impl<R: Ratchet> CitadelSession<R> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
-                    log::trace!(target: "citadel", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
+                    log::trace!(target: "citadel", "Packet received on port {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
                     let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
                     this.process_inbound_packet_udp(packet, &peer_session_accessor)?;
                 }
@@ -2101,7 +2178,7 @@ impl<R: Ratchet> CitadelSession<R> {
             }
         }
 
-        log::trace!(target: "citadel", "Ending waveport listener on {}", local_port);
+        log::trace!(target: "citadel", "Ending UDP Port listener on {local_port}");
 
         Ok(())
     }
@@ -2268,7 +2345,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     /// This will panic if cannot be sent
     #[inline]
-    pub fn send_to_kernel(&self, msg: NodeResult) -> Result<(), SendError<NodeResult>> {
+    pub fn send_to_kernel(&self, msg: NodeResult<R>) -> Result<(), SendError<NodeResult<R>>> {
         self.kernel_tx.unbounded_send(msg)
     }
 
@@ -2394,17 +2471,25 @@ impl<R: Ratchet> Drop for CitadelSession<R> {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[doc(hidden)]
+pub struct UserMessage {
+    pub ticket: Ticket,
+    pub packet: SecBuffer,
+    pub target: VirtualTargetType,
+    pub security_level: SecurityLevel,
+}
+
+#[derive(Debug)]
+#[doc(hidden)]
+pub struct Group {
+    pub ticket: Ticket,
+    pub broadcast: GroupBroadcast,
+}
+
 #[derive(Debug)]
 #[doc(hidden)]
 pub enum SessionRequest {
-    SendMessage {
-        ticket: Ticket,
-        packet: SecureProtocolPacket,
-        target: VirtualTargetType,
-        security_level: SecurityLevel,
-    },
-    Group {
-        ticket: Ticket,
-        broadcast: GroupBroadcast,
-    },
+    SendMessage(RatchetMessage<UserMessage>),
+    Group(Group),
 }

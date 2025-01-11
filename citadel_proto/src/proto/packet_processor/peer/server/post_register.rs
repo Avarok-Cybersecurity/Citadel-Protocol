@@ -56,7 +56,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet>(
     target_cid: u64,
     timestamp: i64,
     session: &CitadelSession<R>,
-    sess_stacked_ratchet: &R,
+    sess_ratchet: &R,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let decline = matches!(&peer_response, PeerResponse::Decline);
@@ -67,7 +67,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet>(
         invitee_username: None,
         ticket_opt: Some(ticket),
         invitee_response: Some(peer_response),
-    }, session_cid, target_cid, timestamp, ticket, session.clone(), sess_stacked_ratchet,
+    }, session_cid, target_cid, timestamp, ticket, session.clone(), sess_ratchet,
                           |this_sess, _peer_sess, _original_tracked_posting| {
                               if !decline {
                                   let account_manager = this_sess.account_manager.clone();
@@ -78,9 +78,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet>(
                                       }
                                   };
 
-                                  let handle = citadel_io::tokio::task::spawn(task);
-                                  // dont process the handle
-                                  std::mem::drop(handle);
+                                  spawn!(task);
                               }
                           }, security_level).await
 }

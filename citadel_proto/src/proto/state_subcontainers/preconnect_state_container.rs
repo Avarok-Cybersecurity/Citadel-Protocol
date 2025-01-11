@@ -46,7 +46,7 @@ pub struct PreConnectState<R: Ratchet> {
     pub(crate) constructor: Option<R::Constructor>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
+    pub(crate) udp_channel_oneshot_tx: UdpChannelSender<R>,
     pub(crate) success: bool,
     pub(crate) generated_ratchet: Option<R>,
 }
@@ -72,18 +72,18 @@ impl<R: Ratchet> Default for PreConnectState<R> {
     }
 }
 
-pub struct UdpChannelSender {
-    pub tx: Option<Sender<UdpChannel>>,
-    pub rx: Option<Receiver<UdpChannel>>,
+pub struct UdpChannelSender<R: Ratchet> {
+    pub tx: Option<Sender<UdpChannel<R>>>,
+    pub rx: Option<Receiver<UdpChannel<R>>>,
 }
 
-impl UdpChannelSender {
+impl<R: Ratchet> UdpChannelSender<R> {
     pub(crate) fn empty() -> Self {
         Self { tx: None, rx: None }
     }
 }
 
-impl Default for UdpChannelSender {
+impl<R: Ratchet> Default for UdpChannelSender<R> {
     fn default() -> Self {
         let (tx, rx) = channel();
         Self {

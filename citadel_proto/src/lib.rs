@@ -76,6 +76,13 @@
 )]
 #![allow(rustdoc::broken_intra_doc_links)]
 
+use crate::error::NetworkError;
+use crate::proto::session::UserMessage;
+use citadel_crypt::messaging::{
+    RatchetManagerMessengerLayer, RatchetManagerMessengerLayerRx, RatchetManagerMessengerLayerTx,
+};
+use citadel_crypt::ratchets::ratchet_manager::DefaultRatchetManager;
+
 #[cfg(not(feature = "multi-threaded"))]
 pub const fn build_tag() -> &'static str {
     "Single-Threaded"
@@ -90,6 +97,7 @@ pub const fn build_tag() -> &'static str {
 #[macro_use]
 pub mod macros {
     use either::Either;
+    use std::future::Future;
 
     use crate::proto::session::CitadelSessionInner;
 
@@ -106,6 +114,9 @@ pub mod macros {
 
     pub trait SyncContextRequirements: 'static {}
     impl<T: 'static> SyncContextRequirements for T {}
+
+    pub trait FutureRequirements: ContextRequirements + Future {}
+    impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
     pub type SessionBorrow<'a, R> = std::cell::RefMut<'a, CitadelSessionInner<R>>;
@@ -283,6 +294,7 @@ pub mod macros {
 #[macro_use]
 pub mod macros {
     use either::Either;
+    use std::future::Future;
 
     use crate::proto::session::CitadelSessionInner;
 
@@ -299,6 +311,9 @@ pub mod macros {
 
     pub trait SyncContextRequirements: Send + Sync + 'static {}
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
+
+    pub trait FutureRequirements: ContextRequirements + Future {}
+    impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
     pub type SessionBorrow<'a, R> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R>>;
@@ -522,9 +537,8 @@ pub mod prelude {
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
     pub use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
-    pub use crate::proto::node::Node;
+    pub use crate::proto::node::CitadelNode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
-    pub use crate::proto::packet_crafter::SecureProtocolPacket;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
     pub use crate::proto::peer::channel::*;
     pub use crate::proto::peer::group_channel::{
@@ -551,6 +565,7 @@ pub mod prelude {
     pub use crate::auth::AuthenticationRequest;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
+    pub use crate::proto::session::ServerOnlySessionInitSettings;
     pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
     pub use citadel_types::crypto::EncryptionAlgorithm;
     pub use citadel_types::crypto::KemAlgorithm;
@@ -583,3 +598,8 @@ mod inner_arg;
 pub mod kernel;
 /// The primary module of this crate
 mod proto;
+
+pub(crate) type ProtocolRatchetManager<R> = DefaultRatchetManager<NetworkError, R, UserMessage>;
+pub type ProtocolMessengerTx<R> = RatchetManagerMessengerLayerTx<NetworkError, R, UserMessage>;
+pub type ProtocolMessengerRx<R> = RatchetManagerMessengerLayerRx<NetworkError, R, UserMessage>;
+pub type ProtocolMessenger<R> = RatchetManagerMessengerLayer<NetworkError, R, UserMessage>;

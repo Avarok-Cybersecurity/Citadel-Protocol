@@ -44,6 +44,8 @@
 
 use bytes::{BufMut, BytesMut};
 use citadel_types::crypto::SecBuffer;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use std::ops::{Deref, DerefMut, Range};
 
 /// A secure buffer implementation with N fixed-size partitions
@@ -60,8 +62,9 @@ use std::ops::{Deref, DerefMut, Range};
 ///
 /// * `layout` - Array storing the size of each partition
 /// * `buffer` - Underlying secure buffer storing all partition data
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PartitionedSecBuffer<const N: usize> {
+    #[serde(with = "BigArray")]
     layout: [u32; N],
     buffer: SecBuffer,
 }

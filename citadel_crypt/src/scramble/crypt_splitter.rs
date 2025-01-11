@@ -163,7 +163,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
 
 #[allow(clippy::too_many_arguments)]
 fn get_scramble_encrypt_config<'a, R: Ratchet>(
-    stacked_ratchet: &'a R,
+    ratchet: &'a R,
     plain_text: &'a [u8],
     header_size_bytes: usize,
     security_level: SecurityLevel,
@@ -180,9 +180,8 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     ),
     CryptError<String>,
 > {
-    let (msg_pqc, msg_entropy_bank) =
-        stacked_ratchet.get_message_pqc_and_entropy_bank_at_layer(None)?;
-    let scramble_entropy_bank = stacked_ratchet.get_scramble_pqc_and_entropy_bank();
+    let (msg_pqc, msg_entropy_bank) = ratchet.get_message_pqc_and_entropy_bank_at_layer(None)?;
+    let scramble_entropy_bank = ratchet.get_scramble_pqc_and_entropy_bank();
     let cfg = generate_scrambler_metadata(
         msg_entropy_bank,
         plain_text,
@@ -214,7 +213,7 @@ pub struct PacketCoordinate {
 pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>(
     plain_text: T,
     security_level: SecurityLevel,
-    stacked_ratchet: &R,
+    ratchet: &R,
     static_aux_ratchet: &R,
     header_size_bytes: usize,
     target_cid: u64,
@@ -246,7 +245,7 @@ where
     }
 
     let (mut cfg, msg_entropy_bank, msg_pqc, scramble_entropy_bank) = get_scramble_encrypt_config(
-        stacked_ratchet,
+        ratchet,
         &plain_text,
         header_size_bytes,
         security_level,
@@ -642,7 +641,7 @@ impl GroupReceiver {
         _group_id: u64,
         true_sequence: usize,
         wave_id: u32,
-        stacked_ratchet: &R,
+        ratchet: &R,
         packet: T,
     ) -> GroupReceiverStatus {
         let packet = packet.as_ref();
@@ -704,7 +703,7 @@ impl GroupReceiver {
             if wave_store.packets_received == wave_store.packets_in_wave {
                 let ciphertext_bytes_for_this_wave =
                     &wave_store.ciphertext_buffer[..wave_store.bytes_written];
-                let (msg_pqc, msg_entropy_bank) = match stacked_ratchet
+                let (msg_pqc, msg_entropy_bank) = match ratchet
                     .get_message_pqc_and_entropy_bank_at_layer(None)
                 {
                     Ok((msg_pqc, msg_entropy_bank)) => (msg_pqc, msg_entropy_bank),

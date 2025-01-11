@@ -59,7 +59,7 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet>(
     target_cid: u64,
     timestamp: i64,
     session: &CitadelSession<R>,
-    sess_stacked_ratchet: &R,
+    sess_ratchet: &R,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
@@ -70,7 +70,7 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet>(
         session_security_settings: endpoint_security_level,
         udp_mode: udp_enabled,
         session_password: None,
-    }, session_cid, target_cid, timestamp, ticket, session.clone(), sess_stacked_ratchet,
+    }, session_cid, target_cid, timestamp, ticket, session.clone(), sess_ratchet,
                           |this_sess, peer_sess, _original_tracked_posting| {
                               // when the route finishes, we need to update both sessions to allow high-level message-passing
                               // In other words, forge a virtual connection

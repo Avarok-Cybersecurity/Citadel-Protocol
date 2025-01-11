@@ -8,6 +8,7 @@ use citadel_types::crypto::SecurityLevel;
 use entropy_bank::EntropyBank;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::fmt::Debug;
 
 /// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
 pub mod entropy_bank;
@@ -17,7 +18,9 @@ pub mod ratchet_manager;
 pub mod stacked;
 
 /// For allowing registration inside the toolset
-pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {
+pub trait Ratchet:
+    Debug + Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static
+{
     type Constructor: EndpointRatchetConstructor<Self> + Serialize + for<'a> Deserialize<'a>;
 
     /// Returns the client ID

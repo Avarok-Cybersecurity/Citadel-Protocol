@@ -47,13 +47,13 @@
 //! - [`NetKernel`]: Base trait for network kernels
 //! - [`ServerConnectionSettings`]: Connection configuration
 //! - [`ClientServerRemote`]: Remote connection handler
-//! - [`ConnectionSuccess`]: Connection establishment data
+//! - [`CitadelClientServerConnection`]: Connection establishment data
 //!
 
 use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use crate::prefabs::client::ServerConnectionSettings;
 use crate::prefabs::ClientServerRemote;
-use crate::remote_ext::ConnectionSuccess;
+use crate::remote_ext::CitadelClientServerConnection;
 use crate::remote_ext::ProtocolRemoteExt;
 use citadel_io::Mutex;
 use citadel_proto::prelude::*;
@@ -71,7 +71,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut, R: Ratchet> {
     auth_info: Mutex<Option<ConnectionType>>,
     session_security_settings: SessionSecuritySettings,
     unprocessed_signal_filter_tx:
-        Mutex<Option<citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult>>>,
+        Mutex<Option<citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult<R>>>>,
     remote: Option<NodeRemote<R>>,
     server_password: Option<PreSharedKey>,
     rx_incoming_object_transfer_handle: Mutex<Option<FileTransferHandleRx>>,
@@ -101,7 +101,7 @@ pub(crate) enum ConnectionType {
 
 impl<F, Fut, R: Ratchet> SingleClientServerConnectionKernel<F, Fut, R>
 where
-    F: FnOnce(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send,
+    F: FnOnce(CitadelClientServerConnection<R>) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     fn generate_object_transfer_handle() -> (
@@ -171,7 +171,7 @@ where
 #[async_trait]
 impl<F, Fut, R: Ratchet> NetKernel<R> for SingleClientServerConnectionKernel<F, Fut, R>
 where
-    F: FnOnce(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send,
+    F: FnOnce(CitadelClientServerConnection<R>) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
     fn load_remote(&mut self, server_remote: NodeRemote<R>) -> Result<(), NetworkError> {
@@ -231,7 +231,7 @@ where
             }
         };
 
-        let connect_success = remote
+        let mut connect_success = remote
             .connect(
                 auth,
                 Default::default(),
@@ -241,6 +241,7 @@ where
                 self.server_password.clone(),
             )
             .await?;
+
         let conn_type = VirtualTargetType::LocalGroupServer {
             session_cid: connect_success.cid,
         };
@@ -254,21 +255,18 @@ where
 
         let (reroute_tx, reroute_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
+        connect_success.remote = ClientServerRemote::new(
+            conn_type,
+            remote,
+            session_security_settings,
+            Some(reroute_rx),
+            Some(handle),
+        );
 
-        handler(
-            connect_success,
-            ClientServerRemote::new(
-                conn_type,
-                remote,
-                session_security_settings,
-                Some(reroute_rx),
-                Some(handle),
-            ),
-        )
-        .await
+        handler(connect_success).await
     }
 
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         match message {
             NodeResult::ObjectTransferHandle(handle) => {
                 if let Err(err) = self.tx_incoming_object_transfer_handle.send(handle.handle) {
@@ -298,7 +296,6 @@ where
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
-    use crate::prefabs::ClientServerRemote;
     use crate::prelude::*;
     use crate::test_common::{server_info_reactive, wait_for_peers, TestBarrier};
     use citadel_io::tokio;
@@ -310,11 +307,11 @@ mod tests {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
     )]
-    async fn on_server_received_conn(
+    async fn on_server_received_conn<R: Ratchet>(
         udp_mode: UdpMode,
-        conn: ConnectionSuccess,
+        conn: &mut CitadelClientServerConnection<R>,
     ) -> Result<(), NetworkError> {
-        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx).await;
+        crate::test_common::udp_mode_assertions(udp_mode, conn.udp_channel_rx.take()).await;
         Ok(())
     }
 
@@ -324,15 +321,15 @@ mod tests {
     )]
     async fn default_server_harness<R: Ratchet>(
         udp_mode: UdpMode,
-        conn: ConnectionSuccess,
-        remote: ClientServerRemote<R>,
+        mut connection: CitadelClientServerConnection<R>,
         server_success: &AtomicBool,
     ) -> Result<(), NetworkError> {
         wait_for_peers().await;
-        on_server_received_conn(udp_mode, conn).await?;
+        on_server_received_conn(udp_mode, &mut connection).await?;
         server_success.store(true, Ordering::SeqCst);
+        log::warn!(target: "citadel", "Server awaiting peer ...");
         wait_for_peers().await;
-        remote.shutdown_kernel().await
+        connection.shutdown_kernel().await
     }
 
     #[rstest]
@@ -357,8 +354,8 @@ mod tests {
         let server_success = &AtomicBool::new(false);
 
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
-            move |conn, remote| async move {
-                default_server_harness(udp_mode, conn, remote, server_success).await
+            move |connection| async move {
+                default_server_harness(udp_mode, connection, server_success).await
             },
             |builder| {
                 let _ = builder.with_underlying_protocol(underlying_protocol);
@@ -375,17 +372,16 @@ mod tests {
         .build()
         .unwrap();
 
-        let client_kernel = SingleClientServerConnectionKernel::new(
-            client_settings,
-            |channel, remote| async move {
+        let client_kernel =
+            SingleClientServerConnectionKernel::new(client_settings, |mut connection| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
+                let chan = connection.udp_channel_rx.take();
                 wait_for_peers().await;
-                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
+                crate::test_common::udp_mode_assertions(udp_mode, chan).await;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
-                remote.shutdown_kernel().await
-            },
-        );
+                connection.shutdown_kernel().await
+            });
 
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
@@ -398,13 +394,24 @@ mod tests {
     }
 
     #[rstest]
-    #[case(UdpMode::Enabled, None)]
-    #[case(UdpMode::Enabled, Some("test-password"))]
+    #[case(UdpMode::Enabled, None, HeaderObfuscatorSettings::Disabled)]
+    #[case(UdpMode::Enabled, None, HeaderObfuscatorSettings::Enabled)]
+    #[case(
+        UdpMode::Enabled,
+        None,
+        HeaderObfuscatorSettings::EnabledWithKey(12345)
+    )]
+    #[case(
+        UdpMode::Enabled,
+        Some("test-password"),
+        HeaderObfuscatorSettings::Disabled
+    )]
     #[timeout(std::time::Duration::from_secs(90))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_transient(
         #[case] udp_mode: UdpMode,
         #[case] server_password: Option<&'static str>,
+        #[case] header_obfuscator_settings: HeaderObfuscatorSettings,
     ) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
@@ -412,12 +419,14 @@ mod tests {
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
-            |conn, remote| async move {
-                default_server_harness(udp_mode, conn, remote, server_success).await
+            |connection| async move {
+                default_server_harness(udp_mode, connection, server_success).await
             },
             |opts| {
                 if let Some(password) = server_password {
-                    let _ = opts.with_server_password(password);
+                    let _ = opts
+                        .with_server_password(password)
+                        .with_server_declared_header_obfuscation(header_obfuscator_settings);
                 }
             },
         );
@@ -426,7 +435,13 @@ mod tests {
 
         let mut server_connection_settings =
             DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode);
+                .with_udp_mode(udp_mode)
+                .with_session_security_settings(SessionSecuritySettings {
+                    security_level: Default::default(),
+                    secrecy_mode: Default::default(),
+                    crypto_params: Default::default(),
+                    header_obfuscator_settings,
+                });
 
         if let Some(server_password) = server_password {
             server_connection_settings =
@@ -437,14 +452,15 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |channel, remote| async move {
+            |mut connection| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
+                let chan = connection.udp_channel_rx.take();
                 wait_for_peers().await;
-                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
-                remote.disconnect().await?;
+                crate::test_common::udp_mode_assertions(udp_mode, chan).await;
+                connection.disconnect().await?;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
@@ -470,7 +486,7 @@ mod tests {
         TestBarrier::setup(2);
 
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
-            |_conn, _remote| async move { panic!("Server should not have connected") },
+            |_conn| async move { panic!("Server should not have connected") },
             |opts| {
                 if let Some(password) = server_password {
                     let _ = opts.with_server_password(password);
@@ -489,7 +505,7 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, _remote| async move { panic!("Client should not have connected") },
+            |_connection| async move { panic!("Client should not have connected") },
         );
 
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
@@ -521,8 +537,8 @@ mod tests {
         let server_success = &AtomicBool::new(false);
 
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
-            |conn, remote| async move {
-                default_server_harness(udp_mode, conn, remote, server_success).await
+            |connection| async move {
+                default_server_harness(udp_mode, connection, server_success).await
             },
             |_| (),
         );
@@ -537,14 +553,15 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |channel, remote| async move {
+            |mut connection| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
+                let chan = connection.udp_channel_rx.take();
                 wait_for_peers().await;
-                crate::test_common::udp_mode_assertions(udp_mode, channel.udp_channel_rx).await;
-                remote.deregister().await?;
+                crate::test_common::udp_mode_assertions(udp_mode, chan).await;
+                connection.deregister().await?;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
@@ -570,8 +587,8 @@ mod tests {
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
-            |conn, remote| async move {
-                default_server_harness(udp_mode, conn, remote, server_success).await
+            |connection| async move {
+                default_server_harness(udp_mode, connection, server_success).await
             },
             |_| (),
         );
@@ -586,7 +603,7 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 wait_for_peers().await;
 
@@ -595,33 +612,39 @@ mod tests {
                 let value: Vec<u8> = Vec::from("Hello, world!");
                 let value2: Vec<u8> = Vec::from("Hello, world!2");
 
-                assert_eq!(remote.set(KEY, value.clone()).await?.as_deref(), None);
-                assert_eq!(remote.get(KEY).await?.as_deref(), Some(value.as_slice()));
+                assert_eq!(connection.set(KEY, value.clone()).await?.as_deref(), None);
+                assert_eq!(
+                    connection.get(KEY).await?.as_deref(),
+                    Some(value.as_slice())
+                );
 
-                assert_eq!(remote.set(KEY2, value2.clone()).await?.as_deref(), None);
-                assert_eq!(remote.get(KEY2).await?.as_deref(), Some(value2.as_slice()));
+                assert_eq!(connection.set(KEY2, value2.clone()).await?.as_deref(), None);
+                assert_eq!(
+                    connection.get(KEY2).await?.as_deref(),
+                    Some(value2.as_slice())
+                );
 
-                let map = remote.get_all().await?;
+                let map = connection.get_all().await?;
                 assert_eq!(map.get(KEY), Some(&value));
                 assert_eq!(map.get(KEY2), Some(&value2));
 
                 assert_eq!(
-                    remote.remove(KEY2).await?.as_deref(),
+                    connection.remove(KEY2).await?.as_deref(),
                     Some(value2.as_slice())
                 );
 
-                assert_eq!(remote.remove(KEY2).await?.as_deref(), None);
+                assert_eq!(connection.remove(KEY2).await?.as_deref(), None);
 
-                let map = remote.remove_all().await?;
+                let map = connection.remove_all().await?;
                 assert_eq!(map.get(KEY), Some(&value));
                 assert_eq!(map.get(KEY2), None);
 
-                assert_eq!(remote.get_all().await?.len(), 0);
-                assert_eq!(remote.remove_all().await?.len(), 0);
+                assert_eq!(connection.get_all().await?.len(), 0);
+                assert_eq!(connection.remove_all().await?.len(), 0);
 
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
@@ -647,8 +670,8 @@ mod tests {
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
-            |conn, remote| async move {
-                default_server_harness(udp_mode, conn, remote, server_success).await
+            |connection| async move {
+                default_server_harness(udp_mode, connection, server_success).await
             },
             |_| (),
         );
@@ -663,23 +686,24 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
-                log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
+            |mut connection| async move {
+                log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS***");
                 wait_for_peers().await;
+                let chan = connection.udp_channel_rx.take();
+                crate::test_common::udp_mode_assertions(udp_mode, chan).await;
 
                 for x in 1..10 {
-                    assert_eq!(remote.rekey().await?, Some(x));
+                    assert_eq!(connection.remote.rekey().await?, Some(x));
                 }
 
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
 
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
-
         let joined = futures::future::try_join(server, client);
 
         let _ = joined.await.unwrap();

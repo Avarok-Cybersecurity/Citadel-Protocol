@@ -186,12 +186,12 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &remote,
+                    &connection.remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -199,7 +199,7 @@ mod tests {
                 .await?;
                 log::info!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::read(&remote, virtual_path).await?;
+                let save_dir = crate::fs::read(&connection.remote, virtual_path).await?;
                 // now, compare bytes
                 log::info!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
@@ -207,7 +207,7 @@ mod tests {
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::info!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
@@ -259,12 +259,12 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &remote,
+                    &connection.remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -272,7 +272,7 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::take(&remote, &virtual_path).await?;
+                let save_dir = crate::fs::take(&connection.remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
@@ -280,9 +280,11 @@ mod tests {
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 // prove we can no longer read from this virtual file
-                assert!(crate::fs::read(&remote, &virtual_path).await.is_err());
+                assert!(crate::fs::read(&connection.remote, &virtual_path)
+                    .await
+                    .is_err());
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
@@ -334,12 +336,12 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &remote,
+                    &connection.remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -347,18 +349,20 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::read(&remote, &virtual_path).await?;
+                let save_dir = crate::fs::read(&connection.remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
                 let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
-                crate::fs::delete(&remote, &virtual_path).await?;
+                crate::fs::delete(&connection.remote, &virtual_path).await?;
                 // prove we can no longer read from this virtual file since it was just deleted
-                assert!(crate::fs::read(&remote, &virtual_path).await.is_err());
+                assert!(crate::fs::read(&connection.remote, &virtual_path)
+                    .await
+                    .is_err());
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 

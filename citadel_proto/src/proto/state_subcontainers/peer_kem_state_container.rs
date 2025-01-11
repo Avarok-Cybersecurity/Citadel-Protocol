@@ -39,7 +39,7 @@ pub struct PeerKemStateContainer<R: Ratchet> {
     pub(crate) constructor: Option<R::Constructor>,
     pub(crate) local_is_initiator: bool,
     pub(crate) session_security_settings: SessionSecuritySettings,
-    pub(crate) udp_channel_sender: UdpChannelSender,
+    pub(crate) udp_channel_sender: UdpChannelSender<R>,
     pub(crate) session_password: PreSharedKey,
 }
 

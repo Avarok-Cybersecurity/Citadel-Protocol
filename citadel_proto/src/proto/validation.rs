@@ -63,18 +63,16 @@ pub(crate) mod do_connect {
 }
 
 pub(crate) mod group {
-    use byteorder::{BigEndian, ReadBytesExt};
     use std::ops::RangeInclusive;
 
-    use bytes::{Buf, Bytes, BytesMut};
+    use bytes::{Bytes, BytesMut};
 
     use citadel_crypt::scramble::crypt_splitter::GroupReceiverConfig;
 
-    use crate::proto::packet_crafter::SecureProtocolPacket;
+    use crate::proto::session::UserMessage;
     use crate::proto::state_container::VirtualTargetType;
-    use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, KemTransferStatus};
+    use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_types::crypto::SecBuffer;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::proto::ObjectId;
     use citadel_user::serialization::SyncIO;
@@ -82,12 +80,12 @@ pub(crate) mod group {
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a, R: Ratchet>(
-        stacked_ratchet: &R,
+        ratchet: &R,
         security_level: SecurityLevel,
         header: &'b [u8],
         mut payload: BytesMut,
     ) -> Option<Bytes> {
-        stacked_ratchet
+        ratchet
             .validate_message_packet_in_place_split(Some(security_level), header, &mut payload)
             .ok()?;
         Some(payload.freeze())
@@ -96,53 +94,29 @@ pub(crate) mod group {
     #[derive(Serialize, Deserialize)]
     pub(crate) enum GroupHeader {
         Standard(GroupReceiverConfig, VirtualTargetType),
-        //FastMessage(SecBuffer, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>)
+        Ratchet(RatchetMessage<UserMessage>, ObjectId),
     }
 
     pub(crate) fn validate_header(payload: &BytesMut) -> Option<GroupHeader> {
         let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
-        match &mut group_header {
-            GroupHeader::Standard(group_receiver_config, _) => {
-                if group_receiver_config.plaintext_length as usize
-                    > citadel_user::prelude::MAX_BYTES_PER_GROUP
-                {
-                    log::error!(target: "citadel", "The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
-                    return None;
-                }
+        if let GroupHeader::Standard(group_receiver_config, _) = &mut group_header {
+            if group_receiver_config.plaintext_length as usize
+                > citadel_user::prelude::MAX_BYTES_PER_GROUP
+            {
+                log::error!(target: "citadel", "The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
+                return None;
             }
         }
 
         Some(group_header)
     }
 
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn validate_message<R: Ratchet>(
-        payload_orig: &mut BytesMut,
-    ) -> Option<(
-        SecBuffer,
-        Option<<R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer>,
-        ObjectId,
-    )> {
-        // Safely check that there are 8 bytes in length, then, split at the end - 8
-        if payload_orig.len() < std::mem::size_of::<ObjectId>() {
-            return None;
-        }
-        let mut payload =
-            payload_orig.split_to(payload_orig.len() - std::mem::size_of::<ObjectId>());
-        let object_id = payload_orig.reader().read_u128::<BigEndian>().ok()?.into();
-        let message = SecureProtocolPacket::extract_message(&mut payload).ok()?;
-        let deser = SyncIO::deserialize_from_vector(&payload[..]).ok()?;
-        Some((message.into(), deser, object_id))
-    }
-
     #[derive(Serialize, Deserialize)]
     #[allow(variant_size_differences)]
-    pub enum GroupHeaderAck<R: Ratchet> {
+    pub enum GroupHeaderAck {
         ReadyToReceive {
             fast_msg: bool,
             initial_window: Option<RangeInclusive<u32>>,
-            #[serde(bound = "")]
-            transfer: KemTransferStatus<R>,
             object_id: ObjectId,
         },
         NotReady {
@@ -152,7 +126,7 @@ pub(crate) mod group {
     }
 
     /// Returns None if the packet is invalid. Returns Some(is_ready_to_accept) if the packet is valid
-    pub(crate) fn validate_header_ack<R: Ratchet>(payload: &[u8]) -> Option<GroupHeaderAck<R>> {
+    pub(crate) fn validate_header_ack(payload: &[u8]) -> Option<GroupHeaderAck> {
         GroupHeaderAck::deserialize_from_vector(payload).ok()
     }
 
@@ -192,13 +166,12 @@ pub(crate) mod do_register {
 
     /// Returns the decrypted username, password, and full name
     pub(crate) fn validate_stage2<R: Ratchet>(
-        stacked_ratchet: &R,
+        ratchet: &R,
         header: &Ref<&[u8], HdpHeader>,
         payload: BytesMut,
         peer_addr: SocketAddr,
     ) -> Option<(DoRegisterStage2Packet, ConnectionInfo)> {
-        let (_, plaintext_bytes) =
-            super::aead::validate_custom(stacked_ratchet, &header.bytes(), payload)?;
+        let (_, plaintext_bytes) = super::aead::validate_custom(ratchet, &header.bytes(), payload)?;
         let packet = DoRegisterStage2Packet::deserialize_from_vector(&plaintext_bytes[..]).ok()?;
 
         //let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce);
@@ -208,12 +181,12 @@ pub(crate) mod do_register {
 
     /// Returns the decrypted Toolset text, as well as the welcome message
     pub(crate) fn validate_success<R: Ratchet>(
-        stacked_ratchet: &R,
+        ratchet: &R,
         header: &Ref<&[u8], HdpHeader>,
         payload: BytesMut,
         remote_addr: SocketAddr,
     ) -> Option<(Vec<u8>, ConnectionInfo)> {
-        let (_, payload) = super::aead::validate_custom(stacked_ratchet, &header.bytes(), payload)?;
+        let (_, payload) = super::aead::validate_custom(ratchet, &header.bytes(), payload)?;
         let adjacent_addr = ConnectionInfo { addr: remote_addr };
         Some((payload.to_vec(), adjacent_addr))
     }
@@ -225,33 +198,6 @@ pub(crate) mod do_register {
     ) -> Option<Vec<u8>> {
         // no encryption used for this type
         Some(payload.to_vec())
-    }
-}
-
-pub(crate) mod do_stacked_ratchet_update {
-    use crate::proto::packet_crafter::do_entropy_bank_update::{
-        Stage1UpdatePacket, TruncateAckPacket, TruncatePacket,
-    };
-    use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-    use citadel_crypt::ratchets::Ratchet;
-    use citadel_user::serialization::SyncIO;
-
-    pub(crate) fn validate_stage0<R: Ratchet>(
-        payload: &[u8],
-    ) -> Option<<R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer> {
-        SyncIO::deserialize_from_vector(payload).ok()
-    }
-
-    pub(crate) fn validate_stage1<R: Ratchet>(payload: &[u8]) -> Option<Stage1UpdatePacket<R>> {
-        Stage1UpdatePacket::deserialize_from_vector(payload as &[u8]).ok()
-    }
-
-    pub(crate) fn validate_truncate(payload: &[u8]) -> Option<TruncatePacket> {
-        TruncatePacket::deserialize_from_vector(payload).ok()
-    }
-
-    pub(crate) fn validate_truncate_ack(payload: &[u8]) -> Option<TruncateAckPacket> {
-        TruncateAckPacket::deserialize_from_vector(payload).ok()
     }
 }
 
@@ -351,17 +297,14 @@ pub(crate) mod pre_connect {
         let transfer = bob_constructor
             .stage0_bob()
             .ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
-        let new_stacked_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError(
+        let new_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError(
             "Unable to finish bob constructor",
         ))?;
-        let _ = new_stacked_ratchet
+        let _ = new_ratchet
             .verify_level(transfer.security_level().into())
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
-        let toolset = Toolset::from((
-            static_auxiliary_ratchet.clone(),
-            new_stacked_ratchet.clone(),
-        ));
+        let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_ratchet.clone()));
 
         cnac.on_session_init(toolset);
         Ok((
@@ -372,7 +315,7 @@ pub(crate) mod pre_connect {
             udp_mode,
             kat,
             nat_type,
-            new_stacked_ratchet,
+            new_ratchet,
         ))
     }
 
@@ -384,7 +327,7 @@ pub(crate) mod pre_connect {
         mut alice_constructor: R::Constructor,
         packet: HdpPacket,
     ) -> Option<(R, NatType)> {
-        let static_auxiliary_ratchet = cnac.get_static_auxiliary_stacked_ratchet();
+        let static_auxiliary_ratchet = cnac.get_static_auxiliary_ratchet();
         let (header, payload, _, _) = packet.decompose();
         let (_, payload) =
             super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)?;
@@ -398,18 +341,18 @@ pub(crate) mod pre_connect {
             return None;
         }
 
-        let new_stacked_ratchet = alice_constructor.finish()?;
-        let _ = new_stacked_ratchet.verify_level(lvl.into()).ok()?;
-        let toolset = Toolset::from((static_auxiliary_ratchet, new_stacked_ratchet.clone()));
+        let new_ratchet = alice_constructor.finish()?;
+        let _ = new_ratchet.verify_level(lvl.into()).ok()?;
+        let toolset = Toolset::from((static_auxiliary_ratchet, new_ratchet.clone()));
         cnac.on_session_init(toolset);
-        Some((new_stacked_ratchet, packet.nat_type))
+        Some((new_ratchet, packet.nat_type))
     }
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point
     // because we want to make sure the client passes the challenge
-    pub fn validate_stage0<R: Ratchet>(stacked_ratchet: &R, packet: HdpPacket) -> Option<NodeType> {
+    pub fn validate_stage0<R: Ratchet>(ratchet: &R, packet: HdpPacket) -> Option<NodeType> {
         let (header, payload, _, _) = packet.decompose();
-        let (_header, payload) = super::aead::validate_custom(stacked_ratchet, &header, payload)?;
+        let (_header, payload) = super::aead::validate_custom(ratchet, &header, payload)?;
         let packet = PreConnectStage0::deserialize_from_vector(&payload).ok()?;
         Some(packet.node_type)
     }
@@ -504,18 +447,18 @@ pub(crate) mod aead {
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b, R: Ratchet>(
-        stacked_ratchet: &R,
+        ratchet: &R,
         header: &'b H,
         mut payload: BytesMut,
     ) -> Option<(Ref<&'a [u8], HdpHeader>, BytesMut)> {
         let header_bytes = header.as_ref();
         let header = Ref::new(header_bytes)? as Ref<&[u8], HdpHeader>;
-        if let Err(err) = stacked_ratchet.validate_message_packet_in_place_split(
+        if let Err(err) = ratchet.validate_message_packet_in_place_split(
             Some(header.security_level.into()),
             header_bytes,
             &mut payload,
         ) {
-            log::error!(target: "citadel", "AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}\nPacket: {:?}\nPayload len: {}", err, stacked_ratchet.version(), header.entropy_bank_version.get(), header.session_cid.get(), header.target_cid.get(), &header, payload.len());
+            log::error!(target: "citadel", "AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}\nPacket: {:?}\nPayload len: {}", err, ratchet.version(), header.entropy_bank_version.get(), header.session_cid.get(), header.target_cid.get(), &header, payload.len());
             return None;
         }
 

@@ -37,7 +37,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -51,18 +50,17 @@ use citadel_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 
 use crate::auth::AuthenticationRequest;
-use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS, UDP_MODE};
+use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
-use crate::kernel::RuntimeFuture;
-use crate::macros::SyncContextRequirements;
+use crate::macros::{FutureRequirements, SyncContextRequirements};
 use crate::prelude::{Disconnect, PreSharedKey};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
-use crate::proto::node::Node;
+use crate::proto::node::CitadelNode;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
-use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
@@ -72,7 +70,8 @@ use crate::proto::peer::peer_layer::{
 };
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
-    CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode, SessionInitParams,
+    CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
+    ServerOnlySessionInitSettings, SessionInitParams,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
@@ -102,7 +101,7 @@ pub struct HdpSessionManagerInner<R: Ratchet> {
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [CitadelSessionManager] and thereafter placed inside an appropriate session
     pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession<R>)>,
-    kernel_tx: UnboundedSender<NodeResult>,
+    kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
@@ -114,7 +113,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
     /// Creates a new [SessionManager] which handles individual connections
     pub fn new(
         local_node_type: NodeType,
-        kernel_tx: UnboundedSender<NodeResult>,
+        kernel_tx: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
         time_tracker: TimeTracker,
         client_config: Arc<rustls::ClientConfig>,
@@ -143,7 +142,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         Self::from(inner)
     }
 
-    /// Loads the server remote, and gets the time tracker for the calling [Node]
+    /// Loads the server remote, and gets the time tracker for the calling [CitadelNode]
     /// Used during the init stage
     pub(crate) fn load_server_remote_get_tt(&self, server_remote: NodeRemote<R>) -> TimeTracker {
         let mut this = inner_mut!(self);
@@ -157,7 +156,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         this.sessions.contains_key(&cid)
     }
 
-    /// Called by the higher-level [Node] async writer loop
+    /// Called by the higher-level [CitadelNode] async writer loop
     /// `nid_local` is only needed in case a provisional id is needed.
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if session_cid is None!
@@ -175,7 +174,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         security_settings: SessionSecuritySettings,
         default_client_config: &Arc<ClientConfig>,
         session_password: PreSharedKey,
-    ) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+    ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -285,10 +284,12 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
 
                 // create conn to peer
-                let primary_stream =
-                    Node::<R>::create_session_transport_init(peer_addr, default_client_config)
-                        .await
-                        .map_err(|err| NetworkError::SocketError(err.to_string()))?;
+                let primary_stream = CitadelNode::<R>::create_session_transport_init(
+                    peer_addr,
+                    default_client_config,
+                )
+                .await
+                .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 let local_bind_addr = primary_stream
                     .local_addr()
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -315,7 +316,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 connect_mode,
                 cnac,
                 proposed_credentials,
-                udp_mode: udp_mode.unwrap_or(UDP_MODE),
+                udp_mode: udp_mode.unwrap_or_default(),
                 keep_alive_timeout_ns: keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS),
                 security_settings,
                 peer_only_connect_proto: peer_only_connect_mode,
@@ -341,6 +342,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 stun_servers,
                 init_time,
                 session_password,
+                server_only_session_init_settings: None,
             };
 
             let (stopper, new_session) = CitadelSession::new(session_init_params)?;
@@ -427,7 +429,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 let _ = cnac.refresh_static_ratchet();
             }
 
-            if cnac.passwordless() {
+            if cnac.is_transient() {
                 // delete
                 let cid = cnac.get_cid();
                 let task = async move { pers.delete_cnac_by_cid(cid).await };
@@ -470,8 +472,8 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                     peer_conn_type,
                                     disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {session_cid} forcibly"))),
                                 };
-                                if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_stacked_ratchet| {
-                                    super::packet_crafter::peer_cmd::craft_peer_signal(peer_stacked_ratchet, signal, Ticket(0), timestamp, security_level)
+                                if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_ratchet| {
+                                    super::packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal, Ticket(0), timestamp, security_level)
                                 }) {
                                     //log::error!(target: "citadel", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
                                 }
@@ -518,8 +520,8 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         local_nat_type: NatType,
         peer_addr: SocketAddr,
         primary_stream: GenericNetworkStream,
-        session_password: PreSharedKey,
-    ) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+        server_only_session_init_settings: ServerOnlySessionInitSettings,
+    ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
         let on_drop = this.clean_shutdown_tracker_tx.clone();
@@ -553,7 +555,11 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             client_only_settings: None,
             stun_servers,
             init_time,
-            session_password,
+            session_password: server_only_session_init_settings
+                .declared_pre_shared_key
+                .clone()
+                .unwrap_or_default(),
+            server_only_session_init_settings: Some(server_only_session_init_settings),
         };
 
         let (stopper, new_session) = CitadelSession::new(session_init_params)?;
@@ -568,7 +574,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             primary_stream,
         );
 
-        Ok(Box::pin(session))
+        Ok(session)
     }
 
     /// dispatches an outbound command
@@ -587,7 +593,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         }
     }
 
-    /// When the [Node] receives an outbound request, the request flows here. It returns where the packet must be sent to
+    /// When the [CitadelNode] receives an outbound request, the request flows here. It returns where the packet must be sent to
     #[allow(clippy::too_many_arguments)]
     pub fn process_outbound_file(
         &self,
@@ -669,9 +675,8 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&session_cid) {
             let sess = &sess.1;
-            let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut_state!(sess.state_container);
-            state_container.initiate_entropy_bank_update(timestamp, virtual_target, Some(ticket))
+            state_container.initiate_rekey(virtual_target, Some(ticket))
         } else {
             Err(NetworkError::Generic(format!(
                 "Unable to initiate entropy_bank update subroutine for {session_cid} (not an active session)"
@@ -829,16 +834,16 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         // notify all the peers
         for peer_cid in peers_to_notify {
             let this = inner!(self);
-            if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_stacked_ratchet| {
+            if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_ratchet| {
                 let signal = GroupBroadcast::Invitation {
                     sender: session_cid,
                     key,
                 };
                 super::packet_crafter::peer_cmd::craft_group_message_packet(
-                    peer_stacked_ratchet,
+                    peer_ratchet,
                     &signal,
                     ticket,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
                 )
@@ -865,19 +870,17 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             let this = inner!(self);
             for peer_cid in group.concurrent_peers.keys() {
                 if *peer_cid != cid_host {
-                    if let Err(err) =
-                        this.send_signal_to_peer_direct(*peer_cid, |peer_stacked_ratchet| {
-                            let signal = GroupBroadcast::Disconnected { key };
-                            super::packet_crafter::peer_cmd::craft_group_message_packet(
-                                peer_stacked_ratchet,
-                                &signal,
-                                ticket,
-                                C2S_ENCRYPTION_ONLY,
-                                timestamp,
-                                security_level,
-                            )
-                        })
-                    {
+                    if let Err(err) = this.send_signal_to_peer_direct(*peer_cid, |peer_ratchet| {
+                        let signal = GroupBroadcast::Disconnected { key };
+                        super::packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_ratchet,
+                            &signal,
+                            ticket,
+                            C2S_IDENTITY_CID,
+                            timestamp,
+                            security_level,
+                        )
+                    }) {
                         log::warn!(target: "citadel", "Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
                     }
                 }
@@ -1232,12 +1235,12 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             for (peer, is_registered) in peers_and_statuses {
                 if is_registered {
                     if this
-                        .send_signal_to_peer_direct(peer, |peer_stacked_ratchet| {
+                        .send_signal_to_peer_direct(peer, |peer_ratchet| {
                             super::packet_crafter::peer_cmd::craft_group_message_packet(
-                                peer_stacked_ratchet,
+                                peer_ratchet,
                                 &signal,
                                 ticket,
-                                C2S_ENCRYPTION_ONLY,
+                                C2S_IDENTITY_CID,
                                 timestamp,
                                 security_level,
                             )

@@ -55,7 +55,7 @@ impl<R: Ratchet> NetKernel<R> for AcceptFileTransferKernel<R> {
         Ok(())
     }
 
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         if let NodeResult::ObjectTransferHandle(mut handle) = message {
             let _ = handle
                 .handle

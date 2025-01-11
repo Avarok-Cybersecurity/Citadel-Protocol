@@ -39,7 +39,7 @@ use crate::proto::misc::udp_internal_interface::{
     QuicUdpSocketConnector, RawUdpSocketConnector, UdpSplittableTypes,
 };
 use crate::proto::packet::packet_flags::payload_identifiers;
-use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::state_container::{StateContainerInner, VirtualTargetType};
 use citadel_types::proto::UdpMode;
@@ -113,7 +113,8 @@ pub async fn process_preconnect<R: Ratchet>(
                     .await?
                 {
                     let mut state_container = inner_mut_state!(session.state_container);
-
+                    state_container
+                        .store_session_password(C2S_IDENTITY_CID, session.session_password.clone());
                     match validation::pre_connect::validate_syn(
                         &cnac,
                         packet,
@@ -128,11 +129,10 @@ pub async fn process_preconnect<R: Ratchet>(
                             udp_mode,
                             kat,
                             nat_type,
-                            new_stacked_ratchet,
+                            new_ratchet,
                         )) => {
                             session.adjacent_nat_type.set_once(Some(nat_type));
-                            state_container.pre_connect_state.generated_ratchet =
-                                Some(new_stacked_ratchet);
+                            state_container.pre_connect_state.generated_ratchet = Some(new_ratchet);
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level();
 
@@ -188,7 +188,7 @@ pub async fn process_preconnect<R: Ratchet>(
                 ));
                 let session_cid = header.session_cid.get();
 
-                let (stream, new_stacked_ratchet) = {
+                let (stream, new_ratchet) = {
                     let mut state_container = inner_mut_state!(session.state_container);
                     if state_container.pre_connect_state.last_stage
                         == packet_flags::cmd::aux::do_preconnect::SYN_ACK
@@ -199,7 +199,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             "Alice constructor not loaded"
                         );
                         let session_cid = header.session_cid.get();
-                        if let Some((new_stacked_ratchet, nat_type)) =
+                        if let Some((new_ratchet, nat_type)) =
                             validation::pre_connect::validate_syn_ack(
                                 &session.session_password,
                                 cnac,
@@ -209,7 +209,7 @@ pub async fn process_preconnect<R: Ratchet>(
                         {
                             session.adjacent_nat_type.set_once(Some(nat_type));
                             state_container.pre_connect_state.generated_ratchet =
-                                Some(new_stacked_ratchet.clone());
+                                Some(new_ratchet.clone());
 
                             let local_node_type = session.local_node_type;
                             let timestamp = session.time_tracker.get_global_time_ns();
@@ -217,7 +217,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             if state_container.udp_mode == UdpMode::Disabled {
                                 let stage0_preconnect_packet =
                                     packet_crafter::pre_connect::craft_stage0(
-                                        &new_stacked_ratchet,
+                                        &new_ratchet,
                                         timestamp,
                                         local_node_type,
                                         security_level,
@@ -239,7 +239,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                         quic_conn,
                                         session.local_bind_addr,
                                     )),
-                                    &new_stacked_ratchet,
+                                    &new_ratchet,
                                     session,
                                     security_level,
                                     session_cid,
@@ -249,7 +249,7 @@ pub async fn process_preconnect<R: Ratchet>(
 
                             let stage0_preconnect_packet =
                                 packet_crafter::pre_connect::craft_stage0(
-                                    &new_stacked_ratchet,
+                                    &new_ratchet,
                                     timestamp,
                                     local_node_type,
                                     security_level,
@@ -263,11 +263,11 @@ pub async fn process_preconnect<R: Ratchet>(
                             let stream = ReliableOrderedCompatStream::<R>::new(
                                 to_primary_stream,
                                 &mut state_container,
-                                C2S_ENCRYPTION_ONLY,
-                                new_stacked_ratchet.clone(),
+                                C2S_IDENTITY_CID,
+                                new_ratchet.clone(),
                                 security_level,
                             );
-                            (stream, new_stacked_ratchet)
+                            (stream, new_ratchet)
                         } else {
                             log::error!(target: "citadel", "Invalid SYN_ACK");
                             return Ok(PrimaryProcessorResult::Void);
@@ -285,9 +285,9 @@ pub async fn process_preconnect<R: Ratchet>(
                 let stun_servers = session.stun_servers.clone();
                 let res = conn
                     .begin_udp_hole_punch(generate_hole_punch_crypt_container(
-                        new_stacked_ratchet.clone(),
+                        new_ratchet.clone(),
                         SecurityLevel::Standard,
-                        C2S_ENCRYPTION_ONLY,
+                        C2S_IDENTITY_CID,
                         stun_servers,
                     ))
                     .await;
@@ -297,7 +297,7 @@ pub async fn process_preconnect<R: Ratchet>(
                         log::trace!(target: "citadel", "Initiator finished NAT traversal ...");
                         send_success_as_initiator(
                             Some(get_raw_udp_interface(ret)),
-                            &new_stacked_ratchet,
+                            &new_ratchet,
                             session,
                             security_level,
                             session_cid,
@@ -309,7 +309,7 @@ pub async fn process_preconnect<R: Ratchet>(
                         log::warn!(target: "citadel", "Hole punch attempt failed {:?}", err.to_string());
                         send_success_as_initiator(
                             None,
-                            &new_stacked_ratchet,
+                            &new_ratchet,
                             session,
                             security_level,
                             session_cid,
@@ -323,10 +323,10 @@ pub async fn process_preconnect<R: Ratchet>(
                 log::trace!(target: "citadel", "RECV STAGE 0 PRE_CONNECT PACKET");
 
                 let session_cid = header.session_cid.get();
-                let (stacked_ratchet, stream) = {
+                let (ratchet, stream) = {
                     let mut state_container = inner_mut_state!(session.state_container);
                     // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
-                    let stacked_ratchet = return_if_none!(
+                    let ratchet = return_if_none!(
                         get_orientation_safe_ratchet(
                             header.entropy_bank_version.get(),
                             &state_container,
@@ -338,9 +338,7 @@ pub async fn process_preconnect<R: Ratchet>(
                     if state_container.pre_connect_state.last_stage
                         == packet_flags::cmd::aux::do_preconnect::SYN_ACK
                     {
-                        if validation::pre_connect::validate_stage0(&stacked_ratchet, packet)
-                            .is_some()
-                        {
+                        if validation::pre_connect::validate_stage0(&ratchet, packet).is_some() {
                             let timestamp = session.time_tracker.get_global_time_ns();
 
                             //let peer_nat_type = return_if_none!(session.adjacent_nat_type.clone(), "adjacent NAT type not loaded");
@@ -351,7 +349,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                 // We have to modify the state to ensure that this node can receive a DO_CONNECT packet
                                 state_container.pre_connect_state.success = true;
                                 let packet = packet_crafter::pre_connect::craft_begin_connect(
-                                    &stacked_ratchet,
+                                    &ratchet,
                                     timestamp,
                                     security_level,
                                 );
@@ -367,11 +365,11 @@ pub async fn process_preconnect<R: Ratchet>(
                             let stream = ReliableOrderedCompatStream::<R>::new(
                                 to_primary_stream,
                                 &mut state_container,
-                                C2S_ENCRYPTION_ONLY,
-                                stacked_ratchet.clone(),
+                                C2S_IDENTITY_CID,
+                                ratchet.clone(),
                                 security_level,
                             );
-                            (stacked_ratchet, stream)
+                            (ratchet, stream)
                         } else {
                             log::error!(target: "citadel", "Unable to validate stage 0 packet");
                             return Ok(PrimaryProcessorResult::Void);
@@ -389,9 +387,9 @@ pub async fn process_preconnect<R: Ratchet>(
                 let stun_servers = session.stun_servers.clone();
                 let res = conn
                     .begin_udp_hole_punch(generate_hole_punch_crypt_container(
-                        stacked_ratchet.clone(),
+                        ratchet.clone(),
                         SecurityLevel::Standard,
-                        C2S_ENCRYPTION_ONLY,
+                        C2S_IDENTITY_CID,
                         stun_servers,
                     ))
                     .await;
@@ -436,8 +434,7 @@ pub async fn process_preconnect<R: Ratchet>(
                 let cnac = &(return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded"));
                 let tcp_only = header.algorithm == payload_identifiers::do_preconnect::TCP_ONLY;
                 let (header, packet, ..) = packet.decompose();
-                if let Some((header, _, stacked_ratchet)) =
-                    validation::aead::validate(hr, &header, packet)
+                if let Some((header, _, ratchet)) = validation::aead::validate(hr, &header, packet)
                 {
                     state_container.pre_connect_state.success = true;
                     if !success {
@@ -448,7 +445,7 @@ pub async fn process_preconnect<R: Ratchet>(
                     if tcp_only {
                         log::warn!(target: "citadel", "Received signal to fall-back to TCP only mode");
                         let begin_connect = packet_crafter::pre_connect::craft_begin_connect(
-                            &stacked_ratchet,
+                            &ratchet,
                             timestamp,
                             security_level,
                         );
@@ -488,7 +485,7 @@ pub async fn process_preconnect<R: Ratchet>(
                         ))
                     } else {
                         let begin_connect = packet_crafter::pre_connect::craft_begin_connect(
-                            &stacked_ratchet,
+                            &ratchet,
                             timestamp,
                             security_level,
                         );
@@ -513,13 +510,12 @@ pub async fn process_preconnect<R: Ratchet>(
                     == packet_flags::cmd::aux::do_preconnect::SUCCESS
                 {
                     let (header, payload, _, _) = packet.decompose();
-                    if let Some((_, _, stacked_ratchet)) =
-                        validation::aead::validate(hr, &header, payload)
+                    if let Some((_, _, ratchet)) = validation::aead::validate(hr, &header, payload)
                     {
                         state_container.pre_connect_state.success = true;
                         std::mem::drop(state_container);
                         // now, begin stage 0 connect
-                        begin_connect_process(session, &stacked_ratchet, security_level)
+                        begin_connect_process(session, &ratchet, security_level)
                     } else {
                         log::error!(target: "citadel", "Unable to validate success_ack packet. Dropping");
                         Ok(PrimaryProcessorResult::Void)
@@ -557,7 +553,7 @@ pub async fn process_preconnect<R: Ratchet>(
 
 fn begin_connect_process<R: Ratchet>(
     session: &CitadelSession<R>,
-    stacked_ratchet: &R,
+    ratchet: &R,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // at this point, the session keys have already been re-established. We just need to begin the login stage
@@ -569,7 +565,7 @@ fn begin_connect_process<R: Ratchet>(
     );
 
     let stage0_connect_packet = crate::proto::packet_crafter::do_connect::craft_stage0_packet(
-        stacked_ratchet,
+        ratchet,
         proposed_credentials,
         timestamp,
         security_level,
@@ -589,7 +585,7 @@ fn begin_connect_process<R: Ratchet>(
 
 fn send_success_as_initiator<R: Ratchet>(
     udp_splittable: Option<UdpSplittableTypes>,
-    stacked_ratchet: &R,
+    ratchet: &R,
     session: &CitadelSession<R>,
     security_level: SecurityLevel,
     session_cid: u64,
@@ -598,7 +594,7 @@ fn send_success_as_initiator<R: Ratchet>(
     let _ = handle_success_as_receiver(udp_splittable, session, session_cid, state_container)?;
 
     let success_packet = packet_crafter::pre_connect::craft_stage_final(
-        stacked_ratchet,
+        ratchet,
         true,
         false,
         session.time_tracker.get_global_time_ns(),
@@ -649,28 +645,24 @@ fn handle_success_as_receiver<R: Ratchet>(
 }
 
 pub(crate) fn generate_hole_punch_crypt_container<R: Ratchet>(
-    stacked_ratchet: R,
+    ratchet: R,
     security_level: SecurityLevel,
     target_cid: u64,
     stun_servers: Option<Vec<String>>,
 ) -> HolePunchConfigContainer {
-    let stacked_ratchet_cloned = stacked_ratchet.clone();
+    let ratchet_cloned = ratchet.clone();
 
     HolePunchConfigContainer::new(
         move |plaintext| {
             packet_crafter::hole_punch::generate_packet(
-                &stacked_ratchet,
+                &ratchet,
                 plaintext,
                 security_level,
                 target_cid,
             )
         },
         move |packet| {
-            packet_crafter::hole_punch::decrypt_packet(
-                &stacked_ratchet_cloned,
-                packet,
-                security_level,
-            )
+            packet_crafter::hole_punch::decrypt_packet(&ratchet_cloned, packet, security_level)
         },
         stun_servers,
     )

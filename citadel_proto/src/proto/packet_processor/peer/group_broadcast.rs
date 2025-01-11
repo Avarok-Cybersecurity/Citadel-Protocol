@@ -34,7 +34,7 @@ use super::super::includes::*;
 use crate::error::NetworkError;
 use crate::functional::*;
 use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
-use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
@@ -255,7 +255,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 sess_ratchet,
                 &signal,
                 ticket,
-                C2S_ENCRYPTION_ONLY,
+                C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
             );
@@ -291,7 +291,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                             sess_ratchet,
                             &error,
                             ticket,
-                            C2S_ENCRYPTION_ONLY,
+                            C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
                         );
@@ -306,7 +306,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                             sess_ratchet,
                             &success,
                             ticket,
-                            C2S_ENCRYPTION_ONLY,
+                            C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
                         );
@@ -320,7 +320,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                                 peer_hr,
                                 &GroupBroadcast::RequestJoin { sender, key },
                                 ticket,
-                                C2S_ENCRYPTION_ONLY,
+                                C2S_IDENTITY_CID,
                                 timestamp,
                                 security_level,
                             )
@@ -331,7 +331,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                             sess_ratchet,
                             &signal,
                             ticket,
-                            C2S_ENCRYPTION_ONLY,
+                            C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
                         );
@@ -361,7 +361,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 sess_ratchet,
                 &signal,
                 ticket,
-                C2S_ENCRYPTION_ONLY,
+                C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
             );
@@ -397,7 +397,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 sess_ratchet,
                 &signal,
                 ticket,
-                C2S_ENCRYPTION_ONLY,
+                C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
             );
@@ -457,7 +457,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                     sess_ratchet,
                     &resp,
                     ticket,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
                 );
@@ -521,7 +521,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 sess_ratchet,
                 &signal,
                 ticket,
-                C2S_ENCRYPTION_ONLY,
+                C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
             );
@@ -542,7 +542,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                             peer_hr,
                             &GroupBroadcast::DeclineMembership { target, key },
                             ticket,
-                            C2S_ENCRYPTION_ONLY,
+                            C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
                         )
@@ -556,7 +556,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                     sess_ratchet,
                     &signal,
                     ticket,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
                 );
@@ -629,7 +629,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 sess_ratchet,
                 &signal,
                 ticket,
-                C2S_ENCRYPTION_ONLY,
+                C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
             );
@@ -705,7 +705,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                     sess_ratchet,
                     &signal,
                     ticket,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
                 );
@@ -717,7 +717,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                     sess_ratchet,
                     &signal,
                     ticket,
-                    C2S_ENCRYPTION_ONLY,
+                    C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
                 );
@@ -762,7 +762,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 sess_ratchet,
                 &resp,
                 ticket,
-                C2S_ENCRYPTION_ONLY,
+                C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
             );

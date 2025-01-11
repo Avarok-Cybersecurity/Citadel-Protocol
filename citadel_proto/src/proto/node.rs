@@ -26,6 +26,8 @@
 //! - `KernelCommunicator`: Handles kernel message passing
 //! - `NetworkListener`: Manages network socket listeners
 //!
+
+use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -34,6 +36,7 @@ use std::sync::Arc;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::AsyncRead;
+use citadel_io::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
@@ -48,10 +51,12 @@ use netbeam::time_tracker::TimeTracker;
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
-use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
+use crate::kernel::kernel_communicator::{
+    KernelAsyncCallbackHandler, KernelAsyncCallbackHandlerInner,
+};
 use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
-use crate::prelude::{DeleteObject, PreSharedKey, PullObject};
+use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
 };
@@ -61,25 +66,25 @@ use crate::proto::node_request::{
     NodeRequest, PeerCommand, ReKey, RegisterToHypernode, SendObject,
 };
 use crate::proto::node_result::{InternalServerError, NodeResult, SessionList};
-use crate::proto::outbound_sender::{unbounded, BoundedReceiver, BoundedSender, UnboundedSender};
+use crate::proto::outbound_sender::{BoundedReceiver, BoundedSender, UnboundedSender};
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
-use crate::proto::session::{CitadelSession, HdpSessionInitMode};
+use crate::proto::session::{HdpSessionInitMode, ServerOnlySessionInitSettings};
 use crate::proto::session_manager::CitadelSessionManager;
 
 pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(Node, NodeInner, <R: Ratchet>, <R>);
+define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet>, <R>);
 
-/// Inner device for the [`Node`]
-pub struct NodeInner<R: Ratchet> {
+/// Inner device for the [`CitadelNode`]
+pub struct CitadelNodeInner<R: Ratchet> {
     primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: CitadelSessionManager<R>,
-    to_kernel: UnboundedSender<NodeResult>,
+    to_kernel: UnboundedSender<NodeResult<R>>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
     underlying_proto: ServerUnderlyingProtocol,
@@ -88,26 +93,26 @@ pub struct NodeInner<R: Ratchet> {
     client_config: Arc<ClientConfig>,
     // All connecting/registering clients must present this pre-shared password in order to register and connect
     // to the server. This is an additional security measure to prevent unauthorized connections.
-    server_only_c2s_session_password: PreSharedKey,
+    server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
 }
 
-impl<R: Ratchet> Node<R> {
-    /// Creates a new [`Node`]
+impl<R: Ratchet> CitadelNode<R> {
+    /// Creates a new [`CitadelNode`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
         local_node_type: NodeType,
-        to_kernel: UnboundedSender<NodeResult>,
+        to_kernel: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
         underlying_proto: ServerUnderlyingProtocol,
         client_config: Option<Arc<ClientConfig>>,
         stun_servers: Option<Vec<String>>,
-        server_only_c2s_session_password: Option<PreSharedKey>,
+        server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
         Option<LocalSet>,
-        KernelAsyncCallbackHandler,
+        KernelAsyncCallbackHandler<R>,
     )> {
         let (primary_socket, bind_addr) = match local_node_type {
             NodeType::Server(bind_addr) => {
@@ -147,7 +152,7 @@ impl<R: Ratchet> Node<R> {
 
         let nat_type = NatType::identify(stun_servers).await?;
 
-        let inner = NodeInner {
+        let inner = CitadelNodeInner {
             underlying_proto,
             local_node_type,
             primary_socket,
@@ -155,28 +160,28 @@ impl<R: Ratchet> Node<R> {
             session_manager,
             nat_type,
             client_config,
-            server_only_c2s_session_password: server_only_c2s_session_password.unwrap_or_default(),
+            server_only_session_init_settings,
         };
 
         let this = Self::from(inner);
-        Ok(Node::load(this, account_manager, shutdown))
+        Ok(CitadelNode::load(this, account_manager, shutdown))
     }
 
     /// Note: spawning via handle is more efficient than joining futures. Source: https://cafbit.com/post/tokio_internals/
     /// To handle the shutdown process, we need
     /// This will panic if called twice in succession without a proper server reload.
-    /// Returns a handle to communicate with the [Node].
+    /// Returns a handle to communicate with the [CitadelNode].
     #[allow(clippy::type_complexity)]
     #[allow(unused_results, unused_must_use)]
     fn load(
-        this: Node<R>,
+        this: CitadelNode<R>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> (
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
         Option<LocalSet>,
-        KernelAsyncCallbackHandler,
+        KernelAsyncCallbackHandler<R>,
     ) {
         // Allow the listeners to read data without instantly returning
         // Load the readers
@@ -186,13 +191,12 @@ impl<R: Ratchet> Node<R> {
         let kernel_tx = read.to_kernel.clone();
         let node_type = read.local_node_type;
 
-        let (session_spawner_tx, session_spawner_rx) = unbounded();
-        let session_spawner = CitadelSession::<R>::session_future_receiver(session_spawner_rx);
-
         let (outbound_send_request_tx, outbound_send_request_rx) =
             BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
         let kernel_async_callback_handler = KernelAsyncCallbackHandler {
-            inner: Default::default(),
+            inner: Arc::new(Mutex::new(KernelAsyncCallbackHandlerInner {
+                map: HashMap::new(),
+            })),
         };
         let remote = NodeRemote::new(
             outbound_send_request_tx,
@@ -204,7 +208,10 @@ impl<R: Ratchet> Node<R> {
             .session_manager
             .load_server_remote_get_tt(remote.clone());
         let session_manager = read.session_manager.clone();
-        let server_only_session_password = read.server_only_c2s_session_password.clone();
+        let server_only_session_settings = read
+            .server_only_session_init_settings
+            .clone()
+            .unwrap_or_default();
 
         drop(read);
 
@@ -220,15 +227,13 @@ impl<R: Ratchet> Node<R> {
                     this.clone(),
                     kernel_tx.clone(),
                     outbound_send_request_rx,
-                    session_spawner_tx.clone(),
                 );
                 let primary_stream_listener = if node_type.is_server() {
                     Some(Self::listen_primary(
                         this.clone(),
                         tt,
                         kernel_tx.clone(),
-                        server_only_session_password,
-                        session_spawner_tx.clone(),
+                        server_only_session_settings,
                     ))
                 } else {
                     None
@@ -250,15 +255,13 @@ impl<R: Ratchet> Node<R> {
                     this.clone(),
                     kernel_tx.clone(),
                     outbound_send_request_rx,
-                    session_spawner_tx.clone(),
                 );
                 let primary_stream_listener = if node_type.is_server() {
                     Some(Self::listen_primary(
                         this.clone(),
                         tt,
                         kernel_tx.clone(),
-                        server_only_session_password,
-                        session_spawner_tx.clone(),
+                        server_only_session_settings,
                     ))
                 } else {
                     None
@@ -283,7 +286,6 @@ impl<R: Ratchet> Node<R> {
 
                     res1 = primary_stream_listener => res1,
                     res2 = peer_container => res2,
-                    res3 = session_spawner => res3
                 }
             } else {
                 citadel_io::tokio::select! {
@@ -293,7 +295,6 @@ impl<R: Ratchet> Node<R> {
                     }
 
                     res1 = peer_container => res1,
-                    res2 = session_spawner => res2
                 }
             };
 
@@ -622,11 +623,10 @@ impl<R: Ratchet> Node<R> {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
-        server: Node<R>,
+        server: CitadelNode<R>,
         _tt: TimeTracker,
-        to_kernel: UnboundedSender<NodeResult>,
-        server_only_session_password: PreSharedKey,
-        session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
+        to_kernel: UnboundedSender<NodeResult<R>>,
+        server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         let primary_port_future = {
             let mut this = inner_mut!(server);
@@ -639,8 +639,7 @@ impl<R: Ratchet> Node<R> {
                 local_nat_type,
                 session_manager,
                 listener,
-                server_only_session_password,
-                session_spawner,
+                server_only_session_init_settings,
             )
         };
 
@@ -648,12 +647,11 @@ impl<R: Ratchet> Node<R> {
     }
 
     async fn primary_session_creator_loop(
-        to_kernel: UnboundedSender<NodeResult>,
+        to_kernel: UnboundedSender<NodeResult<R>>,
         local_nat_type: NatType,
         session_manager: CitadelSessionManager<R>,
         mut socket: DualListener,
-        server_session_password: PreSharedKey,
-        session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
+        server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         loop {
             match socket.next().await {
@@ -668,12 +666,10 @@ impl<R: Ratchet> Node<R> {
                         local_nat_type.clone(),
                         peer_addr,
                         stream,
-                        server_session_password.clone(),
+                        server_only_session_init_settings.clone(),
                     ) {
                         Ok(session) => {
-                            session_spawner
-                                .unbounded_send(session)
-                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                            spawn!(session);
                         }
 
                         Err(err) => {
@@ -706,10 +702,9 @@ impl<R: Ratchet> Node<R> {
     }
 
     async fn outbound_kernel_request_handler(
-        this: Node<R>,
-        to_kernel_tx: UnboundedSender<NodeResult>,
+        this: CitadelNode<R>,
+        to_kernel_tx: UnboundedSender<NodeResult<R>>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
-        session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>,
     ) -> Result<(), NetworkError> {
         let (
             local_node_type,
@@ -794,9 +789,7 @@ impl<R: Ratchet> Node<R> {
                         .await
                     {
                         Ok(session) => {
-                            session_spawner
-                                .unbounded_send(session)
-                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                            spawn!(session);
                         }
 
                         Err(err) => {
@@ -830,9 +823,7 @@ impl<R: Ratchet> Node<R> {
                         .await
                     {
                         Ok(session) => {
-                            session_spawner
-                                .unbounded_send(session)
-                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                            spawn!(session);
                         }
 
                         Err(err) => {
@@ -964,7 +955,7 @@ impl<R: Ratchet> Node<R> {
 }
 
 pub(crate) struct CitadelNodeRemoteInner<R: Ratchet> {
-    pub callback_handler: KernelAsyncCallbackHandler,
+    pub callback_handler: KernelAsyncCallbackHandler<R>,
     pub node_type: NodeType,
     pub account_manager: AccountManager<R, R>,
 }

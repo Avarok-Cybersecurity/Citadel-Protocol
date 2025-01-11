@@ -87,11 +87,6 @@ mod tests {
     }
 
     impl MessageTransfer {
-        pub fn create(idx: u64) -> SecureProtocolPacket {
-            let rand = Self::create_rand(idx);
-            rand.into()
-        }
-
         pub fn create_secbuffer(idx: u64) -> SecBuffer {
             let rand = Self::create_rand(idx);
             rand.into()
@@ -109,14 +104,15 @@ mod tests {
         }
     }
 
-    async fn handle_send_receive_e2e(
+    async fn handle_send_receive_e2e<R: Ratchet>(
         barrier: Arc<Barrier>,
-        channel: PeerChannel,
+        channel: PeerChannel<R>,
         count: usize,
     ) -> Result<(), NetworkError> {
         let (tx, rx) = channel.split();
         for idx in 0..count {
-            tx.send_message(MessageTransfer::create(idx as u64)).await?;
+            tx.send_message(MessageTransfer::create_secbuffer(idx as u64))
+                .await?;
         }
 
         let mut cur_idx = 0usize;
@@ -228,12 +224,17 @@ mod tests {
 
         let (server, server_addr) =
             citadel_sdk::test_common::server_info_reactive::<_, _, StackedRatchet>(
-                move |conn, remote| async move {
+                move |mut connection| async move {
                     log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
-                    handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
+                    handle_send_receive_e2e(
+                        get_barrier(),
+                        connection.take_channel().unwrap(),
+                        message_count,
+                    )
+                    .await?;
                     log::trace!(target: "citadel", "***SERVER TEST SUCCESS***");
                     SERVER_SUCCESS.store(true, Ordering::Relaxed);
-                    remote.shutdown_kernel().await
+                    connection.shutdown_kernel().await
                 },
                 |_| {},
             );
@@ -254,12 +255,17 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            move |connection, remote| async move {
+            move |mut connection| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
-                handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
+                handle_send_receive_e2e(
+                    get_barrier(),
+                    connection.take_channel().unwrap(),
+                    message_count,
+                )
+                .await?;
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
@@ -298,12 +304,17 @@ mod tests {
 
         let (server, server_addr) =
             citadel_sdk::test_common::server_info_reactive::<_, _, StackedRatchet>(
-                move |conn, remote| async move {
+                move |mut connection| async move {
                     log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
-                    handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
+                    handle_send_receive_e2e(
+                        get_barrier(),
+                        connection.take_channel().unwrap(),
+                        message_count,
+                    )
+                    .await?;
                     log::trace!(target: "citadel", "***SERVER TEST SUCCESS***");
                     SERVER_SUCCESS.store(true, Ordering::Relaxed);
-                    remote.shutdown_kernel().await
+                    connection.shutdown_kernel().await
                 },
                 |node| {
                     if let Some(password) = server_password {
@@ -332,12 +343,17 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             connection_settings,
-            move |connection, remote| async move {
+            move |mut connection| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
-                handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
+                handle_send_receive_e2e(
+                    get_barrier(),
+                    connection.take_channel().unwrap(),
+                    message_count,
+                )
+                .await?;
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 

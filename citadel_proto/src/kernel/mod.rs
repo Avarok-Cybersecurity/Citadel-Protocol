@@ -32,7 +32,8 @@
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use crate::prelude::{PreSharedKey, ServerUnderlyingProtocol};
+use crate::prelude::ServerUnderlyingProtocol;
+use crate::proto::session::ServerOnlySessionInitSettings;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Future;
 use citadel_io::tokio::runtime::Handle;
@@ -76,5 +77,5 @@ pub struct KernelExecutorArguments<K, R: Ratchet> {
     pub client_config: Option<Arc<ClientConfig>>,
     pub kernel_executor_settings: KernelExecutorSettings,
     pub stun_servers: Option<Vec<String>>,
-    pub server_only_session_password: Option<PreSharedKey>,
+    pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
 }

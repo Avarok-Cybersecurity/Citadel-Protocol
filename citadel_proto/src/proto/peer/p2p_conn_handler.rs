@@ -40,10 +40,11 @@ use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
-use crate::proto::node::Node;
+use crate::proto::node::CitadelNode;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_sender::{unbounded, OutboundPrimaryStreamReceiver, UnboundedSender};
+use crate::proto::packet::HeaderObfuscator;
 use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
@@ -51,7 +52,7 @@ use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::prelude::UdpMode;
+use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
@@ -63,7 +64,7 @@ use std::sync::Arc;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
-    stopper: Option<Sender<()>>,
+    pub(crate) stopper: Option<Sender<()>>,
     pub p2p_primary_stream: OutboundPrimaryStreamSender,
     pub from_listener: bool,
 }
@@ -102,6 +103,7 @@ impl Drop for DirectP2PRemote {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn setup_listener_non_initiator<R: Ratchet>(
     local_bind_addr: SocketAddr,
     remote_addr: SocketAddr,
@@ -110,9 +112,10 @@ async fn setup_listener_non_initiator<R: Ratchet>(
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
     udp_mode: UdpMode,
+    session_security_settings: SessionSecuritySettings,
 ) -> Result<(), NetworkError> {
-    // TODO: use custom self-signed
-    let (listener, _) = Node::<R>::create_listen_socket(
+    // TODO: allow custom certs for p2p conns
+    let (listener, _) = CitadelNode::<R>::create_listen_socket(
         ServerUnderlyingProtocol::new_quic_self_signed(),
         None,
         None,
@@ -126,10 +129,12 @@ async fn setup_listener_non_initiator<R: Ratchet>(
         hole_punched_addr,
         ticket,
         udp_mode,
+        session_security_settings,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn p2p_conn_handler<R: Ratchet>(
     mut p2p_listener: GenericNetworkListener,
     session: CitadelSession<R>,
@@ -138,6 +143,7 @@ async fn p2p_conn_handler<R: Ratchet>(
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
     udp_mode: UdpMode,
+    session_security_settings: SessionSecuritySettings,
 ) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
     let session_cid = session.session_cid.clone();
@@ -162,6 +168,7 @@ async fn p2p_conn_handler<R: Ratchet>(
                 hole_punched_addr,
                 ticket,
                 udp_mode,
+                session_security_settings,
             )?;
             Ok(())
         }
@@ -186,20 +193,15 @@ fn handle_p2p_stream<R: Ratchet>(
     mut p2p_stream: GenericNetworkStream,
     session_cid: DualRwLock<Option<u64>>,
     session: CitadelSession<R>,
-    kernel_tx: UnboundedSender<NodeResult>,
+    kernel_tx: UnboundedSender<NodeResult<R>>,
     from_listener: bool,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
     udp_mode: UdpMode,
+    session_security_settings: SessionSecuritySettings,
 ) -> std::io::Result<()> {
-    // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
-    // logged-in. However, what if a malicious user decides to connect here?
-    // They won't be able to register through here, since registration requires that the state is NeedsRegister
-    // or SocketJustOpened. But, what if the primary sessions just started and a user tries registering through
-    // here? Well, just as explained, this branch requires a login in order to occur. Thus, it's impossible for
-    // a rogue user to attempt to register through here. All other packet types, even pre-connect and NAT traversal, require
-    // p2p endpoint crypto, so a rogue connector wouldn't be able to do anything
+    // SECURITY: Since this branch only occurs IF the primary session is connected, implying authentication has been performed
     let remote_peer = p2p_stream.peer_addr()?;
     let local_bind_addr = p2p_stream.local_addr()?;
     let quic_conn = p2p_stream
@@ -212,7 +214,10 @@ fn handle_p2p_stream<R: Ratchet>(
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
     let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);
     let p2p_primary_stream_rx = OutboundPrimaryStreamReceiver::from(p2p_primary_stream_rx);
-    //let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
+    let header_obfuscator = HeaderObfuscator::new(
+        from_listener,
+        session_security_settings.header_obfuscator_settings,
+    );
     let peer_cid = v_conn.get_target_cid();
 
     let (stopper_tx, stopper_rx) = channel();
@@ -224,9 +229,17 @@ fn handle_p2p_stream<R: Ratchet>(
         p2p_primary_stream_tx.clone(),
         peer_cid,
     );
-    let writer_future = CitadelSession::<R>::outbound_stream(p2p_primary_stream_rx, sink);
-    let reader_future =
-        CitadelSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
+    let writer_future = CitadelSession::<R>::outbound_stream(
+        p2p_primary_stream_rx,
+        sink,
+        header_obfuscator.clone(),
+    );
+    let reader_future = CitadelSession::execute_inbound_stream(
+        stream,
+        session.clone(),
+        Some(p2p_handle),
+        header_obfuscator,
+    );
     let stopper_future = p2p_stopper(stopper_rx);
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
@@ -250,7 +263,7 @@ fn handle_p2p_stream<R: Ratchet>(
         );
     }
 
-    std::mem::drop(state_container);
+    drop(state_container);
 
     let future = async move {
         let res = citadel_io::tokio::select! {
@@ -281,22 +294,22 @@ fn handle_p2p_stream<R: Ratchet>(
     Ok(())
 }
 
-pub struct P2PInboundHandle {
+pub struct P2PInboundHandle<R: Ratchet> {
     pub remote_peer: SocketAddr,
     pub local_bind_port: u16,
     // this has to be the CID of the local session, not the peer's CID
     pub session_cid: DualRwLock<Option<u64>>,
-    pub kernel_tx: UnboundedSender<NodeResult>,
+    pub kernel_tx: UnboundedSender<NodeResult<R>>,
     pub to_primary_stream: OutboundPrimaryStreamSender,
     pub peer_cid: u64,
 }
 
-impl P2PInboundHandle {
+impl<R: Ratchet> P2PInboundHandle<R> {
     fn new(
         remote_peer: SocketAddr,
         local_bind_port: u16,
         session_cid: DualRwLock<Option<u64>>,
-        kernel_tx: UnboundedSender<NodeResult>,
+        kernel_tx: UnboundedSender<NodeResult<R>>,
         to_primary_stream: OutboundPrimaryStreamSender,
         peer_cid: u64,
     ) -> Self {
@@ -335,13 +348,14 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     session: CitadelSession<R>,
     peer_nat_info: PeerNatInfo,
     session_cid: DualRwLock<Option<u64>>,
-    kernel_tx: UnboundedSender<NodeResult>,
-    channel_signal: NodeResult,
+    kernel_tx: UnboundedSender<NodeResult<R>>,
+    channel_signal: NodeResult<R>,
     sync_time: Instant,
     app: NetworkEndpoint,
     encrypted_config_container: HolePunchConfigContainer,
     client_config: Arc<rustls::ClientConfig>,
     udp_mode: UdpMode,
+    session_security_settings: SessionSecuritySettings,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
@@ -372,7 +386,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
                 client_config.clone(),
             )
             .map_err(generic_error)?;
-            let p2p_stream = Node::<R>::quic_p2p_connect_defaults(
+            let p2p_stream = CitadelNode::<R>::quic_p2p_connect_defaults(
                 quic_endpoint.endpoint,
                 None,
                 peer_nat_info.tls_domain,
@@ -392,11 +406,12 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
                 addr,
                 ticket,
                 udp_mode,
+                session_security_settings,
             )
         } else {
             log::trace!(target: "citadel", "Non-initiator will begin listening immediately");
             drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
-            setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket, udp_mode)
+            setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket, udp_mode, session_security_settings)
                 .await
                 .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
         }

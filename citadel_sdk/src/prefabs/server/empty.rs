@@ -58,7 +58,7 @@ impl<R: Ratchet> NetKernel<R> for EmptyKernel<R> {
         Ok(())
     }
 
-    async fn on_node_event_received(&self, _message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, _message: NodeResult<R>) -> Result<(), NetworkError> {
         Ok(())
     }
 

@@ -32,6 +32,8 @@ use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
 
 use crate::kernel::kernel_communicator::CallbackKey;
+use citadel_crypt::prelude::CryptError;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_user::backend::utils::ObjectTransferHandler;
 use std::net::SocketAddr;
@@ -58,7 +60,7 @@ pub struct DeRegistration {
 }
 
 #[derive(Debug)]
-pub struct ConnectSuccess {
+pub struct ConnectSuccess<R: Ratchet> {
     pub ticket: Ticket,
     pub session_cid: u64,
     pub remote_addr: SocketAddr,
@@ -66,8 +68,8 @@ pub struct ConnectSuccess {
     pub v_conn_type: VirtualConnectionType,
     pub services: citadel_user::external_services::ServicesObject,
     pub welcome_message: String,
-    pub channel: PeerChannel,
-    pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub channel: PeerChannel<R>,
+    pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
     pub session_security_settings: SessionSecuritySettings,
 }
 
@@ -89,7 +91,7 @@ pub struct ReKeyResult {
 pub enum ReKeyReturnType {
     Success { version: u32 },
     AlreadyInProgress,
-    Failure,
+    Failure { err: CryptError },
 }
 
 #[derive(Debug)]
@@ -150,10 +152,10 @@ pub struct InternalServerError {
 }
 
 #[derive(Debug)]
-pub struct PeerChannelCreated {
+pub struct PeerChannelCreated<R: Ratchet> {
     pub ticket: Ticket,
-    pub channel: PeerChannel,
-    pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
+    pub channel: PeerChannel<R>,
+    pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
 }
 
 #[derive(Debug)]
@@ -172,7 +174,7 @@ pub struct ReVFSResult {
 
 /// This type is for relaying results between the lower-level protocol and the higher-level kernel
 #[derive(Debug)]
-pub enum NodeResult {
+pub enum NodeResult<R: Ratchet> {
     /// Returns the CNAC which was created during the registration process
     RegisterOkay(RegisterOkay),
     /// The registration was a failure
@@ -180,7 +182,7 @@ pub enum NodeResult {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(DeRegistration),
     /// Connection succeeded for the cid self.0. bool is "is personal"
-    ConnectSuccess(ConnectSuccess),
+    ConnectSuccess(ConnectSuccess<R>),
     /// The connection was a failure
     ConnectFail(ConnectFail),
     ReKeyResult(ReKeyResult),
@@ -202,14 +204,14 @@ pub enum NodeResult {
     /// An internal error occurred
     InternalServerError(InternalServerError),
     /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
-    PeerChannelCreated(PeerChannelCreated),
+    PeerChannelCreated(PeerChannelCreated<R>),
     /// A list of running sessions
     SessionList(SessionList),
     /// For shutdowns
     Shutdown,
 }
 
-impl NodeResult {
+impl<R: Ratchet> NodeResult<R> {
     pub fn is_connect_success_type(&self) -> bool {
         matches!(self, NodeResult::ConnectSuccess(ConnectSuccess { .. }))
     }

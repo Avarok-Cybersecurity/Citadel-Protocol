@@ -35,7 +35,7 @@
 //! # Related Components
 //! - [`NetKernel`]: Base trait for network kernels
 //! - [`ClientServerRemote`]: Client-server communication
-//! - [`ConnectionSuccess`]: Connection event data
+//! - [`CitadelClientServerConnection`]: Connection event data
 //! - [`NodeResult`]: Network event handling
 //!
 
@@ -55,7 +55,7 @@ pub struct ClientConnectListenerKernel<F, Fut, R: Ratchet> {
 
 impl<F, Fut, R: Ratchet> ClientConnectListenerKernel<F, Fut, R>
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send + Sync,
+    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     pub fn new(on_channel_received: F) -> Self {
@@ -70,7 +70,7 @@ where
 #[async_trait]
 impl<F, Fut, R: Ratchet> NetKernel<R> for ClientConnectListenerKernel<F, Fut, R>
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send + Sync,
+    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync,
 {
     fn load_remote(&mut self, server_remote: NodeRemote<R>) -> Result<(), NetworkError> {
@@ -82,7 +82,7 @@ where
         Ok(())
     }
 
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         match message {
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: _,
@@ -100,19 +100,17 @@ where
                     conn_type,
                     self.node_remote.clone().unwrap(),
                     session_security_settings,
-                    None, // TODO: Add real handles
+                    None,
                     None,
                 );
-                (self.on_channel_received)(
-                    ConnectionSuccess {
-                        channel,
-                        udp_channel_rx,
-                        services,
-                        cid,
-                        session_security_settings,
-                    },
-                    client_server_remote,
-                )
+                (self.on_channel_received)(CitadelClientServerConnection {
+                    remote: client_server_remote.clone(),
+                    channel: Some(channel),
+                    udp_channel_rx,
+                    services,
+                    cid,
+                    session_security_settings,
+                })
                 .await
             }
 

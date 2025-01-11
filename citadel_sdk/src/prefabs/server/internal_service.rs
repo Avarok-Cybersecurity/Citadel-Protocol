@@ -83,9 +83,8 @@ where
             _pd: Default::default(),
             inner_kernel: Box::new(
                 super::client_connect_listener::ClientConnectListenerKernel::new(
-                    move |connect_success, remote| async move {
+                    move |connect_success| async move {
                         crate::prefabs::shared::internal_service::internal_service(
-                            remote,
                             connect_success,
                             on_create_webserver,
                         )
@@ -107,7 +106,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for InternalServiceKernel<'_, F, Fut, R> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         self.inner_kernel.on_node_event_received(message).await
     }
 
@@ -203,10 +202,9 @@ mod test {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |connect_success, remote| async move {
+            |connection| async move {
                 crate::prefabs::shared::internal_service::internal_service(
-                    remote,
-                    connect_success,
+                    connection,
                     |mut internal_server_communicator| async move {
                         test_write_and_read_one_packet(
                             barrier,
@@ -284,10 +282,9 @@ mod test {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |connect_success, remote| async move {
+            |connection| async move {
                 crate::prefabs::shared::internal_service::internal_service(
-                    remote,
-                    connect_success,
+                    connection,
                     |internal_server_communicator| async move {
                         barrier.wait().await;
                         // wait for the server

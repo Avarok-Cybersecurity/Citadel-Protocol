@@ -31,7 +31,9 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
-use citadel_crypt::endpoint_crypto_container::{AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto};
+use citadel_crypt::endpoint_crypto_container::{
+    AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
+};
 use citadel_crypt::prelude::{ConstructorOpts, Toolset};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::serialization::SyncIO;
@@ -128,7 +130,7 @@ pub async fn process_register<R: Ratchet>(
 
                                     let mut state_container =
                                         inner_mut_state!(session.state_container);
-                                    state_container.register_state.created_stacked_ratchet =
+                                    state_container.register_state.created_ratchet =
                                         Some(return_if_none!(
                                             bob_constructor.finish(),
                                             "Unable to finish bob constructor"
@@ -184,7 +186,7 @@ pub async fn process_register<R: Ratchet>(
                         alice_constructor
                             .stage1_alice(transfer, session.session_password.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                        let new_stacked_ratchet = return_if_none!(
+                        let new_ratchet = return_if_none!(
                             alice_constructor.finish(),
                             "Unable to finish alice constructor"
                         );
@@ -196,7 +198,7 @@ pub async fn process_register<R: Ratchet>(
                         );
 
                         let stage2_packet = packet_crafter::do_register::craft_stage2(
-                            &new_stacked_ratchet,
+                            &new_ratchet,
                             algorithm,
                             timestamp,
                             proposed_credentials,
@@ -204,8 +206,7 @@ pub async fn process_register<R: Ratchet>(
                         );
                         //let mut state_container = inner_mut!(session.state_container);
 
-                        state_container.register_state.created_stacked_ratchet =
-                            Some(new_stacked_ratchet);
+                        state_container.register_state.created_ratchet = Some(new_ratchet);
                         state_container.register_state.last_stage =
                             packet_flags::cmd::aux::do_register::STAGE2;
                         state_container.register_state.on_register_packet_received();
@@ -231,16 +232,13 @@ pub async fn process_register<R: Ratchet>(
                         == packet_flags::cmd::aux::do_register::STAGE1
                     {
                         let algorithm = header.algorithm;
-                        let stacked_ratchet = return_if_none!(
-                            state_container
-                                .register_state
-                                .created_stacked_ratchet
-                                .clone(),
+                        let ratchet = return_if_none!(
+                            state_container.register_state.created_ratchet.clone(),
                             "Unable to load created hyper ratchet"
                         );
                         if let Some((stage2_packet, conn_info)) =
                             validation::do_register::validate_stage2(
-                                &stacked_ratchet,
+                                &ratchet,
                                 &header,
                                 payload,
                                 remote_addr,
@@ -250,7 +248,11 @@ pub async fn process_register<R: Ratchet>(
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
                             std::mem::drop(state_container);
-                            let session_crypto_state = initialize_peer_session_crypto(stacked_ratchet.get_cid(), stacked_ratchet.clone(), true);
+                            let session_crypto_state = initialize_peer_session_crypto(
+                                ratchet.get_cid(),
+                                ratchet.clone(),
+                                true,
+                            );
                             // we must now create the CNAC
                             async move {
                                 match account_manager
@@ -267,7 +269,7 @@ pub async fn process_register<R: Ratchet>(
                                             session.create_register_success_message();
 
                                         let packet = packet_crafter::do_register::craft_success(
-                                            &stacked_ratchet,
+                                            &ratchet,
                                             algorithm,
                                             timestamp,
                                             success_message,
@@ -320,17 +322,14 @@ pub async fn process_register<R: Ratchet>(
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE2
                     {
-                        let stacked_ratchet = return_if_none!(
-                            state_container
-                                .register_state
-                                .created_stacked_ratchet
-                                .clone(),
+                        let ratchet = return_if_none!(
+                            state_container.register_state.created_ratchet.clone(),
                             "Unable to load created hyper ratchet"
                         );
 
                         if let Some((success_message, conn_info)) =
                             validation::do_register::validate_success(
-                                &stacked_ratchet,
+                                &ratchet,
                                 &header,
                                 payload,
                                 remote_addr,
@@ -353,8 +352,8 @@ pub async fn process_register<R: Ratchet>(
                             let account_manager = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
 
-                            let session_crypto_state = initialize_peer_session_crypto(stacked_ratchet.get_cid(), stacked_ratchet, false);
-
+                            let session_crypto_state =
+                                initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
                             async move {
                                 match account_manager
@@ -459,6 +458,10 @@ pub async fn process_register<R: Ratchet>(
 }
 
 // Only for registration; does not start the messenger/ratchet manager
-fn initialize_peer_session_crypto<R: Ratchet>(cid: u64, initial_ratchet: R, is_server: bool) -> PeerSessionCrypto<R> {
+fn initialize_peer_session_crypto<R: Ratchet>(
+    cid: u64,
+    initial_ratchet: R,
+    is_server: bool,
+) -> PeerSessionCrypto<R> {
     PeerSessionCrypto::new(Toolset::new(cid, initial_ratchet), !is_server)
 }

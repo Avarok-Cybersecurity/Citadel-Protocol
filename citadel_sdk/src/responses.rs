@@ -147,7 +147,7 @@ pub async fn peer_connect<R: Ratchet>(
 
 /// Given a group invite signal, this function sends a response to the server
 pub async fn group_invite<R: Ratchet>(
-    invite_signal: NodeResult,
+    invite_signal: NodeResult<R>,
     accept: bool,
     remote: &impl Remote<R>,
 ) -> Result<Ticket, NetworkError> {

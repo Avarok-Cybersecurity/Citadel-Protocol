@@ -6,6 +6,7 @@ use citadel_types::prelude::SecrecyMode;
 use futures::{SinkExt, Stream};
 use std::collections::VecDeque;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -22,31 +23,25 @@ use tokio::sync::mpsc::UnboundedReceiver;
 /// underlying stream at the application-layer
 pub struct RatchetManagerMessengerLayer<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload> {
     sink: RatchetManagerMessengerLayerTx<E, R, P>,
-    stream: RatchetManagerMessengerLayerRx<P>,
+    stream: RatchetManagerMessengerLayerRx<E, R, P>,
 }
 
 pub struct RatchetManagerMessengerLayerTx<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload>
 {
     manager: DefaultRatchetManager<E, R, P>,
     enqueued_messages: Arc<tokio::sync::Mutex<VecDeque<P>>>,
+    is_active: Arc<AtomicBool>,
     secrecy_mode: SecrecyMode,
 }
 
-impl<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload> Clone
-    for RatchetManagerMessengerLayerTx<E, R, P>
+pub struct RatchetManagerMessengerLayerRx<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload>
 {
-    fn clone(&self) -> Self {
-        Self {
-            manager: self.manager.clone(),
-            enqueued_messages: self.enqueued_messages.clone(),
-            secrecy_mode: self.secrecy_mode,
-        }
-    }
+    manager: DefaultRatchetManager<E, R, P>,
+    rx: UnboundedReceiver<P>,
+    is_active: Arc<AtomicBool>,
 }
 
-pub struct RatchetManagerMessengerLayerRx<P: AttachedPayload> {
-    rx: UnboundedReceiver<P>,
-}
+const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::Relaxed;
 
 impl<E, R, P> RatchetManagerMessengerLayer<E, R, P>
 where
@@ -54,7 +49,12 @@ where
     R: Ratchet,
     P: AttachedPayload,
 {
-    pub fn new(manager: DefaultRatchetManager<E, R, P>, secrecy_mode: SecrecyMode) -> Self {
+    pub fn new(
+        manager: DefaultRatchetManager<E, R, P>,
+        secrecy_mode: SecrecyMode,
+        rekey_finished_tx: Option<tokio::sync::mpsc::UnboundedSender<R>>,
+        is_active: Arc<AtomicBool>,
+    ) -> Self {
         // The rx below will receive all messages that get sent via the ratchet manager layer
         // Some messages will "catch a ride" alongside a re-keying packet, others will be
         // standalone. This is not Pandora.
@@ -67,12 +67,17 @@ where
         let enqueued_messages = Arc::new(tokio::sync::Mutex::new(VecDeque::new()));
         let enqueued_messages_clone = enqueued_messages.clone();
         let manager_clone = manager.clone();
+        let is_active_bg = is_active.clone();
 
-        drop(tokio::task::spawn(async move {
+        let background_task = async move {
             // Each time a rekey finishes, we should check the local queue for any enqueued messages
             // to poll and send
-            while let Some(_next_ratchet) = on_rekey_finish_listener.recv().await {
-                // TODO: Send notifications to kernel, if applicable, with the latest ratchet
+            while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
+                if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
+                    if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
+                        log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
+                    }
+                }
                 // Check the latest item in the queue. Hold the lock to prevent race conditions locally
                 let mut lock = enqueued_messages_clone.lock().await;
                 if let Some(last_item) = lock.pop_front() {
@@ -93,18 +98,31 @@ where
                         }
                     }
                 }
+
+                if !is_active_bg.load(ORDERING) {
+                    break;
+                }
             }
 
-            log::warn!(target: "citadel", "on_rekey_finish_listener died")
-        }));
+            is_active_bg.store(false, ORDERING);
+
+            log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending")
+        };
+
+        drop(tokio::task::spawn(background_task));
 
         Self {
             sink: RatchetManagerMessengerLayerTx {
-                manager,
+                manager: manager.clone(),
                 enqueued_messages,
                 secrecy_mode,
+                is_active: is_active.clone(),
             },
-            stream: RatchetManagerMessengerLayerRx { rx },
+            stream: RatchetManagerMessengerLayerRx {
+                rx,
+                is_active,
+                manager,
+            },
         }
     }
 
@@ -112,7 +130,7 @@ where
         self,
     ) -> (
         RatchetManagerMessengerLayerTx<E, R, P>,
-        RatchetManagerMessengerLayerRx<P>,
+        RatchetManagerMessengerLayerRx<E, R, P>,
     ) {
         (self.sink, self.stream)
     }
@@ -124,18 +142,13 @@ where
     R: Ratchet,
     P: AttachedPayload,
 {
-    /// Triggers a re key on a separate task
-    pub fn trigger_rekey(&self) {
-        let this = self.manager.clone();
-        drop(tokio::task::spawn(async move {
-            match this.trigger_rekey().await {
-                Ok(_new_vers) => (),
-                Err(err) => log::error!(target: "citadel", "{:?}", err),
-            }
-        }));
-    }
+    pub async fn send(&self, message: impl Into<P>) -> Result<(), CryptError> {
+        if !self.is_active.load(ORDERING) {
+            return Err(CryptError::Encrypt(
+                "Cannot send encrypted messages (stream died)".to_string(),
+            ));
+        }
 
-    pub async fn send(&mut self, message: impl Into<P>) -> Result<(), CryptError> {
         match self.secrecy_mode {
             SecrecyMode::BestEffort => {
                 if let Some(message_not_sent) = self
@@ -181,13 +194,44 @@ where
     }
 }
 
-impl<P> Stream for RatchetManagerMessengerLayerRx<P>
+impl<E, R, P> Stream for RatchetManagerMessengerLayerRx<E, R, P>
 where
+    E: Send + Sync + 'static,
+    R: Ratchet,
     P: AttachedPayload,
 {
     type Item = P;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().rx.poll_recv(cx)
+        let this = self.get_mut();
+        if !this.is_active.load(ORDERING) {
+            return Poll::Ready(None);
+        }
+
+        this.rx.poll_recv(cx)
+    }
+}
+
+impl<E, R, P> Drop for RatchetManagerMessengerLayerTx<E, R, P>
+where
+    E: Send + Sync + 'static,
+    R: Ratchet,
+    P: AttachedPayload,
+{
+    fn drop(&mut self) {
+        self.is_active.store(false, ORDERING);
+        let _ = self.manager.shutdown();
+    }
+}
+
+impl<E, R, P> Drop for RatchetManagerMessengerLayerRx<E, R, P>
+where
+    E: Send + Sync + 'static,
+    R: Ratchet,
+    P: AttachedPayload,
+{
+    fn drop(&mut self) {
+        self.is_active.store(false, ORDERING);
+        let _ = self.manager.shutdown();
     }
 }

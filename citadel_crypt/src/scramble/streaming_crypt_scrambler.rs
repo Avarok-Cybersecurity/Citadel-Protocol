@@ -202,7 +202,7 @@ pub fn scramble_encrypt_source<
     group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
     stop: Receiver<()>,
     security_level: SecurityLevel,
-    stacked_ratchet: R,
+    ratchet: R,
     static_aux_ratchet: R,
     header_size_bytes: usize,
     target_cid: u64,
@@ -245,7 +245,7 @@ pub fn scramble_encrypt_source<
         target_cid,
         group_id,
         security_level,
-        stacked_ratchet,
+        ratchet,
         static_aux_ratchet,
         reader,
         transfer_type,
@@ -296,7 +296,7 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratche
 #[allow(dead_code)]
 struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> {
     reader: BufReader<R>,
-    stacked_ratchet: Ra,
+    ratchet: Ra,
     static_aux_ratchet: Ra,
     security_level: SecurityLevel,
     transfer_type: TransferType,
@@ -348,7 +348,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
         cx: &mut Context<'_>,
     ) -> Poll<Option<GroupSenderDevice<N>>> {
         let Self {
-            stacked_ratchet,
+            ratchet,
             static_aux_ratchet,
             file_len,
             read_cursor,
@@ -383,7 +383,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
                 let header_inscriber = header_inscriber.clone();
                 let buffer = buffer.clone();
                 let security_level = *security_level;
-                let stacked_ratchet = stacked_ratchet.clone();
+                let ratchet = ratchet.clone();
                 let static_aux_ratchet = static_aux_ratchet.clone();
                 let header_size_bytes = *header_size_bytes;
                 let target_cid = *target_cid;
@@ -394,7 +394,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,
-                        &stacked_ratchet,
+                        &ratchet,
                         &static_aux_ratchet,
                         header_size_bytes,
                         target_cid,

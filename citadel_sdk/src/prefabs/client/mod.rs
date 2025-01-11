@@ -41,7 +41,6 @@
 //!
 
 use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -63,8 +62,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a, R: Ratchet>: Sized + 'a {
     fn get_shared_bundle(&self) -> Self::SharedBundle;
 
     async fn on_c2s_channel_received(
-        connect_success: ConnectionSuccess,
-        remote: ClientServerRemote<R>,
+        connect_success: CitadelClientServerConnection<R>,
         arg: Arg,
         fx: Self::UserLevelInputFunction,
         shared: Self::SharedBundle,
@@ -81,14 +79,8 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a, R: Ratchet>: Sized + 'a {
         let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::<_, _, R>::new(
             server_connection_settings,
-            |connect_success, remote| {
-                on_channel_received_fn::<_, Self, R>(
-                    connect_success,
-                    remote,
-                    rx,
-                    arg,
-                    on_channel_received,
-                )
+            |connect_success| {
+                on_channel_received_fn::<_, Self, R>(connect_success, rx, arg, on_channel_received)
             },
         );
 
@@ -99,8 +91,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a, R: Ratchet>: Sized + 'a {
 }
 
 async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg, R>, R: Ratchet>(
-    connect_success: ConnectionSuccess,
-    remote: ClientServerRemote<R>,
+    connect_success: CitadelClientServerConnection<R>,
     rx_bundle: citadel_io::tokio::sync::oneshot::Receiver<T::SharedBundle>,
     arg: Arg,
     on_channel_received: T::UserLevelInputFunction,
@@ -108,7 +99,7 @@ async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg, 
     let shared = rx_bundle
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;
-    T::on_c2s_channel_received(connect_success, remote, arg, on_channel_received, shared).await
+    T::on_c2s_channel_received(connect_success, arg, on_channel_received, shared).await
 }
 
 /// Used to instantiate a client to server connection

@@ -58,10 +58,11 @@
 use crate::secure_buffer::partitioned_sec_buffer::{PartitionedSecBuffer, SliceHandle};
 use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 
 /// An optimized unit designed for one-time only allocation between creating the packet and sending outbound
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SecurePacket {
     /// There are three parts to the packet:
     /// [0]: The header
@@ -113,7 +114,7 @@ impl SecurePacket {
     }
 
     /// Consumes the packet and returns the underlying buffer.
-    pub fn into_packet(self) -> BytesMut {
+    pub fn into_raw_packet(self) -> BytesMut {
         self.inner.into_buffer()
     }
 }
@@ -125,6 +126,7 @@ impl Default for SecurePacket {
 }
 
 /// Used for handling the flow of writing a packet that must first receive its payload from the user, then its header from the protocol, and finally the extended payload appended to the end from the protocol
+#[derive(Serialize, Deserialize)]
 pub enum SecureMessagePacket<const N: usize> {
     PayloadNext(SecurePacket),
     HeaderNext(SecurePacket),
@@ -210,6 +212,10 @@ impl<const N: usize> SecureMessagePacket<N> {
         }
     }
 
+    pub fn finish(self) -> std::io::Result<BytesMut> {
+        self.write_payload_extension(0, |_| Ok(()))
+    }
+
     /// The final write to the buffer should be the payload extension. This consumes self and returns bytes.
     pub fn write_payload_extension(
         self,
@@ -218,9 +224,13 @@ impl<const N: usize> SecureMessagePacket<N> {
     ) -> std::io::Result<BytesMut> {
         match self {
             Self::FinalPayloadExt(mut packet) => {
+                if len == 0 {
+                    return Ok(packet.into_raw_packet());
+                }
+
                 packet.prepare_extended_payload(len)?;
                 (fx)(&mut packet.extended_payload()?)?;
-                Ok(packet.into_packet())
+                Ok(packet.into_raw_packet())
             }
 
             _ => Err(std::io::Error::new(
@@ -242,13 +252,7 @@ impl<const N: usize> SecureMessagePacket<N> {
 
 impl<const N: usize> Debug for SecureMessagePacket<N> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:?}",
-            match self {
-                Self::PayloadNext(p) | Self::HeaderNext(p) | Self::FinalPayloadExt(p) => p,
-            }
-        )
+        write!(f, "Secure message packet of length {}", self.message_len(),)
     }
 }
 

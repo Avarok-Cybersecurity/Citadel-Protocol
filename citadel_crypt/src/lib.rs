@@ -73,4 +73,4 @@ pub mod sync_toggle;
 pub mod toolset;
 
 /// For secure messaging with concurrent ratcheting operations
-pub mod messsaging;
+pub mod messaging;

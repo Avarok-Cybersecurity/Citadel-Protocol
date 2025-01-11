@@ -26,7 +26,7 @@ async fn main() {
     let client =
         citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |mut connection, remote| async move {
+            |mut connection| async move {
                 let chan = connection.udp_channel_rx.take();
                 citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                     UdpMode::Enabled,
@@ -35,7 +35,7 @@ async fn main() {
                 .await
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 finished.store(true, Ordering::SeqCst);
-                remote.shutdown_kernel().await?;
+                connection.shutdown_kernel().await?;
                 Ok(())
             },
         );

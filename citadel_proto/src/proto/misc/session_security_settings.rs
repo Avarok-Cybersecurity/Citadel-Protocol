@@ -27,6 +27,7 @@
 //! - `error.rs`: Error handling
 
 use citadel_types::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
+use citadel_types::prelude::HeaderObfuscatorSettings;
 use citadel_types::proto::SessionSecuritySettings;
 
 #[derive(Default)]
@@ -34,6 +35,7 @@ pub struct SessionSecuritySettingsBuilder {
     security_level: Option<SecurityLevel>,
     secrecy_mode: Option<SecrecyMode>,
     crypto_params: Option<CryptoParameters>,
+    header_obfuscator_settings: Option<HeaderObfuscatorSettings>,
 }
 
 impl SessionSecuritySettingsBuilder {
@@ -76,12 +78,34 @@ impl SessionSecuritySettingsBuilder {
         self
     }
 
+    /// Default: HeaderObfuscatorSettings::Disabled
+    /// ```
+    /// use citadel_proto::prelude::*;
+    /// // Assume `header_psk` is a pre-shared key for only the header block cipher.
+    /// // WARNING! This should NOT be derived from any secrets related to any other
+    /// // part of the session. IF you are unsure, do not use this feature or use
+    /// // `HeaderObfuscatorSettings::Enabled` to generate a random key at the beginning
+    /// // of the session
+    /// let header_psk = Uuid::new_v4();
+    /// SessionSecuritySettingsBuilder::default()
+    /// .with_header_obfuscator_settings()
+    /// .build();
+    /// ```
+    pub fn with_header_obfuscator_settings(
+        mut self,
+        header_obfuscator_settings: impl Into<HeaderObfuscatorSettings>,
+    ) -> Self {
+        self.header_obfuscator_settings = Some(header_obfuscator_settings.into());
+        self
+    }
+
     /// Constructs the [`SessionSecuritySettings`]
     pub fn build(self) -> Result<SessionSecuritySettings, anyhow::Error> {
         let settings = SessionSecuritySettings {
-            security_level: self.security_level.unwrap_or(SecurityLevel::Standard),
-            secrecy_mode: self.secrecy_mode.unwrap_or(SecrecyMode::BestEffort),
+            security_level: self.security_level.unwrap_or_default(),
+            secrecy_mode: self.secrecy_mode.unwrap_or_default(),
             crypto_params: self.crypto_params.unwrap_or_default(),
+            header_obfuscator_settings: self.header_obfuscator_settings.unwrap_or_default(),
         };
 
         citadel_types::utils::validate_crypto_params(&settings.crypto_params)?;

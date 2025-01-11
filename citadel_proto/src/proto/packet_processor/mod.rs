@@ -65,7 +65,6 @@
 //!
 //! - **Maintenance Packets**:
 //!   - `keep_alive_packet`: Connection maintenance
-//!   - `rekey_packet`: Key rotation
 //!   - `hole_punch`: NAT traversal
 //!
 //! ## Processing Flow
@@ -82,7 +81,7 @@
 //! - Replay attacks are prevented through sequence numbers
 
 use crate::proto::packet::HdpHeader;
-use crate::proto::packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::state_container::VirtualConnectionType;
 use bytes::BytesMut;
 use citadel_user::re_exports::__private::Formatter;
@@ -118,7 +117,6 @@ pub mod preconnect_packet;
 pub mod primary_group_packet;
 pub mod raw_primary_packet;
 pub mod register_packet;
-pub mod rekey_packet;
 pub mod udp_packet;
 //
 pub mod hole_punch;
@@ -160,7 +158,7 @@ impl std::fmt::Debug for PrimaryProcessorResult {
 pub(crate) fn header_to_response_vconn_type(header: &HdpHeader) -> VirtualConnectionType {
     let session_cid = header.session_cid.get();
     let target_cid = header.target_cid.get();
-    if target_cid != C2S_ENCRYPTION_ONLY {
+    if target_cid != C2S_IDENTITY_CID {
         // the peer_cid and implicated cid must be flipped
         VirtualConnectionType::LocalGroupPeer {
             session_cid: target_cid,

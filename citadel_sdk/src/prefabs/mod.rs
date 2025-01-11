@@ -50,6 +50,7 @@ use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use citadel_io::Mutex;
 use citadel_proto::prelude::*;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 /// Kernels for clients
@@ -67,21 +68,34 @@ use crate::remote_ext::ProtocolRemoteExt;
 #[derive(Clone)]
 pub struct ClientServerRemote<R: Ratchet> {
     pub(crate) inner: NodeRemote<R>,
-    pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult>>>>,
+    pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult<R>>>>>,
     pub(crate) file_transfer_handle_rx: Arc<Mutex<Option<FileTransferHandleRx>>>,
     conn_type: VirtualTargetType,
     session_security_settings: SessionSecuritySettings,
 }
 
+impl<R: Ratchet> Deref for ClientServerRemote<R> {
+    type Target = NodeRemote<R>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<R: Ratchet> DerefMut for ClientServerRemote<R> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 impl_remote!(ClientServerRemote);
 
 impl<R: Ratchet> ClientServerRemote<R> {
-    /// constructs a new [`ClientServerRemote`] from a [`NodeRemote`] and a [`VirtualTargetType`]
+    /// constructs a new [`ClientServerRemote`] from a [`ClientServerRemote`] and a [`VirtualTargetType`]
     pub fn new(
         conn_type: VirtualTargetType,
         remote: NodeRemote<R>,
         session_security_settings: SessionSecuritySettings,
-        unprocessed_signals_rx: Option<UnboundedReceiver<NodeResult>>,
+        unprocessed_signals_rx: Option<UnboundedReceiver<NodeResult<R>>>,
         file_transfer_handle_rx: Option<FileTransferHandleRx>,
     ) -> Self {
         // TODO: Add handles, only the server calls this
@@ -96,7 +110,7 @@ impl<R: Ratchet> ClientServerRemote<R> {
     /// Can only be called once per remote. Allows receiving events
     pub fn get_unprocessed_signals_receiver(
         &self,
-    ) -> Option<citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult>> {
+    ) -> Option<citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult<R>>> {
         self.unprocessed_signals_rx.lock().take()
     }
 
@@ -132,12 +146,12 @@ impl<R: Ratchet> TargetLockedRemote<R> for ClientServerRemote<R> {
 
 impl<R: Ratchet> ClientServerRemote<R> {
     /// Gracefully closes the protocol and kernel executor
-    pub async fn shutdown_kernel(self) -> Result<(), NetworkError> {
+    pub async fn shutdown_kernel(&self) -> Result<(), NetworkError> {
         self.inner.shutdown().await
     }
 
     pub async fn get_peers(
-        &mut self,
+        &self,
         limit: Option<usize>,
     ) -> Result<Vec<LocalGroupPeer>, NetworkError> {
         let session_cid = self.conn_type.get_session_cid();

@@ -40,6 +40,7 @@ use citadel_proto::prelude::*;
 use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::macros::{ContextRequirements, LocalContextRequirements};
 use citadel_proto::re_imports::RustlsClientConfig;
+use citadel_types::crypto::HeaderObfuscatorSettings;
 use futures::Future;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -60,7 +61,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet> {
     client_tls_config: Option<RustlsClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
-    server_session_password: Option<PreSharedKey>,
+    local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     _ratchet: PhantomData<R>,
 }
 
@@ -82,7 +83,7 @@ impl<R: Ratchet> Default for NodeBuilder<R> {
             client_tls_config: None,
             kernel_executor_settings: None,
             stun_servers: None,
-            server_session_password: None,
+            local_only_server_settings: None,
             _ratchet: Default::default(),
         }
     }
@@ -166,7 +167,11 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
                 .map_err(|err| anyhow::Error::msg(err.into_string()))?
         };
 
-        let server_only_session_password = self.server_session_password.take();
+        if matches!(underlying_proto, ServerUnderlyingProtocol::Tcp(..)) {
+            citadel_logging::warn!(target: "citadel", "⚠️ WARNING ⚠️ TCP is discouraged for production use until The Citadel Protocol has been reviewed. Use TLS automatically by not changing the underlying protocol");
+        }
+
+        let server_only_session_init_settings = self.local_only_server_settings.take();
 
         Ok(NodeFuture {
             _pd: Default::default(),
@@ -192,7 +197,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
                     client_config,
                     kernel_executor_settings,
                     stun_servers,
-                    server_only_session_password,
+                    server_only_session_init_settings,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -205,12 +210,10 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
 
     /// Defines the node type. By default, Peer is used. If a server is desired, a bind address is expected
     /// ```
-    /// use std::net::SocketAddr;
-    /// use std::str::FromStr;
     /// use citadel_sdk::prelude::DefaultNodeBuilder;
     /// use citadel_proto::prelude::NodeType;
     ///
-    /// DefaultNodeBuilder::default().with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()));
+    /// DefaultNodeBuilder::default().with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
     /// ```
     pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
@@ -347,7 +350,21 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     /// is specified, the client must have the matching pre-shared key in order to
     /// register and connect with the server.
     pub fn with_server_password<T: Into<PreSharedKey>>(&mut self, password: T) -> &mut Self {
-        self.server_session_password = Some(password.into());
+        let mut server_only_settings = self.local_only_server_settings.clone().unwrap_or_default();
+        server_only_settings.declared_pre_shared_key = Some(password.into());
+        self.local_only_server_settings = Some(server_only_settings);
+        self
+    }
+
+    /// Sets the header obfuscator settings for the server
+    pub fn with_server_declared_header_obfuscation<T: Into<HeaderObfuscatorSettings>>(
+        &mut self,
+        header_obfuscator_settings: T,
+    ) -> &mut Self {
+        let mut server_only_settings = self.local_only_server_settings.clone().unwrap_or_default();
+        server_only_settings.declared_header_obfuscation_setting =
+            header_obfuscator_settings.into();
+        self.local_only_server_settings = Some(server_only_settings);
         self
     }
 

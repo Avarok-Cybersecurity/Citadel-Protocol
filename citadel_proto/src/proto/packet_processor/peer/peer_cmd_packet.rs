@@ -63,6 +63,7 @@ use crate::proto::peer::peer_layer::{
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
+use crate::proto::state_container::OutgoingPeerConnectionAttempt;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 
@@ -89,13 +90,13 @@ pub async fn process_peer_cmd<R: Ratchet>(
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
 
-    let (session_cid, sess_stacked_ratchet, payload, security_level) = {
+    let (session_cid, sess_ratchet, payload, security_level) = {
         // Some PEER_CMD packets get encrypted using the endpoint crypto
 
         log::trace!(target: "citadel", "RECV PEER CMD packet (proxy: {})", endpoint_cid_info.is_some());
         let state_container = inner_state!(session.state_container);
         let session_cid = return_if_none!(session.session_cid.get());
-        let sess_stacked_ratchet = return_if_none!(
+        let sess_ratchet = return_if_none!(
             get_orientation_safe_ratchet(
                 header_entropy_bank_version,
                 &state_container,
@@ -105,12 +106,12 @@ pub async fn process_peer_cmd<R: Ratchet>(
         );
 
         let (header, payload) = return_if_none!(
-            validation::aead::validate_custom(&sess_stacked_ratchet, &header, payload),
+            validation::aead::validate_custom(&sess_ratchet, &header, payload),
             "Unable to validate peer CMD packet"
         );
         let security_level = header.security_level.into();
         log::trace!(target: "citadel", "PEER CMD packet authenticated");
-        (session_cid, sess_stacked_ratchet, payload, security_level)
+        (session_cid, sess_ratchet, payload, security_level)
     };
 
     let task = async move {
@@ -124,7 +125,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                     session,
                     header,
                     &payload[..],
-                    &sess_stacked_ratchet,
+                    &sess_ratchet,
                 )
                 .await
             }
@@ -148,51 +149,12 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                 .as_ref()
                                 .map(|_| vconn.get_original_session_cid())
                                 .unwrap_or_else(|| vconn.get_original_target_cid());
-                            let state_container = inner_state!(session.state_container);
+                            let mut state_container = inner_mut_state!(session.state_container);
                             if let Some(v_conn) =
-                                state_container.active_virtual_connections.get(&target)
+                                state_container.active_virtual_connections.remove(&target)
                             {
-                                v_conn.is_active.store(false, Ordering::SeqCst); //prevent further messages from being sent from this node
-                                                                                 // ... but, we still want any messages already sent to be processed
-
-                                let last_packet = v_conn.last_delivered_message_timestamp.clone();
-                                let state_container_ref = session.state_container.clone();
-
-                                std::mem::drop(state_container);
-
-                                let task = async move {
-                                    loop {
-                                        if let Some(ts) = last_packet.get() {
-                                            if ts.elapsed() > Duration::from_millis(1500)
-                                                && inner_mut_state!(state_container_ref)
-                                                    .enqueued_packets
-                                                    .entry(target)
-                                                    .or_default()
-                                                    .is_empty()
-                                            {
-                                                break;
-                                            }
-                                        } else if inner_mut_state!(state_container_ref)
-                                            .enqueued_packets
-                                            .entry(target)
-                                            .or_default()
-                                            .is_empty()
-                                        {
-                                            break;
-                                        }
-
-                                        citadel_io::tokio::time::sleep(Duration::from_millis(1500))
-                                            .await;
-                                    }
-
-                                    log::trace!(target: "citadel", "[Peer Vconn] No packets received in the last 1500ms; will drop the connection cleanly");
-                                    // once we're done waiting for packets to stop showing up, we can remove the container to end the underlying TCP stream
-                                    let mut state_container = inner_mut_state!(state_container_ref);
-                                    let _ =
-                                        state_container.active_virtual_connections.remove(&target);
-                                };
-
-                                spawn!(task);
+                                v_conn.is_active.store(false, Ordering::SeqCst);
+                                //prevent further messages from being sent from this node
                             }
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
@@ -378,7 +340,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         let stage0_peer_kem =
                                             packet_crafter::peer_cmd::craft_peer_signal(
-                                                &sess_stacked_ratchet,
+                                                &sess_ratchet,
                                                 signal,
                                                 ticket,
                                                 timestamp,
@@ -479,7 +441,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                     drop(state_container);
                                     let stage1_kem = packet_crafter::peer_cmd::craft_peer_signal(
-                                        &sess_stacked_ratchet,
+                                        &sess_ratchet,
                                         signal,
                                         ticket,
                                         timestamp,
@@ -507,7 +469,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         udp_rx_opt,
                                         sync_instant,
                                         encrypted_config_container,
-                                        ticket_for_chan,
+                                        local_outgoing_attempt_metadata,
                                         needs_turn,
                                     ) = {
                                         let mut state_container =
@@ -546,7 +508,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             };
                                             let error_packet =
                                                 packet_crafter::peer_cmd::craft_peer_signal(
-                                                    &sess_stacked_ratchet,
+                                                    &sess_ratchet,
                                                     error_signal,
                                                     ticket,
                                                     timestamp,
@@ -556,15 +518,15 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                                 error_packet,
                                             ));
                                         }
-                                        let stacked_ratchet = return_if_none!(
+                                        let ratchet = return_if_none!(
                                             alice_constructor.finish_with_custom_cid(this_cid)
                                         );
-                                        let endpoint_stacked_ratchet = stacked_ratchet.clone();
+                                        let endpoint_ratchet = ratchet.clone();
                                         // now, create a new toolset and encrypt it
                                         // NOTE: when this toolset gets transmitted, it retains this_cid
                                         // As such, the other end MUST change the CID internally for BOTH
                                         // toolset AND the single entropy_bank
-                                        let toolset = Toolset::new(this_cid, stacked_ratchet);
+                                        let toolset = Toolset::new(this_cid, ratchet);
                                         // now, register the loaded PQC + toolset into the virtual conn
                                         let peer_crypto = PeerSessionCrypto::new(toolset, true);
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
@@ -582,18 +544,17 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             BackendType::Filesystem(..)
                                         );
 
-                                        let channel = state_container
-                                            .insert_new_peer_virtual_connection_as_endpoint(
-                                                bob_predicted_socket_addr,
-                                                session_security_settings,
-                                                ticket,
-                                                peer_cid,
-                                                vconn_type,
-                                                peer_crypto,
-                                                session,
-                                                local_is_file_transfer_compat
-                                                    && *peer_file_transfer_compat,
-                                            );
+                                        let channel = state_container.create_virtual_connection(
+                                            //bob_predicted_socket_addr,
+                                            session_security_settings,
+                                            ticket,
+                                            peer_cid,
+                                            vconn_type,
+                                            peer_crypto,
+                                            session,
+                                            local_is_file_transfer_compat
+                                                && *peer_file_transfer_compat,
+                                        );
                                         // load the channel now that the keys have been exchanged
 
                                         kem_state.local_is_initiator = true;
@@ -614,23 +575,23 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         };
 
                                         let endpoint_security_level =
-                                            endpoint_stacked_ratchet.get_default_security_level();
+                                            endpoint_ratchet.get_default_security_level();
                                         let hole_punch_compat_stream =
                                             ReliableOrderedCompatStream::<R>::new(
                                                 return_if_none!(session.to_primary_stream.clone()),
                                                 &mut state_container,
                                                 peer_cid,
-                                                endpoint_stacked_ratchet.clone(),
+                                                endpoint_ratchet.clone(),
                                                 endpoint_security_level,
                                             );
-                                        let ticket_for_chan = state_container
+                                        let local_outgoing_attempt_metadata = state_container
                                             .outgoing_peer_connect_attempts
                                             .remove(&peer_cid);
                                         drop(state_container);
                                         let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
-                                                endpoint_stacked_ratchet,
+                                                endpoint_ratchet,
                                                 SecurityLevel::Standard,
                                                 peer_cid,
                                                 stun_servers,
@@ -639,7 +600,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         // we need to use the session pqc since this signal needs to get processed by the center node
                                         let stage2_kem_packet =
                                             packet_crafter::peer_cmd::craft_peer_signal(
-                                                &sess_stacked_ratchet,
+                                                &sess_ratchet,
                                                 signal,
                                                 ticket,
                                                 timestamp,
@@ -655,7 +616,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             udp_rx_opt,
                                             sync_instant,
                                             encrypted_config_container,
-                                            ticket_for_chan,
+                                            local_outgoing_attempt_metadata,
                                             needs_turn,
                                         )
                                     };
@@ -666,9 +627,19 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         UdpMode::Disabled
                                     };
 
+                                    let Some(OutgoingPeerConnectionAttempt {
+                                        ticket: init_ticket,
+                                        session_security_settings,
+                                    }) = local_outgoing_attempt_metadata
+                                    else {
+                                        // TODO: Send error
+                                        log::error!(target: "citadel", "Attempted to create a virtual connection, but could not find local outgoing attempt metadata");
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    };
+
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
-                                            ticket: ticket_for_chan.unwrap_or(ticket),
+                                            ticket: init_ticket,
                                             channel,
                                             udp_rx_opt,
                                         });
@@ -702,6 +673,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             encrypted_config_container,
                                             client_config,
                                             udp_mode,
+                                            session_security_settings,
                                         )
                                         .await;
                                     }
@@ -725,8 +697,8 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         hole_punch_compat_stream,
                                         channel,
                                         udp_rx_opt,
-                                        endpoint_stacked_ratchet,
-                                        ticket_for_chan,
+                                        endpoint_ratchet,
+                                        local_outgoing_connection_attempt_metadata,
                                         needs_turn,
                                     ) = {
                                         let mut state_container =
@@ -741,15 +713,13 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         let bob_constructor =
                                             return_if_none!(kem.constructor.take());
                                         let udp_rx_opt = kem.udp_channel_sender.rx.take();
-                                        let endpoint_stacked_ratchet = return_if_none!(
+                                        let endpoint_ratchet = return_if_none!(
                                             bob_constructor.finish_with_custom_cid(this_cid)
                                         );
                                         let endpoint_security_level =
-                                            endpoint_stacked_ratchet.get_default_security_level();
-                                        let toolset = Toolset::new(
-                                            this_cid,
-                                            endpoint_stacked_ratchet.clone(),
-                                        );
+                                            endpoint_ratchet.get_default_security_level();
+                                        let toolset =
+                                            Toolset::new(this_cid, endpoint_ratchet.clone());
                                         let peer_crypto = PeerSessionCrypto::new(toolset, false);
 
                                         // create an endpoint vconn
@@ -768,40 +738,40 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
 
-                                        let channel = state_container
-                                            .insert_new_peer_virtual_connection_as_endpoint(
-                                                alice_predicted_socket_addr,
-                                                session_security_settings,
-                                                ticket,
-                                                peer_cid,
-                                                vconn_type,
-                                                peer_crypto,
-                                                session,
-                                                local_is_file_transfer_compat
-                                                    && *peer_file_transfer_compat,
-                                            );
+                                        let channel = state_container.create_virtual_connection(
+                                            //alice_predicted_socket_addr,
+                                            session_security_settings,
+                                            ticket,
+                                            peer_cid,
+                                            vconn_type,
+                                            peer_crypto,
+                                            session,
+                                            local_is_file_transfer_compat
+                                                && *peer_file_transfer_compat,
+                                        );
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
                                         // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                         // however, STUN-like traversal will proceed in the background
                                         //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                        let ticket_for_chan = state_container
-                                            .outgoing_peer_connect_attempts
-                                            .remove(&peer_cid);
+                                        let local_outgoing_connection_attempt_metadata =
+                                            state_container
+                                                .outgoing_peer_connect_attempts
+                                                .remove(&peer_cid);
                                         let hole_punch_compat_stream =
                                             ReliableOrderedCompatStream::<R>::new(
                                                 return_if_none!(session.to_primary_stream.clone()),
                                                 &mut state_container,
                                                 peer_cid,
-                                                endpoint_stacked_ratchet.clone(),
+                                                endpoint_ratchet.clone(),
                                                 endpoint_security_level,
                                             );
                                         (
                                             hole_punch_compat_stream,
                                             channel,
                                             udp_rx_opt,
-                                            endpoint_stacked_ratchet,
-                                            ticket_for_chan,
+                                            endpoint_ratchet,
+                                            local_outgoing_connection_attempt_metadata,
                                             needs_turn,
                                         )
                                     };
@@ -812,9 +782,19 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         UdpMode::Disabled
                                     };
 
+                                    let Some(OutgoingPeerConnectionAttempt {
+                                        ticket: init_ticket,
+                                        session_security_settings,
+                                    }) = local_outgoing_connection_attempt_metadata
+                                    else {
+                                        // TODO: Send error
+                                        log::error!(target: "citadel", "Attempted to create a virtual connection, but could not find local outgoing attempt metadata");
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    };
+
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
-                                            ticket: ticket_for_chan.unwrap_or(ticket),
+                                            ticket: init_ticket,
                                             channel,
                                             udp_rx_opt,
                                         });
@@ -832,7 +812,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
                                             generate_hole_punch_crypt_container(
-                                                endpoint_stacked_ratchet,
+                                                endpoint_ratchet,
                                                 SecurityLevel::Standard,
                                                 peer_cid,
                                                 stun_servers,
@@ -861,6 +841,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             encrypted_config_container,
                                             client_config,
                                             udp_mode,
+                                            session_security_settings,
                                         )
                                         .await;
                                     }
@@ -900,7 +881,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                         session,
                         signal,
                         ticket,
-                        sess_stacked_ratchet,
+                        sess_ratchet,
                         header,
                         timestamp,
                         security_level,
@@ -925,7 +906,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
     sess_ref: &CitadelSession<R>,
     signal: PeerSignal,
     ticket: Ticket,
-    sess_stacked_ratchet: R,
+    sess_ratchet: R,
     header: Ref<&[u8], HdpHeader>,
     timestamp: i64,
     security_level: SecurityLevel,
@@ -971,16 +952,16 @@ async fn process_signal_command_as_server<R: Ratchet>(
                 peer_conn_type: conn,
                 kex_payload: kep,
             };
-            if sess_stacked_ratchet.get_cid() == conn.get_original_target_cid() {
+            if sess_ratchet.get_cid() == conn.get_original_target_cid() {
                 log::error!(target: "citadel", "Error (equivalent CIDs)");
                 return Ok(PrimaryProcessorResult::Void);
             }
 
             let peer_cid = conn.get_original_target_cid();
 
-            let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_stacked_ratchet| {
+            let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(
-                    peer_stacked_ratchet,
+                    peer_ratchet,
                     signal_to,
                     ticket,
                     timestamp,
@@ -991,7 +972,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
             if let Err(err) = res {
                 reply_to_sender_err(
                     err,
-                    &sess_stacked_ratchet,
+                    &sess_ratchet,
                     ticket,
                     timestamp,
                     security_level,
@@ -1029,7 +1010,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                             target_cid,
                             timestamp,
                             session,
-                            &sess_stacked_ratchet,
+                            &sess_ratchet,
                             security_level,
                         )
                         .await
@@ -1072,7 +1053,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                     target_cid,
                                     timestamp,
                                     session,
-                                    &sess_stacked_ratchet,
+                                    &sess_ratchet,
                                     security_level,
                                 )
                                 .await?;
@@ -1097,7 +1078,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                             };
 
                             let rebound_accept = packet_crafter::peer_cmd::craft_peer_signal(
-                                &sess_stacked_ratchet,
+                                &sess_ratchet,
                                 cmd,
                                 ticket,
                                 timestamp,
@@ -1123,7 +1104,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 ticket,
                                 &to_primary_stream,
                                 &sess_mgr,
-                                &sess_stacked_ratchet,
+                                &sess_ratchet,
                                 security_level,
                                 &mut peer_layer,
                             )
@@ -1203,7 +1184,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                             // now, send a success packet to the client
                             let success_cmd = PeerSignal::DeregistrationSuccess { peer_conn_type };
                             let rebound_packet = packet_crafter::peer_cmd::craft_peer_signal(
-                                &sess_stacked_ratchet,
+                                &sess_ratchet,
                                 success_cmd,
                                 ticket,
                                 timestamp,
@@ -1224,7 +1205,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 },
                             };
                             let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
-                                &sess_stacked_ratchet,
+                                &sess_ratchet,
                                 error_signal,
                                 ticket,
                                 timestamp,
@@ -1272,7 +1253,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                             target_cid,
                             timestamp,
                             sess_ref,
-                            &sess_stacked_ratchet,
+                            &sess_ratchet,
                             security_level,
                         )
                         .await
@@ -1301,7 +1282,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                     target_cid,
                                     timestamp,
                                     sess_ref,
-                                    &sess_stacked_ratchet,
+                                    &sess_ratchet,
                                     security_level,
                                 )
                                 .await?;
@@ -1323,7 +1304,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 ticket,
                                 &to_primary_stream,
                                 &sess_mgr,
-                                &sess_stacked_ratchet,
+                                &sess_ratchet,
                                 security_level,
                                 &mut peer_layer,
                             )
@@ -1352,89 +1333,62 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     session_cid,
                     peer_cid: target_cid,
                 } => {
-                    let state_container = inner_state!(session.state_container);
-                    if let Some(v_conn) =
-                        state_container.active_virtual_connections.get(&target_cid)
+                    let mut state_container = inner_mut_state!(session.state_container);
+                    if state_container
+                        .active_virtual_connections
+                        .remove(&target_cid)
+                        .is_some()
                     {
-                        // ... but, we still want any messages already sent to be processed
+                        // note: this is w.r.t the server.
+                        log::trace!(target: "citadel", "[Peer Vconn @ Server] will drop the virtual connection");
+                        let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
+                            "Peer {session_cid} closed the virtual connection to {target_cid}"
+                        ))));
 
-                        let last_packet = v_conn.last_delivered_message_timestamp.clone();
-                        let state_container_ref = session.state_container.clone();
-                        let session_manager = session.session_manager.clone();
-
-                        std::mem::drop(state_container);
-
-                        let task = async move {
-                            // note: this is w.r.t the server.
-                            while let Some(ts) = last_packet.get() {
-                                if ts.elapsed() > Duration::from_millis(1500) {
-                                    break;
-                                }
-
-                                citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
-                            }
-
-                            log::trace!(target: "citadel", "[Peer Vconn @ Server] No packets received in the last 1500ms; will drop the virtual connection cleanly");
-                            // once we're done waiting for packets to stop showing up, we can remove the container to end the underlying TCP stream
-                            let mut state_container = inner_mut_state!(state_container_ref);
-                            let _ = state_container
-                                .active_virtual_connections
-                                .remove(&target_cid)
-                                .map(|v_conn| v_conn.is_active.store(false, Ordering::SeqCst));
-
-                            let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
-                                "Peer {session_cid} closed the virtual connection to {target_cid}"
-                            ))));
-                            let signal_to_peer = PeerSignal::Disconnect {
-                                peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                    session_cid,
-                                    peer_cid: target_cid,
-                                },
-                                disconnect_response: resp,
-                            };
-
-                            // now, remove target CID's v_conn to `session_cid`
-                            std::mem::drop(state_container);
-                            let _ = session_manager.disconnect_virtual_conn(
-                                session_cid,
-                                target_cid,
-                                move |peer_stacked_ratchet| {
-                                    // send signal to peer
-                                    packet_crafter::peer_cmd::craft_peer_signal(
-                                        peer_stacked_ratchet,
-                                        signal_to_peer,
-                                        ticket,
-                                        timestamp,
-                                        security_level,
-                                    )
-                                },
-                            );
-                        };
-
-                        spawn!(task);
-
-                        let rebound_signal = PeerSignal::Disconnect {
+                        let signal_to_peer = PeerSignal::Disconnect {
                             peer_conn_type: PeerConnectionType::LocalGroupPeer {
                                 session_cid,
                                 peer_cid: target_cid,
                             },
-                            disconnect_response: Some(PeerResponse::Disconnected(
-                                "Server has begun disconnection".to_string(),
-                            )),
+                            disconnect_response: resp,
                         };
 
-                        reply_to_sender(
-                            rebound_signal,
-                            &sess_stacked_ratchet,
-                            ticket,
-                            timestamp,
-                            security_level,
-                        )
-                    } else {
-                        //reply_to_sender_err(format!("{} is not connected to {}", session_cid, target_cid), &sess_stacked_ratchet, ticket, timestamp, security_level)
-                        // connection may already be dc'ed from another dc attempt. Just say nothing
-                        Ok(PrimaryProcessorResult::Void)
+                        // now, remove target CID's v_conn to `session_cid`
+                        drop(state_container);
+                        let _ = session.session_manager.disconnect_virtual_conn(
+                            session_cid,
+                            target_cid,
+                            move |peer_ratchet| {
+                                // send signal to peer
+                                packet_crafter::peer_cmd::craft_peer_signal(
+                                    peer_ratchet,
+                                    signal_to_peer,
+                                    ticket,
+                                    timestamp,
+                                    security_level,
+                                )
+                            },
+                        );
                     }
+
+                    // Regardless, always rebound a D/C signal
+                    let rebound_signal = PeerSignal::Disconnect {
+                        peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                            session_cid,
+                            peer_cid: target_cid,
+                        },
+                        disconnect_response: Some(PeerResponse::Disconnected(
+                            "Server has begun disconnection".to_string(),
+                        )),
+                    };
+
+                    reply_to_sender(
+                        rebound_signal,
+                        &sess_ratchet,
+                        ticket,
+                        timestamp,
+                        security_level,
+                    )
                 }
 
                 _ => {
@@ -1487,7 +1441,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     log::trace!(target: "citadel", "[GetRegisteredPeers] Done getting list");
                     reply_to_sender(
                         rebound_signal,
-                        &sess_stacked_ratchet,
+                        &sess_ratchet,
                         ticket,
                         timestamp,
                         security_level,
@@ -1535,7 +1489,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                 log::trace!(target: "citadel", "[GetMutuals] Done getting list");
                 reply_to_sender(
                     rebound_signal,
-                    &sess_stacked_ratchet,
+                    &sess_ratchet,
                     ticket,
                     timestamp,
                     security_level,
@@ -1580,7 +1534,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: signal.clone(),
                     ticket,
-                    session_cid: sess_stacked_ratchet.get_cid(),
+                    session_cid: sess_ratchet.get_cid(),
                 }))?;
 
             let peer_cid = peer_connection_type.get_original_target_cid();
@@ -1593,9 +1547,9 @@ async fn process_signal_command_as_server<R: Ratchet>(
 
             let res = inner!(session.session_manager).send_signal_to_peer_direct(
                 peer_cid,
-                move |peer_stacked_ratchet| {
+                move |peer_ratchet| {
                     packet_crafter::peer_cmd::craft_peer_signal(
-                        peer_stacked_ratchet,
+                        peer_ratchet,
                         signal,
                         ticket,
                         timestamp,
@@ -1607,7 +1561,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
             if let Err(err) = res {
                 reply_to_sender_err(
                     err,
-                    &sess_stacked_ratchet,
+                    &sess_ratchet,
                     ticket,
                     timestamp,
                     security_level,
@@ -1624,7 +1578,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                 .unbounded_send(NodeResult::PeerEvent(PeerEvent {
                     event: signal,
                     ticket,
-                    session_cid: sess_stacked_ratchet.get_cid(),
+                    session_cid: sess_ratchet.get_cid(),
                 }))?;
             Ok(PrimaryProcessorResult::Void)
         }
@@ -1644,13 +1598,13 @@ async fn process_signal_command_as_server<R: Ratchet>(
 /// This just makes the repeated operation above cleaner. By itself does not send anything; must return the result of this closure directly
 fn reply_to_sender<R: Ratchet>(
     signal: PeerSignal,
-    stacked_ratchet: &R,
+    ratchet: &R,
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let packet = packet_crafter::peer_cmd::craft_peer_signal(
-        stacked_ratchet,
+        ratchet,
         signal,
         ticket,
         timestamp,
@@ -1661,27 +1615,20 @@ fn reply_to_sender<R: Ratchet>(
 
 fn reply_to_sender_err<E: ToString, R: Ratchet>(
     err: E,
-    stacked_ratchet: &R,
+    ratchet: &R,
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
     peer_cid: u64,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     Ok(PrimaryProcessorResult::ReplyToSender(
-        construct_error_signal(
-            err,
-            stacked_ratchet,
-            ticket,
-            timestamp,
-            security_level,
-            peer_cid,
-        ),
+        construct_error_signal(err, ratchet, ticket, timestamp, security_level, peer_cid),
     ))
 }
 
 fn construct_error_signal<E: ToString, R: Ratchet>(
     err: E,
-    stacked_ratchet: &R,
+    ratchet: &R,
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
@@ -1691,12 +1638,12 @@ fn construct_error_signal<E: ToString, R: Ratchet>(
         ticket,
         error: err.to_string(),
         peer_connection_type: PeerConnectionType::LocalGroupPeer {
-            session_cid: stacked_ratchet.get_cid(),
+            session_cid: ratchet.get_cid(),
             peer_cid,
         },
     };
     packet_crafter::peer_cmd::craft_peer_signal(
-        stacked_ratchet,
+        ratchet,
         err_signal,
         ticket,
         timestamp,
@@ -1714,21 +1661,21 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
     ticket: Ticket,
     to_primary_stream: &OutboundPrimaryStreamSender,
     sess_mgr: &CitadelSessionManager<R>,
-    sess_stacked_ratchet: &R,
+    sess_ratchet: &R,
     security_level: SecurityLevel,
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let sess_stacked_ratchet_2 = sess_stacked_ratchet.clone();
+    let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
     // Give the target_cid 10 seconds to respond
-    let res = sess_mgr.route_signal_primary(peer_layer, session_cid, target_cid, ticket, signal.clone(), move |peer_stacked_ratchet| {
-        packet_crafter::peer_cmd::craft_peer_signal(peer_stacked_ratchet, signal.clone(), ticket, timestamp, security_level)
+    let res = sess_mgr.route_signal_primary(peer_layer, session_cid, target_cid, ticket, signal.clone(), move |peer_ratchet| {
+        packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
         // TODO: Use latest ratchet, otherwise, may expire
         log::warn!(target: "citadel", "Running timeout closure. Sending error message to {}", session_cid);
-        let error_packet = packet_crafter::peer_cmd::craft_peer_signal(&sess_stacked_ratchet_2, stale_signal, ticket, timestamp, security_level);
+        let error_packet = packet_crafter::peer_cmd::craft_peer_signal(&sess_ratchet_2, stale_signal, ticket, timestamp, security_level);
         let _ = to_primary_stream.unbounded_send(error_packet);
     }).await;
 
@@ -1736,7 +1683,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
     if let Err(err) = res {
         reply_to_sender_err(
             err,
-            sess_stacked_ratchet,
+            sess_ratchet,
             ticket,
             timestamp,
             security_level,
@@ -1746,7 +1693,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
         let received_signal = PeerSignal::SignalReceived { ticket };
         reply_to_sender(
             received_signal,
-            sess_stacked_ratchet,
+            sess_ratchet,
             ticket,
             timestamp,
             security_level,
@@ -1763,7 +1710,7 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
     timestamp: i64,
     ticket: Ticket,
     session: CitadelSession<R>,
-    sess_stacked_ratchet: &R,
+    sess_ratchet: &R,
     on_route_finished: impl FnOnce(&CitadelSession<R>, &CitadelSession<R>, PeerSignal),
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -1777,9 +1724,9 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
             target_cid,
             ticket,
             sess_ref,
-            move |peer_stacked_ratchet| {
+            move |peer_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(
-                    peer_stacked_ratchet,
+                    peer_ratchet,
                     signal,
                     ticket,
                     timestamp,
@@ -1791,7 +1738,7 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
                 let received_signal = PeerSignal::SignalReceived { ticket };
                 let ret = reply_to_sender(
                     received_signal,
-                    sess_stacked_ratchet,
+                    sess_ratchet,
                     ticket,
                     timestamp,
                     security_level,
@@ -1811,7 +1758,7 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
             log::warn!(target: "citadel", "Unable to route signal! {:?}", err);
             reply_to_sender_err(
                 err,
-                sess_stacked_ratchet,
+                sess_ratchet,
                 ticket,
                 timestamp,
                 security_level,

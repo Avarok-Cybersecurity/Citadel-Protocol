@@ -50,7 +50,7 @@ macro_rules! impl_remote {
                 &self,
                 request: NodeRequest,
             ) -> Result<
-                citadel_proto::kernel::kernel_communicator::KernelStreamSubscription,
+                citadel_proto::kernel::kernel_communicator::KernelStreamSubscription<R>,
                 NetworkError,
             > {
                 self.inner.send_callback_subscription(request).await

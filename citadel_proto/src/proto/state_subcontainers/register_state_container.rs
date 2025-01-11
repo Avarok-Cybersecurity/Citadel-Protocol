@@ -39,7 +39,7 @@ use citadel_crypt::ratchets::Ratchet;
 pub struct RegisterState<R: Ratchet> {
     pub(crate) last_stage: u8,
     pub(crate) constructor: Option<R::Constructor>,
-    pub(crate) created_stacked_ratchet: Option<R>,
+    pub(crate) created_ratchet: Option<R>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) passwordless: Option<bool>,
 }
@@ -49,7 +49,7 @@ impl<R: Ratchet> Default for RegisterState<R> {
         Self {
             last_stage: 0,
             constructor: None,
-            created_stacked_ratchet: None,
+            created_ratchet: None,
             last_packet_time: None,
             passwordless: None,
         }

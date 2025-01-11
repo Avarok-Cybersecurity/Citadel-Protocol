@@ -106,34 +106,18 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         }
     }
 
-    /// Derives a new version of self safe to be used in the protocol
-    /// Changes made to the returned version will not persist
-    // TODO: Remove
-    pub fn new_session(&self) -> Self {
-        Self {
-            cid: self.cid,
-            toolset: self.toolset.clone(),
-            update_in_progress: self.update_in_progress.clone(),
-            local_is_initiator: self.local_is_initiator,
-            incrementing_group_id: self.incrementing_group_id.clone(),
-            latest_usable_version: self.latest_usable_version.clone(),
-        }
-    }
-
     /// Gets a specific entropy_bank version, or, gets the latest version committed
     pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
         self.toolset
             .read()
-            .get_stacked_ratchet(
-                version.unwrap_or_else(|| self.latest_usable_version.load(ORDERING)),
-            )
+            .get_ratchet(version.unwrap_or_else(|| self.latest_usable_version.load(ORDERING)))
             .cloned()
     }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
     /// that the endpoint updated the ratchet (no transfer received, since none needed)
     #[allow(clippy::type_complexity)]
-    pub fn commit_next_stacked_ratchet_version(
+    pub fn commit_next_ratchet_version(
         &self,
         mut newest_version: R::Constructor,
         local_cid: u64,
@@ -146,7 +130,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         CryptError,
     > {
         let mut toolset = self.toolset.write();
-        let cur_vers = toolset.get_most_recent_stacked_ratchet_version();
+        let cur_vers = toolset.get_most_recent_ratchet_version();
         let next_vers = cur_vers.wrapping_add(1);
 
         // Update version before any stage operations
@@ -177,14 +161,14 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             CryptError::RekeyUpdateError("Unable to progress past stage0_bob".to_string())
         })?;
 
-        let next_stacked_ratchet = newest_version
+        let next_ratchet = newest_version
             .finish_with_custom_cid(local_cid)
             .ok_or_else(|| {
                 CryptError::RekeyUpdateError(
                     "Unable to progress past finish_with_custom_cid".to_string(),
                 )
             })?;
-        let status = toolset.update_from(next_stacked_ratchet).ok_or_else(|| {
+        let status = toolset.update_from(next_ratchet).ok_or_else(|| {
             CryptError::RekeyUpdateError("Unable to progress past update_from".to_string())
         })?;
         log::trace!(target: "citadel", "[E2E] Client {local_cid} successfully updated Ratchet from v{cur_vers} to v{next_vers}");
@@ -193,13 +177,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 
     /// Deregisters the oldest StackedRatchet version. Requires the version input to ensure program/network consistency for debug purposes
-    pub fn deregister_oldest_stacked_ratchet(
-        &self,
-        version: u32,
-    ) -> Result<(), CryptError<String>> {
-        self.toolset
-            .write()
-            .deregister_oldest_stacked_ratchet(version)
+    pub fn deregister_oldest_ratchet(&self, version: u32) -> Result<(), CryptError<String>> {
+        self.toolset.write().deregister_oldest_ratchet(version)
     }
 
     /// Performs an update internally, only if sync conditions allow
@@ -224,7 +203,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         // There is one last special possibility. Let's say the initiator spam sends a bunch of FastMessage packets. Since the initiator's local won't have the appropriate proposed version ID
         // we need to ensure that it gets the right version, The crypt container will take care of that for us
-        let result = self.commit_next_stacked_ratchet_version(
+        let result = self.commit_next_ratchet_version(
             constructor,
             local_cid,
             !triggered_by_bob_to_alice_transfer,
@@ -251,7 +230,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         }
     }
 
-    /// Unlocks the hold on future updates, then returns the latest stacked_ratchet
+    /// Unlocks the hold on future updates, then returns the latest ratchet
     pub fn maybe_unlock(&self) -> Option<R> {
         if self.update_in_progress.reset_and_get_previous() != CurrentToggleState::AlreadyToggled {
             log::error!(target: "citadel", "Client {} expected update_in_progress to be true", self.cid);
@@ -270,7 +249,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         let _ = self.latest_usable_version.fetch_add(1, ORDERING);
     }
 
-    pub fn get_and_increment_group_id(&mut self) -> u64 {
+    pub fn get_and_increment_group_id(&self) -> u64 {
         self.incrementing_group_id.fetch_add(1, ORDERING)
     }
 

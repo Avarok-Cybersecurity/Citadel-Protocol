@@ -67,7 +67,7 @@ pub async fn process_deregister<R: Ratchet>(
 
         let timestamp = session.time_tracker.get_global_time_ns();
         let (header, payload, _, _) = packet.decompose();
-        let (header, _payload, stacked_ratchet) = return_if_none!(
+        let (header, _payload, ratchet) = return_if_none!(
             validation::aead::validate(hr, &header, payload),
             "Unable to validate dereg packet"
         );
@@ -81,7 +81,7 @@ pub async fn process_deregister<R: Ratchet>(
                 deregister_client_from_self(
                     session_cid,
                     session,
-                    &stacked_ratchet,
+                    &ratchet,
                     timestamp,
                     security_level,
                 )

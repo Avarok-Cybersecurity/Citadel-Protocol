@@ -28,21 +28,21 @@
 //! - `net.rs`: Network operations
 
 use crate::error::NetworkError;
+use crate::macros::ContextRequirements;
 use crate::proto::outbound_sender::UnboundedSender;
-use citadel_types::crypto::SecBuffer;
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub struct OrderedChannel {
-    sink: UnboundedSender<SecBuffer>,
-    map: HashMap<u64, SecBuffer>,
+pub struct OrderedChannel<T> {
+    sink: UnboundedSender<T>,
+    map: HashMap<u64, T>,
     last_message_received: Option<u64>,
     #[allow(dead_code)]
     last_message_received_instant: Option<Instant>,
 }
 
-impl OrderedChannel {
-    pub fn new(sink: UnboundedSender<SecBuffer>) -> Self {
+impl<T: ContextRequirements> OrderedChannel<T> {
+    pub fn new(sink: UnboundedSender<T>) -> Self {
         Self {
             sink,
             map: HashMap::new(),
@@ -52,7 +52,7 @@ impl OrderedChannel {
     }
 
     #[allow(unused_results)]
-    pub fn on_packet_received(&mut self, id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
+    pub fn on_packet_received(&mut self, id: u64, packet: T) -> Result<(), NetworkError> {
         let next_expected_message_id = self
             .last_message_received
             .map(|r| r.wrapping_add(1))
@@ -69,7 +69,7 @@ impl OrderedChannel {
     }
 
     #[allow(unused_results)]
-    fn store_received_packet(&mut self, id: u64, packet: SecBuffer) {
+    fn store_received_packet(&mut self, id: u64, packet: T) {
         self.map.insert(id, packet);
         self.set_last_message_received_instant();
     }
@@ -82,7 +82,7 @@ impl OrderedChannel {
         self.last_message_received = Some(id)
     }
 
-    fn send_then_scan(&mut self, new_id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
+    fn send_then_scan(&mut self, new_id: u64, packet: T) -> Result<(), NetworkError> {
         self.send_unconditional(new_id, packet)?;
         if !self.map.is_empty() {
             self.scan_send(new_id)
@@ -102,7 +102,7 @@ impl OrderedChannel {
         Ok(())
     }
 
-    fn send_unconditional(&mut self, new_id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
+    fn send_unconditional(&mut self, new_id: u64, packet: T) -> Result<(), NetworkError> {
         self.sink
             .unbounded_send(packet)
             .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -131,7 +131,7 @@ mod tests {
     async fn smoke_ordered() -> Result<(), Box<dyn Error>> {
         citadel_logging::setup_log();
         const COUNT: u8 = 100;
-        let (tx, mut rx) = unbounded();
+        let (tx, mut rx) = unbounded::<SecBuffer>();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
         let values_ordered = (0..COUNT)
             .map(|r| (r as _, SecBuffer::from(&[r] as &[u8])))
@@ -164,7 +164,7 @@ mod tests {
     async fn smoke_unordered() -> Result<(), Box<dyn Error>> {
         citadel_logging::setup_log();
         const COUNT: usize = 1000;
-        let (tx, mut rx) = unbounded();
+        let (tx, mut rx) = unbounded::<SecBuffer>();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
             .map(|r| {
@@ -206,7 +206,7 @@ mod tests {
     #[citadel_io::tokio::test]
     async fn smoke_unordered_concurrent() -> Result<(), Box<dyn Error>> {
         const COUNT: usize = 10000;
-        let (tx, mut rx) = unbounded();
+        let (tx, mut rx) = unbounded::<SecBuffer>();
         let ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
             .map(|r| {

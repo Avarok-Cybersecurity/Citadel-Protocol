@@ -66,7 +66,7 @@ pub fn process_file_packet<R: Ratchet>(
     let header_bytes = &header[..];
     let header = return_if_none!(Ref::new(header_bytes), "Unable to validate header layout")
         as Ref<&[u8], HdpHeader>;
-    let stacked_ratchet = return_if_none!(
+    let ratchet = return_if_none!(
         get_orientation_safe_ratchet(
             header.entropy_bank_version.get(),
             &state_container,
@@ -79,7 +79,7 @@ pub fn process_file_packet<R: Ratchet>(
     let ts = session.time_tracker.get_global_time_ns();
 
     // ALL FILE packets must be authenticated
-    match validation::group::validate(&stacked_ratchet, security_level, header_bytes, payload) {
+    match validation::group::validate(&ratchet, security_level, header_bytes, payload) {
         Some(payload) => {
             match header.cmd_aux {
                 packet_flags::cmd::aux::file::FILE_ERROR => {
@@ -157,7 +157,7 @@ pub fn process_file_packet<R: Ratchet>(
                                 vfm,
                                 session.account_manager.get_persistence_handler(),
                                 session.state_container.clone(),
-                                stacked_ratchet,
+                                ratchet,
                                 target_cid,
                                 v_target_flipped,
                                 preferred_primary_stream,
@@ -287,7 +287,7 @@ pub fn process_file_packet<R: Ratchet>(
                                 // on top of spawning the file transfer subroutine prior to this,
                                 // we will also send a REVFS pull ack
                                 let response_packet = packet_crafter::file::craft_revfs_pull_ack(
-                                    &stacked_ratchet,
+                                    &ratchet,
                                     security_level,
                                     ticket,
                                     ts,
@@ -330,7 +330,7 @@ pub fn process_file_packet<R: Ratchet>(
                                     .err()
                                     .map(|e| e.into_string());
                                 let response_packet = packet_crafter::file::craft_revfs_ack(
-                                    &stacked_ratchet,
+                                    &ratchet,
                                     security_level,
                                     ticket,
                                     ts,
@@ -360,7 +360,7 @@ pub fn process_file_packet<R: Ratchet>(
                                 error_message: payload.error_msg,
                                 data: None,
                                 ticket,
-                                session_cid: stacked_ratchet.get_cid(),
+                                session_cid: ratchet.get_cid(),
                             });
 
                             session.send_to_kernel(response)?;
@@ -390,7 +390,7 @@ pub fn process_file_packet<R: Ratchet>(
                                     error_message: Some(error),
                                     data: None,
                                     ticket,
-                                    session_cid: stacked_ratchet.get_cid(),
+                                    session_cid: ratchet.get_cid(),
                                 });
 
                                 session.send_to_kernel(error_signal)?;

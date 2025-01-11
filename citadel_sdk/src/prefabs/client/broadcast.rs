@@ -60,7 +60,6 @@
 //! - [`PrefabFunctions`]: Base prefab functionality
 //!
 
-use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::tokio::sync::Mutex;
@@ -127,7 +126,7 @@ pub enum GroupInitRequestType {
 impl<'a, F, Fut, R: Ratchet> PrefabFunctions<'a, GroupInitRequestType, R>
     for BroadcastKernel<'a, F, Fut, R>
 where
-    F: FnOnce(GroupChannel, ClientServerRemote<R>) -> Fut + Send + 'a,
+    F: FnOnce(GroupChannel, CitadelClientServerConnection<R>) -> Fut + Send + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + 'a,
 {
     type UserLevelInputFunction = F;
@@ -143,8 +142,7 @@ where
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     async fn on_c2s_channel_received(
-        connect_success: ConnectionSuccess,
-        remote: ClientServerRemote<R>,
+        connect_success: CitadelClientServerConnection<R>,
         arg: GroupInitRequestType,
         fx: Self::UserLevelInputFunction,
         shared: Arc<BroadcastShared>,
@@ -167,7 +165,7 @@ where
 
                 for peer in &invite_list {
                     let peer = peer
-                        .search_peer(session_cid, remote.inner.account_manager())
+                        .search_peer(session_cid, connect_success.account_manager())
                         .await?
                         .ok_or_else(|| {
                             NetworkError::msg(format!(
@@ -199,20 +197,19 @@ where
                 // ensure local is registered to owner
                 let owner_orig = owner;
                 let owner_find = owner_orig
-                    .search_peer(session_cid, remote.inner.account_manager())
+                    .search_peer(session_cid, connect_success.account_manager())
                     .await?;
 
                 let owner = if let Some(owner) = owner_find {
                     Some(owner)
                 } else if do_peer_register {
-                    let handle = remote
-                        .inner
+                    let handle = connect_success
                         .propose_target(local_user.clone(), owner_orig.clone())
                         .await?;
                     let _ = handle.register_to_peer().await?;
                     // wait_for_peers().await;
                     owner_orig
-                        .search_peer(session_cid, remote.inner.account_manager())
+                        .search_peer(session_cid, connect_success.account_manager())
                         .await?
                 } else {
                     None
@@ -232,8 +229,9 @@ where
 
                 // Exponential backoff, waiting for owner to create group
                 let mut retries = 0;
-                let group_owner_handle =
-                    remote.propose_target(local_user.clone(), owner.cid).await?;
+                let group_owner_handle = connect_success
+                    .propose_target(local_user.clone(), owner.cid)
+                    .await?;
                 loop {
                     let owned_groups = group_owner_handle.list_owned_groups().await?;
                     if owned_groups.contains(&expected_message_group_key) {
@@ -267,14 +265,14 @@ where
         });
 
         let subscription = &Mutex::new(Some(
-            remote.inner.send_callback_subscription(request).await?,
+            connect_success.send_callback_subscription(request).await?,
         ));
 
         log::trace!(target: "citadel", "Peer {session_cid} is attempting to join group");
         let acceptor_task = if creator_only_accept_inbound_registers {
             shared.route_registers.store(true, Ordering::Relaxed);
             let mut reg_rx = shared.register_rx.lock().take().unwrap();
-            let remote = remote.inner.clone();
+            let remote = connect_success.remote_ref().clone();
             Box::pin(async move {
                 let mut subscription = subscription.lock().await.take().unwrap();
                 // Merge the reg_rx stream and the subscription stream
@@ -364,9 +362,10 @@ where
                     // Drop the lock to allow the acceptor task to gain access to the subscription
                     drop(lock);
                     return if is_owner {
-                        citadel_io::tokio::try_join!(fx(channel, remote), acceptor_task).map(|_| ())
+                        citadel_io::tokio::try_join!(fx(channel, connect_success), acceptor_task)
+                            .map(|_| ())
                     } else {
-                        fx(channel, remote).await.map(|_| ())
+                        fx(channel, connect_success).await.map(|_| ())
                     };
                 }
 
@@ -411,7 +410,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         if let NodeResult::PeerEvent(PeerEvent {
             event: ps @ PeerSignal::PostRegister { .. },
             ticket: _,
@@ -493,11 +492,11 @@ mod tests {
             let client_kernel = BroadcastKernel::new(
                 server_connection_settings,
                 request,
-                move |channel, remote| async move {
+                move |channel, connection| async move {
                     wait_for_peers().await;
-                    log::trace!(target: "citadel", "***GROUP PEER {}={}={} CONNECT SUCCESS***", idx, uuid, remote.conn_type.get_session_cid());
+                    log::trace!(target: "citadel", "***GROUP PEER {}={}={} CONNECT SUCCESS***", idx, uuid, connection.conn_type.get_session_cid());
 
-                    let owned_groups = remote.list_owned_groups().await.unwrap();
+                    let owned_groups = connection.list_owned_groups().await.unwrap();
 
                     if idx == 0 {
                         assert_eq!(owned_groups.len(), 1);
@@ -505,12 +504,12 @@ mod tests {
                         assert_eq!(owned_groups.len(), 0);
                     }
 
-                    log::trace!(target: "citadel", "Peer {idx}={} is COMPLETE!", remote.conn_type.get_session_cid());
+                    log::trace!(target: "citadel", "Peer {idx}={} is COMPLETE!", connection.conn_type.get_session_cid());
 
                     let _ = client_success.fetch_add(1, Ordering::Relaxed);
                     wait_for_peers().await;
                     drop(channel);
-                    remote.shutdown_kernel().await
+                    connection.shutdown_kernel().await
                 },
             );
 

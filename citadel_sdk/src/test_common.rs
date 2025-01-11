@@ -90,7 +90,7 @@ pub fn server_info_reactive<'a, F, Fut, R: Ratchet>(
     opts: impl FnOnce(&mut NodeBuilder<R>),
 ) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr)
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send + Sync + 'a,
+    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
 {
     server_test_node(
@@ -103,7 +103,7 @@ where
 #[cfg(not(feature = "localhost-testing"))]
 pub fn server_info_reactive<
     'a,
-    F: Fn(ConnectionSuccess, ClientServerRemote<R>) -> Fut + Send + Sync + 'a,
+    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
     R: Ratchet,
 >(
@@ -221,9 +221,9 @@ lazy_static::lazy_static! {
     tracing::instrument(level = "trace", target = "citadel")
 )]
 #[allow(dead_code)]
-pub async fn udp_mode_assertions(
+pub async fn udp_mode_assertions<R: Ratchet>(
     udp_mode: UdpMode,
-    udp_channel_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
+    udp_channel_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
 ) {
     use futures::StreamExt;
     citadel_logging::info!(target: "citadel", "Inside UDP mode assertions ...");

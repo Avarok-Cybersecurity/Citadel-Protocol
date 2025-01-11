@@ -221,7 +221,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub fn store_rtdb_config(&self, cfg: crate::external_services::rtdb::RtdbClientConfig) {
         self.write().client_rtdb_config = Some(cfg);
     }
-    
+
     pub fn auth_store(&self) -> &DeclaredAuthenticationMode {
         &self.inner.auth_store
     }
@@ -308,7 +308,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// This should ONLY be used for recovery mode
-    pub fn get_static_auxiliary_stacked_ratchet(&self) -> R {
+    pub fn get_static_auxiliary_ratchet(&self) -> R {
         self.get_session_crypto()
             .toolset()
             .read()
@@ -540,7 +540,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns true if passwordless
-    pub fn passwordless(&self) -> bool {
+    pub fn is_transient(&self) -> bool {
         self.inner.is_transient
     }
 }

@@ -29,6 +29,7 @@
 use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
 use crate::proto::remote::Ticket;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
 use futures::{Future, Stream};
 use std::collections::HashMap;
@@ -36,18 +37,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 #[derive(Default)]
-pub struct KernelAsyncCallbackHandler {
-    pub inner: Arc<Mutex<KernelAsyncCallbackHandlerInner>>,
+pub struct KernelAsyncCallbackHandler<R: Ratchet> {
+    pub inner: Arc<Mutex<KernelAsyncCallbackHandlerInner<R>>>,
 }
 
 #[derive(Default)]
-pub struct KernelAsyncCallbackHandlerInner {
-    map: HashMap<CallbackKey, CallbackNotifier>,
+pub struct KernelAsyncCallbackHandlerInner<R: Ratchet> {
+    pub(crate) map: HashMap<CallbackKey, CallbackNotifier<R>>,
 }
 
 #[allow(dead_code)]
-pub(crate) struct CallbackNotifier {
-    tx: citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult>,
+pub(crate) struct CallbackNotifier<R: Ratchet> {
+    tx: citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult<R>>,
     key: CallbackKey,
 }
 
@@ -57,10 +58,10 @@ pub struct CallbackKey {
     pub session_cid: Option<u64>,
 }
 
-fn search_for_value<'a>(
-    map: &'a mut HashMap<CallbackKey, CallbackNotifier>,
+fn search_for_value<'a, R: Ratchet>(
+    map: &'a mut HashMap<CallbackKey, CallbackNotifier<R>>,
     callback_key_received: &'a CallbackKey,
-) -> Option<(&'a mut CallbackNotifier, CallbackKey)> {
+) -> Option<(&'a mut CallbackNotifier<R>, CallbackKey)> {
     let expected_ticket = callback_key_received.ticket;
     for (key, notifier) in map.iter_mut() {
         let ticket = key.ticket;
@@ -122,11 +123,11 @@ impl CallbackKey {
     }
 }
 
-impl KernelAsyncCallbackHandler {
+impl<R: Ratchet> KernelAsyncCallbackHandler<R> {
     pub fn register_stream(
         &self,
         callback_key: CallbackKey,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         let mut this = self.inner.lock();
         let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         this.insert(
@@ -151,7 +152,7 @@ impl KernelAsyncCallbackHandler {
     }
 
     // If a notification occurred, returns None. Else, returns the result
-    fn maybe_notify(&self, result: NodeResult) -> Option<NodeResult> {
+    fn maybe_notify(&self, result: NodeResult<R>) -> Option<NodeResult<R>> {
         match result.callback_key() {
             Some(ref received_callback_key) => {
                 let mut this = self.inner.lock();
@@ -173,8 +174,8 @@ impl KernelAsyncCallbackHandler {
 
     pub async fn on_message_received<F: Future<Output = Result<(), NetworkError>>>(
         &self,
-        result: NodeResult,
-        default: impl FnOnce(NodeResult) -> F,
+        result: NodeResult<R>,
+        default: impl FnOnce(NodeResult<R>) -> F,
     ) -> Result<(), NetworkError> {
         match self.maybe_notify(result) {
             None => Ok(()),
@@ -183,11 +184,11 @@ impl KernelAsyncCallbackHandler {
     }
 }
 
-impl KernelAsyncCallbackHandlerInner {
+impl<R: Ratchet> KernelAsyncCallbackHandlerInner<R> {
     fn insert(
         &mut self,
         callback_key: CallbackKey,
-        notifier: CallbackNotifier,
+        notifier: CallbackNotifier<R>,
     ) -> Result<(), NetworkError> {
         if self.map.insert(callback_key, notifier).is_some() {
             Err(NetworkError::InternalError("Overwrote previous notifier"))
@@ -197,7 +198,7 @@ impl KernelAsyncCallbackHandlerInner {
     }
 }
 
-impl Clone for KernelAsyncCallbackHandler {
+impl<R: Ratchet> Clone for KernelAsyncCallbackHandler<R> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -206,26 +207,26 @@ impl Clone for KernelAsyncCallbackHandler {
 }
 
 #[allow(dead_code)]
-pub struct KernelStreamSubscription {
-    inner: citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
-    ptr: KernelAsyncCallbackHandler,
+pub struct KernelStreamSubscription<R: Ratchet> {
+    inner: citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult<R>>,
+    ptr: KernelAsyncCallbackHandler<R>,
     callback_key: CallbackKey,
 }
 
-impl KernelStreamSubscription {
+impl<R: Ratchet> KernelStreamSubscription<R> {
     pub fn callback_key(&self) -> &CallbackKey {
         &self.callback_key
     }
 }
 
-impl Drop for KernelStreamSubscription {
+impl<R: Ratchet> Drop for KernelStreamSubscription<R> {
     fn drop(&mut self) {
         self.ptr.remove_listener(self.callback_key)
     }
 }
 
-impl Stream for KernelStreamSubscription {
-    type Item = NodeResult;
+impl<R: Ratchet> Stream for KernelStreamSubscription<R> {
+    type Item = NodeResult<R>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,

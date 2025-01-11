@@ -1,4 +1,5 @@
 use crate::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
+use crate::prelude::HeaderObfuscatorSettings;
 use crate::utils;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
@@ -160,6 +161,7 @@ pub struct SessionSecuritySettings {
     pub security_level: SecurityLevel,
     pub secrecy_mode: SecrecyMode,
     pub crypto_params: CryptoParameters,
+    pub header_obfuscator_settings: HeaderObfuscatorSettings,
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Default)]

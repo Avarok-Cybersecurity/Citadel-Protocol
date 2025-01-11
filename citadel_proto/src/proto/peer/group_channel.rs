@@ -51,7 +51,7 @@ use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::remote::Ticket;
-use crate::proto::session::SessionRequest;
+use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::MessageGroupKey;
@@ -202,10 +202,10 @@ impl GroupChannelSendHalf {
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
         self.tx
-            .send(SessionRequest::Group {
+            .send(SessionRequest::Group(Group {
                 ticket: self.ticket,
                 broadcast,
-            })
+            }))
             .await
             .map_err(|err| NetworkError::msg(err.to_string()))
     }
@@ -250,10 +250,10 @@ impl Stream for GroupChannelRecvHalf {
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
         log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.session_cid, self.key);
-        let request = SessionRequest::Group {
+        let request = SessionRequest::Group(Group {
             ticket: self.ticket,
             broadcast: GroupBroadcast::LeaveRoom { key: self.key },
-        };
+        });
 
         // TODO: remove group channel locally on the inner process in state container
         if let Err(err) = self.tx.try_send(request) {

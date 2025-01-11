@@ -73,8 +73,7 @@ pub async fn process_keep_alive<R: Ratchet>(
 
         let (header, payload, _, _) = packet.decompose();
 
-        if let Some((header, _payload, _stacked_ratchet)) =
-            validation::aead::validate(hr, &header, payload)
+        if let Some((header, _payload, _ratchet)) = validation::aead::validate(hr, &header, payload)
         {
             let current_timestamp_ns = session.time_tracker.get_global_time_ns();
             let to_primary_stream = return_if_none!(

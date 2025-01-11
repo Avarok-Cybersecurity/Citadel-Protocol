@@ -233,7 +233,7 @@ impl GenericNetworkListener {
         listener: TcpListener,
         redirect_to_quic: Option<(TlsDomain, bool)>,
     ) -> std::io::Result<Self> {
-        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
+        let (inbound_streams_tx, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let local_addr = listener.local_addr()?;
         let tls_domain = redirect_to_quic.as_ref().and_then(|r| r.0.clone());
 
@@ -273,9 +273,20 @@ impl GenericNetworkListener {
                     Ok((GenericNetworkStream::Tcp(conn), addr))
                 }
 
-                send.send(handle_stream_non_terminating(stream, addr, redirect_to_quic).await)
-                    .await
-                    .map_err(|err| generic_error(err.to_string()))?;
+                let redirect_to_quic = redirect_to_quic.clone();
+                let inbound_streams_tx = inbound_streams_tx.clone();
+                let handle_stream = async move {
+                    if let Err(err) = inbound_streams_tx
+                        .send(handle_stream_non_terminating(stream, addr, &redirect_to_quic).await)
+                        .await
+                        .map_err(|err| generic_error(err.to_string()))
+                    {
+                        log::error!(target: "citadel", "Error sending inbound stream from {addr} to listener: {err}");
+                    }
+                };
+
+                // Spawn to prevent backpressure against pending inbound connections
+                spawn!(handle_stream);
             }
         };
 
@@ -592,7 +603,7 @@ impl Stream for DualListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
 
-        // if this future ends, it's over
+        // If this future ends, it's over
         match future.as_mut().poll(cx) {
             Poll::Pending => {}
             Poll::Ready(res) => {

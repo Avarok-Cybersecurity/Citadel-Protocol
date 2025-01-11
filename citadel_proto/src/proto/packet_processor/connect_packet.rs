@@ -35,6 +35,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::ConnectMode;
@@ -83,7 +84,7 @@ pub async fn process_connect<R: Ratchet>(
 
     let (header, payload, _, _) = packet.decompose();
 
-    let (header, payload, stacked_ratchet) = return_if_none!(
+    let (header, payload, ratchet) = return_if_none!(
         validation::aead::validate(hr, &header, payload),
         "Unable to validate connect packet"
     );
@@ -109,7 +110,7 @@ pub async fn process_connect<R: Ratchet>(
                             session
                                 .file_transfer_compatible
                                 .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
-                            let cid = stacked_ratchet.get_cid();
+                            let cid = ratchet.get_cid();
                             let success_time = session.time_tracker.get_global_time_ns();
                             let addr = session.remote_peer;
                             let is_personal = !session.is_server;
@@ -127,7 +128,6 @@ pub async fn process_connect<R: Ratchet>(
                                 .take();
                             let channel = state_container.init_new_c2s_virtual_connection(
                                 &cnac,
-                                security_level,
                                 kernel_ticket,
                                 header.session_cid.get(),
                                 session,
@@ -144,8 +144,6 @@ pub async fn process_connect<R: Ratchet>(
                                 return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection (Server)"));
                             }
 
-                            //cnac.update_post_quantum_container(post_quantum).await?;
-                            //cnac.spawn_save_task_on_threadpool();
                             // register w/ peer layer, get mail in the process
                             let account_manager = session.account_manager.clone();
 
@@ -171,7 +169,7 @@ pub async fn process_connect<R: Ratchet>(
 
                                 let success_packet =
                                     packet_crafter::do_connect::craft_final_status_packet(
-                                        &stacked_ratchet,
+                                        &ratchet,
                                         true,
                                         mailbox_items,
                                         post_login_object.clone(),
@@ -201,7 +199,7 @@ pub async fn process_connect<R: Ratchet>(
                                 });
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container)
-                                    .c2s_channel_container
+                                    .get_endpoint_container_mut(C2S_IDENTITY_CID)
                                     .as_mut()
                                     .unwrap()
                                     .channel_signal = Some(channel_signal);
@@ -215,7 +213,7 @@ pub async fn process_connect<R: Ratchet>(
 
                             //session.state = SessionState::NeedsConnect;
                             let packet = packet_crafter::do_connect::craft_final_status_packet(
-                                &stacked_ratchet,
+                                &ratchet,
                                 false,
                                 None,
                                 ServicesObject::default(),
@@ -244,7 +242,7 @@ pub async fn process_connect<R: Ratchet>(
                     let message = String::from_utf8(payload.message.to_vec())
                         .unwrap_or_else(|_| "Invalid UTF-8 message".to_string());
                     log::error!(target: "citadel", "The server refused to login the user. Reason: {}", &message);
-                    let cid = stacked_ratchet.get_cid();
+                    let cid = ratchet.get_cid();
                     state_container.connect_state.on_fail();
                     drop(state_container);
 
@@ -290,7 +288,7 @@ pub async fn process_connect<R: Ratchet>(
                             let message = String::from_utf8(payload.message.to_vec())
                                 .unwrap_or_else(|_| String::from("Invalid message"));
                             let kernel_ticket = session.kernel_ticket.get();
-                            let cid = stacked_ratchet.get_cid();
+                            let cid = ratchet.get_cid();
 
                             state_container.connect_state.on_success();
                             state_container.connect_state.on_connect_packet_received();
@@ -308,7 +306,6 @@ pub async fn process_connect<R: Ratchet>(
 
                             let channel = state_container.init_new_c2s_virtual_connection(
                                 &cnac,
-                                security_level,
                                 kernel_ticket,
                                 header.session_cid.get(),
                                 session,
@@ -347,7 +344,7 @@ pub async fn process_connect<R: Ratchet>(
                             session.state.set(SessionState::Connected);
 
                             let success_ack = packet_crafter::do_connect::craft_success_ack(
-                                &stacked_ratchet,
+                                &ratchet,
                                 timestamp,
                                 security_level,
                             );
@@ -426,7 +423,7 @@ pub async fn process_connect<R: Ratchet>(
 
                                 if use_ka {
                                     let ka = packet_crafter::keep_alive::craft_keep_alive_packet(
-                                        &stacked_ratchet,
+                                        &ratchet,
                                         timestamp,
                                         security_level,
                                     );
@@ -453,9 +450,7 @@ pub async fn process_connect<R: Ratchet>(
                 log::trace!(target: "citadel", "RECV SUCCESS_ACK");
                 if session.is_server {
                     let signal = inner_mut_state!(session.state_container)
-                        .c2s_channel_container
-                        .as_mut()
-                        .ok_or_else(|| NetworkError::InternalError("C2S channel not loaded"))?
+                        .get_endpoint_container_mut(C2S_IDENTITY_CID)?
                         .channel_signal
                         .take()
                         .ok_or(NetworkError::InternalError("Channel signal missing"))?;

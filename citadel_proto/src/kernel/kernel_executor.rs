@@ -49,7 +49,7 @@ use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::kernel_trait::NetKernel;
 use crate::kernel::{KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture};
-use crate::proto::node::Node;
+use crate::proto::node::CitadelNode;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::proto::packet_processor::includes::Duration;
@@ -58,9 +58,9 @@ use crate::proto::remote::NodeRemote;
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel<R>, R: Ratchet> {
     server_remote: Option<NodeRemote<R>>,
-    server_to_kernel_rx: Option<UnboundedReceiver<NodeResult>>,
+    server_to_kernel_rx: Option<UnboundedReceiver<NodeResult<R>>>,
     shutdown_alerter_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
-    callback_handler: Option<KernelAsyncCallbackHandler>,
+    callback_handler: Option<KernelAsyncCallbackHandler<R>>,
     context: Option<KernelContext>,
     account_manager: AccountManager<R, R>,
     kernel_executor_settings: KernelExecutorSettings,
@@ -87,13 +87,13 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             client_config,
             kernel_executor_settings,
             stun_servers,
-            server_only_session_password,
+            server_only_session_init_settings,
         } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             citadel_io::tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = Node::<R>::init(
+        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R>::init(
             hypernode_type,
             server_to_kernel_tx,
             account_manager.clone(),
@@ -101,7 +101,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             underlying_proto,
             client_config,
             stun_servers,
-            server_only_session_password,
+            server_only_session_init_settings,
         )
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -170,10 +170,10 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
     #[allow(unused_must_use)]
     async fn kernel_inner_loop(
         kernel: &mut K,
-        mut server_to_kernel_rx: UnboundedReceiver<NodeResult>,
+        mut server_to_kernel_rx: UnboundedReceiver<NodeResult<R>>,
         citadel_server_remote: NodeRemote<R>,
         shutdown: citadel_io::tokio::sync::oneshot::Receiver<()>,
-        callback_handler: KernelAsyncCallbackHandler,
+        callback_handler: KernelAsyncCallbackHandler<R>,
         kernel_settings: KernelExecutorSettings,
     ) -> Result<(), NetworkError> {
         let citadel_server_remote = &citadel_server_remote;
@@ -195,7 +195,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
                 }
             };
 
-            reader.try_for_each_concurrent(kernel_settings.max_concurrency, |message: NodeResult| async move {
+            reader.try_for_each_concurrent(kernel_settings.max_concurrency, |message: NodeResult<R>| async move {
                 log::trace!(target: "citadel", "[KernelExecutor] Received message {:?}", message);
                 match message {
                     NodeResult::Shutdown => {

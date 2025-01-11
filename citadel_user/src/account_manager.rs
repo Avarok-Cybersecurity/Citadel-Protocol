@@ -36,9 +36,10 @@
 //! use citadel_user::backend::BackendType;
 //! use citadel_user::account_manager::AccountManager;
 //! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//! use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 //! use citadel_user::auth::proposed_credentials::ProposedCredentials;
 //!
-//! # fn get_ratchet() -> StackedRatchet { todo!() }
+//! # fn gen_crypto_state() -> PeerSessionCrypto<StackedRatchet> { todo!() }
 //! async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Initialize account manager with in-memory backend
 //!     let manager = AccountManager::<StackedRatchet>::new(
@@ -53,12 +54,12 @@
 //!
 //!     let creds = ProposedCredentials::transient("some-unique-id");
 //!
-//!     let ratchet = get_ratchet();
+//!     let crypto_state = gen_crypto_state();
 //!
 //!     let account = manager.register_impersonal_hyperlan_client_network_account(
 //!         conn_info,
 //!         creds,
-//!         ratchet
+//!         crypto_state
 //!     ).await?;
 //!
 //!     // Retrieve peer information

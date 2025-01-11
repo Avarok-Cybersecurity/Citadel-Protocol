@@ -62,6 +62,7 @@ use citadel_wire::hypernode_type::NodeType;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// allows convenient communication with the server
 #[derive(Clone)]
@@ -92,7 +93,7 @@ pub trait Remote<R: Ratchet>: Clone + Send {
     async fn send_callback_subscription(
         &self,
         request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError>;
+    ) -> Result<KernelStreamSubscription<R>, NetworkError>;
 
     /// Returns the account manager instance.
     fn account_manager(&self) -> &AccountManager<R, R>;
@@ -118,7 +119,7 @@ impl<R: Ratchet> Remote<R> for NodeRemote<R> {
     async fn send_callback_subscription(
         &self,
         request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         NodeRemote::send_callback_subscription(self, request).await
     }
 
@@ -141,7 +142,7 @@ impl<R: Ratchet> NodeRemote<R> {
     /// Creates a new [`NodeRemote`] instance.
     pub(crate) fn new(
         outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
-        callback_handler: KernelAsyncCallbackHandler,
+        callback_handler: KernelAsyncCallbackHandler<R>,
         account_manager: AccountManager<R, R>,
         node_type: NodeType,
     ) -> Self {
@@ -187,7 +188,7 @@ impl<R: Ratchet> NodeRemote<R> {
         &self,
         request: NodeRequest,
         ticket: Ticket,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         let callback_key = CallbackKey {
             ticket,
             session_cid: request.session_cid(),
@@ -209,7 +210,7 @@ impl<R: Ratchet> NodeRemote<R> {
     pub async fn send_callback_subscription(
         &self,
         request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_callback_subscription_custom_ticket(request, ticket)
             .await
@@ -272,6 +273,12 @@ impl From<u128> for Ticket {
 impl From<usize> for Ticket {
     fn from(val: usize) -> Self {
         (val as u128).into()
+    }
+}
+
+impl Default for Ticket {
+    fn default() -> Self {
+        Self::from(Uuid::new_v4().as_u128())
     }
 }
 
