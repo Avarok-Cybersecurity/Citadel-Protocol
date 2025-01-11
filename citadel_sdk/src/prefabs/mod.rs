@@ -21,12 +21,12 @@
 //! async fn handle_remote<R: Ratchet>(mut remote: ClientServerRemote<R>) -> Result<(), NetworkError> {
 //!     // Get list of connected peers
 //!     let peers = remote.get_peers(None).await?;
-//!     
+//!
 //!     // Handle file transfers
 //!     if let Ok(transfer_handle) = remote.get_incoming_file_transfer_handle() {
 //!         transfer_handle.accept_all();
 //!     }
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```

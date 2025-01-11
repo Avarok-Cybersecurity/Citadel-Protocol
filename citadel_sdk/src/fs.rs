@@ -20,13 +20,13 @@
 //! async fn store_file<R: Ratchet>(remote: &impl TargetLockedRemote<R>) -> Result<(), NetworkError> {
 //!     // Write a file to RE-VFS
 //!     fs::write(remote, "/local/file.txt", "/virtual/file.txt").await?;
-//!     
+//!
 //!     // Read the file back
 //!     let local_path = fs::read(remote, "/virtual/file.txt").await?;
-//!     
+//!
 //!     // Delete the file
 //!     fs::delete(remote, "/virtual/file.txt").await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```

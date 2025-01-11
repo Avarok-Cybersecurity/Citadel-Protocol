@@ -19,7 +19,7 @@
 //! async fn test_server() {
 //!     // Create a test server with default settings
 //!     let (server_future, addr) = server_info::<StackedRatchet>();
-//!     
+//!
 //!     // Run server and handle connections
 //!     server_future.await.expect("Server failed to start");
 //! }

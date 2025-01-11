@@ -134,11 +134,18 @@ use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_kernel = SingleClientServerConnectionKernel::new_register_defaults(
-        "John Doe",
-        "john.doe",
-        "password",
-        "127.0.0.1:25021",
+    // Create server connection settings
+    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
+        "127.0.0.1:12345",
+        "my_username",
+        "My Name",
+        "notsecurepassword",
+    )
+    .build()?;
+
+    // Create client kernel
+    let kernel = SingleClientServerConnectionKernel::new(
+        server_connection_settings,
         |connect_success, remote| async move {
             let (sink, mut stream) = connect_success.channel.split();
             while let Some(message) = stream.next().await {
@@ -148,8 +155,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     )?;
 
-    let client = NodeBuilder::default().build(client_kernel)?;
-    client.await?;
+    // Execute the application
+    NodeBuilder::default().build(client_kernel)?.await?;
     Ok(())
 }
 ```
@@ -296,7 +303,7 @@ The Citadel Protocol offers flexible data persistence options to suit various de
 
 - [📖 SDK Documentation](https://avarok-cybersecurity.github.io/Citadel-Protocol/docs/)
 - [📚 API Reference](https://docs.rs/citadel_sdk)
-- [📁 Examples](./examples/README.md)
+- [📁 Examples](./example-library/README.md)
 - [📄 Technical Architecture](The_Citadel_Protocol.pdf)
 
 ## 📜 Patent and Open Source Commitment

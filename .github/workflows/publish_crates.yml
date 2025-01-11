@@ -17,6 +17,7 @@ permissions:
 
 env:
   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   publish:
@@ -40,6 +41,8 @@ jobs:
 
       - name: Publish version
         run: |
+          git config user.email "tbraun96@gmail.com"
+          git config user.name "Thomas Braun"
           if [ "${{ github.event.inputs.version_type }}" = "patch" ]; then
             cargo make publish-patch
           elif [ "${{ github.event.inputs.version_type }}" = "minor" ]; then

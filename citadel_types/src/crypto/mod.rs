@@ -145,7 +145,7 @@ impl TryFrom<u8> for SecrecyMode {
 
 /// A memory-secure wrapper for shipping around Bytes
 pub struct SecBuffer {
-    inner: BytesMut,
+    pub inner: BytesMut,
 }
 
 impl SecBuffer {

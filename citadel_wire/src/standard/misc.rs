@@ -18,7 +18,7 @@
 //!         "cert.p12",
 //!         "password"
 //!     )?;
-//!     
+//!
 //!     // Convert individual DER files
 //!     let cert_der = std::fs::read("cert.der")?;
 //!     let key_der = std::fs::read("key.der")?;
@@ -26,7 +26,7 @@
 //!         &cert_der,
 //!         &key_der
 //!     )?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -50,7 +50,7 @@
 //!         "cert.p12",
 //!         "password"
 //!     )?;
-//!     
+//!
 //!     // Convert individual DER files
 //!     let cert_der = std::fs::read("cert.der")?;
 //!     let key_der = std::fs::read("key.der")?;
@@ -58,7 +58,7 @@
 //!         &cert_der,
 //!         &key_der
 //!     )?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```

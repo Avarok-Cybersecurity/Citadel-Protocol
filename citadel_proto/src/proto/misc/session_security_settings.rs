@@ -81,6 +81,7 @@ impl SessionSecuritySettingsBuilder {
     /// Default: HeaderObfuscatorSettings::Disabled
     /// ```
     /// use citadel_proto::prelude::*;
+    /// use uuid::Uuid;
     /// // Assume `header_psk` is a pre-shared key for only the header block cipher.
     /// // WARNING! This should NOT be derived from any secrets related to any other
     /// // part of the session. IF you are unsure, do not use this feature or use
@@ -88,7 +89,7 @@ impl SessionSecuritySettingsBuilder {
     /// // of the session
     /// let header_psk = Uuid::new_v4();
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_header_obfuscator_settings()
+    /// .with_header_obfuscator_settings(header_psk)
     /// .build();
     /// ```
     pub fn with_header_obfuscator_settings(

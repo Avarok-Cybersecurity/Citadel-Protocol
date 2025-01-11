@@ -18,7 +18,7 @@
 //! use citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
 //!
 //! # fn main() -> Result<(), NetworkError> {
-//! let kernel = Box::new(ClientConnectListenerKernel::<_, _, StackedRatchet>::new(|conn, remote| async move {
+//! let kernel = Box::new(ClientConnectListenerKernel::<_, _, StackedRatchet>::new(|conn| async move {
 //!     println!("Client connected!");
 //!     Ok(())
 //! }));

@@ -23,13 +23,13 @@
 //! async fn setup_tls() -> Result<(), anyhow::Error> {
 //!     // Create self-signed server config
 //!     let server_config = tls::create_server_self_signed_config()?;
-//!     
+//!
 //!     // Load system certificates
 //!     let certs = tls::load_native_certs_async().await?;
-//!     
+//!
 //!     // Create secure client config
 //!     let client_config = tls::create_client_config(&certs).await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```

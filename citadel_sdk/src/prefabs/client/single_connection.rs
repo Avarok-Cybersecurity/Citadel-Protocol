@@ -22,15 +22,15 @@
 //!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
 //!         .with_udp_mode(UdpMode::Enabled)
 //!         .build()?;
-//!     
+//!
 //!     let kernel = SingleClientServerConnectionKernel::new(
 //!         settings,
-//!         |conn, remote| async move {
+//!         |conn| async move {
 //!             println!("Connected to server!");
 //!             Ok(())
 //!         },
 //!     );
-//!     
+//!
 //!     Ok(())
 //! }
 //! # Ok(())

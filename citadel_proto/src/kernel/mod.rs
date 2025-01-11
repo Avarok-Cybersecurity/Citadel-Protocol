@@ -30,9 +30,6 @@
 //! - `HdpServer`: Low-level protocol implementation
 //! - `AccountManager`: User account management
 
-use crate::error::NetworkError;
-use crate::macros::ContextRequirements;
-use crate::prelude::ServerUnderlyingProtocol;
 use crate::proto::session::ServerOnlySessionInitSettings;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Future;
@@ -41,6 +38,10 @@ use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::ClientConfig;
 use citadel_wire::hypernode_type::NodeType;
 use std::sync::Arc;
+
+use crate::error::NetworkError;
+use crate::macros::ContextRequirements;
+use crate::prelude::ServerUnderlyingProtocol;
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;

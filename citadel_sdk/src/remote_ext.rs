@@ -29,13 +29,13 @@
 //!     // Connect to a peer
 //!     let auth = AuthenticationRequest::credentialed("john.doe", "password123");
 //!     let conn = remote.connect_with_defaults(auth).await?;
-//!     
+//!
 //!     // Send a file to a peer
 //!     remote.find_target("john.doe", "peer.name")
 //!         .await?
 //!         .send_file("/path/to/file.txt")
 //!         .await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -384,9 +384,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     ///
     /// let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
     ///
-    /// # SingleClientServerConnectionKernel::new(server_connection_settings, |_, mut remote| async move {
-    /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
-    /// // or: remote.find_target(1234, "my_peer").await? [...]
+    /// # SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
+    /// conn.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
+    /// // or: conn.find_target(1234, "my_peer").await? [...]
     /// # });
     /// ```
     async fn find_target<T: Into<UserIdentifier> + Send, P: Into<UserIdentifier> + Send>(

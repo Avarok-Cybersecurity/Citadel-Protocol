@@ -134,9 +134,9 @@
 //!
 //! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     // handle program logic here
-//!     let (sink, mut stream) = connect_success.channel.split();
+//!     let (sink, mut stream) = conn.split();
 //!     while let Some(message) = stream.next().await {
 //!         // message received in the form of a SecBuffer (memory-protected)
 //!     }
@@ -190,12 +190,12 @@
 //!
 //! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";
 //!     // write the contents with reinforced security.
-//!     citadel_sdk::fs::write_with_security_level(&mut remote, "../path/to/input.pdf", SecurityLevel::Reinforced, virtual_path).await?;
+//!     citadel_sdk::fs::write_with_security_level(&conn.remote, "../path/to/input.pdf", SecurityLevel::Reinforced, virtual_path).await?;
 //!     // read the contents. Reading downloads the file to a local path
-//!     let stored_local_path = citadel_sdk::fs::read(&mut remote, virtual_path).await?;
+//!     let stored_local_path = citadel_sdk::fs::read(&conn.remote, virtual_path).await?;
 //!  
 //!     Ok(())
 //! });

@@ -30,7 +30,7 @@
 //! let kernel = Box::new(AcceptFileTransferKernel::<StackedRatchet>::default());
 //!
 //! // Create a server that listens for client connections
-//! let kernel = Box::new(ClientConnectListenerKernel::<_, _, StackedRatchet>::new(|conn, remote| async move {
+//! let kernel = Box::new(ClientConnectListenerKernel::<_, _, StackedRatchet>::new(|conn| async move {
 //!     println!("Client connected!");
 //!     Ok(())
 //! }));

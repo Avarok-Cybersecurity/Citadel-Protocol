@@ -28,10 +28,10 @@
 //!         .with_peer_custom("bob")
 //!         .with_session_security_settings(Default::default())
 //!         .add();
-//!     
+//!
 //!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
 //!         .build()?;
-//!     
+//!
 //!     let kernel = PeerConnectionKernel::new(
 //!         settings,
 //!         peers,
@@ -40,7 +40,7 @@
 //!             Ok(())
 //!         },
 //!     );
-//!     
+//!
 //!     Ok(())
 //! }
 //! # Ok(())
@@ -726,8 +726,10 @@ mod tests {
             let mut agg = PeerConnectionSetupAggregator::default();
 
             for peer in peers {
-                let mut security_settings = SessionSecuritySettings::default();
-                security_settings.header_obfuscator_settings = header_obfuscator_settings;
+                let security_settings = SessionSecuritySettings {
+                    header_obfuscator_settings,
+                    ..Default::default()
+                };
                 agg = agg
                     .with_peer_custom(peer)
                     .with_udp_mode(udp_mode)
@@ -782,7 +784,7 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default().build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -801,6 +803,7 @@ mod tests {
 
     #[rstest]
     #[case(2)]
+    #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_file_transfer(

@@ -27,10 +27,10 @@
 //!         group_id: Uuid::new_v4(),
 //!         accept_registrations: true,
 //!     };
-//!     
+//!
 //!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
 //!         .build()?;
-//!     
+//!
 //!     let kernel = BroadcastKernel::new(
 //!         settings,
 //!         request,
@@ -39,7 +39,7 @@
 //!             Ok(())
 //!         },
 //!     );
-//!     
+//!
 //!     Ok(())
 //! }
 //! # Ok(())

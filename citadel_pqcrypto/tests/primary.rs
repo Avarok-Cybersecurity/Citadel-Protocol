@@ -438,8 +438,8 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
     #[should_panic(expected = "EncryptionFailure")]
+    #[test]
     fn test_kyber_bad_psks() {
         citadel_logging::should_panic_test();
         run::<Vec<u8>>(
