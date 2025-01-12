@@ -206,6 +206,34 @@ enum ReceiverType<R: Ratchet> {
     UnorderedUnreliable { rx: UnboundedReceiver<SecBuffer> },
 }
 
+impl<R: Ratchet> Stream for ReceiverType<R> {
+    type Item = SecBuffer;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.get_mut() {
+            ReceiverType::OrderedReliable { rx } => {
+                match futures::ready!(Pin::new(rx).poll_next(cx)) {
+                    Some(data) => Poll::Ready(Some(data.packet)),
+                    _ => {
+                        log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for OrderedReliable");
+                        Poll::Ready(None)
+                    }
+                }
+            }
+
+            ReceiverType::UnorderedUnreliable { rx } => {
+                match futures::ready!(Pin::new(rx).poll_recv(cx)) {
+                    Some(data) => Poll::Ready(Some(data)),
+                    _ => {
+                        log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for UnorderedUnreliable");
+                        Poll::Ready(None)
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl<R: Ratchet> Debug for ReceiverType<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let receiver_type = match self {
@@ -231,27 +259,7 @@ impl<R: Ratchet> Stream for PeerChannelRecvHalf<R> {
             log::trace!(target: "citadel", "[POLL] closing PeerChannel RecvHalf for {:?}", self.receiver);
             Poll::Ready(None)
         } else {
-            match &mut self.receiver {
-                ReceiverType::OrderedReliable { rx } => {
-                    match futures::ready!(Pin::new(rx).poll_next(cx)) {
-                        Some(data) => Poll::Ready(Some(data.packet)),
-                        _ => {
-                            log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for {:?}", self.receiver);
-                            Poll::Ready(None)
-                        }
-                    }
-                }
-
-                ReceiverType::UnorderedUnreliable { rx } => {
-                    match futures::ready!(Pin::new(rx).poll_recv(cx)) {
-                        Some(data) => Poll::Ready(Some(data)),
-                        _ => {
-                            log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for {:?}", self.receiver);
-                            Poll::Ready(None)
-                        }
-                    }
-                }
-            }
+            Pin::new(&mut self.receiver).poll_next(cx)
         }
     }
 }
