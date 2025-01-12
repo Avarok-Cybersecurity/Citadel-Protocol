@@ -34,7 +34,7 @@ use crate::backend::memory::no_backend_streaming;
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use crate::prelude::{AccountState, HYPERLAN_IDX};
+use crate::prelude::HYPERLAN_IDX;
 use crate::serialization::SyncIO;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
