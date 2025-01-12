@@ -31,6 +31,7 @@
 use citadel_sdk::{
     prefabs::client::single_connection::SingleClientServerConnectionKernel, prelude::*,
 };
+
 use futures::StreamExt;
 use std::env;
 
@@ -60,9 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create client kernel
     let kernel = SingleClientServerConnectionKernel::new(
         server_connection_settings,
-        |connect_success, remote| async move {
+        |connect_success| async move {
             println!("Connected to server! CID: {}", connect_success.cid);
-            let (tx, mut rx) = connect_success.channel.split();
+            let remote = connect_success.remote.clone();
+            let (tx, mut rx) = connect_success.split();
 
             let message = "Hello from client!";
             // Send initial message

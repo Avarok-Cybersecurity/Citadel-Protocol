@@ -68,13 +68,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create client kernel
-    let kernel = SingleClientServerConnectionKernel::new(
-        server_connection_settings,
-        |connect_success, remote| async move {
-            println!("Connected to server! CID: {}", connect_success.cid);
-            remote.shutdown_kernel().await
-        },
-    );
+    let kernel =
+        SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
+            println!("Connected to server! CID: {}", conn.cid);
+            conn.shutdown_kernel().await
+        });
 
     // Build the node
     let client = DefaultNodeBuilder::default().build(kernel)?;

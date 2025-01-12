@@ -116,7 +116,6 @@ pub async fn process_connect<R: Ratchet>(
                             let is_personal = !session.is_server;
                             let kernel_ticket = session.kernel_ticket.get();
 
-                            //let pqc = state_container.connect_stage.generated_pqc.take();
                             state_container.connect_state.last_stage =
                                 packet_flags::cmd::aux::do_connect::SUCCESS;
                             state_container.connect_state.fail_time = None;
