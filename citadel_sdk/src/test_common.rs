@@ -229,8 +229,6 @@ pub async fn udp_mode_assertions<R: Ratchet>(
     citadel_logging::info!(target: "citadel", "Inside UDP mode assertions ...");
     match udp_mode {
         UdpMode::Enabled => {
-            // Wait to give time for the other side to finish connecting
-            citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
             citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB1 ...");
             assert!(udp_channel_rx_opt.is_some());
             citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB1.5 ...");

@@ -22,6 +22,7 @@ async fn main() {
             citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel::new(
                 |mut conn| async move {
                     let chan = conn.udp_channel_rx.take();
+                    std::mem::forget(conn);
                     citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                         UdpMode::Enabled,
                         chan,

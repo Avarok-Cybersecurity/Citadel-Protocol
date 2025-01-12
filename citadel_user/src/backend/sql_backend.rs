@@ -881,7 +881,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         if let Some(row) = query {
             let bin = row.try_get::<Vec<u8>, _>("bin")?;
             let cnac_inner = ClientNetworkAccount::<R, Fcm>::deserialize_from_owned_vector(bin)?;
-            Ok(Some(cnac_inner.into()))
+            Ok(Some(cnac_inner))
         } else {
             Ok(None)
         }
