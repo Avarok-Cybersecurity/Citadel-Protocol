@@ -136,11 +136,10 @@ enum RoleTransition {
     Invalid,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RekeyMetadata {
     current_version: u32,
     next_version: u32,
-    role: RekeyRole,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -387,7 +386,7 @@ where
 
                     Err(err) => {
                         if matches!(err, CryptError::FatalError(..)) {
-                            if self.shutdown_tx.lock().is_some() {
+                            if self.shutdown().is_some() {
                                 log::error!(target: "citadel", "Client {} fatal rekey error: {err:?}", self.cid);
                             }
                             break;
@@ -456,23 +455,25 @@ where
                         let local_latest_ratchet_version =
                             self.session_crypto_state.latest_usable_version();
 
-                        // Validate against our barrier
-                        if earliest_ratchet_version != local_earliest_ratchet_version
-                            || latest_ratchet_version != local_latest_ratchet_version
-                        {
+                        // Validate against our barrier. We only care abou the latest version, since the
+                        // earliest version may still be syncing
+                        if latest_ratchet_version != local_latest_ratchet_version {
                             // Request resynchronization
                             return Err(CryptError::RekeyUpdateError(
-                                "Version mismatch".to_string(),
+                                format!(
+                                    "Rekey barrier mismatch (earliest/latest). Peer: ({}-{}) != Local: ({}-{})",
+                                    earliest_ratchet_version,
+                                    latest_ratchet_version,
+                                    local_earliest_ratchet_version,
+                                    local_latest_ratchet_version
+                                ),
                             ));
                         }
 
                         // Validate metadata
-                        if peer_metadata.current_version != metadata.current_version
-                            || peer_metadata.next_version != metadata.next_version
-                            || peer_metadata.role != metadata.role
-                        {
+                        if peer_metadata != metadata {
                             return Err(CryptError::RekeyUpdateError(
-                                "Metadata mismatch".to_string(),
+                                format!("Metadata mismatch (AliceToBob). Peer: {peer_metadata:?} != Local: {metadata:?}"),
                             ));
                         }
 
@@ -521,7 +522,7 @@ where
                                 .send(RatchetMessage::BobToAlice(
                                     serialized,
                                     RekeyRole::Loser,
-                                    metadata.clone(),
+                                    metadata,
                                 ))
                                 .await
                                 .map_err(|_err| {
@@ -551,19 +552,11 @@ where
 
                     // First validate metadata
                     let local_metadata = self.get_rekey_metadata();
-                    if peer_metadata.current_version != local_metadata.current_version {
-                        log::warn!(target: "citadel", "Client {}: Current version mismatch in BobToAlice. Local: {}, Peer: {}", 
-                            self.cid, local_metadata.current_version, peer_metadata.current_version);
-                        return Err(CryptError::RekeyUpdateError(
-                            "Version mismatch in BobToAlice".to_string(),
-                        ));
-                    }
 
-                    if peer_metadata.next_version != local_metadata.next_version {
-                        log::warn!(target: "citadel", "Client {}: Next version mismatch in BobToAlice. Local: {}, Peer: {}", 
-                            self.cid, local_metadata.next_version, peer_metadata.next_version);
+                    // Validate metadata
+                    if peer_metadata != local_metadata {
                         return Err(CryptError::RekeyUpdateError(
-                            "Next version mismatch in BobToAlice".to_string(),
+                            format!("Metadata mismatch (AliceToBob). Peer: {peer_metadata:?} != Local: {metadata:?}"),
                         ));
                     }
 
@@ -881,35 +874,37 @@ where
     }
 
     fn get_rekey_metadata(&self) -> RekeyMetadata {
+        let latest_usable_version = self.session_crypto_state.latest_usable_version();
         RekeyMetadata {
-            current_version: self.session_crypto_state.latest_usable_version(),
-            next_version: self.session_crypto_state.latest_usable_version() + 1,
-            role: self.role(),
+            current_version: latest_usable_version,
+            next_version: latest_usable_version + 1,
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
-    use crate::prelude::Toolset;
-    use crate::ratchets::ratchet_manager::{
+pub(crate) mod tests {
+    pub use crate::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
+    pub use crate::prelude::Toolset;
+    pub use crate::ratchets::ratchet_manager::{
         RatchetManager, RatchetManagerSink, RatchetManagerStream,
     };
-    use crate::ratchets::stacked::ratchet::StackedRatchet;
-    use crate::ratchets::Ratchet;
-    use citadel_io::tokio;
-    use citadel_pqcrypto::constructor_opts::ConstructorOpts;
-    use citadel_types::prelude::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
-    use rstest::rstest;
-    use std::time::Duration;
+    pub use crate::ratchets::stacked::ratchet::StackedRatchet;
+    pub use crate::ratchets::Ratchet;
+    pub use citadel_io::tokio;
+    pub use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+    pub use citadel_types::prelude::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
+    pub use rstest::rstest;
+    pub use std::time::Duration;
 
-    const ALICE_CID: u64 = 10;
-    const BOB_CID: u64 = 20;
+    use super::AttachedPayload;
+
+    pub const ALICE_CID: u64 = 10;
+    pub const BOB_CID: u64 = 20;
     pub const TEST_PSKS: &[&[u8]] = &[b"test_psk_1", b"test_psk_2"];
-    const START_VERSION: u32 = 0;
+    pub const START_VERSION: u32 = 0;
 
-    fn gen<R: Ratchet, T: AsRef<[u8]>>(
+    pub fn gen<R: Ratchet, T: AsRef<[u8]>>(
         version: u32,
         opts: Vec<ConstructorOpts>,
         psks: &[T],
@@ -924,7 +919,7 @@ mod tests {
         (cx_alice.finish().unwrap(), cx_bob.finish().unwrap())
     }
 
-    pub(crate) fn setup_endpoint_containers<R: Ratchet>(
+    pub fn setup_endpoint_containers<R: Ratchet>(
         security_level: SecurityLevel,
         enx: EncryptionAlgorithm,
         kem: KemAlgorithm,
@@ -940,13 +935,15 @@ mod tests {
         (alice_container, bob_container)
     }
 
-    type TestRatchetManager<R> = RatchetManager<
-        Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
-        Box<dyn RatchetManagerStream<()>>,
+    pub type TestRatchetManager<R, P> = RatchetManager<
+        Box<dyn RatchetManagerSink<P, Error = futures::channel::mpsc::SendError>>,
+        Box<dyn RatchetManagerStream<P>>,
         R,
+        P,
     >;
 
-    fn create_ratchet_managers<R: Ratchet>() -> (TestRatchetManager<R>, TestRatchetManager<R>) {
+    pub fn create_ratchet_managers<R: Ratchet, P: AttachedPayload>(
+    ) -> (TestRatchetManager<R, P>, TestRatchetManager<R, P>) {
         let security_level = SecurityLevel::Standard;
 
         let (alice_container, bob_container) = setup_endpoint_containers::<R>(
@@ -960,22 +957,22 @@ mod tests {
 
         let alice_manager = RatchetManager::new(
             Box::new(tx_alice)
-                as Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
-            Box::new(rx_alice) as Box<dyn RatchetManagerStream<()>>,
+                as Box<dyn RatchetManagerSink<P, Error = futures::channel::mpsc::SendError>>,
+            Box::new(rx_alice) as Box<dyn RatchetManagerStream<P>>,
             alice_container,
             TEST_PSKS,
         );
         let bob_manager = RatchetManager::new(
             Box::new(tx_bob)
-                as Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
-            Box::new(rx_bob) as Box<dyn RatchetManagerStream<()>>,
+                as Box<dyn RatchetManagerSink<P, Error = futures::channel::mpsc::SendError>>,
+            Box::new(rx_bob) as Box<dyn RatchetManagerStream<P>>,
             bob_container,
             TEST_PSKS,
         );
         (alice_manager, bob_manager)
     }
 
-    pub(crate) fn pre_round_assertions<R: Ratchet>(
+    pub fn pre_round_assertions<R: Ratchet>(
         alice_container: &PeerSessionCrypto<R>,
         alice_cid: u64,
         bob_container: &PeerSessionCrypto<R>,
@@ -1001,9 +998,14 @@ mod tests {
         (start_version, new_version)
     }
 
-    async fn run_round_racy<S: RatchetManagerSink<()>, I: RatchetManagerStream<()>, R: Ratchet>(
-        container_0: RatchetManager<S, I, R>,
-        container_1: RatchetManager<S, I, R>,
+    pub async fn run_round_racy<
+        S: RatchetManagerSink<P>,
+        I: RatchetManagerStream<P>,
+        R: Ratchet,
+        P: AttachedPayload,
+    >(
+        container_0: RatchetManager<S, I, R, P>,
+        container_1: RatchetManager<S, I, R, P>,
         container_0_delay: Option<Duration>,
     ) {
         let cid_0 = container_0.cid;
@@ -1016,7 +1018,7 @@ mod tests {
             cid_1,
         );
 
-        let task = |container: RatchetManager<S, I, R>, delay: Option<Duration>| async move {
+        let task = |container: RatchetManager<S, I, R, P>, delay: Option<Duration>| async move {
             if let Some(delay) = delay {
                 tokio::time::sleep(delay).await;
             }
@@ -1067,13 +1069,14 @@ mod tests {
         }
     }
 
-    async fn run_round_one_node_only<
-        S: RatchetManagerSink<()>,
-        I: RatchetManagerStream<()>,
+    pub async fn run_round_one_node_only<
+        S: RatchetManagerSink<P>,
+        I: RatchetManagerStream<P>,
         R: Ratchet,
+        P: AttachedPayload,
     >(
-        container_0: RatchetManager<S, I, R>,
-        container_1: RatchetManager<S, I, R>,
+        container_0: RatchetManager<S, I, R, P>,
+        container_1: RatchetManager<S, I, R, P>,
     ) {
         let cid_0 = container_0.cid;
         let cid_1 = container_1.cid;
@@ -1085,7 +1088,7 @@ mod tests {
             cid_1,
         );
 
-        let task = |container: RatchetManager<S, I, R>, skip: bool| async move {
+        let task = |container: RatchetManager<S, I, R, P>, skip: bool| async move {
             if skip {
                 return Ok(());
             }
@@ -1119,7 +1122,7 @@ mod tests {
         post_checks(&container_0, &container_1);
     }
 
-    pub(crate) fn ratchet_encrypt_decrypt_test<R: Ratchet>(
+    pub fn ratchet_encrypt_decrypt_test<R: Ratchet>(
         container_0: &PeerSessionCrypto<R>,
         cid_0: u64,
         container_1: &PeerSessionCrypto<R>,
@@ -1139,9 +1142,14 @@ mod tests {
         assert_eq!(test_message.to_vec(), decrypted);
     }
 
-    fn post_checks<S: RatchetManagerSink<()>, I: RatchetManagerStream<()>, R: Ratchet>(
-        container_0: &RatchetManager<S, I, R>,
-        container_1: &RatchetManager<S, I, R>,
+    pub fn post_checks<
+        S: RatchetManagerSink<P>,
+        I: RatchetManagerStream<P>,
+        R: Ratchet,
+        P: AttachedPayload,
+    >(
+        container_0: &RatchetManager<S, I, R, P>,
+        container_1: &RatchetManager<S, I, R, P>,
     ) {
         // Verify final state
         let cid_0 = container_0.cid;
@@ -1170,7 +1178,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_ratchet_manager_racy_contentious() {
         citadel_logging::setup_log();
-        let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet>();
+        let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
         const ROUNDS: usize = 100;
         for _ in 0..ROUNDS {
             run_round_racy(alice_manager.clone(), bob_manager.clone(), None).await;
@@ -1193,7 +1201,7 @@ mod tests {
         #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
-        let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet>();
+        let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
         const ROUNDS: usize = 100;
         for _ in 0..ROUNDS {
             let delay = rand::random::<u64>() % 5;
@@ -1207,7 +1215,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_ratchet_manager_one_at_a_time() {
         citadel_logging::setup_log();
-        let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet>();
+        let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
         const ROUNDS: usize = 100;
         for _ in 0..ROUNDS {
             run_round_one_node_only(alice_manager.clone(), bob_manager.clone()).await;

@@ -235,3 +235,212 @@ where
         let _ = self.manager.shutdown();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{atomic::AtomicBool, Arc};
+
+    use citadel_io::tokio_stream::StreamExt;
+    use citadel_types::crypto::SecrecyMode;
+
+    pub use crate::ratchets::ratchet_manager::tests::*;
+    use crate::ratchets::ratchet_manager::AttachedPayload;
+
+    use super::{
+        RatchetManagerMessengerLayer, RatchetManagerMessengerLayerRx,
+        RatchetManagerMessengerLayerTx,
+    };
+
+    pub type TestRatchetManagerMessenger<R, P> =
+        RatchetManagerMessengerLayer<futures::channel::mpsc::SendError, R, P>;
+    pub type TestRatchetManagerMessengerRx<R, P> =
+        RatchetManagerMessengerLayerRx<futures::channel::mpsc::SendError, R, P>;
+    pub type TestRatchetManagerMessengerTx<R, P> =
+        RatchetManagerMessengerLayerTx<futures::channel::mpsc::SendError, R, P>;
+
+    fn create_messengers<R, P>(
+        secrecy_mode: SecrecyMode,
+    ) -> (
+        TestRatchetManagerMessenger<R, P>,
+        TestRatchetManagerMessenger<R, P>,
+    )
+    where
+        R: Ratchet,
+        P: AttachedPayload,
+    {
+        let (alice_manager, bob_manager) = create_ratchet_managers::<R, P>();
+
+        let alice_messenger = RatchetManagerMessengerLayer::new(
+            alice_manager,
+            secrecy_mode,
+            None,
+            Arc::new(AtomicBool::new(true)),
+        );
+
+        let bob_messenger = RatchetManagerMessengerLayer::new(
+            bob_manager,
+            secrecy_mode,
+            None,
+            Arc::new(AtomicBool::new(true)),
+        );
+
+        (alice_messenger, bob_messenger)
+    }
+
+    async fn run_messenger_round_racy<
+        R: Ratchet,
+        P: AttachedPayload + From<u64> + std::fmt::Debug + Eq + Clone,
+    >(
+        alice_messenger_tx: &mut TestRatchetManagerMessengerTx<R, P>,
+        alice_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
+        bob_messenger_tx: &mut TestRatchetManagerMessengerTx<R, P>,
+        bob_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
+        delay: Option<Duration>,
+    ) {
+        let (delay_alice, delay_bob) = if let Some(delay) = delay {
+            if rand::random::<u8>() % 2 == 0 {
+                (Some(delay), None)
+            } else {
+                (None, Some(delay))
+            }
+        } else {
+            (None, None)
+        };
+
+        let alice_task = async move {
+            for x in 0..100u64 {
+                if let Some(delay) = delay_alice {
+                    tokio::time::sleep(delay).await;
+                }
+
+                let payload = P::from(x);
+                alice_messenger_tx.send(payload.clone()).await.unwrap();
+
+                let recv_payload = alice_messenger_rx.next().await.unwrap();
+                assert_eq!(recv_payload, payload);
+            }
+        };
+
+        let bob_task = async move {
+            for x in 0..100u64 {
+                if let Some(delay) = delay_bob {
+                    tokio::time::sleep(delay).await;
+                }
+
+                let payload = P::from(x);
+                bob_messenger_tx.send(payload.clone()).await.unwrap();
+
+                let recv_payload = bob_messenger_rx.next().await.unwrap();
+                assert_eq!(recv_payload, payload);
+            }
+        };
+
+        tokio::join!(alice_task, bob_task);
+    }
+
+    async fn run_messenger_one_round_one_at_a_time<
+        R: Ratchet,
+        P: AttachedPayload + Clone + std::fmt::Debug + Eq,
+    >(
+        alice_messenger_tx: &mut TestRatchetManagerMessengerTx<R, P>,
+        alice_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
+        bob_messenger_tx: &mut TestRatchetManagerMessengerTx<R, P>,
+        bob_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
+        payload: P,
+    ) {
+        alice_messenger_tx.send(payload.clone()).await.unwrap();
+        bob_messenger_tx.send(payload.clone()).await.unwrap();
+        let alice_message_from_bob = alice_messenger_rx.next().await.unwrap();
+        let bob_message_from_alice = bob_messenger_rx.next().await.unwrap();
+        assert_eq!(alice_message_from_bob, payload.clone());
+        assert_eq!(bob_message_from_alice, payload);
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(60))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_messenger_racy_contentious(
+        #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
+    ) {
+        citadel_logging::setup_log();
+        let (alice_manager, bob_manager) = create_messengers::<StackedRatchet, _>(secrecy_mode);
+        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
+        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
+
+        run_messenger_round_racy::<_, u64>(
+            &mut alice_messenger_tx,
+            &mut alice_messenger_rx,
+            &mut bob_messenger_tx,
+            &mut bob_messenger_rx,
+            None,
+        )
+        .await;
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(360))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_messenger_racy_with_random_start_lag_pfs(
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
+    ) {
+        citadel_logging::setup_log();
+        let (alice_manager, bob_manager) =
+            create_messengers::<StackedRatchet, _>(SecrecyMode::Perfect);
+        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
+        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
+
+        run_messenger_round_racy::<_, u64>(
+            &mut alice_messenger_tx,
+            &mut alice_messenger_rx,
+            &mut bob_messenger_tx,
+            &mut bob_messenger_rx,
+            Some(Duration::from_millis(min_delay)),
+        )
+        .await;
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(360))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_messenger_racy_with_random_start_lag_best_effort(
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
+    ) {
+        citadel_logging::setup_log();
+        let (alice_manager, bob_manager) =
+            create_messengers::<StackedRatchet, _>(SecrecyMode::BestEffort);
+        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
+        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
+
+        run_messenger_round_racy::<_, u64>(
+            &mut alice_messenger_tx,
+            &mut alice_messenger_rx,
+            &mut bob_messenger_tx,
+            &mut bob_messenger_rx,
+            Some(Duration::from_millis(min_delay)),
+        )
+        .await;
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(60))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_messenger_one_at_a_time() {
+        citadel_logging::setup_log();
+        let (alice_manager, bob_manager) =
+            create_messengers::<StackedRatchet, _>(SecrecyMode::BestEffort);
+        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
+        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
+        const ROUNDS: usize = 100;
+
+        for x in 0..ROUNDS {
+            run_messenger_one_round_one_at_a_time::<_, u64>(
+                &mut alice_messenger_tx,
+                &mut alice_messenger_rx,
+                &mut bob_messenger_tx,
+                &mut bob_messenger_rx,
+                x as u64,
+            )
+            .await;
+        }
+    }
+}

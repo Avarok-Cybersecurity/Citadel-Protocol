@@ -238,7 +238,7 @@ async fn drive(
         futures.push(task);
     }
 
-    let current_enqueued: &citadel_io::tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
+    let current_enqueued_set: &citadel_io::tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
         &citadel_io::tokio::sync::Mutex::new(vec![]);
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
@@ -294,15 +294,18 @@ async fn drive(
                     let receivers = kill_signal_tx.send((local_id, peer_id)).unwrap_or(0);
                     log::trace!(target: "citadel", "Sent kill signal to {receivers} hole-punchers");
 
-                    'pop: while let Some(current_enqueued) = current_enqueued.lock().await.pop() {
+                    let mut current_enqueued_set = current_enqueued_set.lock().await;
+                    'pop: while let Some(current_enqueued) = current_enqueued_set.pop() {
                         log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
                         if current_enqueued.addr.unique_id != peer_id {
-                            log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
+                            log::trace!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
                             continue 'pop;
                         }
 
                         return Ok(current_enqueued);
                     }
+
+                    drop(current_enqueued_set);
 
                     let mut lock = rebuilder.lock().await;
                     if let Some(failure) = lock.local_failures.get_mut(&local_id) {
@@ -391,7 +394,7 @@ async fn drive(
                 Ok(socket) => {
                     let peer_unique_id = socket.addr.unique_id;
                     let local_id = hole_puncher.get_unique_id();
-                    current_enqueued.lock().await.push(socket);
+                    current_enqueued_set.lock().await.push(socket);
 
                     if let Some((required_local, required_remote)) = *commanded_winner.lock().await
                     {
@@ -432,7 +435,7 @@ async fn drive(
                             conn_tx,
                         )
                         .await?;
-                        while let Some(socket) = current_enqueued.lock().await.pop() {
+                        while let Some(socket) = current_enqueued_set.lock().await.pop() {
                             if socket.local_id != local_id {
                                 log::warn!(target: "citadel", "*** Winner: socket ID mismatch. Expected {local_id:?}, got {:?}. Looping ...", socket.local_id);
                                 continue;
