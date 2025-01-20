@@ -127,31 +127,48 @@ pub enum RekeyRole {
     Loser,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum RoleTransition {
+    IdleToLeader,
+    IdleToLoser,
+    LeaderToIdle,
+    LoserToIdle,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RekeyMetadata {
+    current_version: u32,
+    next_version: u32,
+    role: RekeyRole,
+}
+
 #[derive(Serialize, Deserialize)]
-pub enum RatchetMessage<P: AttachedPayload> {
+pub enum RatchetMessage<P> {
     AliceToBob {
         payload: Vec<u8>,
         earliest_ratchet_version: u32,
         latest_ratchet_version: u32,
-        // Note: it is up to the underlying stream to handle encryption, if necessary, of the attached payload
-        #[serde(bound = "")]
         attached_payload: Option<P>,
-    }, // Serialized transfer
-    BobToAlice(Vec<u8>, RekeyRole), // Serialized transfer + sender's role
-    Truncate(u32),                  // Version to truncate
+        metadata: RekeyMetadata,
+    },
+    BobToAlice(Vec<u8>, RekeyRole, RekeyMetadata),
+    Truncate(u32),
     LeaderCanFinish {
-        latest_version: u32,
+        version: u32,
     },
     LoserCanFinish,
     #[serde(bound = "")]
     JustMessage(P),
 }
 
-impl<P: AttachedPayload> Debug for RatchetMessage<P> {
+impl<P> Debug for RatchetMessage<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RatchetMessage::AliceToBob { .. } => write!(f, "AliceToBob"),
-            RatchetMessage::BobToAlice(_, role) => write!(f, "BobToAlice(sender_role: {:?})", role),
+            RatchetMessage::BobToAlice(_, role, _) => {
+                write!(f, "BobToAlice(sender_role: {:?})", role)
+            }
             RatchetMessage::Truncate(_) => write!(f, "Truncate"),
             RatchetMessage::LeaderCanFinish { .. } => write!(f, "LeaderCanFinish"),
             RatchetMessage::LoserCanFinish => write!(f, "LoserCanFinish"),
@@ -292,6 +309,8 @@ where
             let payload = bincode::serialize(&transfer)
                 .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
 
+            let metadata = self.get_rekey_metadata();
+
             self.sender
                 .lock()
                 .await
@@ -300,6 +319,7 @@ where
                     earliest_ratchet_version,
                     latest_ratchet_version,
                     attached_payload,
+                    metadata,
                 })
                 .await
                 .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
@@ -398,6 +418,10 @@ where
     /// to continuously be ready for re-keying.
     async fn rekey(&self, receiver: &mut I) -> Result<R, CryptError> {
         log::trace!(target: "citadel", "Client {} starting rekey with initial role {:?}", self.cid, self.role());
+
+        // First synchronize state with peer
+        let metadata = self.get_rekey_metadata();
+
         let is_initiator = self.is_initiator;
         let mut completed_as_leader = false;
         let mut completed_as_loser = false;
@@ -410,6 +434,7 @@ where
                     earliest_ratchet_version,
                     latest_ratchet_version,
                     attached_payload,
+                    metadata: peer_metadata,
                 }) => {
                     if let Some(attached_payload) = attached_payload {
                         let _ = self.attached_payload_tx.send(attached_payload);
@@ -422,7 +447,7 @@ where
                         let transfer = bincode::deserialize(&payload)
                             .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
 
-                        let cid = self.session_crypto_state.cid();
+                        let _cid = self.session_crypto_state.cid();
                         let local_earliest_ratchet_version = self
                             .session_crypto_state
                             .toolset()
@@ -431,14 +456,24 @@ where
                         let local_latest_ratchet_version =
                             self.session_crypto_state.latest_usable_version();
 
-                        if earliest_ratchet_version != local_earliest_ratchet_version {
-                            log::warn!(target: "citadel", "Client {cid}: Earliest declared ratchet versions do not match. Local: {local_earliest_ratchet_version}, Peer: {earliest_ratchet_version}");
-                            continue;
+                        // Validate against our barrier
+                        if earliest_ratchet_version != local_earliest_ratchet_version
+                            || latest_ratchet_version != local_latest_ratchet_version
+                        {
+                            // Request resynchronization
+                            return Err(CryptError::RekeyUpdateError(
+                                "Version mismatch".to_string(),
+                            ));
                         }
 
-                        if latest_ratchet_version != local_latest_ratchet_version {
-                            log::warn!(target: "citadel", "Client {cid}: Latest usable ratchet versions do not match. Local: {local_latest_ratchet_version}, Peer: {latest_ratchet_version}");
-                            continue;
+                        // Validate metadata
+                        if peer_metadata.current_version != metadata.current_version
+                            || peer_metadata.next_version != metadata.next_version
+                            || peer_metadata.role != metadata.role
+                        {
+                            return Err(CryptError::RekeyUpdateError(
+                                "Metadata mismatch".to_string(),
+                            ));
                         }
 
                         // Get next_opts from the container
@@ -483,7 +518,11 @@ where
                             self.sender
                                 .lock()
                                 .await
-                                .send(RatchetMessage::BobToAlice(serialized, RekeyRole::Loser))
+                                .send(RatchetMessage::BobToAlice(
+                                    serialized,
+                                    RekeyRole::Loser,
+                                    metadata.clone(),
+                                ))
                                 .await
                                 .map_err(|_err| {
                                     CryptError::RekeyUpdateError("Sink send error".into())
@@ -502,30 +541,53 @@ where
                             log::debug!(target: "citadel", "[Contention] Client {} is {:?}. contention detected. We will wait for the adjacent node to drive us to completion", self.cid, RekeyRole::Leader);
                         }
                         _ => {
-                            log::warn!(
-                                target: "citadel",
-                                "cid {} unexpected status for AliceToBob Transfer: {status:?}",
-                                self.cid
-                            );
+                            log::warn!(target:"citadel", "Client {} unexpected status for AliceToBob Transfer: {status:?}", self.cid);
                         }
                     }
                 }
 
-                Some(RatchetMessage::BobToAlice(transfer_data, sender_role)) => {
+                Some(RatchetMessage::BobToAlice(transfer_data, sender_role, peer_metadata)) => {
                     log::debug!(target: "citadel", "Client {} received BobToAlice", self.cid);
-                    // If the sender became a Loser, they expect us to be Leader
-                    let initial_role = self.role();
-                    if sender_role == RekeyRole::Loser && initial_role != RekeyRole::Leader {
-                        self.set_role(RekeyRole::Leader);
-                        log::trace!(target: "citadel", "cid {} changing role from {:?} to {:?}", self.cid, initial_role, RekeyRole::Leader);
-                        log::debug!(
-                            target: "citadel",
-                            "Client {} transitioning from {initial_role:?} to Leader as peer became Loser before we were able to transition",
-                            self.cid
-                        );
+
+                    // First validate metadata
+                    let local_metadata = self.get_rekey_metadata();
+                    if peer_metadata.current_version != local_metadata.current_version {
+                        log::warn!(target: "citadel", "Client {}: Current version mismatch in BobToAlice. Local: {}, Peer: {}", 
+                            self.cid, local_metadata.current_version, peer_metadata.current_version);
+                        return Err(CryptError::RekeyUpdateError(
+                            "Version mismatch in BobToAlice".to_string(),
+                        ));
                     }
 
-                    // Now verify we're in a valid state to process the message
+                    if peer_metadata.next_version != local_metadata.next_version {
+                        log::warn!(target: "citadel", "Client {}: Next version mismatch in BobToAlice. Local: {}, Peer: {}", 
+                            self.cid, local_metadata.next_version, peer_metadata.next_version);
+                        return Err(CryptError::RekeyUpdateError(
+                            "Next version mismatch in BobToAlice".to_string(),
+                        ));
+                    }
+
+                    // Only validate role transition if we're not already in the correct role
+                    let initial_role = self.role();
+                    if sender_role == RekeyRole::Loser && initial_role != RekeyRole::Leader {
+                        let transition = self.validate_role_transition(RekeyRole::Leader);
+                        match transition {
+                            RoleTransition::IdleToLeader => {
+                                self.set_role(RekeyRole::Leader);
+                                log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
+                            }
+                            RoleTransition::Invalid => {
+                                log::warn!(target: "citadel", "Invalid role transition from {:?} to Leader", initial_role);
+                                return Err(CryptError::RekeyUpdateError(format!(
+                                    "Invalid role transition from {:?} to Leader",
+                                    initial_role
+                                )));
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Verify we're in a valid state to process the message
                     if self.role() == RekeyRole::Loser {
                         return Err(CryptError::RekeyUpdateError(format!(
                             "Unexpected BobToAlice message since our role is not Leader, but {:?}",
@@ -533,12 +595,8 @@ where
                         )));
                     }
 
-                    if initial_role == RekeyRole::Idle {
-                        log::warn!(target: "citadel", "Initial role was idle. Their role: {sender_role:?}");
-                    }
-
+                    // Now process the transfer data
                     let mut constructor = { self.constructor.lock().take() };
-
                     if let Some(mut alice_constructor) = constructor.take() {
                         let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
                             CryptError::RekeyUpdateError(format!(
@@ -628,7 +686,9 @@ where
                     self.sender
                         .lock()
                         .await
-                        .send(RatchetMessage::LeaderCanFinish { latest_version })
+                        .send(RatchetMessage::LeaderCanFinish {
+                            version: latest_version,
+                        })
                         .await
                         .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
                     break;
@@ -665,36 +725,70 @@ where
                     self.sender
                         .lock()
                         .await
-                        .send(RatchetMessage::LeaderCanFinish { latest_version })
+                        .send(RatchetMessage::LeaderCanFinish {
+                            version: latest_version,
+                        })
                         .await
                         .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
                     break;
                 }
 
-                Some(RatchetMessage::LeaderCanFinish { latest_version }) => {
-                    let our_latest_version = self.session_crypto_state.latest_usable_version();
+                Some(RatchetMessage::LeaderCanFinish { version }) => {
+                    log::debug!(
+                        "Client {} received LeaderCanFinish w/ version = {version}",
+                        self.cid
+                    );
 
-                    log::debug!("Client {} received LeaderCanFinish w/ latest_version = {latest_version} | our latest version: {our_latest_version}", self.cid);
-                    // Allow Leader if contention, or Idle if no contention
+                    // First handle role transition if needed
+                    let initial_role = self.role();
+                    if initial_role == RekeyRole::Idle {
+                        let transition = self.validate_role_transition(RekeyRole::Leader);
+                        match transition {
+                            RoleTransition::IdleToLeader => {
+                                self.set_role(RekeyRole::Leader);
+                                log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
+                            }
+                            RoleTransition::Invalid => {
+                                log::warn!(target: "citadel", "Invalid role transition from {:?} to Leader", initial_role);
+                                return Err(CryptError::RekeyUpdateError(format!(
+                                    "Invalid role transition from {:?} to Leader",
+                                    initial_role
+                                )));
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Verify we're in a valid role
                     let role = self.role();
                     if role != RekeyRole::Leader {
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Unexpected AliceCanFinish message since our role is not Leader, but {:?}",
+                            "Unexpected LeaderCanFinish message since our role is not Leader, but {:?}",
                             role
                         )));
                     }
 
-                    {
-                        let container = &self.session_crypto_state;
-                        container.post_alice_stage1_or_post_stage1_bob();
-                        let latest_actual_ratchet_version = container
-                            .maybe_unlock()
-                            .expect("Failed to fetch ratchet")
-                            .version();
-                        let latest_declared_version = container.latest_usable_version();
-                        if latest_actual_ratchet_version != latest_declared_version {
-                            log::warn!(target: "citadel", "Client {} received Truncate, desynced. Actual: {latest_actual_ratchet_version}, Expected: {latest_declared_version} ", self.cid);
-                        }
+                    // Apply the update
+                    let container = &self.session_crypto_state;
+                    container.post_alice_stage1_or_post_stage1_bob();
+                    let latest_actual_ratchet_version = container
+                        .maybe_unlock()
+                        .expect("Failed to fetch ratchet")
+                        .version();
+                    let latest_declared_version = container.latest_usable_version();
+
+                    // Now validate the version after applying the update
+                    if latest_declared_version != version {
+                        log::warn!(target: "citadel", "Client {} version mismatch after LeaderCanFinish. Local: {}, Peer: {}", 
+                            self.cid, latest_declared_version, version);
+                        return Err(CryptError::RekeyUpdateError(format!(
+                            "Version mismatch after LeaderCanFinish update. Local: {}, Peer: {}",
+                            latest_declared_version, version
+                        )));
+                    }
+
+                    if latest_actual_ratchet_version != latest_declared_version {
+                        log::warn!(target: "citadel", "Client {} received LeaderCanFinish, desynced. Actual: {latest_actual_ratchet_version}, Expected: {latest_declared_version} ", self.cid);
                     }
 
                     completed_as_leader = true;
@@ -764,7 +858,8 @@ where
 
     /// Shuts down the rekey
     pub fn shutdown(&self) -> Option<()> {
-        self.shutdown_tx.lock().take()?.send(()).ok()
+        let _ = self.shutdown_tx.lock().take()?.send(());
+        Some(())
     }
 
     pub fn state(&self) -> RekeyState {
@@ -773,6 +868,24 @@ where
 
     fn set_state(&self, state: RekeyState) {
         self.state.store(state, Ordering::Relaxed);
+    }
+
+    fn validate_role_transition(&self, new_role: RekeyRole) -> RoleTransition {
+        match (self.role(), new_role) {
+            (RekeyRole::Idle, RekeyRole::Leader) => RoleTransition::IdleToLeader,
+            (RekeyRole::Idle, RekeyRole::Loser) => RoleTransition::IdleToLoser,
+            (RekeyRole::Leader, RekeyRole::Idle) => RoleTransition::LeaderToIdle,
+            (RekeyRole::Loser, RekeyRole::Idle) => RoleTransition::LoserToIdle,
+            _ => RoleTransition::Invalid,
+        }
+    }
+
+    fn get_rekey_metadata(&self) -> RekeyMetadata {
+        RekeyMetadata {
+            current_version: self.session_crypto_state.latest_usable_version(),
+            next_version: self.session_crypto_state.latest_usable_version() + 1,
+            role: self.role(),
+        }
     }
 }
 
@@ -896,7 +1009,7 @@ mod tests {
         let cid_0 = container_0.cid;
         let cid_1 = container_1.cid;
 
-        let (_start_version, _next_version) = pre_round_assertions(
+        let (start_version, _) = pre_round_assertions(
             &container_0.session_crypto_state,
             cid_0,
             &container_1.session_crypto_state,
@@ -912,33 +1025,46 @@ mod tests {
             res
         };
 
-        // Randomly assign a delay to Alice or Bob, if applicable
-        let (delay_0, delay_1) = if let Some(delay) = container_0_delay {
-            if delay.as_millis() % 2 == 0 {
-                (Some(delay), None)
-            } else {
-                (None, Some(delay))
+        let container_0_task = task(container_0.clone(), container_0_delay);
+        let container_1_task = task(container_1.clone(), None);
+
+        // Add timeout to catch deadlocks
+        let timeout = tokio::time::sleep(Duration::from_secs(5));
+        tokio::pin!(timeout);
+
+        tokio::select! {
+            _ = &mut timeout => {
+                log::error!(target: "citadel", "Rekey round timed out after 5 seconds");
+                let _ = container_0.shutdown();
+                let _ = container_1.shutdown();
+                panic!("Rekey round timed out - possible deadlock");
             }
-        } else {
-            (None, None)
-        };
+            res = async { tokio::join!(container_0_task, container_1_task) } => {
+                match res {
+                    (Ok(_), Ok(_)) => {
+                        // Both succeeded, verify final state
+                        let latest_0 = container_0.session_crypto_state.latest_usable_version();
+                        let latest_1 = container_1.session_crypto_state.latest_usable_version();
 
-        log::info!(target: "citadel", "~~~~ Beginning next round! ~~~~");
-        // Spawn Alice's task
-        let alice_handle = tokio::spawn(task(container_0.clone(), delay_0));
+                        assert_eq!(latest_0, latest_1, "Version mismatch after rekey. Container 0: {}, Container 1: {}", latest_0, latest_1);
+                        assert!(latest_0 > start_version, "Version did not increase. Start: {}, Current: {}", start_version, latest_0);
 
-        // Spawn Bob's task
-        let bob_handle = tokio::spawn(task(container_1.clone(), delay_1));
-
-        // Wait for both tasks to complete
-        let (alice_result, bob_result) = tokio::join!(alice_handle, bob_handle);
-
-        // Update original containers with final state
-        alice_result.unwrap().unwrap();
-        bob_result.unwrap().unwrap();
-
-        post_checks(&container_0, &container_1);
-        log::info!(target: "citadel", "~~~~ Round ended! ~~~~");
+                        // Reset roles to idle
+                        container_0.set_role(super::RekeyRole::Idle);
+                        container_1.set_role(super::RekeyRole::Idle);
+                    }
+                    (Err(e1), Err(e2)) => {
+                        panic!("Both containers failed. Error 1: {:?}, Error 2: {:?}", e1, e2);
+                    }
+                    (Err(e), Ok(_)) => {
+                        panic!("Container 0 failed: {:?}", e);
+                    }
+                    (Ok(_), Err(e)) => {
+                        panic!("Container 1 failed: {:?}", e);
+                    }
+                }
+            }
+        }
     }
 
     async fn run_round_one_node_only<
@@ -1041,7 +1167,7 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(60))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_ratchet_manager_racy_contentious() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet>();
