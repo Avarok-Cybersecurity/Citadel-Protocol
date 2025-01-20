@@ -20,4 +20,7 @@
 //! - [`client`]: Client-side components
 //! - [`server`]: Server-side components
 //!
+//! [`internal_service`]: crate::prefabs::server::internal_service
+//! [`client`]: crate::prefabs::client
+//! [`server`]: crate::prefabs::server
 pub mod internal_service;

@@ -43,6 +43,11 @@
 //! - [`ObjectSource`]: File source abstraction
 //! - [`NetworkError`]: Error handling
 //!
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`SecurityLevel`]: crate::prelude::SecurityLevel
+//! [`ObjectSource`]: crate::prelude::ObjectSource
+//! [`NetworkError`]: crate::prelude::NetworkError
+//!
 
 use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, TargetLockedRemote};
 

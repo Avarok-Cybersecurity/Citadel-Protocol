@@ -57,8 +57,10 @@
 //! - [`GroupChannel`]: Group communication channel
 //! - [`UserIdentifier`]: User identification
 //! - [`GroupInitRequestType`]: Group initialization
-//! - [`PrefabFunctions`]: Base prefab functionality
 //!
+//! [`GroupChannel`]: crate::prelude::GroupChannel
+//! [`UserIdentifier`]: crate::prelude::UserIdentifier
+//! [`GroupInitRequestType`]: crate::prefabs::client::broadcast::GroupInitRequestType
 
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;

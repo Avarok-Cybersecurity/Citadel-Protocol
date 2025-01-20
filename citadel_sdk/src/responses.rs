@@ -40,6 +40,10 @@
 //! - [`NodeResult`]: Network operation results
 //! - [`Ticket`]: Request/response correlation
 //!
+//! [`Remote`]: crate::prelude::Remote
+//! [`PeerSignal`]: crate::prelude::PeerSignal
+//! [`NodeResult`]: crate::prelude::NodeResult
+//! [`Ticket`]: crate::prelude::Ticket
 
 use crate::prelude::*;
 

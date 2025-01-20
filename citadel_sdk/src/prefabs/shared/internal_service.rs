@@ -37,6 +37,10 @@
 //! - [`NetworkError`]: Error handling
 //! - [`SecBuffer`]: Secure data handling
 //!
+//! [`CitadelClientServerConnection`]: crate::prelude::CitadelClientServerConnection
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`NetworkError`]: crate::prelude::NetworkError
+//! [`SecBuffer`]: crate::prelude::SecBuffer
 
 use crate::prelude::{CitadelClientServerConnection, TargetLockedRemote};
 use bytes::Bytes;

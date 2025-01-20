@@ -36,6 +36,8 @@
 //! - [`TargetLockedRemote`]: Trait for accessing connection-specific information
 //! - [`PersistenceHandler`]: Backend storage implementation
 //!
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`PersistenceHandler`]: crate::prelude::PersistenceHandler
 
 use crate::prelude::*;
 use std::collections::HashMap;

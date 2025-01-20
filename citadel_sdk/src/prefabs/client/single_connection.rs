@@ -49,6 +49,10 @@
 //! - [`ClientServerRemote`]: Remote connection handler
 //! - [`CitadelClientServerConnection`]: Connection establishment data
 //!
+//! [`NetKernel`]: crate::prelude::NetKernel
+//! [`ServerConnectionSettings`]: crate::prefabs::client::ServerConnectionSettings
+//! [`ClientServerRemote`]: crate::prelude::ClientServerRemote
+//! [`CitadelClientServerConnection`]: crate::prelude::CitadelClientServerConnection
 
 use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use crate::prefabs::client::ServerConnectionSettings;

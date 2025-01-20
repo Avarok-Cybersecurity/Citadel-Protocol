@@ -34,6 +34,7 @@
 //!
 //! # Encryption Algorithms
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
+//!
 //! - AES-256-GCM
 //! - Chacha20Poly-1305
 //! - Ascon-80pq
@@ -219,7 +220,13 @@
 //! [`NodeType`]: crate::prelude::NodeType
 //! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
 //! [`PeerConnectionType`]: crate::prelude::PeerConnectionType
-#![deny(unsafe_code)]
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`PersistenceHandler`]: crate::prelude::PersistenceHandler
+//! [`SecurityLevel`]: crate::prelude::SecurityLevel
+//! [`ObjectSource`]: crate::prelude::ObjectSource
+//! [`NetworkError`]: crate::prelude::NetworkError
+#![forbid(unsafe_code)]
+#![allow(rustdoc::invalid_html_tags)]
 #![deny(
     clippy::cognitive_complexity,
     trivial_numeric_casts,
@@ -239,6 +246,8 @@ pub mod prelude {
     pub use crate::prefabs::client::{
         DefaultServerConnectionSettingsBuilder, ServerConnectionSettings,
     };
+    pub use crate::prefabs::ClientServerRemote;
+    pub use crate::remote_ext::remote_specialization::PeerRemote;
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;

@@ -34,6 +34,9 @@
 //! - [`NodeRemote`]: Server remote interface
 //! - [`NodeResult`]: Network event handling
 //!
+//! [`NetKernel`]: crate::prelude::NetKernel
+//! [`NodeRemote`]: crate::prelude::NodeRemote
+//! [`NodeResult`]: crate::prelude::NodeResult
 
 use citadel_proto::prelude::*;
 use std::marker::PhantomData;

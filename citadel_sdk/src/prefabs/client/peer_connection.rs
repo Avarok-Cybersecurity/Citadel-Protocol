@@ -36,7 +36,7 @@
 //!         settings,
 //!         peers,
 //!         |connections, _remote| async move {
-//!             println!("Connected to {} peers!", connections.len());
+//!             println!("Attemping to connect to {} peers!", connections.len());
 //!             Ok(())
 //!         },
 //!     );
@@ -59,6 +59,10 @@
 //! - [`UserIdentifier`]: Peer identification
 //! - [`SessionSecuritySettings`]: Connection security
 //!
+//! [`PeerConnectionSetupAggregator`]: crate::prefabs::client::peer_connection::PeerConnectionSetupAggregator
+//! [`FileTransferHandleRx`]: crate::prefabs::client::peer_connection::FileTransferHandleRx
+//! [`UserIdentifier`]: crate::prelude::UserIdentifier
+//! [`SessionSecuritySettings`]: crate::prelude::SessionSecuritySettings
 
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;

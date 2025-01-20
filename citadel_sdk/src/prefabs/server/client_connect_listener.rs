@@ -38,6 +38,10 @@
 //! - [`CitadelClientServerConnection`]: Connection event data
 //! - [`NodeResult`]: Network event handling
 //!
+//! [`NetKernel`]: crate::prelude::NetKernel
+//! [`ClientServerRemote`]: crate::prelude::ClientServerRemote
+//! [`CitadelClientServerConnection`]: crate::prelude::CitadelClientServerConnection
+//! [`NodeResult`]: crate::prelude::NodeResult
 
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;

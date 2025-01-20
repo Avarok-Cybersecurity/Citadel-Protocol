@@ -62,6 +62,10 @@
 //! - [`ClientConnectListenerKernel`]: Connection handling
 //! - [`NodeResult`]: Network event handling
 //!
+//! [`NetKernel`]: crate::prelude::NetKernel
+//! [`InternalServerCommunicator`]: crate::prefabs::shared::internal_service::InternalServerCommunicator
+//! [`ClientConnectListenerKernel`]: crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel
+//! [`NodeResult`]: crate::prelude::NodeResult
 
 use crate::prefabs::shared::internal_service::InternalServerCommunicator;
 use crate::prelude::*;

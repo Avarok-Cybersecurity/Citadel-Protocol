@@ -16,19 +16,30 @@
 //! # Example
 //! ```rust
 //! use citadel_sdk::prelude::*;
-//! use citadel_sdk::prefabs::ClientServerRemote;
+//! use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 //!
-//! async fn handle_remote<R: Ratchet>(mut remote: ClientServerRemote<R>) -> Result<(), NetworkError> {
-//!     // Get list of connected peers
-//!     let peers = remote.get_peers(None).await?;
+//! # fn main() -> Result<(), NetworkError> {
+//!#  async fn connect_to_server() -> Result<(), NetworkError> {
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!         .with_udp_mode(UdpMode::Enabled)
+//!         .build()?;
 //!
-//!     // Handle file transfers
-//!     if let Ok(transfer_handle) = remote.get_incoming_file_transfer_handle() {
-//!         transfer_handle.accept_all();
-//!     }
+//!     let kernel = SingleClientServerConnectionKernel::new(
+//!         settings,
+//!         |conn| async move {
+//!             println!("Connected to server!");
+//!             Ok(())
+//!         },
+//!     );
 //!
+//!     let client = DefaultNodeBuilder::default().build(kernel)?;
+//!
+//!     let _result = client.await?;
 //!     Ok(())
+//! # }
+//! # Ok::<(), NetworkError>(())
 //! }
+//!
 //! ```
 //!
 //! # Important Notes
@@ -40,9 +51,9 @@
 //! # Related Components
 //! - [`client`]: Client-side networking implementations
 //! - [`server`]: Server-side networking implementations
-//! - [`ClientServerRemote`]: Remote connection handler
-//! - [`FileTransferHandleRx`]: File transfer processing
 //!
+//! [`client`]: crate::prefabs::client
+//! [`server`]: crate::prefabs::server
 
 use crate::impl_remote;
 use crate::prefabs::client::peer_connection::FileTransferHandleRx;

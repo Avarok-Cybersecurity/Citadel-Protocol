@@ -33,6 +33,9 @@
 //! - [`ObjectTransferHandler`]: File transfer processing
 //! - [`NodeResult`]: Network event handling
 //!
+//! [`NetKernel`]: crate::prelude::NetKernel
+//! [`ObjectTransferHandler`]: crate::prelude::ObjectTransferHandler
+//! [`NodeResult`]: crate::prelude::NodeResult
 
 use crate::prelude::*;
 use std::marker::PhantomData;

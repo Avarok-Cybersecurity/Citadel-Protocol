@@ -581,6 +581,7 @@ pub mod prelude {
     pub use citadel_types::proto::UdpMode;
     pub use citadel_types::proto::VirtualObjectMetadata;
     pub use citadel_types::user::UserIdentifier;
+    pub use citadel_user::backend::PersistenceHandler;
     pub use citadel_user::misc::{prepare_virtual_path, validate_virtual_path, CNACMetadata};
     pub use netbeam::sync::tracked_callback_channel::*;
 }

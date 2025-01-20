@@ -61,6 +61,11 @@
 //! - [`internal_service`]: Internal service support
 //! - [`empty`]: Minimal processing kernel
 //!
+//! [`accept_file_transfer_kernel`]: crate::prefabs::server::accept_file_transfer_kernel
+//! [`client_connect_listener`]: crate::prefabs::server::client_connect_listener
+//! [`internal_service`]: crate::prefabs::server::internal_service
+//! [`empty`]: crate::prefabs::server::empty
+
 /// A kernel that accepts all inbound file transfer requests for basic file transfers
 /// AND RE-VFS transfers
 pub mod accept_file_transfer_kernel;

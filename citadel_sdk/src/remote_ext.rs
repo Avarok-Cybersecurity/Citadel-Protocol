@@ -54,6 +54,11 @@
 //! - [`CitadelClientServerConnection`]: Connection management
 //! - [`RegisterSuccess`]: Registration handling
 //!
+//! [`NodeRemote`]: crate::prelude::NodeRemote
+//! [`ClientServerRemote`]: crate::prelude::ClientServerRemote
+//! [`PeerRemote`]: crate::prelude::PeerRemote
+//! [`CitadelClientServerConnection`]: crate::prelude::CitadelClientServerConnection
+//! [`RegisterSuccess`]: crate::prelude::RegisterSuccess
 
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};

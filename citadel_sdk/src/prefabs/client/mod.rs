@@ -37,8 +37,10 @@
 //! - [`broadcast`]: Group communication support
 //! - [`peer_connection`]: Peer-to-peer networking
 //! - [`single_connection`]: Single server connections
-//! - [`PrefabFunctions`]: Base trait for prefab implementations
 //!
+//! [`broadcast`]: crate::prefabs::client::broadcast
+//! [`peer_connection`]: crate::prefabs::client::peer_connection
+//! [`single_connection`]: crate::prefabs::client::single_connection
 
 use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 use crate::prelude::*;
