@@ -29,9 +29,8 @@ pub struct RatchetManagerMessengerLayer<E: Send + Sync + 'static, R: Ratchet, P:
 pub struct RatchetManagerMessengerLayerTx<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload>
 {
     manager: DefaultRatchetManager<E, R, P>,
-    enqueued_messages: Arc<tokio::sync::Mutex<VecDeque<P>>>,
     is_active: Arc<AtomicBool>,
-    secrecy_mode: SecrecyMode,
+    tx_to_background: tokio::sync::mpsc::UnboundedSender<P>,
 }
 
 pub struct RatchetManagerMessengerLayerRx<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload>
@@ -64,48 +63,107 @@ where
         let mut on_rekey_finish_listener = manager
             .take_on_rekey_finished_event_listener()
             .expect("Cannot pass a RatchetManager that has no on_rekey listener!");
-        let enqueued_messages = Arc::new(tokio::sync::Mutex::new(VecDeque::new()));
-        let enqueued_messages_clone = enqueued_messages.clone();
         let manager_clone = manager.clone();
         let is_active_bg = is_active.clone();
+        let (tx_to_background, mut rx_for_background) = tokio::sync::mpsc::unbounded_channel::<P>();
 
         let background_task = async move {
-            // Each time a rekey finishes, we should check the local queue for any enqueued messages
-            // to poll and send
-            while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
-                if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
-                    if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
-                        log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
-                    }
-                }
-                // Check the latest item in the queue. Hold the lock to prevent race conditions locally
-                let mut lock = enqueued_messages_clone.lock().await;
-                if let Some(last_item) = lock.pop_front() {
-                    match manager_clone
-                        .trigger_rekey_with_payload(Some(last_item))
-                        .await
-                    {
-                        Ok(Some(message_not_sent)) => {
-                            lock.insert(0, message_not_sent);
-                        }
+            let enqueued_messages = &tokio::sync::Mutex::new(VecDeque::new());
+            let is_active_bg = &is_active_bg;
+            let manager_clone = &manager_clone;
 
-                        Ok(None) => {
-                            // Successfully sent
-                        }
-
-                        Err(err) => {
-                            log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {:?}", err);
+            let rekey_task = async move {
+                // Each time a rekey finishes, we should check the local queue for any enqueued messages
+                // to poll and send
+                while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
+                    if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
+                        if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
+                            log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
                         }
                     }
+
+                    // Check the latest item in the queue. Hold the lock to prevent race conditions locally
+                    let mut lock = enqueued_messages.lock().await;
+                    if let Some(last_item) = lock.pop_front() {
+                        match manager_clone
+                            .trigger_rekey_with_payload(Some(last_item))
+                            .await
+                        {
+                            Ok(Some(message_not_sent)) => {
+                                lock.insert(0, message_not_sent);
+                            }
+
+                            Ok(None) => {
+                                // Successfully sent
+                            }
+
+                            Err(err) => {
+                                log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
+                                break;
+                            }
+                        }
+                    }
+
+                    if !is_active_bg.load(ORDERING) {
+                        break;
+                    }
+                }
+            };
+
+            let message_task = async move {
+                while let Some(message) = rx_for_background.recv().await {
+                    match secrecy_mode {
+                        SecrecyMode::BestEffort => {
+                            if let Some(message_not_sent) = manager_clone
+                                .trigger_rekey_with_payload(Some(message))
+                                .await?
+                            {
+                                // Just send through channel
+                                manager_clone
+                                    .sender
+                                    .lock()
+                                    .await
+                                    .send(RatchetMessage::JustMessage(message_not_sent))
+                                    .await
+                                    .map_err(|_| {
+                                        CryptError::FatalError(
+                                            "Ratchet Manager's outbound stream died".into(),
+                                        )
+                                    })?;
+                            } else {
+                                // Success; this message will trigger a simultaneous rekey
+                            }
+                        }
+
+                        SecrecyMode::Perfect => {
+                            if let Some(message_not_sent) = manager_clone
+                                .trigger_rekey_with_payload(Some(message))
+                                .await?
+                            {
+                                // We need to enqueue
+                                enqueued_messages.lock().await.push_back(message_not_sent);
+                            } else {
+                                // Success; this message will trigger a simultaneous rekey w/o enqueuing
+                            }
+                        }
+                    }
                 }
 
-                if !is_active_bg.load(ORDERING) {
-                    break;
+                Err::<(), CryptError>(CryptError::FatalError(
+                    "Ratchet Manager's outbound stream died".into(),
+                ))
+            };
+
+            tokio::select! {
+                _ = rekey_task => {
+                    log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending")
+                }
+                res = message_task => {
+                    log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending (reason: {res:?})")
                 }
             }
 
             is_active_bg.store(false, ORDERING);
-
             log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending")
         };
 
@@ -114,9 +172,8 @@ where
         Self {
             sink: RatchetManagerMessengerLayerTx {
                 manager: manager.clone(),
-                enqueued_messages,
-                secrecy_mode,
                 is_active: is_active.clone(),
+                tx_to_background,
             },
             stream: RatchetManagerMessengerLayerRx {
                 rx,
@@ -142,55 +199,16 @@ where
     R: Ratchet,
     P: AttachedPayload,
 {
-    pub async fn send(&self, message: impl Into<P>) -> Result<(), CryptError> {
+    pub fn send(&self, message: impl Into<P>) -> Result<(), CryptError> {
         if !self.is_active.load(ORDERING) {
             return Err(CryptError::Encrypt(
                 "Cannot send encrypted messages (stream died)".to_string(),
             ));
         }
 
-        match self.secrecy_mode {
-            SecrecyMode::BestEffort => {
-                if let Some(message_not_sent) = self
-                    .manager
-                    .trigger_rekey_with_payload(Some(message.into()))
-                    .await?
-                {
-                    // Just send through channel
-                    self.manager
-                        .sender
-                        .lock()
-                        .await
-                        .send(RatchetMessage::JustMessage(message_not_sent))
-                        .await
-                        .map_err(|_| {
-                            CryptError::FatalError("Ratchet Manager's outbound stream died".into())
-                        })?;
-                } else {
-                    // Success; this message will trigger a simultaneous rekey
-                }
-
-                Ok(())
-            }
-
-            SecrecyMode::Perfect => {
-                if let Some(message_not_sent) = self
-                    .manager
-                    .trigger_rekey_with_payload(Some(message.into()))
-                    .await?
-                {
-                    // We need to enqueue
-                    self.enqueued_messages
-                        .lock()
-                        .await
-                        .push_back(message_not_sent);
-                } else {
-                    // Success; this message will trigger a simultaneous rekey w/o enqueuing
-                }
-
-                Ok(())
-            }
-        }
+        self.tx_to_background
+            .send(message.into())
+            .map_err(|_| CryptError::Encrypt("Failed to send message through channel".to_string()))
     }
 }
 
@@ -314,7 +332,7 @@ mod tests {
                 }
 
                 let payload = P::from(x);
-                alice_messenger_tx.send(payload.clone()).await.unwrap();
+                alice_messenger_tx.send(payload.clone()).unwrap();
 
                 let recv_payload = alice_messenger_rx.next().await.unwrap();
                 assert_eq!(recv_payload, payload);
@@ -328,7 +346,7 @@ mod tests {
                 }
 
                 let payload = P::from(x);
-                bob_messenger_tx.send(payload.clone()).await.unwrap();
+                bob_messenger_tx.send(payload.clone()).unwrap();
 
                 let recv_payload = bob_messenger_rx.next().await.unwrap();
                 assert_eq!(recv_payload, payload);
@@ -348,8 +366,8 @@ mod tests {
         bob_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
         payload: P,
     ) {
-        alice_messenger_tx.send(payload.clone()).await.unwrap();
-        bob_messenger_tx.send(payload.clone()).await.unwrap();
+        alice_messenger_tx.send(payload.clone()).unwrap();
+        bob_messenger_tx.send(payload.clone()).unwrap();
         let alice_message_from_bob = alice_messenger_rx.next().await.unwrap();
         let bob_message_from_alice = bob_messenger_rx.next().await.unwrap();
         assert_eq!(alice_message_from_bob, payload.clone());

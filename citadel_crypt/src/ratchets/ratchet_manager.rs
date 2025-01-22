@@ -324,10 +324,17 @@ where
                 .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
             log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
 
-            *self.constructor.lock() = Some(constructor);
+            if self.constructor.lock().replace(constructor).is_some() {
+                log::error!(target: "citadel", "Replaced constructor; this should not happen");
+            }
+
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
 
-            *self.local_listener.lock() = Some(tx);
+            if self.local_listener.lock().replace(tx).is_some() {
+                log::error!(target: "citadel", "Replaced local listener; this should not happen");
+            }
+
+            // Block until the entire rekey is finished
             let _res = rx.await.map_err(|_| {
                 CryptError::RekeyUpdateError("Failed to wait for local listener".to_string())
             })?;

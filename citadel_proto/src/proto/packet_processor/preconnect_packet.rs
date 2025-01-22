@@ -473,7 +473,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             .pre_connect_state
                             .ticket
                             .unwrap_or_else(|| session.kernel_ticket.get());
-                        std::mem::drop(state_container);
+                        drop(state_container);
                         //session.needs_close_message.set(false);
                         session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
                             ticket,

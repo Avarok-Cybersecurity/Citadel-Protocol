@@ -175,7 +175,6 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
 
         self.to_outbound_stream
             .send(request)
-            .await
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
