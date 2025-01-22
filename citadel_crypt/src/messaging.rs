@@ -13,7 +13,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 /// A messenger intended for use by the citadel_proto package for two nodes to use
 /// for messaging. It enforces the secrecy mode such that:
-/// [*] True Perfect Forward Secrecy: C message can only be sent if a new key is
+/// [*] True Perfect Forward Secrecy: A message can only be sent if a new key is
 /// ready for use. This uses head-of-line blocking, placing any messages into the queue
 /// until a rekey is complete. This is best for pure messaging applications.
 /// [*] Best effort mode: Messages will attempt to use an unused key, but, will re-use the
@@ -65,6 +65,8 @@ where
             .expect("Cannot pass a RatchetManager that has no on_rekey listener!");
         let manager_clone = manager.clone();
         let is_active_bg = is_active.clone();
+        let cid = manager.session_crypto_state.cid();
+
         let (tx_to_background, mut rx_for_background) = tokio::sync::mpsc::unbounded_channel::<P>();
 
         let background_task = async move {
@@ -112,6 +114,7 @@ where
 
             let message_task = async move {
                 while let Some(message) = rx_for_background.recv().await {
+                    // TODO: The issue: in BEM, if we send a combined message (rekey + other message)
                     match secrecy_mode {
                         SecrecyMode::BestEffort => {
                             if let Some(message_not_sent) = manager_clone
@@ -156,15 +159,15 @@ where
 
             tokio::select! {
                 _ = rekey_task => {
-                    log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending")
+                    log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): background task ending")
                 }
                 res = message_task => {
-                    log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending (reason: {res:?})")
+                    log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): background task ending (reason: {res:?})")
                 }
             }
 
             is_active_bg.store(false, ORDERING);
-            log::warn!(target: "citadel", "RatchetManagerMessengerLayer: background task ending")
+            log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): background task ending")
         };
 
         drop(tokio::task::spawn(background_task));
@@ -305,57 +308,7 @@ mod tests {
         (alice_messenger, bob_messenger)
     }
 
-    async fn run_messenger_round_racy<
-        R: Ratchet,
-        P: AttachedPayload + From<u64> + std::fmt::Debug + Eq + Clone,
-    >(
-        alice_messenger_tx: &mut TestRatchetManagerMessengerTx<R, P>,
-        alice_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
-        bob_messenger_tx: &mut TestRatchetManagerMessengerTx<R, P>,
-        bob_messenger_rx: &mut TestRatchetManagerMessengerRx<R, P>,
-        delay: Option<Duration>,
-    ) {
-        let (delay_alice, delay_bob) = if let Some(delay) = delay {
-            if rand::random::<u8>() % 2 == 0 {
-                (Some(delay), None)
-            } else {
-                (None, Some(delay))
-            }
-        } else {
-            (None, None)
-        };
-
-        let alice_task = async move {
-            for x in 0..100u64 {
-                if let Some(delay) = delay_alice {
-                    tokio::time::sleep(delay).await;
-                }
-
-                let payload = P::from(x);
-                alice_messenger_tx.send(payload.clone()).unwrap();
-
-                let recv_payload = alice_messenger_rx.next().await.unwrap();
-                assert_eq!(recv_payload, payload);
-            }
-        };
-
-        let bob_task = async move {
-            for x in 0..100u64 {
-                if let Some(delay) = delay_bob {
-                    tokio::time::sleep(delay).await;
-                }
-
-                let payload = P::from(x);
-                bob_messenger_tx.send(payload.clone()).unwrap();
-
-                let recv_payload = bob_messenger_rx.next().await.unwrap();
-                assert_eq!(recv_payload, payload);
-            }
-        };
-
-        tokio::join!(alice_task, bob_task);
-    }
-
+    /// Both nodes send a message, then receive a message. Determinate order
     async fn run_messenger_one_round_one_at_a_time<
         R: Ratchet,
         P: AttachedPayload + Clone + std::fmt::Debug + Eq,
@@ -374,6 +327,156 @@ mod tests {
         assert_eq!(bob_message_from_alice, payload);
     }
 
+    /// Both nodes send a message, then receive a message. As opposed to above, the nodes sending/receiving messages happens
+    /// in parallel to give indeterminate ordering
+    async fn run_messenger_round_racy<
+        R: Ratchet,
+        P: AttachedPayload + From<u64> + std::fmt::Debug + Eq + Clone,
+    >(
+        alice_messenger_tx: TestRatchetManagerMessengerTx<R, P>,
+        alice_messenger_rx: TestRatchetManagerMessengerRx<R, P>,
+        bob_messenger_tx: TestRatchetManagerMessengerTx<R, P>,
+        bob_messenger_rx: TestRatchetManagerMessengerRx<R, P>,
+        delay: Option<Duration>,
+    ) {
+        let (delay_alice, delay_bob) = generate_delay(delay);
+
+        let send_task = |messenger_tx: TestRatchetManagerMessengerTx<R, P>,
+                         mut messenger_rx: TestRatchetManagerMessengerRx<R, P>,
+                         delay: Option<Duration>| async move {
+            for x in 0..100u64 {
+                if let Some(delay) = delay {
+                    tokio::time::sleep(delay).await;
+                }
+
+                let payload = P::from(x);
+                messenger_tx.send(payload.clone()).unwrap();
+
+                let recv_payload = messenger_rx.next().await.unwrap();
+                assert_eq!(recv_payload, payload);
+            }
+        };
+
+        let alice_task = send_task(alice_messenger_tx, alice_messenger_rx, delay_alice);
+        let bob_task = send_task(bob_messenger_tx, bob_messenger_rx, delay_bob);
+
+        tokio::join!(alice_task, bob_task);
+    }
+
+    /// Both nodes send ALL messages as fast as possible, then receive ALL messages. This adds more indeterminate ordering
+    /// than above
+    async fn run_messenger_round_racy_contentious<
+        R: Ratchet,
+        P: AttachedPayload + From<u64> + std::fmt::Debug + Eq + Clone,
+    >(
+        alice_messenger_tx: TestRatchetManagerMessengerTx<R, P>,
+        alice_messenger_rx: TestRatchetManagerMessengerRx<R, P>,
+        bob_messenger_tx: TestRatchetManagerMessengerTx<R, P>,
+        bob_messenger_rx: TestRatchetManagerMessengerRx<R, P>,
+        delay: Option<Duration>,
+    ) {
+        let (delay_alice, delay_bob) = generate_delay(delay);
+
+        let send_task = move |messenger_tx: TestRatchetManagerMessengerTx<R, P>,
+                              mut messenger_rx: TestRatchetManagerMessengerRx<R, P>,
+                              delay: Option<Duration>| async move {
+            for x in 0..100u64 {
+                if let Some(delay) = delay {
+                    tokio::time::sleep(delay).await;
+                }
+
+                let payload = P::from(x);
+                messenger_tx.send(payload.clone()).unwrap();
+            }
+
+            for x in 0..100u64 {
+                let recv_payload = messenger_rx.next().await.unwrap();
+                assert_eq!(recv_payload, P::from(x));
+            }
+        };
+
+        let alice_task = send_task(alice_messenger_tx, alice_messenger_rx, delay_alice);
+        let bob_task = send_task(bob_messenger_tx, bob_messenger_rx, delay_bob);
+
+        tokio::join!(alice_task, bob_task);
+    }
+
+    fn generate_delay(delay: Option<Duration>) -> (Option<Duration>, Option<Duration>) {
+        if let Some(delay) = delay {
+            if rand::random::<u8>() % 2 == 0 {
+                (Some(delay), None)
+            } else {
+                (None, Some(delay))
+            }
+        } else {
+            (None, None)
+        }
+    }
+
+    async fn messenger_racy<
+        R: Ratchet,
+        P: AttachedPayload + From<u64> + std::fmt::Debug + Eq + Clone,
+    >(
+        secrecy_mode: SecrecyMode,
+        delay: Option<Duration>,
+    ) {
+        let (alice_manager, bob_manager) = create_messengers::<R, P>(secrecy_mode);
+        let (alice_messenger_tx, alice_messenger_rx) = alice_manager.split();
+        let (bob_messenger_tx, bob_messenger_rx) = bob_manager.split();
+
+        run_messenger_round_racy::<R, P>(
+            alice_messenger_tx,
+            alice_messenger_rx,
+            bob_messenger_tx,
+            bob_messenger_rx,
+            delay,
+        )
+        .await;
+    }
+
+    async fn messenger_racy_contentious<
+        R: Ratchet,
+        P: AttachedPayload + From<u64> + std::fmt::Debug + Eq + Clone,
+    >(
+        secrecy_mode: SecrecyMode,
+        delay: Option<Duration>,
+    ) {
+        let (alice_manager, bob_manager) = create_messengers::<R, P>(secrecy_mode);
+        let (alice_messenger_tx, alice_messenger_rx) = alice_manager.split();
+        let (bob_messenger_tx, bob_messenger_rx) = bob_manager.split();
+
+        run_messenger_round_racy_contentious::<R, P>(
+            alice_messenger_tx,
+            alice_messenger_rx,
+            bob_messenger_tx,
+            bob_messenger_rx,
+            delay,
+        )
+        .await;
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(60))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_messenger_racy(
+        #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
+    ) {
+        citadel_logging::setup_log();
+        messenger_racy::<StackedRatchet, u64>(secrecy_mode, None).await;
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(360))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_messenger_racy_with_random_start_lag(
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
+        #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
+    ) {
+        citadel_logging::setup_log();
+        messenger_racy::<StackedRatchet, u64>(secrecy_mode, Some(Duration::from_millis(min_delay)))
+            .await;
+    }
+
     #[rstest]
     #[timeout(std::time::Duration::from_secs(60))]
     #[tokio::test(flavor = "multi_thread")]
@@ -381,59 +484,19 @@ mod tests {
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
-        let (alice_manager, bob_manager) = create_messengers::<StackedRatchet, _>(secrecy_mode);
-        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
-        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
-
-        run_messenger_round_racy::<_, u64>(
-            &mut alice_messenger_tx,
-            &mut alice_messenger_rx,
-            &mut bob_messenger_tx,
-            &mut bob_messenger_rx,
-            None,
-        )
-        .await;
+        messenger_racy_contentious::<StackedRatchet, u64>(secrecy_mode, None).await;
     }
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(360))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_messenger_racy_with_random_start_lag_pfs(
+    async fn test_messenger_racy_contentious_with_random_start_lag(
         #[values(0, 1, 10, 100, 500)] min_delay: u64,
+        #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
-        let (alice_manager, bob_manager) =
-            create_messengers::<StackedRatchet, _>(SecrecyMode::Perfect);
-        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
-        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
-
-        run_messenger_round_racy::<_, u64>(
-            &mut alice_messenger_tx,
-            &mut alice_messenger_rx,
-            &mut bob_messenger_tx,
-            &mut bob_messenger_rx,
-            Some(Duration::from_millis(min_delay)),
-        )
-        .await;
-    }
-
-    #[rstest]
-    #[timeout(std::time::Duration::from_secs(360))]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_messenger_racy_with_random_start_lag_best_effort(
-        #[values(0, 1, 10, 100, 500)] min_delay: u64,
-    ) {
-        citadel_logging::setup_log();
-        let (alice_manager, bob_manager) =
-            create_messengers::<StackedRatchet, _>(SecrecyMode::BestEffort);
-        let (mut alice_messenger_tx, mut alice_messenger_rx) = alice_manager.split();
-        let (mut bob_messenger_tx, mut bob_messenger_rx) = bob_manager.split();
-
-        run_messenger_round_racy::<_, u64>(
-            &mut alice_messenger_tx,
-            &mut alice_messenger_rx,
-            &mut bob_messenger_tx,
-            &mut bob_messenger_rx,
+        messenger_racy_contentious::<StackedRatchet, u64>(
+            secrecy_mode,
             Some(Duration::from_millis(min_delay)),
         )
         .await;
@@ -451,7 +514,7 @@ mod tests {
         const ROUNDS: usize = 100;
 
         for x in 0..ROUNDS {
-            run_messenger_one_round_one_at_a_time::<_, u64>(
+            run_messenger_one_round_one_at_a_time::<StackedRatchet, u64>(
                 &mut alice_messenger_tx,
                 &mut alice_messenger_rx,
                 &mut bob_messenger_tx,

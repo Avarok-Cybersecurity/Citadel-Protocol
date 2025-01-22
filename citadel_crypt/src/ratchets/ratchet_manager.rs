@@ -64,8 +64,9 @@ use futures::{Sink, SinkExt, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub struct RatchetManager<S, I, R, P: AttachedPayload = ()>
@@ -78,6 +79,7 @@ where
     attached_payload_tx: UnboundedSender<P>,
     attached_payload_rx: Arc<Mutex<Option<UnboundedReceiver<P>>>>,
     rekey_done_notifier: Arc<Mutex<Option<UnboundedReceiver<R>>>>,
+    last_received_message: Arc<AtomicU64>,
     cid: u64,
     psks: Arc<Vec<Vec<u8>>>,
     role: Arc<Atomic<RekeyRole>>,
@@ -104,6 +106,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             rekey_done_notifier: self.rekey_done_notifier.clone(),
             constructor: self.constructor.clone(),
             is_initiator: self.is_initiator,
+            last_received_message: self.last_received_message.clone(),
             state: self.state.clone(),
             local_listener: self.local_listener.clone(),
             shutdown_tx: self.shutdown_tx.clone(),
@@ -225,6 +228,9 @@ where
         let rekey_done_notifier = Arc::new(Mutex::new(Some(rekey_done_notifier)));
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         let this = Self {
+            last_received_message: Arc::new(AtomicU64::new(
+                UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
+            )),
             sender: Arc::new(TokioMutex::new(sender)),
             receiver: Arc::new(Mutex::new(Some(receiver))),
             session_crypto_state: container,
@@ -363,6 +369,7 @@ where
         }
 
         let cid = self.cid;
+        let time_since_last_packet = self.last_received_message.clone();
 
         let task = async move {
             let _drop_wrapper = DropWrapper {
@@ -405,9 +412,22 @@ where
             }
         };
 
+        let shutdown_rx_task = async move {
+            let _ = shutdown_rx.await;
+            // Do not immediately stop, since some packets may still be in transit
+            loop {
+                if time_since_last_packet.load(Ordering::Relaxed) >= 2 {
+                    log::trace!(target: "citadel", "Shutting down since last packet has not been received in 2000ms");
+                    break;
+                }
+
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        };
+
         let combined = async move {
             tokio::select! {
-                _ = shutdown_rx => {
+                _ = shutdown_rx_task => {
                     log::warn!(target: "citadel", "Client {cid} rekey process shutting down due to shutdown signal");
                 },
                 _ = task => {
@@ -434,6 +454,10 @@ where
 
         loop {
             let msg = receiver.next().await;
+            self.last_received_message.store(
+                UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
+                Ordering::Relaxed,
+            );
             match msg {
                 Some(RatchetMessage::AliceToBob {
                     payload,
@@ -462,7 +486,7 @@ where
                         let local_latest_ratchet_version =
                             self.session_crypto_state.latest_usable_version();
 
-                        // Validate against our barrier. We only care abou the latest version, since the
+                        // Validate against our barrier. We only care about the latest version, since the
                         // earliest version may still be syncing
                         if latest_ratchet_version != local_latest_ratchet_version {
                             // Request resynchronization
@@ -517,12 +541,6 @@ where
 
                             log::trace!(target: "citadel", "Client {} must send BobToAlice", self.cid);
 
-                            {
-                                let container = &self.session_crypto_state;
-                                let _ = container.update_in_progress.toggle_on_if_untoggled();
-                                self.set_role(RekeyRole::Loser);
-                            }
-
                             self.sender
                                 .lock()
                                 .await
@@ -535,6 +553,15 @@ where
                                 .map_err(|_err| {
                                     CryptError::RekeyUpdateError("Sink send error".into())
                                 })?;
+
+                            // Remove the local constructor, if existent, since it won't be used
+                            let _ = self.constructor.lock().take();
+                            let _ = self
+                                .session_crypto_state
+                                .update_in_progress
+                                .toggle_on_if_untoggled();
+                            self.set_role(RekeyRole::Loser);
+
                             log::debug!(
                                 target: "citadel",
                                 "Client {} is {:?}. Sent BobToAlice",
@@ -596,8 +623,8 @@ where
                     }
 
                     // Now process the transfer data
-                    let mut constructor = { self.constructor.lock().take() };
-                    if let Some(mut alice_constructor) = constructor.take() {
+                    let constructor = { self.constructor.lock().take() };
+                    if let Some(mut alice_constructor) = constructor {
                         let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
                             CryptError::RekeyUpdateError(format!(
                                 "Failed to deserialize transfer: {e}"
