@@ -80,7 +80,8 @@ pub struct PeerSessionCrypto<R: Ratchet> {
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
     local_is_initiator: bool,
     cid: u64,
-    pub incrementing_group_id: Arc<AtomicU64>,
+    incrementing_group_id_messaging: Arc<AtomicU64>,
+    pub incrementing_group_id_file_transfer: Arc<AtomicU64>,
     /// Alice sends to Bob, then bob updates internally the toolset. However. Bob can't send packets to Alice quite yet using that newest version. He must first wait from Alice to commit on her end and wait for an ACK.
     /// If alice sends a packet using the latest version, that's okay since we already have that entropy_bank version on Bob's side; it's just that Bob can't send packets using the latest version until AFTER receiving the ACK
     pub latest_usable_version: Arc<AtomicU32>,
@@ -101,7 +102,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             toolset: Arc::new(RwLock::new(toolset)),
             update_in_progress: SyncToggle::new(),
             local_is_initiator,
-            incrementing_group_id: Arc::new(AtomicU64::new(0)),
+            incrementing_group_id_messaging: Arc::new(AtomicU64::new(0)),
+            incrementing_group_id_file_transfer: Arc::new(AtomicU64::new(0)),
             latest_usable_version: Arc::new(AtomicU32::new(0)),
         }
     }
@@ -250,7 +252,12 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 
     pub fn get_and_increment_group_id(&self) -> u64 {
-        self.incrementing_group_id.fetch_add(1, ORDERING)
+        self.incrementing_group_id_messaging.fetch_add(1, ORDERING)
+    }
+
+    pub fn get_and_increment_group_file_transfer(&self) -> u64 {
+        self.incrementing_group_id_file_transfer
+            .fetch_add(1, ORDERING)
     }
 
     pub fn get_next_object_id(&self) -> ObjectId {
@@ -268,7 +275,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// Refreshed the internal state to init state
     pub fn refresh_state(&self) {
         self.update_in_progress.toggle_off();
-        self.incrementing_group_id.store(0, ORDERING);
+        self.incrementing_group_id_messaging.store(0, ORDERING);
+        self.incrementing_group_id_file_transfer.store(0, ORDERING);
     }
 
     /// Gets the parameters used at registrations

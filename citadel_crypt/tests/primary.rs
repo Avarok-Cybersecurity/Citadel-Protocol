@@ -390,7 +390,6 @@ mod tests {
         #[case] sig: SigAlgorithm,
     ) {
         toolset::<StackedRatchet>(enx, kem, sig);
-        #[cfg(feature = "fcm")]
         toolset::<citadel_crypt::ratchets::mono::MonoRatchet>(enx, kem, sig);
     }
 
@@ -535,7 +534,6 @@ mod tests {
         #[case] sig: SigAlgorithm,
     ) {
         toolset_wrapping_vers::<StackedRatchet>(enx, kem, sig);
-        #[cfg(feature = "fcm")]
         toolset_wrapping_vers::<citadel_crypt::ratchets::mono::MonoRatchet>(enx, kem, sig);
     }
 
@@ -636,7 +634,6 @@ mod tests {
             TransferType::FileTransfer,
             |decrypted, plaintext, _, _| debug_assert_eq!(decrypted, plaintext),
         );
-        #[cfg(feature = "fcm")]
         scrambler_transmission_spectrum::<citadel_crypt::ratchets::mono::MonoRatchet>(
             enx,
             kem,
@@ -693,8 +690,7 @@ mod tests {
             }
         }
 
-        scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type, verifier);
-        #[cfg(feature = "fcm")]
+        scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type.clone(), verifier);
         scrambler_transmission_spectrum::<citadel_crypt::ratchets::mono::MonoRatchet>(
             enx, kem, sig, tx_type, verifier,
         );

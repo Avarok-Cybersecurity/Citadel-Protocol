@@ -74,7 +74,7 @@ where
     let internal_server = service(internal_server_communicator);
 
     // each time a client connects, we will begin listening for messages.
-    let (sink, mut stream) = connection.split();
+    let (mut sink, mut stream) = connection.split();
     // from_proto forwards packets from the proto to the http server
     let from_proto = async move {
         while let Some(packet) = stream.next().await {
@@ -89,7 +89,7 @@ where
     // from_webserver forwards packets from the internal server to the proto
     let from_webserver = async move {
         while let Some(packet) = rx_from_service.recv().await {
-            sink.send_message(packet).await?;
+            sink.send(packet).await?;
         }
 
         Ok(())

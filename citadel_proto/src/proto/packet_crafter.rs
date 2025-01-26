@@ -50,6 +50,7 @@ use crate::proto::remote::Ticket;
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualTargetType;
 use bytes::BytesMut;
+use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
@@ -83,7 +84,7 @@ pub struct ObjectTransmitter<R: Ratchet> {
     security_level: SecurityLevel,
     bytes_encrypted: usize,
     time_tracker: TimeTracker,
-    is_message: Option<RatchetMessage<UserMessage>>,
+    is_message: Option<RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>>,
 }
 
 impl<R: Ratchet> ObjectTransmitter<R> {
@@ -121,7 +122,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
         to_primary_stream: OutboundPrimaryStreamSender,
         object_id: ObjectId,
         ratchet: R,
-        input_message: RatchetMessage<UserMessage>,
+        input_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
         security_level: SecurityLevel,
         group_id: u64,
         ticket: Ticket,
@@ -129,7 +130,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
         virtual_target_type: VirtualTargetType,
     ) -> Result<(), NetworkError> {
         // Gets the latest entropy_bank version by default for this operation
-        log::trace!(target: "citadel", "Will use R v{} to encrypt group {}", ratchet.version(), group_id);
+        log::trace!(target: "citadel", "Will use {ratchet:?} to encrypt group {group_id}");
         let mut this = Self {
             ratchet,
             is_message: Some(input_message),

@@ -32,8 +32,10 @@
 //!     R: Ratchet,
 //! {
 //!     let mut manager = RatchetManager::new(sender, receiver, container, psks);
-//!     // Trigger a ratchet update
-//!     manager.trigger_rekey().await?;
+//!     // Trigger a ratchet update, waiting for conclusion by passing "true"
+//!     manager.trigger_rekey(true).await?;
+//!     // Trigger a ratchet update, NOT waiting for conclusion by passing "false"
+//!     manager.trigger_rekey(false).await?;
 //!     Ok(())
 //! }
 //! ```
@@ -268,15 +270,20 @@ where
     }
 
     /// Triggers a rekey without sending an attached payload
-    pub async fn trigger_rekey(&self) -> Result<(), CryptError> {
-        self.trigger_rekey_with_payload(None).await.map(|_| ())
+    pub async fn trigger_rekey(&self, wait_for_completion: bool) -> Result<(), CryptError> {
+        self.trigger_rekey_with_payload(None, wait_for_completion)
+            .await
+            .map(|_| ())
     }
 
     /// Supposing the payload is Some: Returns Ok(None) if the payload was sent along with the rekey bundle,
     /// otherwise, returns the attached payload for later use.
+    ///
+    /// if wait_for_completon is false, this function will not wait for the rekey process to complete
     pub async fn trigger_rekey_with_payload(
         &self,
         attached_payload: Option<P>,
+        wait_for_completion: bool,
     ) -> Result<Option<P>, CryptError> {
         log::info!(target: "citadel", "Client {} manually triggering rekey", self.cid);
         let state = self.state();
@@ -332,6 +339,10 @@ where
 
             if self.constructor.lock().replace(constructor).is_some() {
                 log::error!(target: "citadel", "Replaced constructor; this should not happen");
+            }
+
+            if !wait_for_completion {
+                return Ok(None);
             }
 
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
@@ -416,12 +427,13 @@ where
             let _ = shutdown_rx.await;
             // Do not immediately stop, since some packets may still be in transit
             loop {
-                if time_since_last_packet.load(Ordering::Relaxed) >= 2 {
+                let now = UNIX_EPOCH.elapsed().unwrap_or_default().as_secs();
+                if time_since_last_packet.load(Ordering::Relaxed) < now.saturating_sub(2000) {
                     log::trace!(target: "citadel", "Shutting down since last packet has not been received in 2000ms");
                     break;
                 }
 
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         };
 
@@ -885,6 +897,7 @@ where
 
     /// Shuts down the rekey
     pub fn shutdown(&self) -> Option<()> {
+        log::warn!(target: "citadel", "[SHUTDOWN TRIGGER] Client {} shutting down rekey", self.cid);
         let _ = self.shutdown_tx.lock().take()?.send(());
         Some(())
     }
@@ -1056,7 +1069,7 @@ pub(crate) mod tests {
             if let Some(delay) = delay {
                 tokio::time::sleep(delay).await;
             }
-            let res = container.trigger_rekey().await;
+            let res = container.trigger_rekey(true).await;
             log::debug!(target: "citadel", "*** [FINISHED] Client {} rekey result: {res:?}", container.cid);
             res
         };
@@ -1126,7 +1139,7 @@ pub(crate) mod tests {
             if skip {
                 return Ok(());
             }
-            let res = container.trigger_rekey().await;
+            let res = container.trigger_rekey(true).await;
             log::debug!(target: "citadel", "*** [FINISHED] Client {} rekey result: {res:?}", container.cid);
             res
         };

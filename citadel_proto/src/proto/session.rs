@@ -101,6 +101,7 @@ use crate::proto::state_subcontainers::rekey_container::calculate_update_frequen
 use crate::proto::transfer_stats::TransferStats;
 use bytemuck::NoUninit;
 use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
@@ -1496,7 +1497,7 @@ impl<R: Ratchet> CitadelSession<R> {
                     .as_ref()
                     .map(|r| r.object_id)
                     .unwrap_or_else(|| crypt_container.get_next_object_id());
-                let group_id_start = crypt_container.get_and_increment_group_id();
+                let group_id_start = crypt_container.get_and_increment_group_file_transfer();
                 let latest_hr = crypt_container.get_ratchet(None).unwrap();
                 let static_aux_ratchet = crypt_container
                     .toolset()
@@ -1544,7 +1545,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                 let amt_to_reserve = groups_needed.saturating_sub(1);
                 crypt_container
-                    .incrementing_group_id
+                    .incrementing_group_id_file_transfer
                     .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
                 let file_header = packet_crafter::file::craft_file_header_packet(
                     &latest_hr,
@@ -1664,7 +1665,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 endpoint_container
                     .ratchet_manager
                     .session_crypto_state()
-                    .incrementing_group_id
+                    .incrementing_group_id_file_transfer
                     .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
 
                 (
@@ -1929,15 +1930,19 @@ impl<R: Ratchet> CitadelSession<R> {
                 // to forward these to.
                 fn send_ratchet_message<R: Ratchet>(
                     state_container: &StateContainerInner<R>,
-                    ratchet_message: RatchetMessage<UserMessage>,
+                    ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
                     v_conn: VirtualConnectionType,
                 ) -> Result<(), (NetworkError, Option<Ticket>)> {
                     let mut attributed_ticket = None;
 
                     let (ticket, security_level) = match &ratchet_message {
-                        RatchetMessage::JustMessage(UserMessage {
-                            ticket,
-                            security_level,
+                        RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
+                            message:
+                                UserMessage {
+                                    ticket,
+                                    security_level,
+                                    ..
+                                },
                             ..
                         }) => {
                             attributed_ticket = Some(*ticket);
@@ -1967,6 +1972,7 @@ impl<R: Ratchet> CitadelSession<R> {
                     let group_id = endpoint_container.get_and_increment_group_id();
                     let time_tracker = state_container.time_tracker;
 
+                    // TODO: micro-optimize this unnecessary cloning
                     ObjectTransmitter::transmit_message(
                         preferred_stream.clone(),
                         object_id,
@@ -1997,7 +2003,7 @@ impl<R: Ratchet> CitadelSession<R> {
                                         InternalServerError {
                                             ticket_opt,
                                             cid_opt: this.session_cid.get(),
-                                            message: err.to_string(),
+                                            message: err.into_string(),
                                         },
                                     ))
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?
@@ -2490,6 +2496,6 @@ pub struct Group {
 #[derive(Debug)]
 #[doc(hidden)]
 pub enum SessionRequest {
-    SendMessage(RatchetMessage<UserMessage>),
+    SendMessage(RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>),
     Group(Group),
 }

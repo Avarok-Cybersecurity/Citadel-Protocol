@@ -71,6 +71,7 @@ pub(crate) mod group {
 
     use crate::proto::session::UserMessage;
     use crate::proto::state_container::VirtualTargetType;
+    use citadel_crypt::messaging::MessengerLayerOrderedMessage;
     use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::SecurityLevel;
@@ -94,7 +95,10 @@ pub(crate) mod group {
     #[derive(Serialize, Deserialize)]
     pub(crate) enum GroupHeader {
         Standard(GroupReceiverConfig, VirtualTargetType),
-        Ratchet(RatchetMessage<UserMessage>, ObjectId),
+        Ratchet(
+            RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+            ObjectId,
+        ),
     }
 
     pub(crate) fn validate_header(payload: &BytesMut) -> Option<GroupHeader> {

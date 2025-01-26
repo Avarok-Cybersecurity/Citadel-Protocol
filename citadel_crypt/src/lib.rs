@@ -74,3 +74,4 @@ pub mod toolset;
 
 /// For secure messaging with concurrent ratcheting operations
 pub mod messaging;
+pub mod ordered_channel;

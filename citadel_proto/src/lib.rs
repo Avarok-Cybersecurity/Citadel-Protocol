@@ -79,7 +79,8 @@
 use crate::error::NetworkError;
 use crate::proto::session::UserMessage;
 use citadel_crypt::messaging::{
-    RatchetManagerMessengerLayer, RatchetManagerMessengerLayerRx, RatchetManagerMessengerLayerTx,
+    MessengerLayerOrderedMessage, RatchetManagerMessengerLayer, RatchetManagerMessengerLayerRx,
+    RatchetManagerMessengerLayerTx,
 };
 use citadel_crypt::ratchets::ratchet_manager::DefaultRatchetManager;
 
@@ -600,7 +601,8 @@ pub mod kernel;
 /// The primary module of this crate
 mod proto;
 
-pub(crate) type ProtocolRatchetManager<R> = DefaultRatchetManager<NetworkError, R, UserMessage>;
+pub(crate) type ProtocolRatchetManager<R> =
+    DefaultRatchetManager<NetworkError, R, MessengerLayerOrderedMessage<UserMessage>>;
 pub type ProtocolMessengerTx<R> = RatchetManagerMessengerLayerTx<NetworkError, R, UserMessage>;
 pub type ProtocolMessengerRx<R> = RatchetManagerMessengerLayerRx<NetworkError, R, UserMessage>;
 pub type ProtocolMessenger<R> = RatchetManagerMessengerLayer<NetworkError, R, UserMessage>;

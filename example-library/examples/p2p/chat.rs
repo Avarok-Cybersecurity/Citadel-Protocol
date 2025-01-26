@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Set up message handling
-            let (tx, mut message_stream) = peer_conn.channel.split();
+            let (mut tx, mut message_stream) = peer_conn.channel.split();
             let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
 
             println!("Type your messages (press Enter to send, Ctrl+C to quit):");
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     line = stdin.next_line() => {
                         match line {
                             Ok(Some(msg)) if !msg.is_empty() => {
-                                tx.send_message(msg.into_bytes()).await?;
+                                tx.send(msg.into_bytes()).await?;
                             }
                             Ok(None) => break, // EOF
                             _ => continue,

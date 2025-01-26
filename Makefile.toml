@@ -10,9 +10,14 @@ args = ["clean"]
 command = "cargo"
 args = ["clippy", "--all"]
 
+[tasks.doc-check]
+command = "cargo"
+args = ["test", "--doc"]
+
 [tasks.check]
 command = "cargo"
-args = ["clippy", "--tests", "--examples", "--all", "--", "-D", "warnings"]
+args = ["clippy", "--tests", "--features=sql,redis", "--examples", "--all", "--", "-D", "warnings"]
+dependencies = ["doc-check", "fmt"]
 
 [tasks.clippy-tests]
 command = "cargo"

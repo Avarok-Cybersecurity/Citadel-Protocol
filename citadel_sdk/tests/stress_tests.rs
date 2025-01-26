@@ -84,6 +84,7 @@ mod tests {
     pub struct MessageTransfer {
         pub idx: u64,
         pub rand: Vec<u8>,
+        pub checksum: u64,
     }
 
     impl MessageTransfer {
@@ -96,11 +97,25 @@ mod tests {
             let mut rng = ThreadRng::default();
             let mut rand = vec![0u8; MESSAGE_LEN];
             rng.fill(rand.as_mut_slice());
-            Self { idx, rand }.serialize_to_vector().unwrap()
+            let rand_sum: u64 = rand.iter().copied().map(u64::from).sum();
+            Self {
+                idx,
+                rand,
+                checksum: rand_sum,
+            }
+            .serialize_to_vector()
+            .unwrap()
         }
 
         pub fn receive(input: SecBuffer) -> Self {
-            Self::deserialize_from_vector(input.as_ref()).unwrap()
+            let this = Self::deserialize_from_vector(input.as_ref()).unwrap();
+            // Not a real hash, just for testing purposes
+            assert_eq!(
+                this.checksum,
+                this.rand.iter().copied().map(u64::from).sum::<u64>(),
+                "Checksum mismatch"
+            );
+            this
         }
     }
 
@@ -109,18 +124,19 @@ mod tests {
         channel: PeerChannel<R>,
         count: usize,
     ) -> Result<(), NetworkError> {
-        let (tx, rx) = channel.split();
+        let (mut tx, rx) = channel.split();
         for idx in 0..count {
-            tx.send_message(MessageTransfer::create_secbuffer(idx as u64))
+            tx.send(MessageTransfer::create_secbuffer(idx as u64))
                 .await?;
         }
 
         let mut cur_idx = 0usize;
+        let cid = rx.vconn_type.get_session_cid();
 
         let mut rx = rx.take(count);
         while let Some(msg) = rx.next().await {
-            log::trace!(target: "citadel", "**~ Received message {} ~**", cur_idx);
             let msg = MessageTransfer::receive(msg);
+            log::trace!(target: "citadel", "**~ Client {cid} Received message {} (expected: {})~**", msg.idx, cur_idx);
             assert_eq!(msg.idx, cur_idx as u64);
             assert_eq!(msg.rand.len(), MESSAGE_LEN);
             cur_idx += 1;

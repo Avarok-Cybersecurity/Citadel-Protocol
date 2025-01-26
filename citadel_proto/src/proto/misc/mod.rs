@@ -41,7 +41,6 @@ pub mod dual_late_init;
 pub mod dual_rwlock;
 pub mod lock_holder;
 pub mod net;
-pub mod ordered_channel;
 pub mod panic_future;
 pub mod session_security_settings;
 pub mod udp_internal_interface;

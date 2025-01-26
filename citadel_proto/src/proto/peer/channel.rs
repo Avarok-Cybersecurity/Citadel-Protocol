@@ -25,10 +25,10 @@
 //!
 //! # let channel: PeerChannel<StackedRatchet> = todo!();
 //! // Split into send and receive halves
-//! let (send_half, recv_half) = channel.split();
+//! let (mut send_half, recv_half) = channel.split();
 //!
 //! // Send a message
-//! send_half.send_message("Hello, world!").await?;
+//! send_half.send("Hello, world!").await?;
 //!
 //! // Receive messages asynchronously
 //! while let Some(message) = recv_half.next().await {
@@ -165,7 +165,7 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
     }
 
     /// Sends a message through the channel
-    pub async fn send_message<T: Into<SecBuffer>>(&self, message: T) -> Result<(), NetworkError> {
+    pub async fn send<T: Into<SecBuffer>>(&mut self, message: T) -> Result<(), NetworkError> {
         let request = UserMessage {
             ticket: self.channel_id,
             packet: message.into(),
@@ -175,6 +175,7 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
 
         self.to_outbound_stream
             .send(request)
+            .await
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 

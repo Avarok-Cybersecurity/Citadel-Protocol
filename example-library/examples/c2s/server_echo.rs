@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cid = conn.cid;
         println!("New client connected! CID: {cid}");
 
-        let (tx, mut rx) = conn.split();
+        let (mut tx, mut rx) = conn.split();
         while let Some(msg) = rx.next().await {
             println!(
                 "Received message from client {cid}: {}",
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Echo the message back
-            if let Err(e) = tx.send_message(msg).await {
+            if let Err(e) = tx.send(msg).await {
                 println!("Error sending response: {}", e);
             }
         }

@@ -64,7 +64,6 @@ use crate::prelude::{InternalServerError, PreSharedKey, ReKeyResult, ReKeyReturn
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
-use crate::proto::misc::ordered_channel::OrderedChannel;
 use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
@@ -92,8 +91,11 @@ use crate::proto::{packet_crafter, send_with_error_logging};
 use crate::{ProtocolMessenger, ProtocolRatchetManager};
 use bytes::Bytes;
 use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use citadel_crypt::messaging::MessengerLayerOrderedMessage;
+use citadel_crypt::ordered_channel::OrderedChannel;
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::tokio::sync::mpsc::unbounded_channel;
 use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
 use citadel_io::{tokio, Mutex};
 use citadel_types::crypto::SecBuffer;
@@ -253,7 +255,8 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) ratchet_manager: ProtocolRatchetManager<R>,
     pub(crate) channel_signal: Option<NodeResult<R>>,
-    to_ordered_local_channel: OrderedChannel<RatchetMessage<UserMessage>>,
+    to_ordered_local_channel:
+        OrderedChannel<RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>>,
     // for UDP
     pub(crate) to_unordered_local_channel: Option<UnorderedChannelContainer>,
     pub(crate) file_transfer_compatible: bool,
@@ -661,12 +664,13 @@ impl<R: Ratchet> StateContainerInner<R> {
         &mut self,
         target_cid: u64,
         group_id: u64,
-        data: RatchetMessage<UserMessage>,
+        data: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
     ) -> Result<(), NetworkError> {
         let endpoint_container = self.get_endpoint_container_mut(target_cid)?;
         endpoint_container
             .to_ordered_local_channel
             .on_packet_received(group_id, data)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
@@ -786,15 +790,15 @@ impl<R: Ratchet> StateContainerInner<R> {
         sess: &CitadelSession<R>,
         file_transfer_compatible: bool,
     ) -> PeerChannel<R> {
-        let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) =
-            unbounded::<RatchetMessage<UserMessage>>();
+        let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
-            crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
+            crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS); // Put backpressure on requests
         let (rekey_tx, mut rekey_rx) = tokio::sync::mpsc::unbounded_channel::<R>();
         // Take messages from the ratchet manager , forward it to the dedicated outbound sender
         let task_outbound = async move {
             while let Some(ratchet_layer_message) = rx_from_ratchet_manager_to_outbound.recv().await
             {
+                // TODO: Streamline and just send the message here
                 if let Err(err) = tx_to_outbound
                     .send(SessionRequest::SendMessage(ratchet_layer_message))
                     .await
@@ -846,7 +850,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             .cloned()
             .expect("The PSK was not found!");
 
-        let (tx_to_ratchet_manager_inbound, rx_for_ratchet_manager) = unbounded();
+        let (tx_to_ratchet_manager_inbound, rx_for_ratchet_manager) = unbounded_channel();
 
         let ratchet_manager = ProtocolRatchetManager::new(
             Box::new(tx_ratchet_manager_to_outbound),
@@ -1890,7 +1894,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         let ratchet_manager = v_conn.ratchet_manager.clone();
         let task = async move {
-            if let Err(err) = ratchet_manager.trigger_rekey().await {
+            if let Err(err) = ratchet_manager.trigger_rekey(true).await {
                 if let Err(err) = to_kernel.unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
                     ticket,
                     status: ReKeyReturnType::Failure { err },

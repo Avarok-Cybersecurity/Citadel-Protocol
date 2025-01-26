@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Wait for peer connection
             let peer_conn = connection.recv().await.unwrap()?;
-            let (tx, mut rx) = peer_conn.channel.split();
+            let (mut tx, mut rx) = peer_conn.channel.split();
             let peer_remote = peer_conn.remote;
             println!("Connected to peer {:?}!", peer_remote.target_username());
 
@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::fs::read_to_string(&locally_downloaded_file).await?;
                 assert_eq!(file_contents, downloaded_file_contents);
                 // Alert the other side that the file has been successfully stored
-                tx.send_message(SecBuffer::from("success")).await?;
+                tx.send(SecBuffer::from("success")).await?;
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             } else {
                 let incoming_file_requests = remote.get_incoming_file_transfer_handle().unwrap();

@@ -64,12 +64,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         |connect_success| async move {
             println!("Connected to server! CID: {}", connect_success.cid);
             let remote = connect_success.remote.clone();
-            let (tx, mut rx) = connect_success.split();
+            let (mut tx, mut rx) = connect_success.split();
 
             let message = "Hello from client!";
             // Send initial message
             let msg = SecBuffer::from(message);
-            if let Err(e) = tx.send_message(msg).await {
+            if let Err(e) = tx.send(msg).await {
                 println!("Error sending message: {}", e);
                 return Err(e);
             }
