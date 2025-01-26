@@ -1,5 +1,58 @@
+/*!
+ * # Network Read-Write Lock
+ *
+ * A distributed read-write lock implementation that provides synchronized access to
+ * shared state across network endpoints. Similar to std::sync::RwLock, but operates
+ * over a network connection with support for multiple readers and exclusive writers.
+ *
+ * ## Features
+ * - Distributed read-write locking
+ * - Multiple concurrent readers
+ * - Exclusive writer access
+ * - Network-aware locking mechanism
+ * - Automatic lock release on drop
+ * - State synchronization between nodes
+ * - Lock type upgrades and downgrades
+ * - Background state management
+ *
+ * ## Usage Example
+ * ```rust
+ * use netbeam::sync::primitives::net_rwlock::NetRwLock;
+ * use netbeam::sync::subscription::Subscribable;
+ * use anyhow::Result;
+ *
+ * async fn example<S: Subscribable + 'static>(connection: &S) -> Result<()> {
+ *     // Create a network-aware RwLock
+ *     let rwlock = NetRwLock::create(connection, Some(0)).await?;
+ *
+ *     // Acquire read lock
+ *     let read_guard = rwlock.read().await?;
+ *     println!("Read value: {}", *read_guard);
+ *     drop(read_guard);
+ *
+ *     // Acquire write lock
+ *     let mut write_guard = rwlock.write().await?;
+ *     *write_guard = 42;
+ *
+ *     Ok(())
+ * }
+ * ```
+ *
+ * ## Important Notes
+ * - Lock acquisition is asynchronous
+ * - Multiple readers can access simultaneously
+ * - Writers have exclusive access
+ * - State is synchronized on write release
+ * - Uses multiplexed connections
+ * - Background handlers manage state
+ *
+ * ## Related Components
+ * - `net_mutex.rs`: Network-aware mutex
+ * - `subscription.rs`: Subscription system for network events
+ */
+
 use std::future::Future;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -9,8 +62,6 @@ use citadel_io::tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
 use crate::sync::primitives::net_mutex::{sync_establish_init, InnerChannel};
-use crate::sync::primitives::net_rwlock::read::{acquire_read, RwLockReadAcquirer};
-use crate::sync::primitives::net_rwlock::write::{acquire_write, RwLockWriteAcquirer};
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
 use crate::sync::subscription::SubscriptionBiStream;
@@ -23,6 +74,8 @@ type InnerState<T> = (T, Sender<()>);
 type OwnedLocalReadLock<T> = Arc<OwnedMutexGuard<InnerState<T>>>;
 type OwnedLocalWriteLock<T> = OwnedMutexGuard<InnerState<T>>;
 
+/// A distributed read-write lock implementation that provides synchronized access to
+/// shared state across network endpoints.
 pub struct NetRwLock<T: NetObject, S: Subscribable + 'static> {
     // Used to hold a lock when either local or remote is engaged. We use a Mutex here over an RwLock because
     // if local tries to read, then we get a mutex guard with an Arc wrapped around it to allow clonable read access.
@@ -36,10 +89,12 @@ pub struct NetRwLock<T: NetObject, S: Subscribable + 'static> {
 }
 
 impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
+    /// Returns the node type of the underlying channel.
     pub fn node_type(&self) -> RelativeNodeType {
         self.channel.node_type()
     }
 
+    /// Creates a new network rwlock with the given initial value.
     pub async fn new_internal(
         channel: InnerChannel<S>,
         initial_value: T,
@@ -79,24 +134,28 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         Ok(this)
     }
 
+    /// Creates a new network rwlock loader with the given connection and initial value.
     pub fn create(conn: &S, t: Option<T>) -> NetRwLockLoader<T, S> {
         NetRwLockLoader {
             future: Box::pin(sync_establish_init(conn, t, Self::new_internal)),
         }
     }
 
+    /// Acquires a read lock on the network rwlock.
     pub fn read(&self) -> RwLockReadAcquirer<T, S> {
         RwLockReadAcquirer {
             future: Box::pin(acquire_read(self)),
         }
     }
 
+    /// Acquires a write lock on the network rwlock.
     pub fn write(&self) -> RwLockWriteAcquirer<T, S> {
         RwLockWriteAcquirer {
             future: Box::pin(acquire_write(self)),
         }
     }
 
+    /// Returns the number of active local reads.
     pub fn active_local_reads(&self) -> usize {
         self.local_active_read_lock
             .read()
@@ -119,6 +178,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLock<T, S> {
     }
 }
 
+/// A network rwlock loader that creates a new network rwlock with the given connection and initial value.
 pub struct NetRwLockLoader<'a, T: NetObject, S: Subscribable + 'static> {
     future: ScopedFutureResult<'a, NetRwLock<T, S>>,
 }
@@ -131,157 +191,74 @@ impl<T: NetObject, S: Subscribable + 'static> Future for NetRwLockLoader<'_, T, 
     }
 }
 
-pub(crate) mod read {
-    use std::ops::Deref;
-    use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll};
+/// A read acquirer that acquires a read lock on the network rwlock.
+pub struct RwLockReadAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
+    pub(crate) future: ScopedFutureResult<'a, NetRwLockReadGuard<T, S>>,
+}
 
-    use crate::ScopedFutureResult;
-    use futures::Future;
+/// A read guard that provides read access to the network rwlock.
+pub struct NetRwLockReadGuard<T: NetObject + 'static, S: Subscribable + 'static> {
+    inner: Option<LocalLockHolder<T>>,
+    conn: Arc<InnerChannel<S>>,
+    shared_store: Arc<citadel_io::RwLock<Option<OwnedLocalReadLock<T>>>>,
+}
 
-    use crate::sync::primitives::net_mutex::InnerChannel;
-    use crate::sync::primitives::net_rwlock::drop::NetRwLockEitherGuardDropCode;
-    use crate::sync::primitives::net_rwlock::{
-        acquire_lock, LocalLockHolder, LockType, NetRwLock, OwnedLocalReadLock,
-    };
-    use crate::sync::primitives::NetObject;
-    use crate::sync::subscription::Subscribable;
-    use crate::sync::subscription::SubscriptionBiStream;
+impl<T: NetObject, S: Subscribable + 'static> Future for RwLockReadAcquirer<'_, T, S> {
+    type Output = Result<NetRwLockReadGuard<T, S>, anyhow::Error>;
 
-    pub struct RwLockReadAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-        pub(crate) future: ScopedFutureResult<'a, NetRwLockReadGuard<T, S>>,
-    }
-
-    pub struct NetRwLockReadGuard<T: NetObject + 'static, S: Subscribable + 'static> {
-        inner: Option<LocalLockHolder<T>>,
-        conn: Arc<InnerChannel<S>>,
-        shared_store: Arc<citadel_io::RwLock<Option<OwnedLocalReadLock<T>>>>,
-    }
-
-    impl<T: NetObject, S: Subscribable + 'static> Future for RwLockReadAcquirer<'_, T, S> {
-        type Output = Result<NetRwLockReadGuard<T, S>, anyhow::Error>;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            self.future.as_mut().poll(cx)
-        }
-    }
-
-    pub(super) async fn acquire_read<T: NetObject + 'static, S: Subscribable + 'static>(
-        rwlock: &NetRwLock<T, S>,
-    ) -> Result<NetRwLockReadGuard<T, S>, anyhow::Error> {
-        log::trace!(target: "citadel", "Running acquire_read for {:?}", rwlock.channel.node_type());
-        {
-            let pre_loaded = rwlock.local_active_read_lock.read();
-            log::trace!(target: "citadel", "Running acquire_read for {:?} | pre_loaded ? {}", rwlock.channel.node_type(), pre_loaded.is_some());
-            // if there is more than one strong reference, we can return early
-            if pre_loaded
-                .as_ref()
-                .map(|r| Arc::strong_count(r) > 1)
-                .unwrap_or(false)
-            {
-                return Ok(NetRwLockReadGuard {
-                    inner: Some(LocalLockHolder::Read(pre_loaded.clone(), false)),
-                    conn: rwlock.channel.clone(),
-                    shared_store: rwlock.local_active_read_lock.clone(),
-                });
-            }
-        }
-
-        // no read locks exist currently. Acquire a local shared read lock
-        acquire_lock(LockType::Read, rwlock, |inner| NetRwLockReadGuard {
-            inner: Some(inner),
-            conn: rwlock.channel.clone(),
-            shared_store: rwlock.local_active_read_lock.clone(),
-        })
-        .await
-    }
-
-    impl<T: NetObject, S: Subscribable> Deref for NetRwLockReadGuard<T, S> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            self.inner.as_ref().unwrap().deref()
-        }
-    }
-
-    impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLockReadGuard<T, S> {
-        fn drop(&mut self) {
-            let this = self.inner.take().unwrap();
-            // if there are two left, then this is the final rwlock active for the user. The other one is the lock stored inside the rwlock
-            if this.arc_strong_count().unwrap() == 2 {
-                log::trace!(target: "citadel", "CALLING read drop code on {:?}", self.conn.node_type());
-                // immediately remove the shared store to prevent further acquires
-                *self.shared_store.write() = None; // 1 arc left (this)
-
-                if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
-                    let future = NetRwLockEitherGuardDropCode::new::<T, S>(self.conn.clone(), this);
-                    rt.spawn(future);
-                }
-            }
-        }
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.future.as_mut().poll(cx)
     }
 }
 
-pub(crate) mod write {
-    use std::ops::{Deref, DerefMut};
-    use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll};
-
-    use crate::ScopedFutureResult;
-    use futures::Future;
-
-    use crate::sync::primitives::net_mutex::InnerChannel;
-    use crate::sync::primitives::net_rwlock::drop::NetRwLockEitherGuardDropCode;
-    use crate::sync::primitives::net_rwlock::{acquire_lock, LocalLockHolder, LockType, NetRwLock};
-    use crate::sync::primitives::NetObject;
-    use crate::sync::subscription::Subscribable;
-
-    pub struct RwLockWriteAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
-        pub(crate) future: ScopedFutureResult<'a, NetRwLockWriteGuard<T, S>>,
-    }
-
-    pub struct NetRwLockWriteGuard<T: NetObject + 'static, S: Subscribable + 'static> {
-        inner: Option<LocalLockHolder<T>>,
-        conn: Arc<InnerChannel<S>>,
-    }
-
-    impl<T: NetObject, S: Subscribable> Future for RwLockWriteAcquirer<'_, T, S> {
-        type Output = Result<NetRwLockWriteGuard<T, S>, anyhow::Error>;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            self.future.as_mut().poll(cx)
+/// Acquires a read lock on the network rwlock.
+pub(super) async fn acquire_read<T: NetObject + 'static, S: Subscribable + 'static>(
+    rwlock: &NetRwLock<T, S>,
+) -> Result<NetRwLockReadGuard<T, S>, anyhow::Error> {
+    log::trace!(target: "citadel", "Running acquire_read for {:?}", rwlock.channel.node_type());
+    {
+        let pre_loaded = rwlock.local_active_read_lock.read();
+        log::trace!(target: "citadel", "Running acquire_read for {:?} | pre_loaded ? {}", rwlock.channel.node_type(), pre_loaded.is_some());
+        // if there is more than one strong reference, we can return early
+        if pre_loaded
+            .as_ref()
+            .map(|r| Arc::strong_count(r) > 1)
+            .unwrap_or(false)
+        {
+            return Ok(NetRwLockReadGuard {
+                inner: Some(LocalLockHolder::Read(pre_loaded.clone(), false)),
+                conn: rwlock.channel.clone(),
+                shared_store: rwlock.local_active_read_lock.clone(),
+            });
         }
     }
 
-    pub(super) async fn acquire_write<T: NetObject + 'static, S: Subscribable + 'static>(
-        rwlock: &NetRwLock<T, S>,
-    ) -> Result<NetRwLockWriteGuard<T, S>, anyhow::Error> {
-        acquire_lock(LockType::Write, rwlock, |inner| NetRwLockWriteGuard {
-            inner: Some(inner),
-            conn: rwlock.channel.clone(),
-        })
-        .await
+    // no read locks exist currently. Acquire a local shared read lock
+    acquire_lock(LockType::Read, rwlock, |inner| NetRwLockReadGuard {
+        inner: Some(inner),
+        conn: rwlock.channel.clone(),
+        shared_store: rwlock.local_active_read_lock.clone(),
+    })
+    .await
+}
+
+impl<T: NetObject, S: Subscribable> Deref for NetRwLockReadGuard<T, S> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref().unwrap().deref()
     }
+}
 
-    impl<T: NetObject, S: Subscribable> Deref for NetRwLockWriteGuard<T, S> {
-        type Target = T;
+impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLockReadGuard<T, S> {
+    fn drop(&mut self) {
+        let this = self.inner.take().unwrap();
+        // if there are two left, then this is the final rwlock active for the user. The other one is the lock stored inside the rwlock
+        if this.arc_strong_count().unwrap() == 2 {
+            log::trace!(target: "citadel", "CALLING read drop code on {:?}", self.conn.node_type());
+            // immediately remove the shared store to prevent further acquires
+            *self.shared_store.write() = None; // 1 arc left (this)
 
-        fn deref(&self) -> &Self::Target {
-            self.inner.as_ref().unwrap()
-        }
-    }
-
-    impl<T: NetObject, S: Subscribable> DerefMut for NetRwLockWriteGuard<T, S> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.inner.as_mut().unwrap().assert_write_mut().0
-        }
-    }
-
-    impl<T: NetObject + 'static, S: Subscribable + 'static> Drop for NetRwLockWriteGuard<T, S> {
-        fn drop(&mut self) {
-            let this = self.inner.take().unwrap();
             if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
                 let future = NetRwLockEitherGuardDropCode::new::<T, S>(self.conn.clone(), this);
                 rt.spawn(future);
@@ -290,124 +267,160 @@ pub(crate) mod write {
     }
 }
 
-mod drop {
-    use crate::reliable_conn::ReliableOrderedStreamToTargetExt;
-    use crate::sync::primitives::net_rwlock::LocalLockHolder;
-    use crate::sync::primitives::net_rwlock::{yield_lock, InnerChannel, LockType, UpdatePacket};
-    use crate::sync::primitives::NetObject;
-    use crate::sync::subscription::Subscribable;
-    use crate::sync::subscription::SubscriptionBiStream;
-    use std::future::Future;
-    use std::ops::Deref;
-    use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll};
+/// A write acquirer that acquires a write lock on the network rwlock.
+pub struct RwLockWriteAcquirer<'a, T: NetObject + 'static, S: Subscribable + 'static> {
+    pub(crate) future: ScopedFutureResult<'a, NetRwLockWriteGuard<T, S>>,
+}
 
-    /// Releases the lock with the adjacent endpoint, updating the value too for the adjacent node if a write lock was dropped
-    /// This should only be called for the final guard type
-    pub(super) struct NetRwLockEitherGuardDropCode {
-        future: Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send>>,
+/// A write guard that provides write access to the network rwlock.
+pub struct NetRwLockWriteGuard<T: NetObject + 'static, S: Subscribable + 'static> {
+    inner: Option<LocalLockHolder<T>>,
+    conn: Arc<InnerChannel<S>>,
+}
+
+impl<T: NetObject, S: Subscribable> Future for RwLockWriteAcquirer<'_, T, S> {
+    type Output = Result<NetRwLockWriteGuard<T, S>, anyhow::Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.future.as_mut().poll(cx)
     }
+}
 
-    impl NetRwLockEitherGuardDropCode {
-        pub(super) fn new<T: NetObject + 'static, S: Subscribable + 'static>(
-            conn: Arc<InnerChannel<S>>,
-            guard: LocalLockHolder<T>,
-        ) -> Self {
-            Self {
-                future: Box::pin(net_rwlock_guard_drop_code::<T, S>(conn, guard)),
-            }
+/// Acquires a write lock on the network rwlock.
+pub(super) async fn acquire_write<T: NetObject + 'static, S: Subscribable + 'static>(
+    rwlock: &NetRwLock<T, S>,
+) -> Result<NetRwLockWriteGuard<T, S>, anyhow::Error> {
+    acquire_lock(LockType::Write, rwlock, |inner| NetRwLockWriteGuard {
+        inner: Some(inner),
+        conn: rwlock.channel.clone(),
+    })
+    .await
+}
+
+impl<T: NetObject, S: Subscribable> Deref for NetRwLockWriteGuard<T, S> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref().unwrap()
+    }
+}
+
+impl<T: NetObject, S: Subscribable> DerefMut for NetRwLockWriteGuard<T, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner.as_mut().unwrap().assert_write_mut().0
+    }
+}
+
+impl<T: NetObject + 'static, S: Subscribable + 'static> Drop for NetRwLockWriteGuard<T, S> {
+    fn drop(&mut self) {
+        let this = self.inner.take().unwrap();
+        if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
+            let future = NetRwLockEitherGuardDropCode::new::<T, S>(self.conn.clone(), this);
+            rt.spawn(future);
         }
     }
+}
 
-    impl Future for NetRwLockEitherGuardDropCode {
-        type Output = Result<(), anyhow::Error>;
+/// A drop code that releases the lock with the adjacent endpoint, updating the value too for the adjacent node if a write lock was dropped.
+pub(super) struct NetRwLockEitherGuardDropCode {
+    future: Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send>>,
+}
 
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            self.future.as_mut().poll(cx)
-        }
-    }
-
-    async fn net_rwlock_guard_drop_code<T: NetObject, S: Subscribable + 'static>(
+impl NetRwLockEitherGuardDropCode {
+    pub(super) fn new<T: NetObject + 'static, S: Subscribable + 'static>(
         conn: Arc<InnerChannel<S>>,
-        lock: LocalLockHolder<T>,
-    ) -> Result<(), anyhow::Error> {
-        log::trace!(target: "citadel", "[NetRwLock] Drop code initialized for {:?}...", conn.node_type());
-        match &lock {
-            LocalLockHolder::Read(..) => {
-                conn.send_serialized(UpdatePacket::ReleasedRead).await?;
-            }
+        guard: LocalLockHolder<T>,
+    ) -> Self {
+        Self {
+            future: Box::pin(net_rwlock_guard_drop_code::<T, S>(conn, guard)),
+        }
+    }
+}
 
-            LocalLockHolder::Write(_guard, ..) => {
-                conn.send_serialized(UpdatePacket::ReleasedWrite(bincode::serialize(
-                    &lock.deref(),
-                )?))
-                .await?;
-            }
+impl Future for NetRwLockEitherGuardDropCode {
+    type Output = Result<(), anyhow::Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.future.as_mut().poll(cx)
+    }
+}
+
+/// Releases the lock with the adjacent endpoint, updating the value too for the adjacent node if a write lock was dropped.
+async fn net_rwlock_guard_drop_code<T: NetObject, S: Subscribable + 'static>(
+    conn: Arc<InnerChannel<S>>,
+    lock: LocalLockHolder<T>,
+) -> Result<(), anyhow::Error> {
+    log::trace!(target: "citadel", "[NetRwLock] Drop code initialized for {:?}...", conn.node_type());
+    match &lock {
+        LocalLockHolder::Read(..) => {
+            conn.send_serialized(UpdatePacket::ReleasedRead).await?;
         }
 
-        let mut adjacent_trying_to_acquire = None;
+        LocalLockHolder::Write(_guard, ..) => {
+            conn.send_serialized(UpdatePacket::ReleasedWrite(bincode::serialize(
+                &lock.deref(),
+            )?))
+            .await?;
+        }
+    }
 
-        loop {
-            let packet = conn.recv_serialized::<UpdatePacket>().await?;
-            log::trace!(target: "citadel", "[NetRwLock] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
+    let mut adjacent_trying_to_acquire = None;
 
-            match packet {
-                UpdatePacket::ReleasedWrite(_new_value) => {
-                    //unreachable!("Adjacent signalled a release of the write lock, yet, local has not yet dropped read/write")
+    loop {
+        let packet = conn.recv_serialized::<UpdatePacket>().await?;
+        log::trace!(target: "citadel", "[NetRwLock] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
+
+        match packet {
+            UpdatePacket::ReleasedWrite(_new_value) => {
+                //unreachable!("Adjacent signalled a release of the write lock, yet, local has not yet dropped read/write")
+            }
+
+            UpdatePacket::ReleasedRead => {
+                if let LocalLockHolder::Read(..) = &lock {
+                    log::trace!(target: "citadel", "Yield:: Releasing Read lock");
+                    conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
+                        .await?;
+                }
+            }
+
+            UpdatePacket::ReleasedVerified(_lock_type) => {
+                log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
+
+                if let Some(_lock_type) = adjacent_trying_to_acquire {
+                    log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Will not yet drop though, since remote requested lock access since dropping ...");
+                    // all we have to do is hold the lock here. The underlying lock uses a mutex, so we are safe from parallel/concurrent local calls until after the yield is complete
+                    log::trace!(target: "citadel", "[KTX] {:?} yield_lock", conn.node_type());
+                    return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
                 }
 
-                UpdatePacket::ReleasedRead => {
-                    if let LocalLockHolder::Read(..) = &lock {
-                        log::trace!(target: "citadel", "Yield:: Releasing Read lock");
-                        conn.send_serialized(UpdatePacket::ReleasedVerified(LockType::Read))
-                            .await?;
-                    }
-                }
+                return Ok(());
+            }
 
-                UpdatePacket::ReleasedVerified(_lock_type) => {
-                    log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
+            UpdatePacket::TryAcquire(_, lock_type) => {
+                adjacent_trying_to_acquire = Some(lock_type);
+                // once the release is confirmed, we will yield the lock back to remote
+                // However, if we are trying to drop a read locally, and they are trying to acquire a read, we can yield a read
+                // no need to yield a lock either since local will need to ask again
+            }
 
-                    if let Some(_lock_type) = adjacent_trying_to_acquire {
-                        log::trace!(target: "citadel", "[NetRwLock] [Drop Code] Will not yet drop though, since remote requested lock access since dropping ...");
-                        // all we have to do is hold the lock here. The underlying lock uses a mutex, so we are safe from parallel/concurrent local calls until after the yield is complete
-                        log::trace!(target: "citadel", "[KTX] {:?} yield_lock", conn.node_type());
-                        return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
-                    }
+            UpdatePacket::Halt => return Err(anyhow::Error::msg("Halted from background")),
 
-                    return Ok(());
-                }
-
-                UpdatePacket::TryAcquire(_, lock_type) => {
-                    adjacent_trying_to_acquire = Some(lock_type);
-                    // once the release is confirmed, we will yield the lock back to remote
-                    // However, if we are trying to drop a read locally, and they are trying to acquire a read, we can yield a read
-                    // no need to yield a lock either since local will need to ask again
-                }
-
-                _ => {}
+            UpdatePacket::LockAcquired(_) => {
+                // this is received after sending the Released packet. We do nothing here
             }
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-enum UpdatePacket {
-    TryAcquire(i64, LockType),
-    ReleasedWrite(Vec<u8>),
-    ReleasedRead,
-    LockAcquired(LockType),
-    Halt,
-    ReleasedVerified(LockType),
-}
-
+/// A lock type that represents either a read or write lock.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 enum LockType {
     Read,
     Write,
 }
 
-enum LocalLockHolder<T> {
+/// A local lock holder that represents either a read or write lock.
+pub(super) enum LocalLockHolder<T> {
     Write(Option<OwnedLocalWriteLock<T>>, bool),
     Read(Option<OwnedLocalReadLock<T>>, bool),
 }
@@ -424,19 +437,14 @@ impl<T> Deref for LocalLockHolder<T> {
 }
 
 impl<T> LocalLockHolder<T> {
+    /// Returns whether the lock holder is from the background.
     fn is_from_background(&self) -> bool {
         match self {
             Self::Write(_, from_bg) | Self::Read(_, from_bg) => *from_bg,
         }
     }
 
-    fn free_lock_and_get_sender(&mut self) -> Sender<()> {
-        match self {
-            Self::Read(r, _) => r.take().unwrap().1.clone(),
-            Self::Write(w, _) => w.take().unwrap().1.clone(),
-        }
-    }
-
+    /// Returns the lock type of the lock holder.
     fn lock_type(&self) -> LockType {
         match self {
             Self::Write(..) => LockType::Write,
@@ -444,20 +452,35 @@ impl<T> LocalLockHolder<T> {
         }
     }
 
-    fn assert_write_and_downgrade(&mut self) {
+    /// Returns the sender of the lock holder.
+    fn free_lock_and_get_sender(&mut self) -> Sender<()> {
         match self {
-            Self::Write(val, from_bg) => {
-                let new = LocalLockHolder::Read(val.take().map(Arc::new), *from_bg);
-                *from_bg = true; // stop destructor from being called
-                *self = new;
-            }
+            Self::Read(r, _) => r.take().unwrap().1.clone(),
+            Self::Write(w, _) => w.take().unwrap().1.clone(),
+        }
+    }
 
-            Self::Read(..) => {
-                panic!("Asserted write, but was read")
+    /// Asserts that the lock holder is a write lock and returns a mutable reference to the write lock.
+    fn assert_write_mut(&mut self) -> &mut OwnedLocalWriteLock<T> {
+        match self {
+            Self::Write(val, ..) => val.as_mut().unwrap(),
+            _ => {
+                panic!("Asserted write lock, but was a read lock");
             }
         }
     }
 
+    /// Asserts that the lock holder is a read lock and returns a reference to the read lock.
+    fn assert_read(&self) -> &OwnedLocalReadLock<T> {
+        match self {
+            Self::Read(val, ..) => val.as_ref().unwrap(),
+            _ => {
+                panic!("Asserted write lock, but was a read lock");
+            }
+        }
+    }
+
+    /// Upgrades the lock holder to a write lock.
     fn assert_read_and_upgrade(&mut self) {
         match self {
             Self::Read(val, from_bg) => {
@@ -475,28 +498,26 @@ impl<T> LocalLockHolder<T> {
         }
     }
 
+    /// Downgrades the lock holder to a read lock.
+    fn assert_write_and_downgrade(&mut self) {
+        match self {
+            Self::Write(val, from_bg) => {
+                let new = LocalLockHolder::Read(val.take().map(Arc::new), *from_bg);
+                *from_bg = true; // stop destructor from being called
+                *self = new;
+            }
+
+            Self::Read(..) => {
+                panic!("Asserted write, but was read")
+            }
+        }
+    }
+
+    /// Returns the strong count of the lock holder.
     fn arc_strong_count(&self) -> Option<usize> {
         match self {
             Self::Read(val, ..) => Some(Arc::strong_count(val.as_ref().unwrap())),
             Self::Write(..) => None,
-        }
-    }
-
-    fn assert_write_mut(&mut self) -> &mut OwnedLocalWriteLock<T> {
-        match self {
-            Self::Write(val, ..) => val.as_mut().unwrap(),
-            _ => {
-                panic!("Asserted write lock, but was a read lock");
-            }
-        }
-    }
-
-    fn assert_read(&self) -> &OwnedLocalReadLock<T> {
-        match self {
-            Self::Read(val, ..) => val.as_ref().unwrap(),
-            _ => {
-                panic!("Asserted write lock, but was a read lock");
-            }
         }
     }
 }
@@ -516,7 +537,7 @@ impl<T> Drop for LocalLockHolder<T> {
     }
 }
 
-// the local lock will be dropped after this function, allowing local calls to acquire the lock once again
+/// Yields the lock to the adjacent endpoint.
 async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
     channel: &Arc<InnerChannel<S>>,
     mut lock: LocalLockHolder<T>,
@@ -581,7 +602,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
     }
 }
 
-/// - background_to_active_tx: only gets sent if the other end is listening
+/// A passive background handler that manages the state of the network rwlock.
 async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
     channel: Arc<InnerChannel<S>>,
     shared_state: Arc<Mutex<InnerState<T>>>,
@@ -664,6 +685,7 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
     }
 }
 
+/// Acquires a lock on the network rwlock.
 async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(
     lock_type: LockType,
     rwlock: &NetRwLock<T, S>,
@@ -837,6 +859,16 @@ where
             }
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+enum UpdatePacket {
+    TryAcquire(i64, LockType),
+    ReleasedWrite(Vec<u8>),
+    ReleasedRead,
+    LockAcquired(LockType),
+    Halt,
+    ReleasedVerified(LockType),
 }
 
 #[cfg(test)]

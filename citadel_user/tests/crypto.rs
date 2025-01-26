@@ -1,10 +1,10 @@
 #[cfg(test)]
 #[cfg(feature = "jwt-testing")]
 mod tests {
-    use citadel_crypt::stacked_ratchet::constructor::{
+    use citadel_crypt::ratchets::stacked::ratchet::constructor::{
         BobToAliceTransferType, StackedRatchetConstructor,
     };
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::ratchets::stacked::ratchet::StackedRatchet;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use std::collections::HashMap;
 

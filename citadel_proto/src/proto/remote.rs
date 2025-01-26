@@ -1,28 +1,80 @@
+//! # Citadel Protocol Remote Communication
+//!
+//! This module implements remote communication functionality for the Citadel Protocol.
+//! It provides a high-level interface for nodes to communicate with each other and
+//! with the server in a secure and efficient manner.
+//!
+//! ## Features
+//!
+//! - **Asynchronous Communication**: Non-blocking request/response patterns
+//! - **Ticket Management**: Unique identifiers for tracking requests and responses
+//! - **Callback Support**: Subscription-based callbacks for event handling
+//! - **Error Handling**: Comprehensive error handling for network operations
+//! - **Account Management**: Integration with account management system
+//!
+//! ## Components
+//!
+//! - **NodeRemote**: Main interface for node communication
+//! - **Remote Trait**: Core functionality definition
+//! - **Ticket System**: Request tracking and correlation
+//!
+//! ## Security
+//!
+//! All communication is secured using:
+//! - Post-quantum cryptography
+//! - Secure ticket generation
+//! - Protected channel establishment
+//!
+//! ## Usage Example
+//!
+//! ```no_run
+//! use citadel_proto::prelude::*;
+//! # async fn test() -> Result<(), NetworkError> {
+//! # fn get_request() -> NodeRequest { todo!() }
+//! # let remote: NodeRemote<StackedRatchet> = todo!();
+//!
+//! // Create a request
+//! let request = get_request();
+//!
+//! // Send request and get ticket
+//! let ticket = remote.send(request).await?;
+//!
+//! let request_expects_multiple_responses = get_request();
+//!
+//! // Or use callback subscription
+//! let subscription = remote.send_callback_subscription(request_expects_multiple_responses).await?;
+//! # Ok(())
+//! # }
+//! ```
+
 use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::{
     CallbackKey, KernelAsyncCallbackHandler, KernelStreamSubscription,
 };
 use crate::prelude::NodeRequest;
-use crate::proto::node::HdpServerRemoteInner;
+use crate::proto::node::CitadelNodeRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
 use bytemuck::NoUninit;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::error::TrySendError;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// allows convenient communication with the server
 #[derive(Clone)]
-pub struct NodeRemote {
+pub struct NodeRemote<R: Ratchet> {
     outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
-    inner: Arc<HdpServerRemoteInner>,
+    inner: Arc<CitadelNodeRemoteInner<R>>,
 }
 
 #[async_trait::async_trait]
 #[auto_impl::auto_impl(Box, &mut, &, Arc)]
-pub trait Remote: Clone + Send {
+pub trait Remote<R: Ratchet>: Clone + Send {
+    /// Sends a request to the server and returns a ticket for tracking the response.
     async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_with_custom_ticket(ticket, request)
@@ -30,21 +82,28 @@ pub trait Remote: Clone + Send {
             .map(|_| ticket)
     }
 
+    /// Sends a request to the server with a custom ticket.
     async fn send_with_custom_ticket(
         &self,
         ticket: Ticket,
         request: NodeRequest,
     ) -> Result<(), NetworkError>;
+
+    /// Sends a request to the server and returns a subscription for callback events.
     async fn send_callback_subscription(
         &self,
         request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError>;
-    fn account_manager(&self) -> &AccountManager;
+    ) -> Result<KernelStreamSubscription<R>, NetworkError>;
+
+    /// Returns the account manager instance.
+    fn account_manager(&self) -> &AccountManager<R, R>;
+
+    /// Returns the next available ticket.
     fn get_next_ticket(&self) -> Ticket;
 }
 
 #[async_trait::async_trait]
-impl Remote for NodeRemote {
+impl<R: Ratchet> Remote<R> for NodeRemote<R> {
     async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         NodeRemote::send(self, request).await
     }
@@ -60,11 +119,11 @@ impl Remote for NodeRemote {
     async fn send_callback_subscription(
         &self,
         request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         NodeRemote::send_callback_subscription(self, request).await
     }
 
-    fn account_manager(&self) -> &AccountManager {
+    fn account_manager(&self) -> &AccountManager<R, R> {
         NodeRemote::account_manager(self)
     }
 
@@ -73,24 +132,24 @@ impl Remote for NodeRemote {
     }
 }
 
-impl Debug for NodeRemote {
+impl<R: Ratchet> Debug for NodeRemote<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HdpServerRemote")
+        write!(f, "CitadelNodeRemote")
     }
 }
 
-impl NodeRemote {
-    /// Creates a new [`NodeRemote`]
+impl<R: Ratchet> NodeRemote<R> {
+    /// Creates a new [`NodeRemote`] instance.
     pub(crate) fn new(
         outbound_send_request_tx: BoundedSender<(NodeRequest, Ticket)>,
-        callback_handler: KernelAsyncCallbackHandler,
-        account_manager: AccountManager,
+        callback_handler: KernelAsyncCallbackHandler<R>,
+        account_manager: AccountManager<R, R>,
         node_type: NodeType,
     ) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self {
             outbound_send_request_tx,
-            inner: Arc::new(HdpServerRemoteInner {
+            inner: Arc::new(CitadelNodeRemoteInner {
                 callback_handler,
                 account_manager,
                 node_type,
@@ -98,7 +157,7 @@ impl NodeRemote {
         }
     }
 
-    /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
+    /// Sends a request to the server with a custom ticket.
     pub async fn send_with_custom_ticket(
         &self,
         ticket: Ticket,
@@ -116,8 +175,7 @@ impl NodeRemote {
             })
     }
 
-    /// Sends a request to the HDP server. This should always be used to communicate with the server
-    /// in order to obtain a ticket
+    /// Sends a request to the server and returns a ticket for tracking the response.
     pub async fn send(&self, request: NodeRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_with_custom_ticket(ticket, request)
@@ -130,10 +188,10 @@ impl NodeRemote {
         &self,
         request: NodeRequest,
         ticket: Ticket,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         let callback_key = CallbackKey {
             ticket,
-            implicated_cid: request.implicated_cid(),
+            session_cid: request.session_cid(),
         };
 
         let rx = self.inner.callback_handler.register_stream(callback_key)?;
@@ -152,7 +210,7 @@ impl NodeRemote {
     pub async fn send_callback_subscription(
         &self,
         request: NodeRequest,
-    ) -> Result<KernelStreamSubscription, NetworkError> {
+    ) -> Result<KernelStreamSubscription<R>, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_callback_subscription_custom_ticket(request, ticket)
             .await
@@ -192,12 +250,12 @@ impl NodeRemote {
         &self.inner.node_type
     }
 
-    pub fn account_manager(&self) -> &AccountManager {
+    pub fn account_manager(&self) -> &AccountManager<R, R> {
         &self.inner.account_manager
     }
 }
 
-impl Unpin for NodeRemote {}
+impl<R: Ratchet> Unpin for NodeRemote<R> {}
 
 /// A type sent through the server when a request is made
 #[derive(
@@ -215,6 +273,12 @@ impl From<u128> for Ticket {
 impl From<usize> for Ticket {
     fn from(val: usize) -> Self {
         (val as u128).into()
+    }
+}
+
+impl Default for Ticket {
+    fn default() -> Self {
+        Self::from(Uuid::new_v4().as_u128())
     }
 }
 

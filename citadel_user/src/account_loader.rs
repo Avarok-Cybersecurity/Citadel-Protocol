@@ -1,9 +1,58 @@
-use crate::client_account::ClientNetworkAccountInner;
+//! Account Loading and File Management
+//!
+//! This module provides functionality for loading and managing serialized client network accounts (CNACs)
+//! and other file-based data structures in the Citadel network.
+//!
+//! # Features
+//!
+//! * Load client network accounts from filesystem
+//! * Support for both personal and impersonal accounts
+//! * Generic file type loading by extension
+//! * Efficient deserialization of stored data
+//! * Error handling for IO and deserialization operations
+//!
+//! # Example
+//!
+//! ```rust, no_run
+//! use citadel_user::account_loader;
+//! use citadel_user::directory_store::DirectoryStore;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//!
+//! # fn get_store() -> DirectoryStore { todo!() }
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create a directory store for account management
+//! let store = get_store();
+//!
+//! // Load all client network accounts
+//! let accounts = account_loader::load_cnac_files::<StackedRatchet, StackedRatchet>(&store)?;
+//!
+//! // Process loaded accounts
+//! for (cid, account) in accounts {
+//!     println!("Loaded account with CID: {}", cid);
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//!
+//! * Account loading is performed non-recursively within specified directories
+//! * Failed deserialization attempts are logged but do not halt the loading process
+//! * Both personal and impersonal accounts are loaded and merged into a single collection
+//! * File operations use buffered I/O for efficiency
+//!
+//! # Related Components
+//!
+//! * [`DirectoryStore`] - Manages filesystem paths for account storage
+//! * [`ClientNetworkAccount`] - The primary account structure being loaded
+//! * [`AccountError`] - Error handling for account operations
+//! * [`Ratchet`] - Cryptographic operations for account security
+
 use crate::directory_store::*;
 use crate::hypernode_account::CNAC_SERIALIZED_EXTENSION;
 use crate::misc::AccountError;
 use crate::prelude::ClientNetworkAccount;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use std::collections::HashMap;
 
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac in case improper shutdown)
@@ -14,11 +63,11 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
     let hyxe_nac_dir_impersonal = ds.nac_dir_impersonal.as_str();
     let hyxe_nac_dir_personal = ds.nac_dir_personal.as_str();
 
-    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(
+    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccount<R, Fcm>, _>(
         CNAC_SERIALIZED_EXTENSION,
         hyxe_nac_dir_impersonal,
     )?;
-    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(
+    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccount<R, Fcm>, _>(
         CNAC_SERIALIZED_EXTENSION,
         hyxe_nac_dir_personal,
     )?;
@@ -27,9 +76,9 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(
     Ok(cnacs_impersonal
         .into_iter()
         .chain(cnacs_personal)
-        .map(|r| {
-            let cid = r.0.cid;
-            (cid, r.0.into())
+        .map(|(cnac, _path)| {
+            let cid = cnac.get_cid();
+            (cid, cnac)
         })
         .collect())
 }

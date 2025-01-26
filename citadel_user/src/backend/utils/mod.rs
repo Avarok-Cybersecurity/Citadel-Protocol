@@ -1,3 +1,43 @@
+//! Backend Object Transfer Utilities
+//!
+//! This module provides utilities for handling object transfers between peers in the
+//! Citadel network, managing both sending and receiving operations asynchronously.
+//!
+//! # Features
+//!
+//! * **Transfer Management**
+//!   - Bidirectional file transfers
+//!   - Progress tracking
+//!   - Transfer status updates
+//!   - Stream-based operations
+//!
+//! * **Control Flow**
+//!   - Transfer acceptance/rejection
+//!   - Stream exhaustion
+//!   - Error handling
+//!   - Resource cleanup
+//!
+//! * **Async Support**
+//!   - Non-blocking operations
+//!   - Channel-based communication
+//!   - Task coordination
+//!   - Resource management
+//!
+//! # Important Notes
+//!
+//! * Transfer handlers must be properly closed
+//! * Receivers must explicitly accept transfers
+//! * Progress updates are streamed asynchronously
+//! * Resource cleanup is automatic on drop
+//! * Transfer orientation determines available operations
+//!
+//! # Related Components
+//!
+//! * `BackendConnection` - Uses transfer utilities
+//! * `VirtualObjectMetadata` - Transfer metadata
+//! * `ObjectTransferStatus` - Progress updates
+//! * `AccountManager` - Initiates transfers
+
 use futures::Stream;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;

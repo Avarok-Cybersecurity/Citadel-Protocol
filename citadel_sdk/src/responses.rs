@@ -1,18 +1,57 @@
-//! A list of helpers making the response phase simple and intuitive
+//! Protocol Response Helpers
 //!
-//! Generally, when making a response, the response must be sent outbound through
-//! the [NodeRemote](crate::prelude::NodeRemote) with a custom ticket equivalent to the ticket receieved by
-//! the external request in order for the peer to listen for a response. Additionally,
-//! [PeerConnectionType](crate::prelude::PeerConnectionType) data must be `.reverse()`'d. Finally, some response types
-//! require the manual input of usernames, and as such, this helper library enforces
-//! all these requirements
+//! This module provides helper functions for handling responses to various protocol
+//! operations in the Citadel Protocol. It simplifies the process of sending responses
+//! to peer registration, connection, and group invitation requests.
+//!
+//! # Features
+//! - Peer registration response handling
+//! - Peer connection response management
+//! - Group invitation response processing
+//! - Automatic ticket management
+//! - Connection type reversal handling
+//! - Username resolution and validation
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::responses;
+//!
+//! async fn handle_peer_request<R: Ratchet>(
+//!     signal: PeerSignal,
+//!     remote: &impl Remote<R>
+//! ) -> Result<(), NetworkError> {
+//!     // Accept a peer registration request
+//!     let ticket = responses::peer_register(signal, true, remote).await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Responses must match request tickets
+//! - Connection types are automatically reversed
+//! - Username resolution is handled internally
+//! - Group responses require server connection
+//!
+//! # Related Components
+//! - [`Remote`]: Network communication interface
+//! - [`PeerSignal`]: Peer communication events
+//! - [`NodeResult`]: Network operation results
+//! - [`Ticket`]: Request/response correlation
+//!
+//! [`Remote`]: crate::prelude::Remote
+//! [`PeerSignal`]: crate::prelude::PeerSignal
+//! [`NodeResult`]: crate::prelude::NodeResult
+//! [`Ticket`]: crate::prelude::Ticket
+
 use crate::prelude::*;
 
 /// Given the `input_signal` from the peer, this function sends a register response to the target peer
-pub async fn peer_register(
+pub async fn peer_register<R: Ratchet>(
     input_signal: PeerSignal,
     accept: bool,
-    remote: &impl Remote,
+    remote: &impl Remote<R>,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostRegister {
         peer_conn_type: v_conn,
@@ -50,7 +89,7 @@ pub async fn peer_register(
             .send_with_custom_ticket(
                 ticket,
                 NodeRequest::PeerCommand(PeerCommand {
-                    implicated_cid: this_cid,
+                    session_cid: this_cid,
                     command: signal,
                 }),
             )
@@ -64,10 +103,10 @@ pub async fn peer_register(
 }
 
 /// Given the `input_signal` from the peer, this function sends a connect response to the target peer
-pub async fn peer_connect(
+pub async fn peer_connect<R: Ratchet>(
     input_signal: PeerSignal,
     accept: bool,
-    remote: &impl Remote,
+    remote: &impl Remote<R>,
     peer_session_password: Option<PreSharedKey>,
 ) -> Result<Ticket, NetworkError> {
     if let PeerSignal::PostConnect {
@@ -89,7 +128,7 @@ pub async fn peer_connect(
         };
 
         let signal = NodeRequest::PeerCommand(PeerCommand {
-            implicated_cid: this_cid,
+            session_cid: this_cid,
             command: PeerSignal::PostConnect {
                 peer_conn_type: v_conn.reverse(),
                 ticket_opt: Some(ticket),
@@ -111,13 +150,13 @@ pub async fn peer_connect(
 }
 
 /// Given a group invite signal, this function sends a response to the server
-pub async fn group_invite(
-    invite_signal: NodeResult,
+pub async fn group_invite<R: Ratchet>(
+    invite_signal: NodeResult<R>,
     accept: bool,
-    remote: &impl Remote,
+    remote: &impl Remote<R>,
 ) -> Result<Ticket, NetworkError> {
     if let NodeResult::GroupEvent(GroupEvent {
-        implicated_cid: cid,
+        session_cid: cid,
         ticket,
         event: GroupBroadcast::Invitation { sender: _, key },
     }) = invite_signal
@@ -129,7 +168,7 @@ pub async fn group_invite(
         };
 
         let request = NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
-            implicated_cid: cid,
+            session_cid: cid,
             command: resp,
         });
         remote

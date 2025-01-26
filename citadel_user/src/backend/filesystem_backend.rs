@@ -1,3 +1,32 @@
+//! # Filesystem Backend
+//!
+//! The filesystem backend provides persistent storage for Citadel client accounts and data using the local filesystem.
+//! It implements the `BackendConnection` trait and serves as a bridge between the in-memory storage and disk-based persistence.
+//!
+//! ## Features
+//!
+//! * Persistent storage of client network accounts (CNACs) on the local filesystem
+//! * Hybrid storage model combining in-memory and disk-based storage
+//! * Directory structure management for organizing client data
+//! * Support for peer-to-peer relationship persistence
+//! * Virtual filesystem (RevFS) operations for file transfers
+//! * Byte map storage for key-value data
+//!
+//! ## Important Notes
+//!
+//! * Uses atomic file operations to prevent data corruption
+//! * Maintains compatibility with the memory backend for fast access
+//! * Implements proper cleanup of temporary files and directories
+//! * Handles both personal and impersonal client accounts
+//! * Supports the RE-FVS (Reverse File Virtual System) for secure file transfers
+//!
+//! ## Related Components
+//!
+//! * `MemoryBackend`: Used as the in-memory storage layer
+//! * `DirectoryStore`: Manages the filesystem directory structure
+//! * `ClientNetworkAccount`: The core data structure being persisted
+//! * `BackendConnection`: The trait implemented for backend storage
+
 use crate::account_loader::load_cnac_files;
 use crate::backend::memory::MemoryBackend;
 use crate::backend::BackendConnection;
@@ -7,9 +36,9 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::CNAC_SERIALIZED_EXTENSION;
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::MAX_BYTES_PER_GROUP;
-use citadel_crypt::stacked_ratchet::Ratchet;
-use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio;
 use citadel_io::tokio_stream::StreamExt;
 use citadel_types::proto::{ObjectTransferStatus, TransferType, VirtualObjectMetadata};
@@ -19,7 +48,18 @@ use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-/// For handling I/O with the local filesystem
+/// A backend implementation that stores client data on the local filesystem while maintaining
+/// an in-memory cache for fast access. This provides persistence while keeping the performance
+/// benefits of in-memory storage.
+///
+/// The filesystem backend organizes data in a structured directory hierarchy and implements
+/// atomic file operations to ensure data integrity. It supports both personal and impersonal
+/// client accounts, peer relationships, and virtual filesystem operations.
+///
+/// # Type Parameters
+///
+/// * `R`: The ratchet type used for encryption
+/// * `Fcm`: The ratchet type used for FCM (Firebase Cloud Messaging)
 pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
     memory_backend: MemoryBackend<R, Fcm>,
     directory_store: Option<DirectoryStore>,
@@ -28,6 +68,9 @@ pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
 
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R, Fcm> {
+    /// Establishes a connection to the filesystem backend.
+    ///
+    /// This method sets up the directory structure and loads existing client data from the filesystem.
     async fn connect(&mut self) -> Result<(), AccountError> {
         let directory_store = crate::directory_store::setup_directories(self.home_dir.clone())?;
         let map = load_cnac_files(&directory_store)?;
@@ -38,10 +81,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(())
     }
 
+    /// Checks if the backend is connected.
+    ///
+    /// This method always returns `true` for the filesystem backend, as it does not require a network connection.
     async fn is_connected(&self) -> Result<bool, AccountError> {
         Ok(true)
     }
 
+    /// Saves a client network account to the filesystem.
+    ///
+    /// This method serializes the client data and writes it to a file on the local filesystem.
     #[allow(unused_results)]
     async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         // save to filesystem, then, synchronize to memory
@@ -53,6 +102,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.memory_backend.save_cnac(cnac).await
     }
 
+    /// Retrieves a client network account by its CID.
+    ///
+    /// This method checks the in-memory cache first and returns the account if found. If not, it attempts to load the account from the filesystem.
     async fn get_cnac_by_cid(
         &self,
         cid: u64,
@@ -60,10 +112,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.memory_backend.get_cnac_by_cid(cid).await
     }
 
+    /// Checks if a client CID is registered.
+    ///
+    /// This method checks the in-memory cache for the CID.
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
         self.memory_backend.cid_is_registered(cid).await
     }
 
+    /// Deletes a client network account by its CID.
+    ///
+    /// This method removes the account from the in-memory cache and deletes the corresponding file from the filesystem.
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
         let is_personal = self
             .memory_backend
@@ -77,6 +135,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         std::fs::remove_file(path).map_err(|err| AccountError::Generic(err.to_string()))
     }
 
+    /// Purges all client data from the filesystem and in-memory cache.
+    ///
+    /// This method deletes all files and directories associated with the client data and clears the in-memory cache.
     async fn purge(&self) -> Result<usize, AccountError> {
         let paths = {
             let mut write = self.memory_backend.clients.write();
@@ -103,6 +164,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(count)
     }
 
+    /// Retrieves a list of registered impersonal client CIDs.
+    ///
+    /// This method checks the in-memory cache for the list of impersonal client CIDs.
     async fn get_registered_impersonal_cids(
         &self,
         limit: Option<i32>,
@@ -112,14 +176,23 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             .await
     }
 
+    /// Retrieves the username associated with a client CID.
+    ///
+    /// This method checks the in-memory cache for the username.
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
         self.memory_backend.get_username_by_cid(cid).await
     }
 
+    /// Retrieves the full name associated with a client CID.
+    ///
+    /// This method checks the in-memory cache for the full name.
     async fn get_full_name_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
         self.memory_backend.get_full_name_by_cid(cid).await
     }
 
+    /// Registers a peer-to-peer relationship between two clients.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         self.memory_backend
             .register_p2p_as_server(cid0, cid1)
@@ -141,18 +214,24 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.save_cnac(&cnac1).await
     }
 
+    /// Registers a peer-to-peer relationship between a client and a peer.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError> {
         self.memory_backend
-            .register_p2p_as_client(implicated_cid, peer_cid, peer_username)
+            .register_p2p_as_client(session_cid, peer_cid, peer_username)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await
+        self.save_cnac_by_cid(session_cid).await
     }
 
+    /// Deregisters a peer-to-peer relationship between two clients.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         self.memory_backend
             .deregister_p2p_as_server(cid0, cid1)
@@ -174,36 +253,46 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.save_cnac(&cnac1).await
     }
 
+    /// Deregisters a peer-to-peer relationship between a client and a peer.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let res = self
             .memory_backend
-            .deregister_p2p_as_client(implicated_cid, peer_cid)
+            .deregister_p2p_as_client(session_cid, peer_cid)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
+    /// Retrieves a list of hyperlan peers for a client.
+    ///
+    /// This method checks the in-memory cache for the list of hyperlan peers.
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peer_list(implicated_cid)
+            .get_hyperlan_peer_list(session_cid)
             .await
     }
 
+    /// Retrieves the metadata for a client.
+    ///
+    /// This method checks the in-memory cache for the client metadata.
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError> {
-        self.memory_backend
-            .get_client_metadata(implicated_cid)
-            .await
+        self.memory_backend.get_client_metadata(session_cid).await
     }
 
+    /// Retrieves a list of metadata for all clients.
+    ///
+    /// This method checks the in-memory cache for the list of client metadata.
     async fn get_clients_metadata(
         &self,
         limit: Option<i32>,
@@ -211,55 +300,73 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.memory_backend.get_clients_metadata(limit).await
     }
 
+    /// Retrieves a hyperlan peer by its CID.
+    ///
+    /// This method checks the in-memory cache for the hyperlan peer.
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peer_by_cid(implicated_cid, peer_cid)
+            .get_hyperlan_peer_by_cid(session_cid, peer_cid)
             .await
     }
 
+    /// Checks if a hyperlan peer exists for a client.
+    ///
+    /// This method checks the in-memory cache for the hyperlan peer.
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError> {
         self.memory_backend
-            .hyperlan_peer_exists(implicated_cid, peer_cid)
+            .hyperlan_peer_exists(session_cid, peer_cid)
             .await
     }
 
+    /// Checks if multiple hyperlan peers are mutuals for a client.
+    ///
+    /// This method checks the in-memory cache for the hyperlan peers.
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         self.memory_backend
-            .hyperlan_peers_are_mutuals(implicated_cid, peers)
+            .hyperlan_peers_are_mutuals(session_cid, peers)
             .await
     }
 
+    /// Retrieves a list of hyperlan peers for a client.
+    ///
+    /// This method checks the in-memory cache for the list of hyperlan peers.
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peers(implicated_cid, peers)
+            .get_hyperlan_peers(session_cid, peers)
             .await
     }
 
+    /// Retrieves a list of hyperlan peers for a client as a server.
+    ///
+    /// This method checks the in-memory cache for the list of hyperlan peers.
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         self.memory_backend
-            .get_hyperlan_peer_list_as_server(implicated_cid)
+            .get_hyperlan_peer_list_as_server(session_cid)
             .await
     }
 
+    /// Synchronizes the hyperlan peer list for a client as a client.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn synchronize_hyperlan_peer_list_as_client(
         &self,
         cnac: &ClientNetworkAccount<R, Fcm>,
@@ -271,35 +378,44 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.save_cnac(cnac).await
     }
 
+    /// Retrieves a byte map value for a client.
+    ///
+    /// This method checks the in-memory cache for the byte map value.
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         self.memory_backend
-            .get_byte_map_value(implicated_cid, peer_cid, key, sub_key)
+            .get_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await
     }
 
+    /// Removes a byte map value for a client.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .remove_byte_map_value(implicated_cid, peer_cid, key, sub_key)
+            .remove_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
+    /// Stores a byte map value for a client.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -307,37 +423,46 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .store_byte_map_value(implicated_cid, peer_cid, key, sub_key, value)
+            .store_byte_map_value(session_cid, peer_cid, key, sub_key, value)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
+    /// Retrieves a list of byte map values for a client by key.
+    ///
+    /// This method checks the in-memory cache for the list of byte map values.
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .get_byte_map_values_by_key(implicated_cid, peer_cid, key)
+            .get_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
+    /// Removes a list of byte map values for a client by key.
+    ///
+    /// This method updates the in-memory cache and saves the changes to the filesystem.
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let res = self
             .memory_backend
-            .remove_byte_map_values_by_key(implicated_cid, peer_cid, key)
+            .remove_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
-        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+        self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
+    /// Streams an object to the backend.
+    ///
+    /// This method writes the object to a file on the local filesystem.
     async fn stream_object_to_backend(
         &self,
         source: UnboundedReceiver<Vec<u8>>,
@@ -433,6 +558,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(())
     }
 
+    /// Retrieves file information for a RevFS file.
+    ///
+    /// This method reads the file metadata from the filesystem.
     async fn revfs_get_file_info(
         &self,
         cid: u64,
@@ -462,6 +590,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok((Box::new(file_path), metadata))
     }
 
+    /// Deletes a RevFS file.
+    ///
+    /// This method removes the file and its metadata from the filesystem.
     async fn revfs_delete(
         &self,
         cid: u64,
@@ -485,6 +616,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 }
 
 impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
+    /// Saves a client network account by its CID.
+    ///
+    /// This method retrieves the client account from the in-memory cache and saves it to the filesystem.
     async fn save_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
         let cnac = self
             .memory_backend
@@ -496,6 +630,9 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
         self.save_cnac(&cnac).await
     }
 
+    /// Generates the local save path for a client network account.
+    ///
+    /// This method constructs the file path based on the client CID and whether it is a personal or impersonal account.
     fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
         let dirs = self.directory_store.as_ref().unwrap();
         if is_personal {
@@ -517,6 +654,9 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
 }
 
 impl<R: Ratchet, Fcm: Ratchet> From<String> for FilesystemBackend<R, Fcm> {
+    /// Creates a new `FilesystemBackend` instance from a home directory path.
+    ///
+    /// This method initializes the backend with the provided home directory path and sets up the directory structure.
     fn from(home_dir: String) -> Self {
         Self {
             home_dir,
@@ -526,7 +666,9 @@ impl<R: Ratchet, Fcm: Ratchet> From<String> for FilesystemBackend<R, Fcm> {
     }
 }
 
-// works for RE-FVS and standard file transfers
+/// Retrieves the file path for a transfer type.
+///
+/// This method constructs the file path based on the transfer type and client CID.
 async fn get_file_path(
     source_cid: u64,
     transfer_type: &TransferType,
@@ -574,12 +716,18 @@ async fn get_file_path(
     }
 }
 
+/// Retrieves the metadata path for a RevFS file.
+///
+/// This method constructs the metadata path based on the file path.
 fn get_revfs_file_metadata_path<P: AsRef<Path>>(path: P) -> PathBuf {
     let mut metadata_path = format!("{}", path.as_ref().display());
     metadata_path.push_str(crate::misc::VIRTUAL_FILE_METADATA_EXT);
     crate::misc::prepare_virtual_path(metadata_path)
 }
 
+/// Deletes a list of paths.
+///
+/// This method removes the files or directories at the specified paths.
 async fn delete_paths<T: AsRef<Path>, R: AsRef<[T]>>(paths: R) -> Result<(), AccountError> {
     let paths = paths.as_ref();
     for path in paths {

@@ -1,3 +1,55 @@
+//! TLS Configuration and Certificate Management
+//!
+//! This module provides TLS (Transport Layer Security) configuration utilities with
+//! support for both traditional TLS and QUIC protocols. It handles certificate
+//! management, validation, and secure connection establishment with flexible
+//! security options.
+//!
+//! # Features
+//!
+//! - TLS and QUIC configuration interoperability
+//! - Self-signed certificate generation
+//! - PKCS#12 certificate support
+//! - Native system certificate loading
+//! - Custom certificate validation
+//! - Async/await support with Tokio
+//! - Rustls-based implementation
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::tls;
+//!
+//! async fn setup_tls() -> Result<(), anyhow::Error> {
+//!     // Create self-signed server config
+//!     let server_config = tls::create_server_self_signed_config()?;
+//!
+//!     // Load system certificates
+//!     let certs = tls::load_native_certs_async().await?;
+//!
+//!     // Create secure client config
+//!     let client_config = tls::create_client_config(&certs).await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Native cert loading is expensive (~200ms)
+//! - Self-signed certs use 'localhost' domain
+//! - PKCS#12 passwords must be UTF-8
+//! - Supports TLS 1.2 and 1.3
+//! - Certificate chain validation is configurable
+//!
+//! # Related Components
+//!
+//! - [`crate::quic`] - QUIC protocol support
+//! - [`crate::exports::Certificate`] - Certificate types
+//! - [`crate::exports::PrivateKey`] - Key management
+//! - [`crate::socket_helpers`] - Socket utilities
+//!
+
 use crate::exports::{Certificate, PrivateKey};
 use crate::quic::generate_self_signed_cert;
 use rustls::{ClientConfig, RootCertStore};
@@ -59,7 +111,9 @@ pub fn cert_vec_to_secure_client_config(
     Ok(crate::quic::secure::client_config(root_store))
 }
 
-pub async fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
+pub async fn create_client_config<T: AsRef<[u8]>>(
+    allowed_certs: &[T],
+) -> Result<TlsConnector, anyhow::Error> {
     Ok(client_config_to_tls_connector(Arc::new(
         create_rustls_client_config(allowed_certs)?,
     )))

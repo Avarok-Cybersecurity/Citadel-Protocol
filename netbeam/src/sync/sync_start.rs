@@ -1,3 +1,42 @@
+//! # Network Synchronization Start
+//!
+//! Implements synchronization primitives for coordinating the start of operations
+//! between network nodes, with support for payload exchange during synchronization.
+//!
+//! ## Features
+//!
+//! - **Operation Synchronization**:
+//!   - Two-way synchronization
+//!   - Payload exchange support
+//!   - Timing coordination
+//!   - Node type awareness
+//!
+//! - **Payload Management**:
+//!   - Type-safe payload exchange
+//!   - Serialization support
+//!   - Error handling
+//!   - Timing tracking
+//!
+//! - **Future Integration**:
+//!   - Async/await support
+//!   - Future composition
+//!   - Error propagation
+//!   - Cancellation handling
+//!
+//! ## Important Notes
+//!
+//! - Ensures both nodes start operations simultaneously
+//! - Handles network latency compensation
+//! - Provides reliable payload delivery
+//! - Supports timeout configuration
+//!
+//! ## Related Components
+//!
+//! - [`subscription`]: Stream subscription management
+//! - [`ReliableOrderedStreamToTarget`]: Reliable streaming
+//! - [`TimeTracker`]: Operation timing
+//! - [`MultiplexedConnKey`]: Connection identification
+
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::subscription::Subscribable;

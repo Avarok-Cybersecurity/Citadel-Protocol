@@ -53,15 +53,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create server connection settings
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        server_addr,
-        my_user,
-        "Name",
-        "notsecurepassword",
-    )
-    .with_session_security_settings(session_security)
-    .disable_udp()
-    .build()?;
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            server_addr,
+            my_user,
+            "Name",
+            "notsecurepassword",
+        )
+        .with_session_security_settings(session_security)
+        .disable_udp()
+        .build()?;
 
     // Create peer connection setup
     let peer_connection = PeerConnectionSetupAggregator::default()
@@ -85,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Set up message handling
-            let (tx, mut message_stream) = peer_conn.channel.split();
+            let (mut tx, mut message_stream) = peer_conn.channel.split();
             let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
 
             println!("Type your messages (press Enter to send, Ctrl+C to quit):");
@@ -100,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     line = stdin.next_line() => {
                         match line {
                             Ok(Some(msg)) if !msg.is_empty() => {
-                                tx.send_message(msg.into_bytes().into()).await?;
+                                tx.send(msg.into_bytes()).await?;
                             }
                             Ok(None) => break, // EOF
                             _ => continue,
@@ -118,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the peer
-    let node = NodeBuilder::default().build(kernel)?;
+    let node = DefaultNodeBuilder::default().build(kernel)?;
 
     // Run the peer
     node.await?;

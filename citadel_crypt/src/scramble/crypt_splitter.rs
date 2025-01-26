@@ -1,3 +1,29 @@
+//! # Cryptographic Packet Splitting and Scrambling
+//!
+//! This module implements secure packet splitting and scrambling for encrypted data transmission.
+//! It provides mechanisms to split large messages into smaller encrypted packets that can be
+//! transmitted securely and reassembled at the destination.
+//!
+//! ## Features
+//! - Splits large messages into smaller encrypted packets
+//! - Implements wave-based packet organization for efficient transmission
+//! - Provides packet scrambling for enhanced security
+//! - Supports dynamic packet sizing based on security level
+//! - Implements timeout mechanisms for both individual waves and entire groups
+//! - Handles packet reconstruction with missing packet detection
+//!
+//! ## Important Notes
+//! - Maximum packet size is determined by the security level and encryption algorithm
+//! - Wave-based transmission allows for efficient packet organization and retransmission
+//! - Implements timeout mechanisms to prevent indefinite waiting for missing packets
+//! - Supports both encrypted and unencrypted packet transmission
+//!
+//! ## Related Components
+//! - [`EntropyBank`](crate::ratchets::entropy_bank::EntropyBank): Provides cryptographic entropy
+//! - [`PacketVector`](crate::packet_vector::PacketVector): Handles packet orientation
+//! - [`Ratchet`](crate::ratchets::Ratchet): Manages encryption keys
+//! - [`PostQuantumContainer`](citadel_pqcrypto::PostQuantumContainer): Post-quantum cryptography
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::{Range, RangeBounds};
@@ -9,10 +35,10 @@ use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 use rand::Rng;
 
-use crate::entropy_bank::EntropyBank;
 use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
-use crate::stacked_ratchet::Ratchet;
+use crate::ratchets::entropy_bank::EntropyBank;
+use crate::ratchets::Ratchet;
 pub use citadel_types::prelude::ObjectId;
 #[cfg(not(target_family = "wasm"))]
 use rayon::prelude::*;
@@ -58,7 +84,7 @@ pub fn calculate_aes_gcm_plaintext_length_from_ciphertext_length(
 
 #[allow(clippy::too_many_arguments)]
 pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
-    msg_drill: &EntropyBank,
+    msg_entropy_bank: &EntropyBank,
     plain_text: T,
     header_size_bytes: usize,
     security_level: SecurityLevel,
@@ -77,7 +103,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
 
     let max_packet_payload_size = get_max_packet_size(enx, sig_alg, security_level);
     let overhead = max_packet_payload_size - MAX_WAVEFORM_PACKET_SIZE;
-    let max_packets_per_wave = msg_drill.get_multiport_width();
+    let max_packets_per_wave = msg_entropy_bank.get_multiport_width();
     //let aes_gcm_overhead = get_aes_gcm_overhead();
     // the below accounts for the stretch in size as we map n plaintext bytes to calculate_aes_gcm_output_length(n) bytes
     // Since we run the encryption algorithm once per wave, to get the number of plaintext bytes per wave we need, multiple the above by the max packets per wave and subtract
@@ -137,7 +163,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
 
 #[allow(clippy::too_many_arguments)]
 fn get_scramble_encrypt_config<'a, R: Ratchet>(
-    hyper_ratchet: &'a R,
+    ratchet: &'a R,
     plain_text: &'a [u8],
     header_size_bytes: usize,
     security_level: SecurityLevel,
@@ -154,10 +180,10 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     ),
     CryptError<String>,
 > {
-    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
-    let scramble_drill = hyper_ratchet.get_scramble_drill();
+    let (msg_pqc, msg_entropy_bank) = ratchet.get_message_pqc_and_entropy_bank_at_layer(None)?;
+    let scramble_entropy_bank = ratchet.get_scramble_pqc_and_entropy_bank();
     let cfg = generate_scrambler_metadata(
-        msg_drill,
+        msg_entropy_bank,
         plain_text,
         header_size_bytes,
         security_level,
@@ -168,7 +194,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         transfer_type,
         empty_transfer,
     )?;
-    Ok((cfg, msg_drill, msg_pqc, scramble_drill))
+    Ok((cfg, msg_entropy_bank, msg_pqc, scramble_entropy_bank.1))
 }
 
 /// Each packet contains an empty array open to inscription of a header coupled with a ciphertext
@@ -187,7 +213,7 @@ pub struct PacketCoordinate {
 pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>(
     plain_text: T,
     security_level: SecurityLevel,
-    hyper_ratchet: &R,
+    ratchet: &R,
     static_aux_ratchet: &R,
     header_size_bytes: usize,
     target_cid: u64,
@@ -218,8 +244,8 @@ where
         plain_text = Cow::Owned(local_encrypted);
     }
 
-    let (mut cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(
-        hyper_ratchet,
+    let (mut cfg, msg_entropy_bank, msg_pqc, scramble_entropy_bank) = get_scramble_encrypt_config(
+        ratchet,
         &plain_text,
         header_size_bytes,
         security_level,
@@ -243,9 +269,9 @@ where
                 wave_idx,
                 bytes_to_encrypt_for_this_wave,
                 &cfg,
-                msg_drill,
+                msg_entropy_bank,
                 msg_pqc,
-                scramble_drill,
+                scramble_entropy_bank,
                 target_cid,
                 object_id,
                 header_size_bytes,
@@ -299,15 +325,15 @@ fn scramble_encrypt_wave(
     wave_idx: usize,
     bytes_to_encrypt_for_this_wave: &[u8],
     cfg: &GroupReceiverConfig,
-    msg_drill: &EntropyBank,
+    msg_entropy_bank: &EntropyBank,
     msg_pqc: &PostQuantumContainer,
-    scramble_drill: &EntropyBank,
+    scramble_entropy_bank: &EntropyBank,
     target_cid: u64,
     object_id: ObjectId,
     header_size_bytes: usize,
     header_inscriber: impl Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
-    let ciphertext = msg_drill
+    let ciphertext = msg_entropy_bank
         .encrypt(msg_pqc, bytes_to_encrypt_for_this_wave)
         .unwrap();
 
@@ -320,8 +346,15 @@ fn scramble_encrypt_wave(
                 BytesMut::with_capacity(ciphertext_packet_bytes.len() + header_size_bytes);
             let true_packet_sequence =
                 (wave_idx * cfg.max_packets_per_wave as usize) + relative_packet_idx;
-            let vector = generate_packet_vector(true_packet_sequence, cfg.group_id, scramble_drill);
-            header_inscriber(&vector, scramble_drill, object_id, target_cid, &mut packet);
+            let vector =
+                generate_packet_vector(true_packet_sequence, cfg.group_id, scramble_entropy_bank);
+            header_inscriber(
+                &vector,
+                scramble_entropy_bank,
+                object_id,
+                target_cid,
+                &mut packet,
+            );
             packet.put(ciphertext_packet_bytes);
             (true_packet_sequence, PacketCoordinate { packet, vector })
         })
@@ -383,6 +416,8 @@ pub enum GroupReceiverStatus {
     WAVE_COMPLETE(u32),
     /// A set of true_sequences that need retransmission
     NEEDS_RETRANSMISSION(u32),
+    /// Bad ratchet
+    CORRUPT_RATCHET(String),
 }
 
 /// A device used for reconstructing Groups. It is meant for the receiving end. For receiver ends, the use
@@ -436,7 +471,7 @@ pub struct GroupReceiverConfig {
     pub header_size_bytes: u64,
     pub group_id: u64,
     pub object_id: ObjectId,
-    // only relevant for files. Note: if transfer type is RemoteVirtualFileystem, then,
+    // only relevant for files. Note: if transfer type is RemoteVirtualFilesystem, then,
     // the receiving endpoint won't decrypt the first level of encryption since the goal
     // is to keep the file remotely encrypted
     pub transfer_type: Option<TransferType>,
@@ -521,7 +556,7 @@ impl GroupReceiver {
     ///
     /// The max_payload_size does not account for the packet's header
     ///
-    /// The drill is needed in order to get the multiport width (determines max packets per wave)
+    /// The entropy_bank is needed in order to get the multiport width (determines max packets per wave)
     #[allow(unused_results)]
     pub fn new(cfg: GroupReceiverConfig, wave_timeout_ms: usize, group_timeout_ms: usize) -> Self {
         use bitvec::prelude::*;
@@ -606,7 +641,7 @@ impl GroupReceiver {
         _group_id: u64,
         true_sequence: usize,
         wave_id: u32,
-        hyper_ratchet: &R,
+        ratchet: &R,
         packet: T,
     ) -> GroupReceiverStatus {
         let packet = packet.as_ref();
@@ -668,9 +703,17 @@ impl GroupReceiver {
             if wave_store.packets_received == wave_store.packets_in_wave {
                 let ciphertext_bytes_for_this_wave =
                     &wave_store.ciphertext_buffer[..wave_store.bytes_written];
-                let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
+                let (msg_pqc, msg_entropy_bank) = match ratchet
+                    .get_message_pqc_and_entropy_bank_at_layer(None)
+                {
+                    Ok((msg_pqc, msg_entropy_bank)) => (msg_pqc, msg_entropy_bank),
+                    Err(err) => {
+                        log::error!(target: "citadel", "Unable to get message pqc and entropy bank. Reason: {err:?}");
+                        return GroupReceiverStatus::CORRUPT_RATCHET(err.into_string());
+                    }
+                };
 
-                match msg_drill.decrypt(msg_pqc, ciphertext_bytes_for_this_wave) {
+                match msg_entropy_bank.decrypt(msg_pqc, ciphertext_bytes_for_this_wave) {
                     Ok(plaintext) => {
                         let plaintext = plaintext.as_slice();
 

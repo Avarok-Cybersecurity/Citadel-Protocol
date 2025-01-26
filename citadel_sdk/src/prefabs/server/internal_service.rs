@@ -1,14 +1,83 @@
+//! Internal Service Integration
+//!
+//! This module provides a network kernel that enables integration of internal services,
+//! such as HTTP servers, within the Citadel Protocol network. It's particularly useful
+//! for implementing web services that need to communicate over secure Citadel channels.
+//!
+//! # Features
+//! - Internal service integration
+//! - HTTP server support
+//! - Custom service handlers
+//! - Asynchronous processing
+//! - Type-safe communication
+//! - Automatic channel management
+//! - Service lifecycle handling
+//!
+//! # Example
+//! ```rust
+//! use std::convert::Infallible;
+//! use std::net::SocketAddr;
+//! use citadel_sdk::prelude::*;
+//! use hyper::{Response, Body, Server, Request};
+//! use hyper::server::conn::AddrStream;
+//! use hyper::service::{make_service_fn, service_fn};
+//! use citadel_sdk::prefabs::server::internal_service::InternalServiceKernel;
+//!
+//! // Create a kernel with an HTTP server
+//! let kernel = InternalServiceKernel::<_, _, StackedRatchet>::new(|comm| async move {
+//!
+//!     let make_svc = make_service_fn(|socket: &AddrStream| {
+//!         let remote_addr = socket.remote_addr();
+//!         async move {
+//!             Ok::<_, Infallible>(service_fn(move |_: Request<Body>| async move {
+//!                 Ok::<_, Infallible>(
+//!                     Response::new(Body::from(format!("Hello, {}!", remote_addr)))
+//!                 )
+//!             }))
+//!         }
+//!     });
+//!
+//!     // Start the HTTP server
+//!     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+//!     let server = Server::bind(&addr).serve(make_svc);
+//!     // Run this server indefinitely
+//!     if let Err(e) = server.await {
+//!         eprintln!("server error: {}", e);
+//!     }
+//!
+//!    Ok(())
+//! });
+//! ```
+//!
+//! # Important Notes
+//! - Services run in isolated contexts
+//! - Communication is bidirectional
+//! - Supports HTTP/1.1 and HTTP/2
+//! - Automatic error handling
+//! - Resource cleanup on shutdown
+//!
+//! # Related Components
+//! - [`NetKernel`]: Base trait for network kernels
+//! - [`InternalServerCommunicator`]: Service communication
+//! - [`ClientConnectListenerKernel`]: Connection handling
+//! - [`NodeResult`]: Network event handling
+//!
+//! [`NetKernel`]: crate::prelude::NetKernel
+//! [`InternalServerCommunicator`]: crate::prefabs::shared::internal_service::InternalServerCommunicator
+//! [`ClientConnectListenerKernel`]: crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel
+//! [`NodeResult`]: crate::prelude::NodeResult
+
 use crate::prefabs::shared::internal_service::InternalServerCommunicator;
 use crate::prelude::*;
 use std::future::Future;
 use std::marker::PhantomData;
 
-pub struct InternalServiceKernel<'a, F, Fut> {
-    inner_kernel: Box<dyn NetKernel + 'a>,
+pub struct InternalServiceKernel<'a, F, Fut, R: Ratchet = StackedRatchet> {
+    inner_kernel: Box<dyn NetKernel<R> + 'a>,
     _pd: PhantomData<fn() -> (&'a F, Fut)>,
 }
 
-impl<F, Fut> InternalServiceKernel<'_, F, Fut>
+impl<F, Fut, R: Ratchet> InternalServiceKernel<'_, F, Fut, R>
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
@@ -18,9 +87,8 @@ where
             _pd: Default::default(),
             inner_kernel: Box::new(
                 super::client_connect_listener::ClientConnectListenerKernel::new(
-                    move |connect_success, remote| async move {
+                    move |connect_success| async move {
                         crate::prefabs::shared::internal_service::internal_service(
-                            remote,
                             connect_success,
                             on_create_webserver,
                         )
@@ -33,8 +101,8 @@ where
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
-    fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
+impl<F, Fut, R: Ratchet> NetKernel<R> for InternalServiceKernel<'_, F, Fut, R> {
+    fn load_remote(&mut self, node_remote: NodeRemote<R>) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }
 
@@ -42,7 +110,7 @@ impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         self.inner_kernel.on_node_event_received(message).await
     }
 
@@ -54,7 +122,7 @@ impl<F, Fut> NetKernel for InternalServiceKernel<'_, F, Fut> {
 #[cfg(test)]
 mod test {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use crate::prefabs::client::ServerConnectionSettingsBuilder;
+    use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prefabs::server::internal_service::InternalServiceKernel;
     use crate::prefabs::shared::internal_service::InternalServerCommunicator;
     use crate::prelude::*;
@@ -69,7 +137,6 @@ mod test {
     use std::convert::Infallible;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
-    use uuid::Uuid;
 
     #[derive(serde::Serialize, serde::Deserialize)]
     struct TestPacket {
@@ -133,16 +200,15 @@ mod test {
             });
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_bind_addr, Uuid::new_v4())
+            DefaultServerConnectionSettingsBuilder::transient(server_bind_addr)
                 .build()
                 .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |connect_success, remote| async move {
+            |connection| async move {
                 crate::prefabs::shared::internal_service::internal_service(
-                    remote,
-                    connect_success,
+                    connection,
                     |mut internal_server_communicator| async move {
                         test_write_and_read_one_packet(
                             barrier,
@@ -157,12 +223,12 @@ mod test {
             },
         );
 
-        let client = NodeBuilder::default()
+        let client = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Peer)
             .build(client_kernel)
             .unwrap();
 
-        let server = NodeBuilder::default()
+        let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
             .with_underlying_protocol(
                 ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),
@@ -214,16 +280,15 @@ mod test {
         });
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_bind_addr, Uuid::new_v4())
+            DefaultServerConnectionSettingsBuilder::transient(server_bind_addr)
                 .build()
                 .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |connect_success, remote| async move {
+            |connection| async move {
                 crate::prefabs::shared::internal_service::internal_service(
-                    remote,
-                    connect_success,
+                    connection,
                     |internal_server_communicator| async move {
                         barrier.wait().await;
                         // wait for the server
@@ -266,12 +331,12 @@ mod test {
             },
         );
 
-        let client = NodeBuilder::default()
+        let client = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Peer)
             .build(client_kernel)
             .unwrap();
 
-        let server = NodeBuilder::default()
+        let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
             .with_underlying_protocol(
                 ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),

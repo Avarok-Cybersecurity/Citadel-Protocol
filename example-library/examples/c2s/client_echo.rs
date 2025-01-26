@@ -31,6 +31,7 @@
 use citadel_sdk::{
     prefabs::client::single_connection::SingleClientServerConnectionKernel, prelude::*,
 };
+
 use futures::StreamExt;
 use std::env;
 
@@ -46,27 +47,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create server connection settings
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        server_addr,
-        "my_username",
-        "My Name",
-        "notsecurepassword",
-    )
-    .with_session_security_settings(session_security)
-    .disable_udp()
-    .build()?;
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            server_addr,
+            "my_username",
+            "My Name",
+            "notsecurepassword",
+        )
+        .with_session_security_settings(session_security)
+        .disable_udp()
+        .build()?;
 
     // Create client kernel
     let kernel = SingleClientServerConnectionKernel::new(
         server_connection_settings,
-        |connect_success, remote| async move {
+        |connect_success| async move {
             println!("Connected to server! CID: {}", connect_success.cid);
-            let (tx, mut rx) = connect_success.channel.split();
+            let remote = connect_success.remote.clone();
+            let (mut tx, mut rx) = connect_success.split();
 
             let message = "Hello from client!";
             // Send initial message
             let msg = SecBuffer::from(message);
-            if let Err(e) = tx.send_message(msg.into()).await {
+            if let Err(e) = tx.send(msg).await {
                 println!("Error sending message: {}", e);
                 return Err(e);
             }
@@ -87,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the node
-    let client = NodeBuilder::default().build(kernel)?;
+    let client = DefaultNodeBuilder::default().build(kernel)?;
 
     // Run the node
     client.await?;

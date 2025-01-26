@@ -15,12 +15,14 @@ async fn main() {
         .unwrap_or(false);
 
     let server = if empty_kernel {
-        Box::<citadel_sdk::prefabs::server::empty::EmptyKernel>::default() as Box<dyn NetKernel>
+        Box::<citadel_sdk::prefabs::server::empty::EmptyKernel<StackedRatchet>>::default()
+            as Box<dyn NetKernel<StackedRatchet>>
     } else {
         Box::new(
             citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel::new(
-                |mut conn, _c2s_remote| async move {
+                |mut conn| async move {
                     let chan = conn.udp_channel_rx.take();
+                    std::mem::forget(conn);
                     citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                         UdpMode::Enabled,
                         chan,
@@ -33,7 +35,7 @@ async fn main() {
         )
     };
 
-    let _ = NodeBuilder::default()
+    let _ = DefaultNodeBuilder::default()
         .with_node_type(NodeType::Server(
             SocketAddr::from_str(addr.as_str()).unwrap(),
         ))

@@ -1,7 +1,51 @@
+//! # Citadel Protocol Packet Structure
+//!
+//! This module defines the core packet structure and handling for the Citadel Protocol.
+//! It implements the Hypernode Data Protocol (HDP) packet format, which provides secure
+//! and efficient data transmission between nodes.
+//!
+//! ## Features
+//!
+//! * Packet header definition and handling
+//! * Command type classification (primary and auxiliary)
+//! * Packet size management
+//! * Buffer trait implementation for different types
+//! * Zero-copy header parsing
+//! * Socket address tracking
+//! * Packet decomposition and composition
+//!
+//! ## Important Notes
+//!
+//! * Headers are fixed-size and aligned
+//! * Commands are hierarchically organized
+//! * Supports both BytesMut and Vec<u8> buffers
+//! * Implements zero-copy parsing for efficiency
+//! * Maintains packet integrity checks
+//!
+//! ## Related Components
+//!
+//! * `packet_processor`: Processes different packet types
+//! * `packet_crafter`: Creates protocol packets
+//! * `validation`: Validates packet structure
+//! * `state_container`: Manages packet state
+//! * `session`: Handles packet sessions
+//!
+
 use crate::constants::HDP_HEADER_BYTE_LEN;
-use bytes::{BufMut, Bytes, BytesMut};
+use crate::error::NetworkError;
+use crate::proto::misc::dual_cell::DualCell;
+use byteorder::WriteBytesExt;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use citadel_io as rand;
+use citadel_io::RngCore;
+use citadel_types::crypto::HeaderObfuscatorSettings;
+use rand::Rng;
+use rand::ThreadRng;
+use sha3::Digest;
 use std::net::SocketAddr;
+use std::num::NonZero;
 use zerocopy::byteorder::big_endian::{I64, U128, U32, U64};
+use zerocopy::BigEndian;
 use zerocopy::{AsBytes, FromBytes, FromZeroes, Ref, Unaligned};
 
 pub(crate) mod packet_flags {
@@ -14,13 +58,12 @@ pub(crate) mod packet_flags {
             pub(crate) const GROUP_PACKET: u8 = 2;
             pub(crate) const DO_REGISTER: u8 = 3;
             pub(crate) const DO_DISCONNECT: u8 = 4;
-            pub(crate) const DO_DRILL_UPDATE: u8 = 5;
-            pub(crate) const DO_DEREGISTER: u8 = 6;
-            pub(crate) const DO_PRE_CONNECT: u8 = 7;
-            pub(crate) const PEER_CMD: u8 = 8;
-            pub(crate) const FILE: u8 = 9;
-            pub(crate) const UDP: u8 = 10;
-            pub(crate) const HOLE_PUNCH: u8 = 11;
+            pub(crate) const DO_DEREGISTER: u8 = 5;
+            pub(crate) const DO_PRE_CONNECT: u8 = 6;
+            pub(crate) const PEER_CMD: u8 = 7;
+            pub(crate) const FILE: u8 = 8;
+            pub(crate) const UDP: u8 = 9;
+            pub(crate) const HOLE_PUNCH: u8 = 10;
         }
 
         pub(crate) mod aux {
@@ -57,14 +100,6 @@ pub(crate) mod packet_flags {
                 pub(crate) const STAGE0: u8 = 0;
                 /// Bob sends a packet back to Alice to okay to D/C
                 pub(crate) const FINAL: u8 = 1;
-            }
-
-            pub(crate) mod do_drill_update {
-                pub(crate) const STAGE0: u8 = 0;
-                pub(crate) const STAGE1: u8 = 1;
-
-                pub(crate) const TRUNCATE: u8 = 2;
-                pub(crate) const TRUNCATE_ACK: u8 = 3;
             }
 
             pub(crate) mod do_deregister {
@@ -134,12 +169,6 @@ pub(crate) mod packet_sizes {
     /// Group packets
     pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + 1;
     pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 1 + 4 + 4;
-
-    pub(crate) mod do_drill_update {
-        use crate::constants::HDP_HEADER_BYTE_LEN;
-
-        pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
-    }
 }
 
 #[derive(Debug, FromZeroes, AsBytes, FromBytes, Unaligned, Clone)]
@@ -163,8 +192,8 @@ pub struct HdpHeader {
     pub wave_id: U32,
     /// Multiple clients may be connected from the same node. NOTE: This can also be equal to the ticket id
     pub session_cid: U64,
-    /// The drill version applied to encrypt the data
-    pub drill_version: U32,
+    /// The entropy_bank version applied to encrypt the data
+    pub entropy_bank_version: U32,
     /// Before a packet is sent outbound, the local time is placed into the packet header
     pub timestamp: I64,
     /// The target_cid (0 if hyperLAN server)
@@ -208,6 +237,10 @@ impl<B: HdpBuffer> HdpPacket<B> {
         }
     }
 
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.packet.as_ref()
+    }
+
     /// Parses the zerocopy header
     pub fn parse(&self) -> Option<ParsedPacket> {
         Ref::new_from_prefix(self.packet.as_ref())
@@ -225,7 +258,7 @@ impl<B: HdpBuffer> HdpPacket<B> {
 
     /// Splits the header's bytes and the header's in Bytes/Mut form
     pub fn decompose(mut self) -> (B::Immutable, B, SocketAddr, u16) {
-        let header_bytes = self.packet.split_to(HDP_HEADER_BYTE_LEN).freeze();
+        let header_bytes = self.packet.split_to(HDP_HEADER_BYTE_LEN).to_immutable();
         let payload_bytes = self.packet;
         let remote_peer = self.remote_peer;
         let local_port = self.local_port;
@@ -234,120 +267,226 @@ impl<B: HdpBuffer> HdpPacket<B> {
     }
 }
 
-/*
+/// Provides random obfuscation to the header of a packet at the start
+/// of each session using a key. Helps render deep packet inspection more challenging.
+///
+/// This was inspired by using XOR-mapped addresses in NAT-traversal packets
+/// to help fool firewalls from extracting network addresses and interfering with connections.
+///
+/// As such, the key should not be a real secret nor derived from a secret, but rather,
+/// something that can be transferred in the plain and appear pseudorandom to deep packet inspectors.
+///
+/// For any given pair of two connnected nodes, one will have to take the
+/// "server" role, and the other will take the "client" role.
+///
+/// If the "server" has a pre-shared key, it will use that key to obfuscate the header.
+/// This implies the client must have a matching key.
+///
+/// If the client enabled the header obfuscator without a pre-shared key, the client
+/// will generate a random "first packet" that the server will read, interpret, then
+/// use for the remainder of the session.
+///
+/// If the client disables the header obfuscator, the server will also not obfuscate the contents
+/// of the packet (unless the server has a pre-shared key set).
+///
+/// Valid combinations: (server = PSK, client = PSK), (server = enabled w/no PSK or off, client = enabled w/no PSK or off)
+/// Invalid combinations: (server = PSK, client = off), (server = off, client = PSK)
+///
+/// For invalid packet inputs, the obfuscator will fail silently to not interrupt network traffic.
+/// Packets that are too small will be ignored.
+/// Packets that arrive with an invalid key will be ignored
+///
+/// The obfuscator will load the key from the first packet and then store it for the remainder of the session. If there
+/// is a pre-existing key, the obfuscator will compare keys, and error if mismatching.
 #[derive(Clone)]
 pub struct HeaderObfuscator {
-    inner: DualCell<Option<u128>>
+    inner: DualCell<Option<NonZero<u128>>>,
+    pub first_packet: Option<BytesMut>,
+    expected_key: Option<NonZero<u128>>,
+    disabled: DualCell<bool>,
+    client_intends_disable: DualCell<bool>,
 }
 
+const DISABLED_KEY: u128 = u128::MAX;
+
 impl HeaderObfuscator {
-    pub fn new(is_server: bool) -> (Self, Option<BytesMut>) {
+    pub fn new(is_server: bool, header_obfuscator_settings: HeaderObfuscatorSettings) -> Self {
         if is_server {
-            (Self::new_server(), None)
+            Self::new_server(header_obfuscator_settings)
         } else {
-            Self::new_client()
-                .map_right(Some)
+            Self::new_client(header_obfuscator_settings)
         }
     }
 
-    pub fn on_packet_received(&self, packet: &mut BytesMut) -> Option<()> {
-        //log::trace!(target: "citadel", "[Header-scrambler] RECV {:?}", &packet[..]);
+    /// Returns Ok(true) if the packet can be processed by the downstream application
+    /// Returns Ok(false) if the packet is either frivolous, invalid, or an initial handshake packet
+    pub fn on_packet_received(&self, packet: &mut BytesMut) -> Result<bool, NetworkError> {
+        if self.is_disabled() {
+            return Ok(true);
+        } // disabled
+
         if let Some(val) = self.load() {
-            //log::trace!(target: "citadel", "[Header-scrambler] received ordinary packet");
-            apply_cipher(val, true, packet);
-            Some(())
-        } else {
-            if packet.len() >= 16 && packet.len() < HDP_HEADER_BYTE_LEN {
-                //log::trace!(target: "citadel", "[Header-Scrambler] Loading first-time packet {:?}", &packet[..]);
-                // we are only interested in taking the first 16 bytes
-                let val0 = packet.get_u64();
-                let val1 = packet.get_u64();
-                self.store(val0, val1);
-                log::trace!(target: "citadel", "[Header obfuscator] initial packet set");
-            } else {
-                log::error!(target: "citadel", "Discarding invalid packet (LEN: {})", packet.len());
+            if packet.len() < HDP_HEADER_BYTE_LEN {
+                log::warn!(target: "citadel", "[Header Obfuscator] Packet too small: {}", packet.len());
+                return Ok(false);
             }
 
-            None
+            log::trace!(target: "citadel", "[Header Obfuscator] Applying inbound cipher w/key {val}");
+            apply_cipher(val, true, packet);
+            Ok(true)
+        } else if packet.len() >= 16 {
+            // We are only interested in taking the first 16 bytes
+            let key = packet.get_u128();
+
+            if key == 0 {
+                log::error!(target: "citadel", "[Header Obfuscator] Invalid first packet key == 0");
+                return Err(NetworkError::msg("Invalid first packet key"));
+            }
+
+            if let Some(expected_key) = self.expected_key {
+                if key != expected_key.get() {
+                    log::error!(target: "citadel", "[Header Obfuscator] Invalid first packet key {key} != {expected_key}");
+                    return Err(NetworkError::msg("Invalid first packet key"));
+                }
+            }
+
+            if key == DISABLED_KEY {
+                log::trace!(target: "citadel", "[Header Obfuscator] Disabling obfuscator at client's request");
+                self.disabled.set(true);
+                self.client_intends_disable.set(true);
+                return Ok(false);
+            }
+
+            self.store(key);
+            log::trace!(target: "citadel", "[Header Obfuscator] initial packet set to {key}");
+            Ok(false)
+        } else {
+            log::warn!(target: "citadel", "[Header Obfuscator] Packet too small (skipping): {}", packet.len());
+            Ok(false)
         }
     }
 
     /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
     pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
-        if packet.len() >= HDP_HEADER_BYTE_LEN {
-            //log::trace!(target: "citadel", "[Header-scrambler] Before: {:?}", &packet[..]);
-            // it is assumed that the value is already loaded
-            let val = self.load().unwrap();
-            apply_cipher(val, false, &mut packet);
-            //log::trace!(target: "citadel", "[Header-scrambler] After: {:?}", &packet[..]);
+        if self.client_intends_disable.get() && self.disabled.get() {
+            return packet.freeze();
+        }
+
+        if let Some(key) = self.load() {
+            if packet.len() >= HDP_HEADER_BYTE_LEN {
+                log::trace!(target: "citadel", "[Header Obfuscator] Applying outbound cipher w/key {key}");
+                apply_cipher(key, false, &mut packet);
+
+                if self.client_intends_disable.get() {
+                    // Prevent further use of the obfuscator
+                    self.disabled.set(true);
+                }
+            }
         }
 
         packet.freeze()
     }
 
     /// Returns to the client an instance of self coupled with the required init packet
-    pub fn new_client() -> (Self, BytesMut) {
+    pub fn new_client(header_obfuscator_settings: HeaderObfuscatorSettings) -> Self {
+        let key = match header_obfuscator_settings {
+            HeaderObfuscatorSettings::Enabled => rand::random::<u128>(),
+            HeaderObfuscatorSettings::Disabled => {
+                let mut disabled_packet = BytesMut::with_capacity(16);
+                disabled_packet.put_u128(DISABLED_KEY);
+                return Self {
+                    inner: None.into(),
+                    first_packet: Some(disabled_packet),
+                    expected_key: None,
+                    disabled: true.into(),
+                    client_intends_disable: false.into(),
+                };
+            }
+            HeaderObfuscatorSettings::EnabledWithKey(key) => key,
+        };
+
+        let key = hash_u128(key);
+
         let mut rng = ThreadRng::default();
-        let mut fill0 = [0u8; 8];
-        let mut fill1 = [0u8; 8];
-
-        rng.fill(&mut fill0);
-        rng.fill(&mut fill1);
-
-        let val0 = u64::from_be_bytes(fill0);
-        let val1 = u64::from_be_bytes(fill1);
-        //log::trace!(target: "citadel", "[header-scrambler] {} -> {:?} | {} -> {:?}", val0, &fill0, val1, &fill1);
-        // we have 16 bytes used. Now, choose a random number of bytes between 0 and HDP_HEADER_BYTE_LEN - 16 to fill
-        let bytes_to_add = rng.gen_range(0, HDP_HEADER_BYTE_LEN - 17);
+        let bytes_to_add = rng.gen_range(0..(HDP_HEADER_BYTE_LEN - 17));
         let mut packet = vec![0; 16 + bytes_to_add];
         let tmp = &mut packet[..];
         let mut tmp = tmp.writer();
-        tmp.write_all(&fill0 as &[u8]).unwrap();
-        tmp.write_all(&fill1 as &[u8]).unwrap();
+        tmp.write_u128::<BigEndian>(key).expect("Should not fail");
 
         rng.fill_bytes(&mut packet[16..]);
-        //log::trace!(target: "citadel", "[Header-scrambler] Prepared packet: {:?}", &packet[..]);
-        let packet = BytesMut::from(&packet[..]);
-        let this = Self::new_from_u64s(val0, val1);
-        (this, packet)
+        let first_packet = Some(BytesMut::from(&packet[..]));
+        Self {
+            inner: DualCell::from(Some(NonZero::new(key).expect("Hashed key cannot be zero"))),
+            first_packet,
+            expected_key: None,
+            disabled: false.into(),
+            client_intends_disable: false.into(),
+        }
     }
 
-    pub fn new_server() -> Self {
-        Self::from(None)
+    pub fn new_server(header_obfuscator_settings: HeaderObfuscatorSettings) -> Self {
+        let (inner, expected_key) = match header_obfuscator_settings {
+            HeaderObfuscatorSettings::Enabled => (DualCell::from(None), None), // Wait for client to set key value
+            HeaderObfuscatorSettings::Disabled => (DualCell::from(None), None), // No obfuscation; up to the client to enable it
+            HeaderObfuscatorSettings::EnabledWithKey(key) => {
+                // Obfuscation is enabled with a pre-shared key
+                let key = NonZero::new(hash_u128(key)).expect("Hashed key cannot be zero");
+                (DualCell::from(Some(key)), Some(key))
+            }
+        };
+
+        Self {
+            inner,
+            first_packet: None,
+            expected_key,
+            disabled: false.into(), // Let the client enable or disable
+            client_intends_disable: false.into(), // Let the client enable or disable
+        }
     }
 
-    fn store(&self, val0: u64, val1: u64) {
-        self.inner.set(Some(u64s_to_u128(val0, val1)));
-    }
-
-    fn new_from_u64s(val0: u64, val1: u64) -> Self {
-        Self::from(Some(u64s_to_u128(val0, val1)))
+    fn store(&self, key: u128) {
+        let key = NonZero::new(key).expect("Input key cannot be zero");
+        self.inner.set(Some(key));
     }
 
     fn load(&self) -> Option<u128> {
-        self.inner.get()
+        Some(self.inner.get()?.get())
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled.get()
     }
 }
 
-fn u64s_to_u128(val0: u64, val1: u64) -> u128 {
-    let mut ret = [0u8; 16];
-    let val0_bytes = val0.to_be_bytes();
-    let val1_bytes = val1.to_be_bytes();
-    for x in 0..8 {
-        ret[x] = val0_bytes[x];
-        ret[x + 8] = val1_bytes[x];
-    }
-
-    u128::from_be_bytes(ret)
+fn hash_u128(key: u128) -> u128 {
+    let mut hasher = sha3::Sha3_256::default();
+    hasher.update(key.to_be_bytes());
+    let out: [u8; 32] = hasher.finalize().into();
+    let slice: [u8; 16] = out[0..16].try_into().unwrap();
+    u128::from_be_bytes(slice)
 }
 
-/// panics if packet is not of proper length
+/// # Safety
+/// This is NOT a cryptographically-secure cipher since its inverse is relatively trivial:
+///
+/// C' = ((C + A) XOR B) mod 2^8
+/// C = ((C' XOR B) - A) mod 2^8
+/// The purpose of this is to obfuscate the header to make deep packet inspection
+/// more challenging while providing minimal overhead. As such, the inputs should
+/// be data that is acceptable to be plaintext, not ciphertext.
+///
+/// # Panics
+///  If packet is not of proper length
 #[inline]
 fn apply_cipher(val: u128, inverse: bool, packet: &mut BytesMut) {
-    let ref bytes = val.to_be_bytes();
+    let bytes = val.to_be_bytes();
     let (bytes0, bytes1) = bytes.split_at(8);
-    let packet = &mut packet[..HDP_HEADER_BYTE_LEN];
-    bytes0.iter().zip(bytes1.iter())
+    let packet_len = packet.len().min(HDP_HEADER_BYTE_LEN);
+    let packet = &mut packet[..packet_len];
+    bytes0
+        .iter()
+        .zip(bytes1.iter())
         .cycle()
         .zip(packet.iter_mut())
         .for_each(|((a, b), c)| cipher_inner(*a, *b, c, inverse))
@@ -362,19 +501,11 @@ fn cipher_inner(a: u8, b: u8, c: &mut u8, inverse: bool) {
     }
 }
 
-
-impl From<Option<u128>> for HeaderObfuscator {
-    fn from(inner: Option<u128>) -> Self {
-        Self { inner: DualCell::from(inner) }
-    }
-}
-*/
-
 pub trait HdpBuffer: BufMut + AsRef<[u8]> + AsMut<[u8]> {
     type Immutable;
     fn len(&self) -> usize;
     fn split_to(&mut self, idx: usize) -> Self;
-    fn freeze(self) -> Self::Immutable;
+    fn to_immutable(self) -> Self::Immutable;
 }
 
 impl HdpBuffer for BytesMut {
@@ -388,27 +519,357 @@ impl HdpBuffer for BytesMut {
         self.split_to(idx)
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn to_immutable(self) -> Self::Immutable {
         self.freeze()
     }
 }
 
 impl HdpBuffer for Vec<u8> {
-    type Immutable = Self;
+    type Immutable = Vec<u8>;
 
     fn len(&self) -> usize {
         self.len()
     }
 
-    // return [0, idx), leave self with [idx, len)
     fn split_to(&mut self, idx: usize) -> Self {
-        let mut tail = self.split_off(idx);
-        // swap head into tail
-        std::mem::swap(self, &mut tail);
+        let tail = self[..idx].to_vec();
+        self.copy_within(idx.., 0);
+        self.truncate(self.len() - idx);
         tail // now, tail is the head
     }
 
-    fn freeze(self) -> Self::Immutable {
+    fn to_immutable(self) -> Self::Immutable {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::BytesMut;
+    use citadel_types::crypto::HeaderObfuscatorSettings;
+
+    #[test]
+    fn test_header_obfuscator_client_server_interaction() {
+        // Test client initialization
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::Enabled);
+        assert!(
+            client.first_packet.is_some(),
+            "Client should have initial packet"
+        );
+        assert!(
+            client.expected_key.is_none(),
+            "Client should not have expected key initially"
+        );
+
+        // Test server initialization
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Enabled);
+        assert!(
+            server.first_packet.is_none(),
+            "Server should not have initial packet"
+        );
+        assert!(
+            server.expected_key.is_none(),
+            "Server should not have expected key initially"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_key_exchange() {
+        // Create client and server
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::Enabled);
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Enabled);
+
+        // Get first packet from client
+        let mut first_packet = client.first_packet.as_ref().unwrap().clone();
+
+        // Server should process first packet successfully
+        assert!(server.on_packet_received(&mut first_packet).is_ok());
+
+        // Server should now have the same key as client
+        assert_eq!(server.load(), client.load());
+        assert!(server.load().is_some(), "Both should have non-None key");
+
+        // Create and process a test packet
+        let mut test_packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        test_packet.resize(HDP_HEADER_BYTE_LEN, 1); // Fill with 1's
+
+        // Process packet through client and server
+        let client_processed = client.prepare_outbound(test_packet.clone());
+        let mut server_packet = BytesMut::from(&client_processed[..]);
+
+        // Server should process the packet successfully
+        assert!(server.on_packet_received(&mut server_packet).is_ok());
+    }
+
+    #[test]
+    fn test_header_obfuscator_disabled() {
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::Disabled);
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Disabled);
+
+        // Both should have no key and no first packet
+        assert!(client.load().is_none());
+        assert!(server.load().is_none());
+        assert!(client.first_packet.is_some()); // Contains to null packet designed for disabling use
+        assert!(server.first_packet.is_none());
+    }
+
+    #[test]
+    fn test_header_obfuscator_small_packet_ignores() {
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::EnabledWithKey(12345));
+
+        // Test packet smaller than 16 bytes
+        let mut small_packet = BytesMut::with_capacity(16);
+        small_packet.resize(15, 1);
+        let initial_small_packet = small_packet.clone();
+        assert!(
+            server.on_packet_received(&mut small_packet).is_ok(),
+            "Packets that are smaller than 16 bytes will just be skipped"
+        );
+        assert_eq!(
+            initial_small_packet, small_packet,
+            "Packets that are smaller than 16 bytes should not be modified"
+        );
+
+        // Test empty packet
+        let mut empty_packet = BytesMut::new();
+        let initial_empty_packet = empty_packet.clone();
+        assert!(
+            server.on_packet_received(&mut empty_packet).is_ok(),
+            "Empty packets should be skipped"
+        );
+        assert_eq!(
+            initial_empty_packet, empty_packet,
+            "Empty packets should not be modified"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_invalid_keys() {
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::EnabledWithKey(12345));
+
+        // Test packet with zero key
+        let mut zero_key_packet = BytesMut::with_capacity(16);
+        zero_key_packet.put_u128(0);
+        assert_eq!(zero_key_packet.len(), 16);
+        assert!(
+            server.on_packet_received(&mut zero_key_packet).is_ok(),
+            "Should silently ignore packet with zero key"
+        );
+
+        // Test packet with invalid key
+        let mut invalid_key_packet = BytesMut::with_capacity(16);
+        invalid_key_packet.put_u128(54321); // Different from server's key
+        assert!(
+            server.on_packet_received(&mut invalid_key_packet).is_ok(),
+            "Should ignore packet with mismatched key"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_invalid_keys_no_preset_server_value() {
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Enabled);
+
+        // Test packet with zero key
+        let mut zero_key_packet = BytesMut::with_capacity(16);
+        zero_key_packet.put_u128(0);
+        assert!(
+            server.on_packet_received(&mut zero_key_packet).is_err(),
+            "Should error on packet with zero key"
+        );
+        assert!(server.load().is_none(), "Server should have no key until the client sends a valid key since the server has no initial key");
+
+        let mut good_first_packet = BytesMut::with_capacity(16);
+        good_first_packet.put_u128(12345);
+        assert!(
+            server.on_packet_received(&mut good_first_packet).is_ok(),
+            "Should accept packet with valid key"
+        );
+
+        // Test packet with invalid key
+        let mut invalid_key_packet = BytesMut::with_capacity(16);
+        invalid_key_packet.put_u128(
+            server
+                .load()
+                .expect("Server should have key")
+                .wrapping_add(1),
+        ); // Different from server's key
+        assert!(
+            server.on_packet_received(&mut invalid_key_packet).is_ok(),
+            "Should ignore packet with mismatched key"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_disabled_behavior() {
+        let disabled_server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Disabled);
+        let disabled_client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::Disabled);
+
+        // Create test packets
+        let mut small_packet = BytesMut::with_capacity(8);
+        small_packet.resize(8, 1);
+        let initial_small = small_packet.clone();
+
+        let mut full_packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        full_packet.resize(HDP_HEADER_BYTE_LEN, 2);
+        let initial_full = full_packet.clone();
+
+        // Test that disabled obfuscator doesn't modify any packets
+        assert!(disabled_server
+            .on_packet_received(&mut small_packet)
+            .is_ok());
+        assert!(disabled_client.on_packet_received(&mut full_packet).is_ok());
+        assert_eq!(
+            initial_small, small_packet,
+            "Disabled obfuscator should not modify small packets"
+        );
+        assert_eq!(
+            initial_full, full_packet,
+            "Disabled obfuscator should not modify full packets"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_key_exchange_flow() {
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::Enabled);
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Enabled);
+
+        // Get first packet from client
+        let mut first_packet = client.first_packet.as_ref().unwrap().clone();
+
+        // Server should process first packet successfully
+        assert!(server.on_packet_received(&mut first_packet).is_ok());
+        assert_ne!(
+            first_packet,
+            client.first_packet.as_ref().unwrap().clone(),
+            "First packet should be modified by server"
+        );
+
+        // Both should now have same key
+        assert_eq!(server.load(), client.load());
+        assert!(server.load().is_some(), "Both should have non-None key");
+
+        // Create and process a test packet
+        let mut test_packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        test_packet.resize(HDP_HEADER_BYTE_LEN, 3);
+        let initial_test = test_packet.clone();
+
+        // Process packet through client and server
+        let client_processed = client.prepare_outbound(test_packet.clone());
+        let mut server_packet = BytesMut::from(&client_processed[..]);
+
+        // Server should process the packet successfully
+        assert!(server.on_packet_received(&mut server_packet).is_ok());
+        assert_eq!(
+            server_packet, initial_test,
+            "Server should decrypt to original packet"
+        );
+
+        // Server -> Client
+        let server_processed = server.prepare_outbound(test_packet.clone());
+        let mut client_packet = BytesMut::from(&server_processed[..]);
+
+        // Client should process the packet successfully
+        assert!(client.on_packet_received(&mut client_packet).is_ok());
+        assert_eq!(
+            client_packet, initial_test,
+            "Client should decrypt to original packet"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_preshared_key() {
+        let psk = 12345u128;
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::EnabledWithKey(psk));
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::EnabledWithKey(psk));
+
+        // Both should have the same hashed key
+        assert_eq!(client.load(), server.load());
+        assert!(client.load().is_some());
+
+        // Create and process a test packet
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        packet.resize(HDP_HEADER_BYTE_LEN, 1); // Fill with 1's
+
+        // Process packet through client and server
+        let client_processed = client.prepare_outbound(packet.clone());
+        let mut server_packet = BytesMut::from(&client_processed[..]);
+
+        // Server should process the packet successfully
+        assert!(server.on_packet_received(&mut server_packet).is_ok());
+    }
+
+    #[test]
+    fn test_header_obfuscator_mismatched_psk() {
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::EnabledWithKey(12345));
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::EnabledWithKey(54321));
+
+        // Create a test packet
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        packet.resize(HDP_HEADER_BYTE_LEN, 0);
+
+        // Packets should be processed differently due to different keys
+        let client_processed = client.prepare_outbound(packet.clone());
+        let server_processed = server.prepare_outbound(packet.clone());
+        assert_ne!(client_processed[..], server_processed[..]);
+    }
+
+    #[test]
+    fn test_header_obfuscator_key_validation() {
+        // Test with pre-shared key enabled
+        let mut server =
+            HeaderObfuscator::new_server(HeaderObfuscatorSettings::EnabledWithKey(12345));
+
+        // Test packet with mismatched key (should fail)
+        let mut invalid_key_packet = BytesMut::with_capacity(16);
+        invalid_key_packet.put_u128(54321); // Different from server's key
+        assert!(
+            server.on_packet_received(&mut invalid_key_packet).is_ok(),
+            "Should silently accept packet with mismatched key"
+        );
+
+        // Test packet with valid key but too small (should be ignored)
+        let mut small_valid_key = BytesMut::with_capacity(16);
+        small_valid_key.put_u128(12345);
+        assert!(
+            server.on_packet_received(&mut small_valid_key).is_ok(),
+            "Should accept packet with valid key even if small"
+        );
+
+        // Test with no pre-shared key
+        server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Enabled);
+
+        // Test packet with any non-zero key (should succeed)
+        let mut valid_key_packet = BytesMut::with_capacity(16);
+        valid_key_packet.put_u128(54321);
+        assert!(
+            server.on_packet_received(&mut valid_key_packet).is_ok(),
+            "Should accept any non-zero key when no PSK"
+        );
+    }
+
+    #[test]
+    fn test_header_obfuscator_psk_mismatch_modes() {
+        // Test client with PSK connecting to server without PSK
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::EnabledWithKey(12345));
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::Enabled);
+
+        // Get first packet from client
+        let mut first_packet = client.first_packet.as_ref().unwrap().clone();
+
+        // Server should accept the packet since it has no PSK expectations
+        assert!(server.on_packet_received(&mut first_packet).is_ok());
+        assert!(server.load().is_some());
+
+        // Test server with PSK receiving from client without PSK
+        let client = HeaderObfuscator::new_client(HeaderObfuscatorSettings::Enabled);
+        let server = HeaderObfuscator::new_server(HeaderObfuscatorSettings::EnabledWithKey(12345));
+
+        // Get first packet from client
+        let mut first_packet = client.first_packet.as_ref().unwrap().clone();
+
+        // Server should silently ignore the packet since it doesn't match PSK
+        assert!(server.on_packet_received(&mut first_packet).is_ok());
+        assert_eq!(server.load().unwrap(), hash_u128(12345));
     }
 }

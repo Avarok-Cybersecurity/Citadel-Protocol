@@ -1,5 +1,5 @@
 use citadel_io::tokio;
-use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
+use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -12,20 +12,21 @@ async fn main() {
     let stun2 = get_env("STUN_2_ADDR");
 
     let finished = &AtomicBool::new(false);
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        addr,
-        "test-username",
-        "Test user",
-        "notsecurepassword",
-    )
-    .with_udp_mode(UdpMode::Enabled)
-    .build()
-    .unwrap();
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            addr,
+            "test-username",
+            "Test user",
+            "notsecurepassword",
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .build()
+        .unwrap();
 
     let client =
         citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |mut connection, remote| async move {
+            |mut connection| async move {
                 let chan = connection.udp_channel_rx.take();
                 citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                     UdpMode::Enabled,
@@ -34,12 +35,12 @@ async fn main() {
                 .await
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 finished.store(true, Ordering::SeqCst);
-                remote.shutdown_kernel().await?;
+                connection.shutdown_kernel().await?;
                 Ok(())
             },
         );
 
-    let _ = NodeBuilder::default()
+    let _ = DefaultNodeBuilder::default()
         .with_node_type(NodeType::Peer)
         .with_stun_servers([stun0, stun1, stun2])
         .build(client)

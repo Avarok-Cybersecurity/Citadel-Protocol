@@ -1,3 +1,31 @@
+//! Inner Parameter Type System for Citadel Protocol
+//!
+//! This module provides a type-safe way to handle inner parameter references in the
+//! Citadel Protocol. It implements wrapper types that enforce proper dereferencing
+//! behavior and type safety for both mutable and immutable references.
+//!
+//! # Features
+//!
+//! - Type-safe parameter wrapping
+//! - Mutable and immutable reference support
+//! - Automatic dereferencing behavior
+//! - Zero-cost abstractions
+//! - Generic over target types
+//!
+//! # Important Notes
+//!
+//! - Zero runtime overhead
+//! - Preserves mutability constraints
+//! - Uses PhantomData for type safety
+//! - Implements standard traits (From, Deref)
+//!
+//! # Related Components
+//!
+//! - Used in packet processing for safe references
+//! - Supports protocol state management
+//! - Integrates with validation system
+//! - Used in cryptographic operations
+
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 

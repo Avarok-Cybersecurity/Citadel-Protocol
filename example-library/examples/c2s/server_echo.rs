@@ -49,19 +49,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting server on {}", server_addr);
 
     // Set up the server kernel. The provided closure will be called every time a new client connects
-    let kernel = ClientConnectListenerKernel::new(move |conn_success, _remote| async move {
-        println!("New client connected! CID: {}", conn_success.cid);
+    let kernel = ClientConnectListenerKernel::new(move |conn| async move {
+        let cid = conn.cid;
+        println!("New client connected! CID: {cid}");
 
-        let (tx, mut rx) = conn_success.channel.split();
+        let (mut tx, mut rx) = conn.split();
         while let Some(msg) = rx.next().await {
             println!(
-                "Received message from client {}: {}",
-                conn_success.cid,
+                "Received message from client {cid}: {}",
                 String::from_utf8_lossy(msg.as_ref())
             );
 
             // Echo the message back
-            if let Err(e) = tx.send_message(msg.into()).await {
+            if let Err(e) = tx.send(msg).await {
                 println!("Error sending response: {}", e);
             }
         }
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build the server
-    let node = NodeBuilder::default()
+    let node = DefaultNodeBuilder::default()
         .with_node_type(NodeType::server(server_addr)?)
         .build(kernel)?;
 

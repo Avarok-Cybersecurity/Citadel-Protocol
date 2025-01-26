@@ -1,3 +1,43 @@
+//! Credential Proposal and Validation
+//!
+//! This module handles the creation, validation, and processing of user credentials
+//! in the Citadel Protocol, supporting both password-based and passwordless authentication.
+//!
+//! # Features
+//!
+//! * **Credential Management**
+//!   - Password hashing with Argon2id
+//!   - Username sanitization
+//!   - Full name handling
+//!   - Passwordless mode support
+//!
+//! * **Security Features**
+//!   - Secure password transformation
+//!   - Random salt generation
+//!   - Configurable Argon2 parameters
+//!   - Memory-safe credential handling
+//!
+//! * **Validation**
+//!   - Server-side validation
+//!   - Credential comparison
+//!   - Username uniqueness
+//!   - Format sanitization
+//!
+//! # Important Notes
+//!
+//! * Passwords are pre-hashed with SHA-3 before Argon2
+//! * All strings are trimmed and sanitized
+//! * Registration generates secure random secrets
+//! * Credentials are zeroed after use
+//! * Server validates all client credentials
+//!
+//! # Related Components
+//!
+//! * `DeclaredAuthenticationMode` - Final auth state
+//! * `ServerMiscSettings` - Server validation rules
+//! * `ArgonContainerType` - Password hashing
+//! * `AccountManager` - Uses proposed credentials
+
 use crate::auth::DeclaredAuthenticationMode;
 use crate::misc::AccountError;
 use crate::server_misc_settings::ServerMiscSettings;
@@ -53,8 +93,10 @@ impl ProposedCredentials {
     }
 
     /// Generates an empty skeleton for authless mode
-    pub const fn passwordless(username: String) -> Self {
-        Self::Disabled { username }
+    pub fn transient<T: Into<String>>(username: T) -> Self {
+        Self::Disabled {
+            username: username.into(),
+        }
     }
 
     /// Generates the proper registration credentials. Trims the username, password, and full name, removing any whitespace from the ends. Should only be called client-side
@@ -153,7 +195,7 @@ impl ProposedCredentials {
 
     pub(crate) fn into_auth_store(self) -> DeclaredAuthenticationMode {
         match self {
-            Self::Disabled { username } => DeclaredAuthenticationMode::Passwordless {
+            Self::Disabled { username } => DeclaredAuthenticationMode::Transient {
                 username,
                 full_name: "authless.client".to_string(),
             },

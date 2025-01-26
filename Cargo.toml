@@ -122,3 +122,5 @@ webrtc-util = { version = "0.8.0" }
 embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
 sha256 = { version = "1.5.0" }
+tokio-openssl = { version = "0.6.3" }
+openssl-sys = { version = "0.9.104" } 

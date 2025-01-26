@@ -1,3 +1,62 @@
+//! # Cryptographic Types and Utilities
+//!
+//! This module provides core cryptographic types and utilities for the Citadel Protocol,
+//! including secure memory management, algorithm selection, and parameter configuration.
+//!
+//! ## Key Components
+//!
+//! ### Secure Memory Management
+//!
+//! The module provides `SecBuffer` for secure handling of sensitive data:
+//!
+//! ```rust
+//! use citadel_types::crypto::SecBuffer;
+//!
+//! // Create a secure buffer
+//! let mut buffer = SecBuffer::empty();
+//!
+//! // Work with the buffer securely
+//! {
+//!     let mut handle = buffer.handle();
+//!     handle.extend_from_slice(b"sensitive data");
+//! } // Memory is locked when handle is dropped
+//! ```
+//!
+//! ### Cryptographic Parameters
+//!
+//! Configure cryptographic algorithms and security levels:
+//!
+//! ```rust
+//! use citadel_types::crypto::{KemAlgorithm, EncryptionAlgorithm, SecurityLevel};
+//!
+//! // Create parameters
+//! let params = KemAlgorithm::Kyber
+//!     + EncryptionAlgorithm::ChaCha20Poly_1305;
+//!
+//! // Set security level
+//! let level = SecurityLevel::High;
+//! ```
+//!
+//! ### Algorithm Selection
+//!
+//! Supported algorithms include:
+//!
+//! - KEM (Key Encapsulation Mechanism)
+//!   - Kyber (1024)
+//! - Encryption
+//!   - ChaCha20-Poly1305
+//!   - AES-GCM
+//!   - Ascon
+//! - Signatures
+//!   - Falcon
+//!
+//! ## Security Considerations
+//!
+//! - All sensitive data should be stored in `SecBuffer`
+//! - Use appropriate security levels for your use case
+//! - Consider perfect secrecy mode for maximum security
+//! - Properly handle algorithm selection based on requirements
+
 use crate::utils;
 use crate::utils::validate_crypto_params;
 use bytes::{Bytes, BytesMut};
@@ -7,6 +66,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, Deref, DerefMut};
 use strum::{EnumCount, ParseError};
+use uuid::Uuid;
 
 pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
 
@@ -59,11 +119,12 @@ pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoPa
     ret
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub enum SecrecyMode {
     /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
     Perfect,
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
+    #[default]
     BestEffort,
 }
 
@@ -79,12 +140,6 @@ impl TryFrom<u8> for SecrecyMode {
                 value
             ))),
         }
-    }
-}
-
-impl Default for SecrecyMode {
-    fn default() -> Self {
-        Self::BestEffort
     }
 }
 
@@ -454,6 +509,39 @@ impl From<u8> for SecurityLevel {
             4 => SecurityLevel::Extreme,
             n => SecurityLevel::Custom(n),
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
+pub enum HeaderObfuscatorSettings {
+    /// Enables header obfuscation to help mitigate some deep packet inspection techniques using a pseudorandom key
+    Enabled,
+    #[default]
+    /// Disables header obfuscation (default)
+    Disabled,
+    /// Enables header obfuscation with a specific key. This value must be symmetric between both endpoints, otherwise the obfuscation will fail
+    EnabledWithKey(u128),
+}
+
+impl From<u128> for HeaderObfuscatorSettings {
+    fn from(val: u128) -> Self {
+        HeaderObfuscatorSettings::EnabledWithKey(val)
+    }
+}
+
+impl From<bool> for HeaderObfuscatorSettings {
+    fn from(value: bool) -> Self {
+        if value {
+            HeaderObfuscatorSettings::Enabled
+        } else {
+            HeaderObfuscatorSettings::Disabled
+        }
+    }
+}
+
+impl From<Uuid> for HeaderObfuscatorSettings {
+    fn from(value: Uuid) -> Self {
+        HeaderObfuscatorSettings::EnabledWithKey(value.as_u128())
     }
 }
 

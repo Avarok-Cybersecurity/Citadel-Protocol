@@ -6,7 +6,9 @@ mod tests {
     use citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
+    use citadel_sdk::prefabs::client::{
+        DefaultServerConnectionSettingsBuilder, ServerConnectionSettingsBuilder,
+    };
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::{server_info, wait_for_peers};
     use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm};
@@ -82,14 +84,10 @@ mod tests {
     pub struct MessageTransfer {
         pub idx: u64,
         pub rand: Vec<u8>,
+        pub checksum: u64,
     }
 
     impl MessageTransfer {
-        pub fn create(idx: u64) -> SecureProtocolPacket {
-            let rand = Self::create_rand(idx);
-            rand.into()
-        }
-
         pub fn create_secbuffer(idx: u64) -> SecBuffer {
             let rand = Self::create_rand(idx);
             rand.into()
@@ -99,30 +97,46 @@ mod tests {
             let mut rng = ThreadRng::default();
             let mut rand = vec![0u8; MESSAGE_LEN];
             rng.fill(rand.as_mut_slice());
-            Self { idx, rand }.serialize_to_vector().unwrap()
+            let rand_sum: u64 = rand.iter().copied().map(u64::from).sum();
+            Self {
+                idx,
+                rand,
+                checksum: rand_sum,
+            }
+            .serialize_to_vector()
+            .unwrap()
         }
 
         pub fn receive(input: SecBuffer) -> Self {
-            Self::deserialize_from_vector(input.as_ref()).unwrap()
+            let this = Self::deserialize_from_vector(input.as_ref()).unwrap();
+            // Not a real hash, just for testing purposes
+            assert_eq!(
+                this.checksum,
+                this.rand.iter().copied().map(u64::from).sum::<u64>(),
+                "Checksum mismatch"
+            );
+            this
         }
     }
 
-    async fn handle_send_receive_e2e(
+    async fn handle_send_receive_e2e<R: Ratchet>(
         barrier: Arc<Barrier>,
-        channel: PeerChannel,
+        channel: PeerChannel<R>,
         count: usize,
     ) -> Result<(), NetworkError> {
-        let (tx, rx) = channel.split();
+        let (mut tx, rx) = channel.split();
         for idx in 0..count {
-            tx.send_message(MessageTransfer::create(idx as u64)).await?;
+            tx.send(MessageTransfer::create_secbuffer(idx as u64))
+                .await?;
         }
 
         let mut cur_idx = 0usize;
+        let cid = rx.vconn_type.get_session_cid();
 
         let mut rx = rx.take(count);
         while let Some(msg) = rx.next().await {
-            log::trace!(target: "citadel", "**~ Received message {} ~**", cur_idx);
             let msg = MessageTransfer::receive(msg);
+            log::trace!(target: "citadel", "**~ Client {cid} Received message {} (expected: {})~**", msg.idx, cur_idx);
             assert_eq!(msg.idx, cur_idx as u64);
             assert_eq!(msg.rand.len(), MESSAGE_LEN);
             cur_idx += 1;
@@ -224,16 +238,22 @@ mod tests {
 
         let spawner = TestSpawner::new();
 
-        let (server, server_addr) = citadel_sdk::test_common::server_info_reactive(
-            move |conn, remote| async move {
-                log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
-                handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
-                log::trace!(target: "citadel", "***SERVER TEST SUCCESS***");
-                SERVER_SUCCESS.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
-            },
-            |_| {},
-        );
+        let (server, server_addr) =
+            citadel_sdk::test_common::server_info_reactive::<_, _, StackedRatchet>(
+                move |mut connection| async move {
+                    log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
+                    handle_send_receive_e2e(
+                        get_barrier(),
+                        connection.take_channel().unwrap(),
+                        message_count,
+                    )
+                    .await?;
+                    log::trace!(target: "citadel", "***SERVER TEST SUCCESS***");
+                    SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                    connection.shutdown_kernel().await
+                },
+                |_| {},
+            );
 
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
@@ -243,7 +263,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -251,16 +271,21 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            move |connection, remote| async move {
+            move |mut connection| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
-                handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
+                handle_send_receive_e2e(
+                    get_barrier(),
+                    connection.take_channel().unwrap(),
+                    message_count,
+                )
+                .await?;
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
-        let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let client = spawner.spawn(DefaultNodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
         let maybe_localset = spawner.local_set();
 
@@ -293,20 +318,26 @@ mod tests {
 
         let spawner = TestSpawner::new();
 
-        let (server, server_addr) = citadel_sdk::test_common::server_info_reactive(
-            move |conn, remote| async move {
-                log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
-                handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
-                log::trace!(target: "citadel", "***SERVER TEST SUCCESS***");
-                SERVER_SUCCESS.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
-            },
-            |node| {
-                if let Some(password) = server_password {
-                    node.with_server_password(password);
-                }
-            },
-        );
+        let (server, server_addr) =
+            citadel_sdk::test_common::server_info_reactive::<_, _, StackedRatchet>(
+                move |mut connection| async move {
+                    log::trace!(target: "citadel", "*** SERVER RECV CHANNEL ***");
+                    handle_send_receive_e2e(
+                        get_barrier(),
+                        connection.take_channel().unwrap(),
+                        message_count,
+                    )
+                    .await?;
+                    log::trace!(target: "citadel", "***SERVER TEST SUCCESS***");
+                    SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                    connection.shutdown_kernel().await
+                },
+                |node| {
+                    if let Some(password) = server_password {
+                        node.with_server_password(password);
+                    }
+                },
+            );
 
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
@@ -316,7 +347,7 @@ mod tests {
             .unwrap();
 
         let mut connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security);
 
@@ -328,16 +359,21 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             connection_settings,
-            move |connection, remote| async move {
+            move |mut connection| async move {
                 log::trace!(target: "citadel", "*** CLIENT RECV CHANNEL ***");
-                handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
+                handle_send_receive_e2e(
+                    get_barrier(),
+                    connection.take_channel().unwrap(),
+                    message_count,
+                )
+                .await?;
                 log::trace!(target: "citadel", "***CLIENT TEST SUCCESS***");
                 CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
-        let client = spawner.spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let client = spawner.spawn(DefaultNodeBuilder::default().build(client_kernel).unwrap());
         let server = spawner.spawn(server);
         let maybe_local_set = spawner.local_set();
 
@@ -366,12 +402,43 @@ mod tests {
         )]
         enx: EncryptionAlgorithm,
     ) {
+        stress_test_p2p_messaging_with_ratchet::<StackedRatchet>(
+            message_count,
+            secrecy_mode,
+            p2p_password,
+            kem,
+            enx,
+        )
+        .await;
+    }
+
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(240))]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn stress_test_p2p_messaging_thin_ratchet() {
+        stress_test_p2p_messaging_with_ratchet::<MonoRatchet>(
+            500,
+            SecrecyMode::Perfect,
+            None,
+            KemAlgorithm::Kyber,
+            EncryptionAlgorithm::AES_GCM_256,
+        )
+        .await;
+    }
+
+    async fn stress_test_p2p_messaging_with_ratchet<R: Ratchet>(
+        message_count: usize,
+        secrecy_mode: SecrecyMode,
+        p2p_password: Option<&'static str>,
+        kem: KemAlgorithm,
+        enx: EncryptionAlgorithm,
+    ) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
 
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<R>();
 
         let uuid0 = Uuid::new_v4();
         let uuid1 = Uuid::new_v4();
@@ -402,7 +469,7 @@ mod tests {
         let peer1_connection = peer1_agg.add();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
+            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(server_addr, uuid0)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -425,7 +492,7 @@ mod tests {
         );
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
+            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(server_addr, uuid1)
                 .with_udp_mode(UdpMode::Enabled)
                 .with_session_security_settings(session_security)
                 .build()
@@ -476,7 +543,7 @@ mod tests {
 
         static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
         CLIENT_SUCCESS.store(0, Ordering::Relaxed);
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<StackedRatchet>();
 
         let client_kernels = FuturesUnordered::new();
         let total_peers = (0..peer_count)
@@ -506,7 +573,7 @@ mod tests {
             };
 
             let server_connection_settings =
-                ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                     .build()
                     .unwrap();
 
@@ -525,7 +592,7 @@ mod tests {
                 },
             );
 
-            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
             let task = async move { client.await.map(|_| ()) };
 
             client_kernels.push(task);

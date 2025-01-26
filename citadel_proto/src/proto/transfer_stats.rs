@@ -1,3 +1,23 @@
+//! Transfer Statistics Tracking Module
+//!
+//! This module provides functionality for tracking and calculating network transfer statistics
+//! including transfer rates, jitter, and total bytes transferred.
+//!
+//! # Features
+//! - Tracks transfer rates with nanosecond precision
+//! - Calculates transfer rate jitter (rate of change in transfer speed)
+//! - Maintains running totals of plaintext bytes sent
+//! - Thread-safe statistics accumulation
+//!
+//! # Important Notes
+//! - Timestamps are in nanoseconds for high precision rate calculations
+//! - Transfer rates are calculated in bytes per second
+//! - Uses wrapping addition for total bytes to handle potential overflows
+//!
+//! # Related Components
+//! - Used in conjunction with packet handling and session management modules
+//! - Integral part of the protocol's performance monitoring system
+
 use std::fmt::{Display, Formatter};
 use std::ops::AddAssign;
 

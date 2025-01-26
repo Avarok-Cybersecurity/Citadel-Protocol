@@ -1,3 +1,31 @@
+//! Lock Holder Implementation
+//!
+//! This module provides a safe way to hold and manage locks across asynchronous
+//! boundaries. It ensures proper lock acquisition and release while preventing
+//! deadlocks and maintaining thread safety.
+//!
+//! # Features
+//!
+//! - Safe async lock management
+//! - Deadlock prevention
+//! - RAII-style lock handling
+//! - Automatic lock cleanup
+//! - Lock state tracking
+//!
+//! # Important Notes
+//!
+//! - Locks are automatically released on drop
+//! - Supports both sync and async contexts
+//! - Thread-safe lock management
+//! - Prevents lock leakage
+//!
+//! # Related Components
+//!
+//! - `dual_rwlock.rs`: Read-write locking
+//! - `dual_cell.rs`: Thread-safe cells
+//! - `clean_shutdown.rs`: Resource cleanup
+//! - `dual_late_init.rs`: Late initialization
+
 #![allow(dead_code)]
 use std::marker::PhantomData;
 

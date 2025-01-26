@@ -1,3 +1,51 @@
+//! # External Services Integration
+//!
+//! This module provides integration with external services, primarily focusing on
+//! Google services such as Firebase Realtime Database (RTDB) and Firebase Authentication.
+//! It manages service configuration, authentication, and state handling.
+//!
+//! ## Features
+//!
+//! * Google services integration (behind feature flag)
+//! * Firebase Realtime Database support
+//! * Custom JWT authentication
+//! * Service configuration management
+//! * Post-login service initialization
+//! * WASM compatibility checks
+//!
+//! ## Usage Example
+//!
+//! ```rust,no_run
+//! #[cfg(feature = "google-services")]
+//! # fn test() {
+//! use citadel_user::external_services::{ServicesConfig, RtdbConfig};
+//!
+//! // Create service configuration
+//! let config = ServicesConfig {
+//!     google_services_json_path: Some("path/to/service-account.json".to_string()),
+//!     google_rtdb: Some(RtdbConfig::default()),
+//! };
+//!
+//! // Initialize services handler
+//! let handler = config.into_services_handler()?;
+//! # }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Google services require the "google-services" feature flag
+//! * Some features are not available in WASM environments
+//! * Service account JSON is required for server-side operations
+//! * JWT tokens are managed automatically
+//!
+//! ## Related Components
+//!
+//! * `GoogleAuth`: Firebase Authentication integration
+//! * `RtdbInstance`: Firebase Realtime Database client
+//! * `ServicesHandler`: Main service management interface
+//! * `ServicesConfig`: Service configuration container
+//!
+
 /// For services
 #[cfg(feature = "google-services")]
 pub mod google_auth;
@@ -73,12 +121,12 @@ pub mod service {
         /// This should be called after the server validates a login [marked async for now to allow room for future async processes)
         pub async fn on_post_login_serverside(
             &self,
-            implicated_cid: u64,
+            session_cid: u64,
         ) -> Result<ServicesObject, AccountError> {
             let mut ret: ServicesObject = Default::default();
 
             if let Some(auth) = self.google_auth.as_ref() {
-                ret.google_auth_jwt = Some(auth.sign_new_custom_jwt_auth(implicated_cid)?)
+                ret.google_auth_jwt = Some(auth.sign_new_custom_jwt_auth(session_cid)?)
             }
 
             ret.rtdb = self.rtdb_config.clone();

@@ -1,3 +1,38 @@
+//! # Citadel Protocol Outbound Message Handling
+//!
+//! This module provides functionality for sending outbound messages in the Citadel Protocol.
+//! It implements various types of message senders optimized for different use cases,
+//! including bounded and unbounded channels, UDP and TCP streams.
+//!
+//! ## Features
+//!
+//! - **Multiple Channel Types**:
+//!   - Unbounded channels for high-throughput scenarios
+//!   - Bounded channels for rate-limiting and backpressure
+//!   - UDP-specific senders for datagram-based communication
+//!
+//! - **Stream Management**:
+//!   - Primary stream handling for reliable TCP communication
+//!   - UDP stream handling with keep-alive support
+//!   - Automatic stream cleanup and resource management
+//!
+//! - **Error Handling**:
+//!   - Comprehensive error types for different failure scenarios
+//!   - Graceful handling of connection issues
+//!   - Automatic retry mechanisms
+//!
+//! - **Performance Optimizations**:
+//!   - Zero-copy buffer management
+//!   - Efficient async/await support
+//!   - Minimal allocation overhead
+//!
+//! ## Components
+//!
+//! - **UnboundedSender**: High-throughput channel without backpressure
+//! - **BoundedSender**: Rate-limited channel with backpressure
+//! - **OutboundPrimaryStreamSender**: TCP stream management
+//! - **OutboundUdpSender**: UDP datagram handling with keep-alive
+
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
 use bytes::BytesMut;

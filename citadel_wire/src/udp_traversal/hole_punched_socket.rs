@@ -1,3 +1,79 @@
+//! UDP Socket Address targeting module.
+//!
+//! This module provides functionality for targeting specific UDP socket addresses.
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
+//! use std::net::SocketAddr;
+//!
+//! fn example() {
+//!     let addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
+//!     let targetted = TargettedSocketAddr::new_invariant(addr);
+//!     assert_eq!(targetted.send_address, addr);
+//!     assert_eq!(targetted.receive_address, addr);
+//! }
+//! ```
+//!
+//! NAT-Aware UDP Socket Management
+//!
+//! This module provides specialized UDP socket types that handle the complexities
+//! of NAT traversal, including address translation, port mapping, and connection
+//! maintenance. It manages the distinction between send and receive addresses
+//! that may occur in NAT environments.
+//!
+//! # Features
+//!
+//! - NAT-aware socket address management
+//! - Separate send/receive address handling
+//! - Address translation detection
+//! - Port mapping validation
+//! - Connection state tracking
+//! - Packet validation and filtering
+//! - Socket cleanup utilities
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::udp_traversal::hole_punched_socket::{
+//!     TargettedSocketAddr, HolePunchedUdpSocket
+//! };
+//! use std::net::SocketAddr;
+//!
+//! async fn handle_nat_socket(socket: HolePunchedUdpSocket) -> std::io::Result<()> {
+//!     let mut buf = [0u8; 1024];
+//!     
+//!     // Cleanse any stray packets
+//!     socket.cleanse()?;
+//!     
+//!     // Receive data with NAT-aware validation
+//!     let (size, addr) = socket.recv_from(&mut buf).await?;
+//!     println!("Received {} bytes from {}", size, addr);
+//!     
+//!     // Send response through correct NAT path
+//!     socket.send_to(&buf[..size], addr).await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Send/receive addresses may differ with UPnP
+//! - Packet validation ensures NAT consistency
+//! - Socket cleanup required after hole punch
+//! - Address translation detection is automatic
+//! - Unique IDs prevent connection confusion
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal::udp_hole_puncher`] - Hole punching
+//! - [`crate::standard::upnp_handler`] - UPnP support
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//!
+
 use crate::udp_traversal::HolePunchID;
 use citadel_io::tokio::net::UdpSocket;
 use serde::{Deserialize, Serialize};
@@ -106,7 +182,7 @@ impl HolePunchedUdpSocket {
     }
     // After hole-punching, some packets may be sent that need to be flushed
     // this cleanses the stream
-    pub(crate) fn cleanse(&self) -> std::io::Result<()> {
+    pub fn cleanse(&self) -> std::io::Result<()> {
         let buf = &mut [0u8; 4096];
         loop {
             match self.socket.try_recv(buf) {

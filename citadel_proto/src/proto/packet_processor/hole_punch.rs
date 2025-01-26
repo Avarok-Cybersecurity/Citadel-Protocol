@@ -1,13 +1,51 @@
+//! Hole Punch Packet Processor for Citadel Protocol
+//!
+//! This module implements NAT traversal functionality through hole punching in the
+//! Citadel Protocol network. It enables direct peer-to-peer connections between nodes
+//! behind NATs by coordinating connection establishment.
+//!
+//! # Features
+//!
+//! - NAT traversal packet processing
+//! - Secure packet validation
+//! - Peer connection coordination
+//! - Connection pipe management
+//! - Proxy support
+//!
+//! # Important Notes
+//!
+//! - Requires valid peer CID
+//! - All packets must be authenticated
+//! - Manages hole puncher pipes
+//! - Supports proxied connections
+//! - Forwards validated packets
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages hole punch state
+//! - `HolePuncherPipe`: Handles connection establishment
+//! - `StackedRatchet`: Provides packet security
+//! - `ProxyManager`: Handles proxied connections
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::packet_processor::primary_group_packet::{
-    get_proper_hyper_ratchet, get_resp_target_cid_from_header,
+    get_orientation_safe_ratchet, get_resp_target_cid_from_header,
 };
+use citadel_crypt::ratchets::Ratchet;
 
 /// This will handle an inbound group packet
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_hole_punch(
-    session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub fn process_hole_punch<R: Ratchet>(
+    session: &CitadelSession<R>,
     packet: HdpPacket,
     hr_version: u32,
     proxy_cid_info: Option<(u64, u64)>,
@@ -15,7 +53,7 @@ pub fn process_hole_punch(
     let (header, payload, _, _) = packet.decompose();
     let state_container = inner_state!(session.state_container);
     let hr = return_if_none!(
-        get_proper_hyper_ratchet(hr_version, &state_container, proxy_cid_info),
+        get_orientation_safe_ratchet(hr_version, &state_container, proxy_cid_info),
         "Unable to get proper HR"
     );
     let header = header.as_ref();

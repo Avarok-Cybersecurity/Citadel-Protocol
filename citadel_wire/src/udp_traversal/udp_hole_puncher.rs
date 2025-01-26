@@ -1,8 +1,40 @@
+//! UDP Hole Punching Implementation
+//!
+//! This module implements the core UDP hole punching algorithm for NAT traversal,
+//! enabling peer-to-peer connections between nodes behind different NATs. It handles
+//! the complexities of coordinated connection establishment and socket management.
+//!
+//! # Features
+//!
+//! - Asynchronous hole punching implementation
+//! - Dual-stack IPv4/IPv6 support
+//! - Automatic retry mechanism
+//! - Configurable timeouts
+//! - NAT-aware socket binding
+//! - Encrypted configuration exchange
+//! - Network endpoint integration
+//!
+//! # Important Notes
+//!
+//! - Requires coordinated peer configuration
+//! - Default timeout includes NAT identification time
+//! - Multiple retries on failure (max 3)
+//! - Socket binding optimized for NAT type
+//! - IPv6 support depends on peer capability
+//!
+//! # Related Components
+//!
+//! - [`crate::nat_identification`] - NAT behavior analysis
+//! - [`crate::udp_traversal::hole_punch_config`] - Configuration
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//! - [`crate::udp_traversal::hole_punched_socket`] - Socket management
+//!
+
 use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
-use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;

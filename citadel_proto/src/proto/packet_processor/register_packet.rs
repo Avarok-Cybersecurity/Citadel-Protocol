@@ -1,21 +1,60 @@
+//! Registration Packet Processor for Citadel Protocol
+//!
+//! This module handles the registration process for new clients in the Citadel Protocol
+//! network. It implements a secure multi-stage handshake that establishes client
+//! identity and sets up initial cryptographic parameters.
+//!
+//! # Features
+//!
+//! - Multi-stage registration handshake
+//! - Secure key exchange
+//! - Passwordless registration support
+//! - Session state management
+//! - Cryptographic parameter negotiation
+//! - Registration failure handling
+//!
+//! # Important Notes
+//!
+//! - Requires specific session states (NeedsRegister, SocketJustOpened, NeedsConnect)
+//! - Supports both password-based and passwordless registration
+//! - Implements post-quantum cryptography
+//! - Manages registration state transitions
+//! - Validates registration parameters
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages registration state
+//! - `AccountManager`: Handles account creation
+//! - `StackedRatchet`: Provides cryptographic primitives
+//! - `SessionManager`: Tracks registration process
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
-use citadel_crypt::prelude::ConstructorOpts;
-use citadel_crypt::stacked_ratchet::constructor::{
-    BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
+use citadel_crypt::endpoint_crypto_container::{
+    AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
 };
-use std::sync::atomic::Ordering;
+use citadel_crypt::prelude::{ConstructorOpts, Toolset};
+use citadel_crypt::ratchets::Ratchet;
+use citadel_user::serialization::SyncIO;
 
 /// This will handle a registration packet
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub async fn process_register(
-    session_ref: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub async fn process_register<R: Ratchet>(
+    session_ref: &CitadelSession<R>,
     packet: HdpPacket,
     remote_addr: SocketAddr,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
-    let state = session.state.load(Ordering::Relaxed);
+    let state = session.state.get();
 
     if state != SessionState::NeedsRegister
         && state != SessionState::SocketJustOpened
@@ -43,7 +82,7 @@ pub async fn process_register(
                     {
                         let algorithm = header.algorithm;
 
-                        match validation::do_register::validate_stage0(&payload) {
+                        match validation::do_register::validate_stage0::<R>(&payload) {
                             Some((transfer, passwordless)) => {
                                 // Now, create a stage 1 packet
                                 let timestamp = session.time_tracker.get_global_time_ns();
@@ -65,32 +104,33 @@ pub async fn process_register(
 
                                 async move {
                                     let cid = header.session_cid.get();
-                                    let bob_constructor = StackedRatchetConstructor::new_bob(
-                                        cid,
-                                        0,
-                                        ConstructorOpts::new_vec_init(
-                                            Some(transfer.params),
-                                            (transfer.security_level.value() + 1) as usize,
-                                        ),
-                                        transfer,
-                                        session_password.as_ref(),
-                                    )
-                                    .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                                    let mut bob_constructor =
+                                        <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                                            cid,
+                                            ConstructorOpts::new_vec_init(
+                                                Some(transfer.crypto_params()),
+                                                transfer.security_level(),
+                                            ),
+                                            transfer,
+                                            session_password.as_ref(),
+                                        )
+                                        .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
                                     let transfer = return_if_none!(
                                         bob_constructor.stage0_bob(),
                                         "Unable to advance past stage0-bob"
                                     );
 
-                                    let stage1_packet = packet_crafter::do_register::craft_stage1(
-                                        algorithm,
-                                        timestamp,
-                                        transfer,
-                                        header.session_cid.get(),
-                                    );
+                                    let stage1_packet =
+                                        packet_crafter::do_register::craft_stage1::<R>(
+                                            algorithm,
+                                            timestamp,
+                                            transfer,
+                                            header.session_cid.get(),
+                                        );
 
                                     let mut state_container =
                                         inner_mut_state!(session.state_container);
-                                    state_container.register_state.created_hyper_ratchet =
+                                    state_container.register_state.created_ratchet =
                                         Some(return_if_none!(
                                             bob_constructor.finish(),
                                             "Unable to finish bob constructor"
@@ -109,9 +149,7 @@ pub async fn process_register(
                                 state_container.register_state.on_register_packet_received();
                                 std::mem::drop(state_container);
 
-                                session
-                                    .state
-                                    .store(SessionState::NeedsRegister, Ordering::Relaxed);
+                                session.state.set(SessionState::NeedsRegister);
 
                                 return Ok(PrimaryProcessorResult::EndSession(
                                     "Unable to validate STAGE0_REGISTER packet",
@@ -137,22 +175,18 @@ pub async fn process_register(
                     let algorithm = header.algorithm;
 
                     // pqc is stored in the register state container for now
-                    //debug_assert!(session.post_quantum.is_none());
                     if let Some(mut alice_constructor) =
                         state_container.register_state.constructor.take()
                     {
-                        let transfer = return_if_none!(
-                            BobToAliceTransfer::deserialize_from(&payload[..]),
+                        let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = return_if_none!(
+                            SyncIO::deserialize_from_vector(&payload[..]).ok(),
                             "Unable to deserialize BobToAliceTransfer"
                         );
-                        let security_level = transfer.security_level;
+                        let security_level = transfer.security_level();
                         alice_constructor
-                            .stage1_alice(
-                                BobToAliceTransferType::Default(transfer),
-                                session.session_password.as_ref(),
-                            )
+                            .stage1_alice(transfer, session.session_password.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                        let new_hyper_ratchet = return_if_none!(
+                        let new_ratchet = return_if_none!(
                             alice_constructor.finish(),
                             "Unable to finish alice constructor"
                         );
@@ -164,7 +198,7 @@ pub async fn process_register(
                         );
 
                         let stage2_packet = packet_crafter::do_register::craft_stage2(
-                            &new_hyper_ratchet,
+                            &new_ratchet,
                             algorithm,
                             timestamp,
                             proposed_credentials,
@@ -172,8 +206,7 @@ pub async fn process_register(
                         );
                         //let mut state_container = inner_mut!(session.state_container);
 
-                        state_container.register_state.created_hyper_ratchet =
-                            Some(new_hyper_ratchet);
+                        state_container.register_state.created_ratchet = Some(new_ratchet);
                         state_container.register_state.last_stage =
                             packet_flags::cmd::aux::do_register::STAGE2;
                         state_container.register_state.on_register_packet_received();
@@ -199,13 +232,13 @@ pub async fn process_register(
                         == packet_flags::cmd::aux::do_register::STAGE1
                     {
                         let algorithm = header.algorithm;
-                        let hyper_ratchet = return_if_none!(
-                            state_container.register_state.created_hyper_ratchet.clone(),
+                        let ratchet = return_if_none!(
+                            state_container.register_state.created_ratchet.clone(),
                             "Unable to load created hyper ratchet"
                         );
                         if let Some((stage2_packet, conn_info)) =
                             validation::do_register::validate_stage2(
-                                &hyper_ratchet,
+                                &ratchet,
                                 &header,
                                 payload,
                                 remote_addr,
@@ -215,14 +248,18 @@ pub async fn process_register(
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
                             std::mem::drop(state_container);
-
+                            let session_crypto_state = initialize_peer_session_crypto(
+                                ratchet.get_cid(),
+                                ratchet.clone(),
+                                true,
+                            );
                             // we must now create the CNAC
                             async move {
                                 match account_manager
                                     .register_impersonal_hyperlan_client_network_account(
                                         conn_info,
                                         creds,
-                                        hyper_ratchet.clone(),
+                                        session_crypto_state,
                                     )
                                     .await
                                 {
@@ -232,7 +269,7 @@ pub async fn process_register(
                                             session.create_register_success_message();
 
                                         let packet = packet_crafter::do_register::craft_success(
-                                            &hyper_ratchet,
+                                            &ratchet,
                                             algorithm,
                                             timestamp,
                                             success_message,
@@ -285,14 +322,14 @@ pub async fn process_register(
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE2
                     {
-                        let hyper_ratchet = return_if_none!(
-                            state_container.register_state.created_hyper_ratchet.clone(),
+                        let ratchet = return_if_none!(
+                            state_container.register_state.created_ratchet.clone(),
                             "Unable to load created hyper ratchet"
                         );
 
                         if let Some((success_message, conn_info)) =
                             validation::do_register::validate_success(
-                                &hyper_ratchet,
+                                &ratchet,
                                 &header,
                                 payload,
                                 remote_addr,
@@ -315,10 +352,13 @@ pub async fn process_register(
                             let account_manager = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
 
+                            let session_crypto_state =
+                                initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
+
                             async move {
                                 match account_manager
                                     .register_personal_hyperlan_server(
-                                        hyper_ratchet,
+                                        session_crypto_state,
                                         credentials,
                                         conn_info,
                                     )
@@ -340,7 +380,7 @@ pub async fn process_register(
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(
                                                 RegisterOkay {
                                                     ticket: reg_ticket.get(),
-                                                    cnac: new_cnac,
+                                                    cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
                                                 },
                                             ))?;
@@ -392,7 +432,6 @@ pub async fn process_register(
                             error_message: String::from_utf8(error_message)
                                 .unwrap_or_else(|_| "Non-UTF8 error message".to_string()),
                         }))?;
-                        //session.needs_close_message.set(false);
                         session.shutdown();
                     } else {
                         log::error!(target: "citadel", "Error validating FAILURE packet");
@@ -416,4 +455,13 @@ pub async fn process_register(
     };
 
     to_concurrent_processor!(task)
+}
+
+// Only for registration; does not start the messenger/ratchet manager
+fn initialize_peer_session_crypto<R: Ratchet>(
+    cid: u64,
+    initial_ratchet: R,
+    is_server: bool,
+) -> PeerSessionCrypto<R> {
+    PeerSessionCrypto::new(Toolset::new(cid, initial_ratchet), !is_server)
 }

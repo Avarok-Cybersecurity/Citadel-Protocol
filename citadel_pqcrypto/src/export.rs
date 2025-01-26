@@ -1,3 +1,23 @@
+/// Module for handling key store serialization and deserialization.
+///
+/// This module provides functionality for exporting and importing key stores,
+/// which contain cryptographic keys and parameters used in the post-quantum
+/// cryptographic protocol. It includes:
+///
+/// - Secure serialization of key material
+/// - Custom serialization implementations
+/// - Key conversion utilities
+/// - AEAD module generation
+///
+/// # Security Considerations
+///
+/// - All sensitive key material is automatically zeroized when dropped
+/// - Serialized data should be protected at rest (e.g., encrypted)
+/// - Key stores should be regenerated periodically
+/// - Node types (Alice/Bob) must be preserved during serialization
+/// - Cryptographic parameters must match during deserialization
+/// - AEAD modules are generated with appropriate key separation
+/// - Local-user keys provide additional endpoint privacy
 use crate::encryption::aes_impl::AesModule;
 use crate::encryption::ascon_impl::AsconModule;
 use crate::encryption::chacha_impl::ChaChaModule;
@@ -9,6 +29,19 @@ use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm};
 use generic_array::GenericArray;
 use serde::{Deserialize, Serialize};
 
+/// Intermediate structure for serializing and deserializing key stores.
+///
+/// This structure acts as a bridge between the in-memory representation of
+/// a key store and its serialized form. It contains all the necessary
+/// cryptographic parameters and keys.
+///
+/// # Fields
+/// * `alice_key` - Alice's 32-byte key
+/// * `bob_key` - Bob's 32-byte key
+/// * `kex` - Post-quantum key exchange parameters
+/// * `sig` - Optional post-quantum signature parameters
+/// * `pq_node` - Node type (Alice or Bob)
+/// * `params` - Cryptographic parameters
 #[derive(Serialize, Deserialize)]
 struct KeyStoreIntermediate {
     alice_key: GenericArray<u8, generic_array::typenum::U32>,
@@ -24,6 +57,10 @@ pub(crate) mod custom_serde {
     use crate::KeyStore;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+    /// Custom serialization implementation for KeyStore.
+    ///
+    /// This implementation converts the KeyStore into an intermediate form
+    /// that can be safely serialized and deserialized.
     impl Serialize for KeyStore {
         fn serialize<S>(&self, s: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
         where
@@ -41,6 +78,10 @@ pub(crate) mod custom_serde {
         }
     }
 
+    /// Custom deserialization implementation for KeyStore.
+    ///
+    /// This implementation converts the intermediate form back into a
+    /// fully functional KeyStore.
     impl<'de> Deserialize<'de> for KeyStore {
         fn deserialize<D>(d: D) -> Result<Self, <D as Deserializer<'de>>::Error>
         where
@@ -48,13 +89,17 @@ pub(crate) mod custom_serde {
         {
             Ok(KeyStore::from(
                 KeyStoreIntermediate::deserialize(d)
-                    .map_err(|_| serde::de::Error::custom("PQExport Deser err"))?
-                    as KeyStoreIntermediate,
+                    .map_err(|_| serde::de::Error::custom("PQExport Deser err"))?,
             ))
         }
     }
 }
 
+/// Conversion implementation from KeyStoreIntermediate to KeyStore.
+///
+/// This implementation handles the conversion of the intermediate form
+/// back into a fully functional KeyStore, including the creation of
+/// appropriate AEAD modules based on the cryptographic parameters.
 impl From<KeyStoreIntermediate> for KeyStore {
     fn from(int: KeyStoreIntermediate) -> Self {
         let (alice_symmetric_key, bob_symmetric_key) = keys_to_aead_store(
@@ -79,8 +124,24 @@ impl From<KeyStoreIntermediate> for KeyStore {
     }
 }
 
+/// Type alias for a pair of optional AEAD modules.
+///
+/// The first module is typically used for standard encryption/decryption,
+/// while the second module is used for local-user-only operations.
 pub type AeadStore = (Option<Box<dyn AeadModule>>, Option<Box<dyn AeadModule>>);
 
+/// Converts keys and parameters into AEAD modules.
+///
+/// # Arguments
+/// * `alice` - Alice's 32-byte key
+/// * `bob` - Bob's 32-byte key
+/// * `kex` - Post-quantum key exchange parameters
+/// * `params` - Cryptographic parameters
+/// * `sig` - Optional post-quantum signature parameters
+/// * `pq_node` - Node type (Alice or Bob)
+///
+/// # Returns
+/// A pair of optional AEAD modules for standard and local-user-only operations
 pub(crate) fn keys_to_aead_store(
     alice: &GenericArray<u8, generic_array::typenum::U32>,
     bob: &GenericArray<u8, generic_array::typenum::U32>,
@@ -152,6 +213,16 @@ pub(crate) fn keys_to_aead_store(
     }
 }
 
+/// Generates symmetric AES modules for encryption/decryption.
+///
+/// # Arguments
+/// * `pq_node` - Node type (Alice or Bob)
+/// * `alice` - Alice's 32-byte key
+/// * `bob` - Bob's 32-byte key
+/// * `kex` - Post-quantum key exchange parameters
+///
+/// # Returns
+/// A pair of AES modules for standard and local-user-only operations
 fn generate_symmetric_aes_module(
     pq_node: PQNode,
     alice: &GenericArray<u8, generic_array::typenum::U32>,

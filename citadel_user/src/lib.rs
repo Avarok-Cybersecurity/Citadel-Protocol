@@ -1,7 +1,79 @@
+//! # Citadel User Management System
+//!
+//! A comprehensive user and account management system for the Citadel Protocol, handling both
+//! network nodes and client accounts within the VPN architecture. This crate provides
+//! the foundational user management layer for the entire Citadel Protocol ecosystem.
+//!
+//! ## Features
+//!
+//! * **Account System**:
+//!   - Network Accounts: Core network identity
+//!   - Client Accounts: Per-connection user accounts
+//!
+//! * **Backend Support**:
+//!   - File System Storage: Persistent local storage
+//!   - Redis Database: High-performance caching
+//!   - SQL Database: Relational data storage
+//!   - In-Memory Storage: Fast temporary storage
+//!
+//! * **Authentication**:
+//!   - Secure Credential Management: Password and key handling
+//!   - Google Authentication: OAuth and service account support
+//!   - Custom Authentication: Extensible provider system
+//!
+//! * **External Services**:
+//!   - Google Services: Cloud service integration
+//!   - Firebase RTDB: Real-time data synchronization
+//!   - Service Interface: Common communication layer
+//!
+//! * **Account Management**:
+//!   - Account Creation: Secure account initialization
+//!   - Credential Updates: Safe password and key rotation
+//!   - State Management: Account lifecycle handling
+//!   - Account Recovery: Backup and restore features
+//!
+//! ## Architecture
+//!
+//! The system is built on a network-client account structure:
+//!
+//! ```text
+//! Network Account (NAC)
+//! └── Client Account (CNAC)
+//!     ├── Connection Metadata
+//!     ├── Credentials
+//!     └── External Services
+//! ```
+//!
+//! ## Security Features
+//!
+//! * Zero-trust architecture
+//! * Post-quantum cryptography support
+//! * Secure credential storage
+//! * Safe account recovery
+//! * Encrypted data transmission
+//!
+//! ## Important Notes
+//!
+//! * Multiple ClientAccounts can exist per node
+//! * All operations are safe and secure by default
+//! * File system operations are feature-gated, enabled by default
+//! * External services require appropriate feature flags
+//!
+//! ## Related Components
+//!
+//! * [`citadel_crypt`]: Cryptographic operations
+//! * [`citadel_wire`]: Network communication
+//! * [`citadel_types`]: Common type definitions
+//! * [`citadel_pqcrypto`]: Post-quantum cryptography
+//!
+//! ## Feature Flags
+//!
+//! * `filesystem`: Enable file system storage
+//! * `google-services`: Enable Google service integration
+//! * `redis`: Enable Redis database support
+//! * `sql`: Enable SQL database support
+//!
 #![forbid(unsafe_code)]
-//! This crate is meant for containing the user-related libraries for HyperNode accounts. Both NetworkAccount and ClientAccount's are a subset of HyperNode accounts.
-//! Every node/device necessarily contains a singular NetworkAccount; for each connection leading into and out of the node, a ClientAccount exists.
-
 #![deny(
     trivial_numeric_casts,
     unused_extern_crates,
@@ -15,9 +87,9 @@
 /// Standard imports for this library
 pub mod prelude {
     pub use crate::client_account::*;
+    pub use crate::connection_metadata::*;
     pub use crate::hypernode_account::*;
-    pub use crate::network_account::*;
-    pub use citadel_crypt::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
+    pub use citadel_crypt::scramble::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
 }
 
 /// Serde and others
@@ -34,9 +106,9 @@ pub mod hypernode_account;
 
 /// Each node must necessarily have a NetworkAccount that is invariant to any ClientAccounts.
 /// See the description for [client_account] below for more information.
-pub mod network_account;
+pub mod connection_metadata;
 
-/// Each client within a HyperVPN has a unique ClientAccount. Multiple CAC's are possible per node.
+/// Each client within a VPN has a unique ClientAccount. Multiple CAC's are possible per node.
 ///
 /// Structural design notes: In production mode, it is necessary that a [ClientNetworkAccount] be
 /// created by virtue of the subroutines within the [NetworkAccount]. In other words, a NAC is not
@@ -45,7 +117,7 @@ pub mod network_account;
 /// be called a NAC. A NAC is necessary to connect and create mutually-trusted connections within
 /// the WAN (Wide-area network).
 ///
-/// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!HyperWAN)
+/// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!VPN)
 pub mod client_account;
 
 #[cfg(feature = "filesystem")]

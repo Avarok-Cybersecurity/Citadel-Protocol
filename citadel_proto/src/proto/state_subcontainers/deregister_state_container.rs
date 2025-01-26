@@ -1,3 +1,22 @@
+//! # Deregistration State Container
+//!
+//! Manages the state of account deregistration processes in the Citadel Protocol.
+//!
+//! ## Features
+//! - Tracks deregistration process state and progress
+//! - Manages deregistration tickets for process identification
+//! - Tracks timing information for deregistration operations
+//! - Provides atomic state transitions for thread safety
+//! ## Important Notes
+//! - State must be properly initialized before use
+//! - Timing information is critical for process tracking
+//! - Ticket management ensures process uniqueness
+//!
+//! ## Related Components
+//! - `session`: Uses deregistration states for account management
+//! - `remote`: Handles remote deregistration operations
+//! - `validation`: Validates deregistration requests
+
 use crate::proto::remote::Ticket;
 
 /// For keeping track of deregistration processes

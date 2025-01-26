@@ -1,8 +1,67 @@
+//! Dual-Stack UDP Hole Punching Framework
+//!
+//! This module implements a concurrent UDP hole punching framework that supports
+//! both IPv4 and IPv6. It manages multiple hole punching attempts across different
+//! ports and protocols, coordinating between them to select the most successful
+//! connection path.
+//!
+//! # Features
+//!
+//! - Concurrent IPv4/IPv6 traversal
+//! - Multi-port hole punching
+//! - Winner selection protocol
+//! - Failure recovery handling
+//! - Multiplexed connections
+//! - Asynchronous coordination
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::udp_traversal::multi::DualStackUdpHolePuncher;
+//! use citadel_wire::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
+//! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
+//! use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
+//! use netbeam::sync::RelativeNodeType;
+//! use netbeam::sync::network_endpoint::NetworkEndpoint;
+//!
+//! async fn establish_connection(
+//!     node_type: RelativeNodeType,
+//!     config: HolePunchConfigContainer,
+//!     hole_punch_config: HolePunchConfig,
+//!     network: NetworkEndpoint
+//! ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+//!     let puncher = DualStackUdpHolePuncher::new(
+//!         node_type,
+//!         config,
+//!         hole_punch_config,
+//!         network
+//!     )?;
+//!     
+//!     puncher.await
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - IPv6 preferred for traversal
+//! - Concurrent attempts coordinated
+//! - Winner selection is atomic
+//! - Failures trigger fallbacks
+//! - Network multiplexing required
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal::linear::SingleUDPHolePuncher`] - Linear punching
+//! - [`crate::hole_punch_config`] - Configuration
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`netbeam::multiplex`] - Connection multiplexing
+//!
+
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
-use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use futures::future::select_ok;
@@ -23,7 +82,7 @@ use std::time::Duration;
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
 /// allows the inclusion of a "breadth" variable to allow opening multiple ports for traversing across multiple ports
-pub(crate) struct DualStackUdpHolePuncher {
+pub struct DualStackUdpHolePuncher {
     // the key is the local bind addr
     future:
         Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'static>>,
@@ -179,7 +238,7 @@ async fn drive(
         futures.push(task);
     }
 
-    let current_enqueued: &citadel_io::tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
+    let current_enqueued_set: &citadel_io::tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
         &citadel_io::tokio::sync::Mutex::new(vec![]);
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
@@ -235,15 +294,18 @@ async fn drive(
                     let receivers = kill_signal_tx.send((local_id, peer_id)).unwrap_or(0);
                     log::trace!(target: "citadel", "Sent kill signal to {receivers} hole-punchers");
 
-                    'pop: while let Some(current_enqueued) = current_enqueued.lock().await.pop() {
+                    let mut current_enqueued_set = current_enqueued_set.lock().await;
+                    'pop: while let Some(current_enqueued) = current_enqueued_set.pop() {
                         log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
                         if current_enqueued.addr.unique_id != peer_id {
-                            log::warn!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
+                            log::trace!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
                             continue 'pop;
                         }
 
                         return Ok(current_enqueued);
                     }
+
+                    drop(current_enqueued_set);
 
                     let mut lock = rebuilder.lock().await;
                     if let Some(failure) = lock.local_failures.get_mut(&local_id) {
@@ -332,7 +394,7 @@ async fn drive(
                 Ok(socket) => {
                     let peer_unique_id = socket.addr.unique_id;
                     let local_id = hole_puncher.get_unique_id();
-                    current_enqueued.lock().await.push(socket);
+                    current_enqueued_set.lock().await.push(socket);
 
                     if let Some((required_local, required_remote)) = *commanded_winner.lock().await
                     {
@@ -373,7 +435,7 @@ async fn drive(
                             conn_tx,
                         )
                         .await?;
-                        while let Some(socket) = current_enqueued.lock().await.pop() {
+                        while let Some(socket) = current_enqueued_set.lock().await.pop() {
                             if socket.local_id != local_id {
                                 log::warn!(target: "citadel", "*** Winner: socket ID mismatch. Expected {local_id:?}, got {:?}. Looping ...", socket.local_id);
                                 continue;

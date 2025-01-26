@@ -1,10 +1,68 @@
+//! Secure Packet Buffer Implementation
+//!
+//! This module provides specialized buffer implementations for handling secure
+//! network packets. It supports structured packet layouts with header, payload,
+//! and extended payload sections while maintaining memory safety and efficiency.
+//!
+//! # Features
+//!
+//! - Three-part packet structure (header, payload, extension)
+//! - Zero-copy packet construction
+//! - Memory-safe section access
+//! - Ordered write operations
+//! - Automatic buffer cleanup
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::secure_buffer::sec_packet::SecureMessagePacket;
+//!
+//! const N: usize = 32;
+//!
+//! // Create a new packet
+//! let mut packet = SecureMessagePacket::<N>::new().unwrap();
+//!
+//! // Write payload first
+//! packet.write_payload(64, |buf| {
+//!     buf.copy_from_slice(&[0u8; 64]);
+//!     Ok(())
+//! }).unwrap();
+//!
+//! // Write header second
+//! packet.write_header(|buf| {
+//!     buf.copy_from_slice(&[0u8; N]);
+//!     Ok(())
+//! }).unwrap();
+//!
+//! // Write extension last and get final bytes
+//! let bytes = packet.write_payload_extension(10, |buf| {
+//!     buf.copy_from_slice(&[0u8; 10]);
+//!     Ok(())
+//! }).unwrap();
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Writes must occur in order: payload, header, extension
+//! - All sections are automatically zeroed on drop
+//! - Buffer sizes are fixed after reservation
+//! - Thread-safe implementation available
+//!
+//! # Related Components
+//!
+//! - [`PartitionedSecBuffer`] - Underlying buffer implementation
+//! - [`crate::packet_vector`] - Packet vector operations
+//! - [`crate::scramble::streaming_crypt_scrambler`] - Streaming encryption
+//!
+
 use crate::secure_buffer::partitioned_sec_buffer::{PartitionedSecBuffer, SliceHandle};
 use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 
 /// An optimized unit designed for one-time only allocation between creating the packet and sending outbound
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SecurePacket {
     /// There are three parts to the packet:
     /// [0]: The header
@@ -18,37 +76,45 @@ const PAYLOAD_PART: usize = 1;
 const PAYLOAD_EXT: usize = 2;
 
 impl SecurePacket {
+    /// Creates a new secure packet.
     pub fn new() -> Self {
         Self {
             inner: PartitionedSecBuffer::<3>::new().unwrap(),
         }
     }
 
+    /// Prepares the header section for writing.
     pub fn prepare_header(&mut self, len: u32) -> std::io::Result<()> {
         self.inner.reserve_partition(HEADER_PART, len)
     }
 
+    /// Returns a mutable reference to the header section.
     pub fn header(&mut self) -> std::io::Result<SliceHandle> {
         self.inner.partition_window(HEADER_PART)
     }
 
+    /// Prepares the payload section for writing.
     pub fn prepare_payload(&mut self, len: u32) -> std::io::Result<()> {
         self.inner.reserve_partition(PAYLOAD_PART, len)
     }
 
+    /// Returns a mutable reference to the payload section.
     pub fn payload(&mut self) -> std::io::Result<SliceHandle> {
         self.inner.partition_window(PAYLOAD_PART)
     }
 
+    /// Prepares the extended payload section for writing.
     pub fn prepare_extended_payload(&mut self, len: u32) -> std::io::Result<()> {
         self.inner.reserve_partition(PAYLOAD_EXT, len)
     }
 
+    /// Returns a mutable reference to the extended payload section.
     pub fn extended_payload(&mut self) -> std::io::Result<SliceHandle> {
         self.inner.partition_window(PAYLOAD_EXT)
     }
 
-    pub fn into_packet(self) -> BytesMut {
+    /// Consumes the packet and returns the underlying buffer.
+    pub fn into_raw_packet(self) -> BytesMut {
         self.inner.into_buffer()
     }
 }
@@ -60,6 +126,7 @@ impl Default for SecurePacket {
 }
 
 /// Used for handling the flow of writing a packet that must first receive its payload from the user, then its header from the protocol, and finally the extended payload appended to the end from the protocol
+#[derive(Serialize, Deserialize)]
 pub enum SecureMessagePacket<const N: usize> {
     PayloadNext(SecurePacket),
     HeaderNext(SecurePacket),
@@ -67,19 +134,20 @@ pub enum SecureMessagePacket<const N: usize> {
 }
 
 impl<const N: usize> SecureMessagePacket<N> {
+    /// Creates a new secure message packet.
     pub fn new() -> std::io::Result<Self> {
         let mut init = SecurePacket::new();
         init.prepare_header(N as _)?;
         Ok(Self::PayloadNext(init))
     }
 
-    /// Takes a raw input and splits it into the payload and payload-extension
+    /// Takes a raw input and splits it into the payload and payload-extension.
     pub fn decompose_payload_raw(input: &mut BytesMut) -> std::io::Result<(BytesMut, BytesMut)> {
         let payload = Self::extract_payload(input)?;
         Ok((payload, input.split()))
     }
 
-    /// Takes a raw input and splits it into the payload and payload-extension
+    /// Takes a raw input and splits it into the payload and payload-extension.
     pub fn extract_payload(input: &mut BytesMut) -> std::io::Result<BytesMut> {
         if input.len() < 4 {
             return Err(std::io::Error::new(
@@ -102,7 +170,7 @@ impl<const N: usize> SecureMessagePacket<N> {
         Ok(payload)
     }
 
-    /// The first write to the buffer should be the payload
+    /// The first write to the buffer should be the payload.
     pub fn write_payload(
         &mut self,
         len: u32,
@@ -125,7 +193,7 @@ impl<const N: usize> SecureMessagePacket<N> {
         }
     }
 
-    /// The second write to the buffer should be the header
+    /// The second write to the buffer should be the header.
     pub fn write_header(
         &mut self,
         fx: impl FnOnce(&mut [u8]) -> std::io::Result<()>,
@@ -144,7 +212,11 @@ impl<const N: usize> SecureMessagePacket<N> {
         }
     }
 
-    /// The final write to the buffer should be the payload extension. This consumes self and returns bytes
+    pub fn finish(self) -> std::io::Result<BytesMut> {
+        self.write_payload_extension(0, |_| Ok(()))
+    }
+
+    /// The final write to the buffer should be the payload extension. This consumes self and returns bytes.
     pub fn write_payload_extension(
         self,
         len: u32,
@@ -152,9 +224,13 @@ impl<const N: usize> SecureMessagePacket<N> {
     ) -> std::io::Result<BytesMut> {
         match self {
             Self::FinalPayloadExt(mut packet) => {
+                if len == 0 {
+                    return Ok(packet.into_raw_packet());
+                }
+
                 packet.prepare_extended_payload(len)?;
                 (fx)(&mut packet.extended_payload()?)?;
-                Ok(packet.into_packet())
+                Ok(packet.into_raw_packet())
             }
 
             _ => Err(std::io::Error::new(
@@ -164,6 +240,7 @@ impl<const N: usize> SecureMessagePacket<N> {
         }
     }
 
+    /// Returns the length of the message.
     pub fn message_len(&self) -> usize {
         match self {
             Self::FinalPayloadExt(p) | Self::HeaderNext(p) | Self::PayloadNext(p) => {
@@ -175,13 +252,7 @@ impl<const N: usize> SecureMessagePacket<N> {
 
 impl<const N: usize> Debug for SecureMessagePacket<N> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:?}",
-            match self {
-                Self::PayloadNext(p) | Self::HeaderNext(p) | Self::FinalPayloadExt(p) => p,
-            }
-        )
+        write!(f, "Secure message packet of length {}", self.message_len(),)
     }
 }
 

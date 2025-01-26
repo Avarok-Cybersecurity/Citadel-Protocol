@@ -8,3 +8,4 @@
 /wasi-sysroot/
 /*/report.json
 Cargo.lock
+./target_ide

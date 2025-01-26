@@ -1,22 +1,61 @@
+//! File Transfer Packet Processor for Citadel Protocol
+//!
+//! This module handles secure file transfer operations in the Citadel Protocol network.
+//! It manages the entire file transfer lifecycle, including metadata exchange,
+//! chunked transfers, error handling, and virtual filesystem operations.
+//!
+//! # Features
+//!
+//! - Secure file transfer processing
+//! - File metadata handling
+//! - Chunked transfer support
+//! - Error reporting and recovery
+//! - Virtual filesystem integration
+//! - Transfer state tracking
+//! - Encryption level management
+//!
+//! # Important Notes
+//!
+//! - Requires connected session state
+//! - All packets must be authenticated
+//! - Supports virtual target routing
+//! - Handles both direct and proxied transfers
+//! - Maintains transfer security levels
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages transfer state
+//! - `VirtualFileSystem`: Handles file operations
+//! - `ObjectTransferHandle`: Tracks transfer progress
+//! - `SecurityLevel`: Manages encryption levels
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::{InternalServerError, ReVFSResult, Ticket};
 use crate::proto::packet_crafter::file::ReVFSPullAckPacket;
 use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
-    get_proper_hyper_ratchet, get_resp_target_cid_from_header,
+    get_orientation_safe_ratchet, get_resp_target_cid_from_header,
 };
 use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::TransferType;
-use std::sync::atomic::Ordering;
 
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_file_packet(
-    session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub fn process_file_packet<R: Ratchet>(
+    session: &CitadelSession<R>,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
+    if !session.state.is_connected() {
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -27,8 +66,12 @@ pub fn process_file_packet(
     let header_bytes = &header[..];
     let header = return_if_none!(Ref::new(header_bytes), "Unable to validate header layout")
         as Ref<&[u8], HdpHeader>;
-    let hyper_ratchet = return_if_none!(
-        get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info),
+    let ratchet = return_if_none!(
+        get_orientation_safe_ratchet(
+            header.entropy_bank_version.get(),
+            &state_container,
+            proxy_cid_info
+        ),
         "Unable to get proper HR"
     );
     let security_level = header.security_level.into();
@@ -36,7 +79,7 @@ pub fn process_file_packet(
     let ts = session.time_tracker.get_global_time_ns();
 
     // ALL FILE packets must be authenticated
-    match validation::group::validate(&hyper_ratchet, security_level, header_bytes, payload) {
+    match validation::group::validate(&ratchet, security_level, header_bytes, payload) {
         Some(payload) => {
             match header.cmd_aux {
                 packet_flags::cmd::aux::file::FILE_ERROR => {
@@ -61,7 +104,7 @@ pub fn process_file_packet(
                                 InternalServerError {
                                     ticket_opt: Some(ticket),
                                     message: payload.error_message,
-                                    cid_opt: session.implicated_cid.get(),
+                                    cid_opt: session.session_cid.get(),
                                 },
                             ))?;
 
@@ -84,20 +127,19 @@ pub fn process_file_packet(
                             log::trace!(target: "citadel", "Declared local encryption level on file header: {local_encryption_level:?}");
                             let (target_cid, v_target_flipped) = match v_target {
                                 VirtualConnectionType::LocalGroupPeer {
-                                    implicated_cid,
+                                    session_cid,
                                     peer_cid: target_cid,
                                 } => (
-                                    implicated_cid,
+                                    session_cid,
                                     VirtualConnectionType::LocalGroupPeer {
-                                        implicated_cid: target_cid,
-                                        peer_cid: implicated_cid,
+                                        session_cid: target_cid,
+                                        peer_cid: session_cid,
                                     },
                                 ),
 
-                                VirtualConnectionType::LocalGroupServer { implicated_cid } => (
-                                    0,
-                                    VirtualConnectionType::LocalGroupServer { implicated_cid },
-                                ),
+                                VirtualConnectionType::LocalGroupServer { session_cid } => {
+                                    (0, VirtualConnectionType::LocalGroupServer { session_cid })
+                                }
 
                                 _ => {
                                     log::error!(target: "citadel", "HyperWAN functionality not yet enabled");
@@ -115,7 +157,7 @@ pub fn process_file_packet(
                                 vfm,
                                 session.account_manager.get_persistence_handler(),
                                 session.state_container.clone(),
-                                hyper_ratchet,
+                                ratchet,
                                 target_cid,
                                 v_target_flipped,
                                 preferred_primary_stream,
@@ -145,17 +187,17 @@ pub fn process_file_packet(
                             let v_target = payload.virtual_target;
                             let is_p2p =
                                 header.session_cid.get() != 0 && header.target_cid.get() != 0;
-                            let implicated_cid = if is_p2p {
+                            let session_cid = if is_p2p {
                                 header.target_cid.get()
                             } else {
                                 header.session_cid.get()
                             };
-                            //let implicated_cid = header.session_cid.get();
+                            //let session_cid = header.session_cid.get();
                             // conclude by passing this data into the state container
                             if state_container
                                 .on_file_header_ack_received(
                                     success,
-                                    implicated_cid,
+                                    session_cid,
                                     header.context_info.get().into(),
                                     object_id,
                                     v_target,
@@ -245,7 +287,7 @@ pub fn process_file_packet(
                                 // on top of spawning the file transfer subroutine prior to this,
                                 // we will also send a REVFS pull ack
                                 let response_packet = packet_crafter::file::craft_revfs_pull_ack(
-                                    &hyper_ratchet,
+                                    &ratchet,
                                     security_level,
                                     ticket,
                                     ts,
@@ -288,7 +330,7 @@ pub fn process_file_packet(
                                     .err()
                                     .map(|e| e.into_string());
                                 let response_packet = packet_crafter::file::craft_revfs_ack(
-                                    &hyper_ratchet,
+                                    &ratchet,
                                     security_level,
                                     ticket,
                                     ts,
@@ -318,7 +360,7 @@ pub fn process_file_packet(
                                 error_message: payload.error_msg,
                                 data: None,
                                 ticket,
-                                implicated_cid: hyper_ratchet.get_cid(),
+                                session_cid: ratchet.get_cid(),
                             });
 
                             session.send_to_kernel(response)?;
@@ -348,7 +390,7 @@ pub fn process_file_packet(
                                     error_message: Some(error),
                                     data: None,
                                     ticket,
-                                    implicated_cid: hyper_ratchet.get_cid(),
+                                    session_cid: ratchet.get_cid(),
                                 });
 
                                 session.send_to_kernel(error_signal)?;

@@ -1,3 +1,40 @@
+//! Miscellaneous Utilities and Error Handling
+//!
+//! This module provides common utilities, error types, and helper functions used
+//! throughout the Citadel user management system.
+//!
+//! # Features
+//!
+//! * **Error Handling**
+//!   - Account-specific error types
+//!   - Detailed error messages
+//!   - Error type conversion
+//!
+//! * **Metadata Management**
+//!   - Client Network Account (CNAC) metadata
+//!   - Timestamp formatting
+//!   - Account identification
+//!
+//! * **Path Management**
+//!   - Virtual path validation
+//!   - Cross-platform path formatting
+//!   - Directory structure validation
+//!
+//! # Important Notes
+//!
+//! * Error messages are designed to be user-friendly and descriptive
+//! * Path validation enforces platform-specific requirements
+//! * Timestamps use ISO 8601/RFC 3339 format for consistency
+//! * CNAC metadata includes essential account information
+//! * Virtual paths must follow specific formatting rules
+//!
+//! # Related Components
+//!
+//! * `AccountManager` - Uses error handling and metadata
+//! * `DirectoryStore` - Uses path management utilities
+//! * `ClientNetworkAccount` - Uses metadata structures
+//! * `PersistenceHandler` - Uses error types
+
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
@@ -28,7 +65,6 @@ impl AccountError {
     pub(crate) fn msg<T: Into<String>>(msg: T) -> Self {
         Self::Generic(msg.into())
     }
-
     /// Consumes self and returns the underlying error message
     pub fn into_string(self) -> String {
         match self {
@@ -45,11 +81,19 @@ impl AccountError {
     }
 }
 
-impl<T: ToString> From<T> for AccountError {
-    fn from(err: T) -> Self {
-        AccountError::Generic(err.to_string())
+impl std::fmt::Display for AccountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
+
+impl From<std::io::Error> for AccountError {
+    fn from(e: std::io::Error) -> Self {
+        AccountError::IoError(format!("{e}"))
+    }
+}
+
+impl std::error::Error for AccountError {}
 
 /// For passing metadata from a cnac
 #[derive(Debug)]

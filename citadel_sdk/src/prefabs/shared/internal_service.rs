@@ -1,7 +1,52 @@
-use crate::prelude::{ConnectionSuccess, TargetLockedRemote};
+//! Internal Service Communication Layer
+//!
+//! This module provides the core functionality for integrating internal services
+//! within the Citadel Protocol network. It enables bidirectional communication
+//! between network services and the protocol layer.
+//!
+//! # Features
+//! - Asynchronous communication channels
+//! - Bidirectional message passing
+//! - Automatic protocol conversion
+//! - Error propagation
+//! - Resource cleanup on shutdown
+//! - Stream-based I/O interface
+//!
+//! # Example
+//! ```rust,no_run
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::prefabs::shared::internal_service::InternalServerCommunicator;
+//! use futures::Future;
+//!
+//! async fn my_service(comm: InternalServerCommunicator) -> Result<(), NetworkError> {
+//!     // Service implementation
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Services run in isolated contexts
+//! - Communication is fully asynchronous
+//! - Implements AsyncRead and AsyncWrite
+//! - Automatic cleanup on drop
+//! - Thread-safe message passing
+//!
+//! # Related Components
+//! - [`CitadelClientServerConnection`]: Connection event data
+//! - [`TargetLockedRemote`]: Remote target interface
+//! - [`NetworkError`]: Error handling
+//! - [`SecBuffer`]: Secure data handling
+//!
+//! [`CitadelClientServerConnection`]: crate::prelude::CitadelClientServerConnection
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`NetworkError`]: crate::prelude::NetworkError
+//! [`SecBuffer`]: crate::prelude::SecBuffer
+
+use crate::prelude::{CitadelClientServerConnection, TargetLockedRemote};
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_proto::prelude::NetworkError;
+use citadel_proto::prelude::*;
 use citadel_proto::re_imports::{StreamReader, UnboundedReceiverStream};
 use citadel_types::crypto::SecBuffer;
 use futures::StreamExt;
@@ -9,16 +54,15 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub async fn internal_service<F, Fut, R>(
-    remote: R,
-    connect_success: ConnectionSuccess,
+pub async fn internal_service<F, Fut, R: Ratchet>(
+    connection: CitadelClientServerConnection<R>,
     service: F,
 ) -> Result<(), NetworkError>
 where
     F: Send + Copy + Sync + FnOnce(InternalServerCommunicator) -> Fut,
     Fut: Send + Sync + Future<Output = Result<(), NetworkError>>,
-    R: TargetLockedRemote,
 {
+    let remote = connection.remote.clone();
     let (tx_to_service, rx_from_kernel) = citadel_io::tokio::sync::mpsc::unbounded_channel();
     let (tx_to_kernel, mut rx_from_service) = citadel_io::tokio::sync::mpsc::unbounded_channel();
 
@@ -30,7 +74,7 @@ where
     let internal_server = service(internal_server_communicator);
 
     // each time a client connects, we will begin listening for messages.
-    let (sink, mut stream) = connect_success.channel.split();
+    let (mut sink, mut stream) = connection.split();
     // from_proto forwards packets from the proto to the http server
     let from_proto = async move {
         while let Some(packet) = stream.next().await {
@@ -45,7 +89,7 @@ where
     // from_webserver forwards packets from the internal server to the proto
     let from_webserver = async move {
         while let Some(packet) = rx_from_service.recv().await {
-            sink.send_message(packet.into()).await?;
+            sink.send(packet).await?;
         }
 
         Ok(())

@@ -1,3 +1,95 @@
+//! # Account Manager
+//!
+//! The Account Manager is responsible for managing user accounts in the Citadel Protocol.
+//! It provides a unified interface for account creation, storage, retrieval, and management
+//! across different backend storage systems.
+//!
+//! ## Features
+//!
+//! * **Account Management**
+//!   - User registration and authentication
+//!   - Personal and impersonal account modes
+//!   - Account metadata management
+//!   - Account deletion and purging
+//!
+//! * **Storage Backend Support**
+//!   - In-memory storage
+//!   - File system persistence
+//!   - SQL database integration
+//!   - Redis database support
+//!
+//! * **Peer Management**
+//!   - HyperLAN peer registration
+//!   - P2P connection handling
+//!   - Peer list synchronization
+//!   - User information lookup
+//!
+//! * **Security**
+//!   - Argon2id password hashing
+//!   - Secure credential management
+//!   - Ratchet-based cryptography
+//!
+//! ## Usage Example
+//!
+//! ```rust, no_run
+//! use citadel_user::prelude::*;
+//! use citadel_user::backend::BackendType;
+//! use citadel_user::account_manager::AccountManager;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//! use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
+//! use citadel_user::auth::proposed_credentials::ProposedCredentials;
+//!
+//! # fn gen_crypto_state() -> PeerSessionCrypto<StackedRatchet> { todo!() }
+//! async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Initialize account manager with in-memory backend
+//!     let manager = AccountManager::<StackedRatchet>::new(
+//!         BackendType::InMemory,
+//!         None,
+//!         None,
+//!         None
+//!     ).await?;
+//!
+//!     // Register a new client account
+//!     let conn_info = ConnectionInfo::new("127.0.0.1:12345")?;
+//!
+//!     let creds = ProposedCredentials::transient("some-unique-id");
+//!
+//!     let crypto_state = gen_crypto_state();
+//!
+//!     let account = manager.register_impersonal_hyperlan_client_network_account(
+//!         conn_info,
+//!         creds,
+//!         crypto_state
+//!     ).await?;
+//!
+//!     // Retrieve peer information
+//!     if let Some(peers) = manager.get_hyperlan_peer_list(account.get_cid()).await? {
+//!         for peer_cid in peers {
+//!             println!("Connected to peer: {}", peer_cid);
+//!         }
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Account manager must be initialized with appropriate backend configuration
+//! * Username uniqueness is not guaranteed - use CIDs for unique identification
+//! * Proper error handling is essential for backend operations
+//! * Account operations are thread-safe and async-compatible
+//! * Backend connections are verified during initialization
+//!
+//! ## Related Components
+//!
+//! * `ClientNetworkAccount` - Individual client account management
+//! * `PersistenceHandler` - Backend storage interface
+//! * `ServicesHandler` - External service integration
+//! * `BackendType` - Storage backend configuration
+//! * `ProposedCredentials` - Account creation parameters
+//!
+
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::backend::memory::MemoryBackend;
 use crate::backend::{BackendType, PersistenceHandler};
@@ -7,9 +99,10 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
-use citadel_crypt::stacked_ratchet::Ratchet;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::prelude::PeerInfo;
 use citadel_types::user::MutualPeer;
 use citadel_types::user::UserIdentifier;
@@ -22,7 +115,7 @@ use std::pin::Pin;
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
 #[derive(Clone)]
-pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
     node_argon_settings: ArgonSettings,
@@ -111,7 +204,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         &self,
         conn_info: ConnectionInfo,
         creds: ProposedCredentials,
-        init_hyper_ratchet: R,
+        session_crypto_state: PeerSessionCrypto<R>,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let reserved_cid = self
             .persistence_handler
@@ -144,7 +237,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             false,
             conn_info,
             auth_store,
-            init_hyper_ratchet,
+            session_crypto_state,
         )
         .await?;
         log::trace!(target: "citadel", "Created impersonal CNAC ...");
@@ -157,7 +250,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// HyperLAN Client (Alice) runs this function below
     pub async fn register_personal_hyperlan_server(
         &self,
-        hyper_ratchet: R,
+        session_crypto_state: PeerSessionCrypto<R>,
         creds: ProposedCredentials,
         conn_info: ConnectionInfo,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
@@ -167,7 +260,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let client_auth_store = creds.into_auth_store();
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             valid_cid,
-            hyper_ratchet,
+            session_crypto_state,
             client_auth_store,
             conn_info,
         )
@@ -262,14 +355,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// returns true if success, false otherwise
     pub async fn register_hyperlan_p2p_at_endpoints<T: Into<String>>(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         adjacent_username: T,
     ) -> Result<(), AccountError> {
         let adjacent_username = adjacent_username.into();
-        log::trace!(target: "citadel", "Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, implicated_cid);
+        log::trace!(target: "citadel", "Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, session_cid);
         self.persistence_handler
-            .register_p2p_as_client(implicated_cid, peer_cid, adjacent_username)
+            .register_p2p_as_client(session_cid, peer_cid, adjacent_username)
             .await
     }
 
@@ -293,10 +386,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Gets a list of hyperlan peers for the given peer
     pub async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         self.persistence_handler
-            .get_hyperlan_peer_list(implicated_cid)
+            .get_hyperlan_peer_list(session_cid)
             .await
     }
 
@@ -306,7 +399,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         implicated_user: impl Into<UserIdentifier>,
         target_user: impl Into<UserIdentifier>,
     ) -> Result<Option<(u64, MutualPeer)>, AccountError> {
-        let implicated_cid = match implicated_user.into() {
+        let session_cid = match implicated_user.into() {
             UserIdentifier::ID(id) => id,
 
             UserIdentifier::Username(uname) => {
@@ -317,15 +410,15 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         match target_user.into() {
             UserIdentifier::ID(peer_cid) => Ok(self
                 .persistence_handler
-                .get_hyperlan_peer_by_cid(implicated_cid, peer_cid)
+                .get_hyperlan_peer_by_cid(session_cid, peer_cid)
                 .await?
-                .map(|r| (implicated_cid, r))),
+                .map(|r| (session_cid, r))),
 
             UserIdentifier::Username(uname) => Ok(self
                 .persistence_handler
-                .get_hyperlan_peer_by_username(implicated_cid, &uname)
+                .get_hyperlan_peer_by_username(session_cid, &uname)
                 .await?
-                .map(|r| (implicated_cid, r))),
+                .map(|r| (session_cid, r))),
         }
     }
 

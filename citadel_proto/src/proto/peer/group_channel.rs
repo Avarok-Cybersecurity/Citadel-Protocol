@@ -1,8 +1,57 @@
+/*!
+# Group Channel Module
+
+This module implements group communication channels in the Citadel Protocol, providing a secure and efficient way to manage group messaging and broadcasts.
+
+## Features
+- **Split Channel Architecture**: Separates send and receive operations for better control
+- **Group Broadcast Support**: Enables efficient message broadcasting to group members
+- **Permission Management**: Implements group owner privileges and member management
+- **Secure Communication**: Uses SecBuffer for encrypted message payloads
+- **Stream Interface**: Implements Stream trait for asynchronous message reception
+
+## Core Components
+- `GroupChannel`: Main channel type combining send and receive capabilities
+- `GroupChannelSendHalf`: Handles message sending and group management operations
+- `GroupChannelRecvHalf`: Manages message reception and implements Stream trait
+- `GroupBroadcastPayload`: Represents different types of group messages
+
+## Example Usage
+```rust
+use citadel_proto::prelude::*;
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+# let group_channel: GroupChannel = todo!();
+// Send a message to the group
+group_channel.send_message(SecBuffer::from(b"Hello, world!" as &[u8])).await?;
+
+let peer_cid = 1234;
+// Invite new members
+group_channel.invite(peer_cid).await?;
+
+// Split the channel for separate send/receive handling
+let (send_half, recv_half) = group_channel.split();
+# }
+```
+
+## Important Notes
+1. Channels can be split into send and receive halves for flexible usage
+2. Group owners have special privileges for member management
+3. Messages are encrypted using SecBuffer for security
+4. Proper cleanup is handled through Drop implementations
+
+## Related Components
+- `peer_layer`: Manages peer-to-peer networking
+- `packet_processor`: Handles packet processing and routing
+- `session`: Manages connection sessions
+- `message_group`: Implements group messaging logic
+
+*/
+
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::proto::remote::{NodeRemote, Ticket};
-use crate::proto::session::SessionRequest;
+use crate::proto::remote::Ticket;
+use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::MessageGroupKey;
@@ -29,27 +78,25 @@ impl Deref for GroupChannel {
 
 impl GroupChannel {
     pub fn new(
-        node_remote: NodeRemote,
         tx: Sender<SessionRequest>,
         key: MessageGroupKey,
         ticket: Ticket,
-        implicated_cid: u64,
+        session_cid: u64,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
         Self {
             send_half: GroupChannelSendHalf {
-                node_remote,
                 tx: tx.clone(),
                 ticket,
                 key,
-                implicated_cid,
+                session_cid,
             },
 
             recv_half: GroupChannelRecvHalf {
                 recv,
                 tx,
                 ticket,
-                implicated_cid,
+                session_cid,
                 key,
             },
         }
@@ -71,7 +118,7 @@ impl GroupChannel {
     }
 
     pub fn cid(&self) -> u64 {
-        self.recv_half.implicated_cid
+        self.recv_half.session_cid
     }
 }
 
@@ -83,12 +130,10 @@ pub enum GroupBroadcastPayload {
 
 #[derive(Clone)]
 pub struct GroupChannelSendHalf {
-    #[allow(dead_code)]
-    node_remote: NodeRemote,
     tx: Sender<SessionRequest>,
     ticket: Ticket,
     key: MessageGroupKey,
-    implicated_cid: u64,
+    session_cid: u64,
 }
 
 impl Debug for GroupChannelSendHalf {
@@ -96,7 +141,7 @@ impl Debug for GroupChannelSendHalf {
         write!(
             f,
             "GroupChannelTx {} connected to [{:?}]",
-            self.implicated_cid, self.key
+            self.session_cid, self.key
         )
     }
 }
@@ -105,7 +150,7 @@ impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
         self.send_group_command(GroupBroadcast::Message {
-            sender: self.implicated_cid,
+            sender: self.session_cid,
             key: self.key,
             message,
         })
@@ -157,16 +202,16 @@ impl GroupChannelSendHalf {
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
         self.tx
-            .send(SessionRequest::Group {
+            .send(SessionRequest::Group(Group {
                 ticket: self.ticket,
                 broadcast,
-            })
+            }))
             .await
             .map_err(|err| NetworkError::msg(err.to_string()))
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {
-        if self.implicated_cid == self.key.cid {
+        if self.session_cid == self.key.cid {
             Ok(())
         } else {
             Err(NetworkError::InvalidRequest(
@@ -180,7 +225,7 @@ pub struct GroupChannelRecvHalf {
     recv: UnboundedReceiver<GroupBroadcastPayload>,
     tx: Sender<SessionRequest>,
     ticket: Ticket,
-    implicated_cid: u64,
+    session_cid: u64,
     key: MessageGroupKey,
 }
 
@@ -189,7 +234,7 @@ impl Debug for GroupChannelRecvHalf {
         write!(
             f,
             "GroupChannelRx: {} subscribed to {:?}",
-            self.implicated_cid, self.key
+            self.session_cid, self.key
         )
     }
 }
@@ -204,11 +249,11 @@ impl Stream for GroupChannelRecvHalf {
 
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
-        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.implicated_cid, self.key);
-        let request = SessionRequest::Group {
+        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.session_cid, self.key);
+        let request = SessionRequest::Group(Group {
             ticket: self.ticket,
             broadcast: GroupBroadcast::LeaveRoom { key: self.key },
-        };
+        });
 
         // TODO: remove group channel locally on the inner process in state container
         if let Err(err) = self.tx.try_send(request) {

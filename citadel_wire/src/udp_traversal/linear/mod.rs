@@ -1,3 +1,35 @@
+//! Linear UDP Hole Punching Framework
+//!
+//! This module implements a specialized UDP hole punching framework designed for
+//! client-server scenarios where clients are behind NAT. It uses a linear approach
+//! with synchronized timing and multiple fallback methods to establish reliable
+//! connections through firewalls.
+//!
+//! # Features
+//!
+//! - Synchronized pre-process stage
+//! - Multiple traversal methods
+//! - UPnP integration
+//! - Recovery mode support
+//! - Connection state tracking
+//! - Ping-based timing control
+//!
+//! # Important Notes
+//!
+//! - Pre-process stage required
+//! - Global time sync needed
+//! - Methods tried sequentially
+//! - Recovery mode for failures
+//! - Client-server optimized
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal::linear::method3`] - Method 3 implementation
+//! - [`crate::standard::upnp_handler`] - UPnP support
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`crate::socket_helpers`] - Socket utilities
+//!
+
 use std::net::SocketAddr;
 
 use citadel_io::tokio::net::UdpSocket;
@@ -7,9 +39,9 @@ use either::Either;
 use igd::PortMappingProtocol;
 
 use crate::error::FirewallError;
+use crate::udp_traversal::hole_punched_socket::{HolePunchedUdpSocket, TargettedSocketAddr};
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::method3::Method3;
-use crate::udp_traversal::targetted_udp_socket_addr::{HolePunchedUdpSocket, TargettedSocketAddr};
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use crate::upnp_handler::UPnPHandler;
 use netbeam::sync::RelativeNodeType;

@@ -1,3 +1,59 @@
+//! # Argon2 Password Hashing Container
+//!
+//! This module provides a secure, asynchronous wrapper around the Argon2 password hashing
+//! algorithm. It implements both client-side and server-side password handling with
+//! configurable parameters and secure memory management.
+//!
+//! ## Features
+//! - Asynchronous password hashing and verification
+//! - Configurable Argon2id parameters (memory, time, parallelism)
+//! - Secure memory handling with SecBuffer
+//! - Automatic salt generation
+//! - Support for associated data and secret keys
+//! - Client and server container types
+//!
+//! ## Usage Example
+//! ```rust
+//! use citadel_crypt::argon::argon_container::{ServerArgonContainer, ArgonSettings, ClientArgonContainer, AsyncArgon};
+//! use citadel_types::crypto::SecBuffer;
+//!
+//! async fn hash_password() {
+//!     // Create settings with default parameters
+//!     let settings = ArgonSettings::new_defaults(vec![1, 2, 3]); // Associated data
+//!     
+//!     // Create client container
+//!     let client = ClientArgonContainer::from(settings);
+//!     
+//!     // Hash a password
+//!     let password = SecBuffer::from("my_secure_password");
+//!     let hashed = client.hash_insecure_input(password).await.unwrap();
+//!     
+//!     // Verify a password (server-side)
+//!     let server_container = ServerArgonContainer::new(
+//!         client.settings.clone(),
+//!         hashed
+//!     );
+//!     
+//!     let verify_result = AsyncArgon::verify(
+//!         SecBuffer::from("my_secure_password"),
+//!         server_container
+//!     ).await.unwrap();
+//! }
+//! ```
+//!
+//! ## Important Notes
+//! - Uses Argon2id variant for optimal security
+//! - Memory-hard algorithm with configurable cost parameters
+//! - Handles password hashing on blocking threads
+//! - Provides secure memory zeroing through SecBuffer
+//! - Supports custom associated data for domain separation
+//!
+//! ## Related Components
+//! - [`SecBuffer`](citadel_types::crypto::SecBuffer): Secure memory management
+//! - [`AsyncArgon`]: Asynchronous hashing interface
+//! - [`ArgonSettings`]: Configuration parameters
+//! - Argon2 password hashing algorithm
+
 use argon2::Config;
 use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;

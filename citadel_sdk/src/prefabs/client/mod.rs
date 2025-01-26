@@ -1,6 +1,50 @@
+//! Client-Side Network Components
+//!
+//! This module provides pre-built client-side networking components for the Citadel Protocol.
+//! It includes implementations for various connection patterns including single server
+//! connections, peer-to-peer networking, and broadcast capabilities.
+//!
+//! # Features
+//! - Connection builders with flexible configuration
+//! - Multiple authentication methods (Transient, Credentials)
+//! - UDP support for NAT traversal
+//! - Session security customization
+//! - Pre-shared key authentication
+//! - Connection lifecycle management
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use std::net::SocketAddr;
+//! use std::str::FromStr;
+//!
+//! # fn main() -> Result<(), NetworkError> {
+//! // Create transient connection settings
+//! let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     .with_udp_mode(UdpMode::Enabled)
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Important Notes
+//! - Connection settings must be built before use
+//! - UDP mode affects NAT traversal capabilities
+//! - Pre-shared keys must match server configuration
+//! - Transient connections do not persist data
+//!
+//! # Related Components
+//! - [`broadcast`]: Group communication support
+//! - [`peer_connection`]: Peer-to-peer networking
+//! - [`single_connection`]: Single server connections
+//!
+//! [`broadcast`]: crate::prefabs::client::broadcast
+//! [`peer_connection`]: crate::prefabs::client::peer_connection
+//! [`single_connection`]: crate::prefabs::client::single_connection
+
 use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-use crate::prefabs::ClientServerRemote;
 use crate::prelude::*;
+use std::marker::PhantomData;
 use std::net::{SocketAddr, ToSocketAddrs};
 use uuid::Uuid;
 
@@ -12,7 +56,7 @@ pub mod peer_connection;
 pub mod single_connection;
 
 #[async_trait]
-pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
+pub trait PrefabFunctions<'a, Arg: Send + 'a, R: Ratchet>: Sized + 'a {
     type UserLevelInputFunction: Send + 'a;
     /// Shared between the kernel and the on_c2s_channel_received function
     type SharedBundle: Send + 'a;
@@ -20,32 +64,25 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
     fn get_shared_bundle(&self) -> Self::SharedBundle;
 
     async fn on_c2s_channel_received(
-        connect_success: ConnectionSuccess,
-        remote: ClientServerRemote,
+        connect_success: CitadelClientServerConnection<R>,
         arg: Arg,
         fx: Self::UserLevelInputFunction,
         shared: Self::SharedBundle,
     ) -> Result<(), NetworkError>;
 
-    fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self;
+    fn construct(kernel: Box<dyn NetKernel<R> + 'a>) -> Self;
 
     /// Creates a new connection with a central server entailed by the user information
     fn new(
-        server_connection_settings: ServerConnectionSettings,
+        server_connection_settings: ServerConnectionSettings<R>,
         arg: Arg,
         on_channel_received: Self::UserLevelInputFunction,
     ) -> Self {
         let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
-        let server_conn_kernel = SingleClientServerConnectionKernel::new(
+        let server_conn_kernel = SingleClientServerConnectionKernel::<_, _, R>::new(
             server_connection_settings,
-            |connect_success, remote| {
-                on_channel_received_fn::<_, Self>(
-                    connect_success,
-                    remote,
-                    rx,
-                    arg,
-                    on_channel_received,
-                )
+            |connect_success| {
+                on_channel_received_fn::<_, Self, R>(connect_success, rx, arg, on_channel_received)
             },
         );
 
@@ -55,9 +92,8 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized + 'a {
     }
 }
 
-async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg>>(
-    connect_success: ConnectionSuccess,
-    remote: ClientServerRemote,
+async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg, R>, R: Ratchet>(
+    connect_success: CitadelClientServerConnection<R>,
     rx_bundle: citadel_io::tokio::sync::oneshot::Receiver<T::SharedBundle>,
     arg: Arg,
     on_channel_received: T::UserLevelInputFunction,
@@ -65,11 +101,11 @@ async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg>>
     let shared = rx_bundle
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;
-    T::on_c2s_channel_received(connect_success, remote, arg, on_channel_received, shared).await
+    T::on_c2s_channel_received(connect_success, arg, on_channel_received, shared).await
 }
 
 /// Used to instantiate a client to server connection
-pub struct ServerConnectionSettingsBuilder<T: ToSocketAddrs = String> {
+pub struct ServerConnectionSettingsBuilder<R: Ratchet, T: ToSocketAddrs> {
     password: Option<SecBuffer>,
     username: Option<String>,
     name: Option<String>,
@@ -79,9 +115,13 @@ pub struct ServerConnectionSettingsBuilder<T: ToSocketAddrs = String> {
     session_security_settings: Option<SessionSecuritySettings>,
     transient_uuid: Option<Uuid>,
     is_connect: bool,
+    _ratchet: PhantomData<R>,
 }
 
-impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
+pub type DefaultServerConnectionSettingsBuilder<T> =
+    ServerConnectionSettingsBuilder<StackedRatchet, T>;
+
+impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
     /// Creates a new connection to a central server that does not persist client metadata and account information
     /// after the connection is dropped to the server. This is ideal for applications that do not require
     /// persistence.
@@ -101,6 +141,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             transient_uuid: Some(id.into()),
             address: Some(addr),
             is_connect: false,
+            _ratchet: PhantomData,
         }
     }
 
@@ -122,6 +163,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             udp_mode: None,
             session_security_settings: None,
             is_connect: false,
+            _ratchet: PhantomData,
         }
     }
 
@@ -141,6 +183,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
             udp_mode: None,
             session_security_settings: None,
             is_connect: true,
+            _ratchet: PhantomData,
         }
     }
 
@@ -175,7 +218,7 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
     }
 
     /// Builds the client-to-server connection settings
-    pub fn build(self) -> Result<ServerConnectionSettings, NetworkError> {
+    pub fn build(self) -> Result<ServerConnectionSettings<R>, NetworkError> {
         let server_addr = if let Some(addr) = self.address {
             let addr = addr
                 .to_socket_addrs()
@@ -188,16 +231,17 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
         };
 
         if let Some(uuid) = self.transient_uuid {
-            Ok(ServerConnectionSettings::Transient {
+            Ok(ServerConnectionSettings::<R>::Transient {
                 server_addr: server_addr
                     .ok_or(NetworkError::Generic("No address found".to_string()))?,
                 uuid,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
                 pre_shared_key: self.psk,
+                _ratchet: PhantomData,
             })
         } else if self.is_connect {
-            Ok(ServerConnectionSettings::CredentialedConnect {
+            Ok(ServerConnectionSettings::<R>::CredentialedConnect {
                 username: self
                     .username
                     .ok_or(NetworkError::Generic("No username found".to_string()))?,
@@ -207,9 +251,10 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
                 pre_shared_key: self.psk,
+                _ratchet: PhantomData,
             })
         } else {
-            Ok(ServerConnectionSettings::CredentialedRegister {
+            Ok(ServerConnectionSettings::<R>::CredentialedRegister {
                 address: server_addr
                     .ok_or(NetworkError::Generic("No address found".to_string()))?,
                 username: self
@@ -224,19 +269,21 @@ impl<T: ToSocketAddrs> ServerConnectionSettingsBuilder<T> {
                 pre_shared_key: self.psk,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
+                _ratchet: PhantomData,
             })
         }
     }
 }
 
 /// The settings for a client-to-server connection
-pub enum ServerConnectionSettings {
+pub enum ServerConnectionSettings<R: Ratchet> {
     Transient {
         server_addr: SocketAddr,
         uuid: Uuid,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         pre_shared_key: Option<PreSharedKey>,
+        _ratchet: PhantomData<R>,
     },
     CredentialedConnect {
         username: String,
@@ -244,6 +291,7 @@ pub enum ServerConnectionSettings {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         pre_shared_key: Option<PreSharedKey>,
+        _ratchet: PhantomData<R>,
     },
     CredentialedRegister {
         address: SocketAddr,
@@ -253,10 +301,11 @@ pub enum ServerConnectionSettings {
         pre_shared_key: Option<PreSharedKey>,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        _ratchet: PhantomData<R>,
     },
 }
 
-impl ServerConnectionSettings {
+impl<R: Ratchet> ServerConnectionSettings<R> {
     pub(crate) fn udp_mode(&self) -> UdpMode {
         match self {
             Self::Transient { udp_mode, .. } => *udp_mode,

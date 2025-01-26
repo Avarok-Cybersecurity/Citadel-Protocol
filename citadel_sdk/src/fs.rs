@@ -1,24 +1,76 @@
+//! Remote Encrypted Virtual Filesystem (RE-VFS)
+//!
+//! This module provides high-level operations for interacting with the Remote Encrypted
+//! Virtual Filesystem in the Citadel Protocol. RE-VFS enables secure storage and
+//! retrieval of files with end-to-end encryption.
+//!
+//! # Features
+//! - Secure file storage and retrieval
+//! - Configurable security levels
+//! - Automatic encryption handling
+//! - Virtual path management
+//! - File deletion support
+//! - Take operations for atomic reads
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::prelude::*;
+//! use citadel_sdk::fs;
+//!
+//! async fn store_file<R: Ratchet>(remote: &impl TargetLockedRemote<R>) -> Result<(), NetworkError> {
+//!     // Write a file to RE-VFS
+//!     fs::write(remote, "/local/file.txt", "/virtual/file.txt").await?;
+//!
+//!     // Read the file back
+//!     let local_path = fs::read(remote, "/virtual/file.txt").await?;
+//!
+//!     // Delete the file
+//!     fs::delete(remote, "/virtual/file.txt").await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - All operations are end-to-end encrypted
+//! - Security levels are configurable per operation
+//! - Take operations atomically read and delete
+//! - Virtual paths are independent of local paths
+//!
+//! # Related Components
+//! - [`TargetLockedRemote`]: Remote connection interface
+//! - [`SecurityLevel`]: Encryption strength configuration
+//! - [`ObjectSource`]: File source abstraction
+//! - [`NetworkError`]: Error handling
+//!
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`SecurityLevel`]: crate::prelude::SecurityLevel
+//! [`ObjectSource`]: crate::prelude::ObjectSource
+//! [`NetworkError`]: crate::prelude::NetworkError
+//!
+
 use crate::prelude::{ObjectSource, ProtocolRemoteTargetExt, TargetLockedRemote};
 
 use citadel_proto::prelude::NetworkError;
+use citadel_proto::prelude::*;
 use citadel_types::crypto::SecurityLevel;
 use std::path::PathBuf;
 
 /// Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem
-pub async fn write<T: ObjectSource, R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
+pub async fn write<T: ObjectSource, P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
     source: T,
-    virtual_path: R,
+    virtual_path: P,
 ) -> Result<(), NetworkError> {
     write_with_security_level(remote, source, Default::default(), virtual_path).await
 }
 
 /// Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem with a custom security level.
-pub async fn write_with_security_level<T: ObjectSource, R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
+pub async fn write_with_security_level<T: ObjectSource, P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
     source: T,
     security_level: SecurityLevel,
-    virtual_path: R,
+    virtual_path: P,
 ) -> Result<(), NetworkError> {
     remote
         .remote_encrypted_virtual_filesystem_push(source, virtual_path, security_level)
@@ -26,18 +78,18 @@ pub async fn write_with_security_level<T: ObjectSource, R: Into<PathBuf> + Send>
 }
 
 /// Reads a file from the Remote Encrypted Virtual Filesystem
-pub async fn read<R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
-    virtual_path: R,
+pub async fn read<P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
+    virtual_path: P,
 ) -> Result<PathBuf, NetworkError> {
     read_with_security_level(remote, Default::default(), virtual_path).await
 }
 
 /// Reads a file from the Remote Encrypted Virtual Filesystem with a custom transport security level
-pub async fn read_with_security_level<R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
+pub async fn read_with_security_level<P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
     transfer_security_level: SecurityLevel,
-    virtual_path: R,
+    virtual_path: P,
 ) -> Result<PathBuf, NetworkError> {
     remote
         .remote_encrypted_virtual_filesystem_pull(virtual_path, transfer_security_level, false)
@@ -45,9 +97,9 @@ pub async fn read_with_security_level<R: Into<PathBuf> + Send>(
 }
 
 /// Takes a file from the Remote Encrypted Virtual Filesystem
-pub async fn take<R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
-    virtual_path: R,
+pub async fn take<P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
+    virtual_path: P,
 ) -> Result<PathBuf, NetworkError> {
     remote
         .remote_encrypted_virtual_filesystem_pull(virtual_path, Default::default(), true)
@@ -55,10 +107,10 @@ pub async fn take<R: Into<PathBuf> + Send>(
 }
 
 /// Takes a file from the Remote Encrypted Virtual Filesystem with a custom security level.
-pub async fn take_with_security_level<R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
+pub async fn take_with_security_level<P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
     transfer_security_level: SecurityLevel,
-    virtual_path: R,
+    virtual_path: P,
 ) -> Result<PathBuf, NetworkError> {
     remote
         .remote_encrypted_virtual_filesystem_pull(virtual_path, transfer_security_level, true)
@@ -66,9 +118,9 @@ pub async fn take_with_security_level<R: Into<PathBuf> + Send>(
 }
 
 /// Deletes a file from the Remote Encrypted Virtual Filesystem
-pub async fn delete<R: Into<PathBuf> + Send>(
-    remote: &impl TargetLockedRemote,
-    virtual_path: R,
+pub async fn delete<P: Into<PathBuf> + Send, R: Ratchet>(
+    remote: &impl TargetLockedRemote<R>,
+    virtual_path: P,
 ) -> Result<(), NetworkError> {
     remote
         .remote_encrypted_virtual_filesystem_delete(virtual_path)
@@ -81,7 +133,7 @@ mod tests {
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
     use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
-    use crate::prefabs::client::ServerConnectionSettingsBuilder;
+    use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prelude::*;
     use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
@@ -93,8 +145,9 @@ mod tests {
     use std::time::Duration;
     use uuid::Uuid;
 
-    pub fn server_info<'a>() -> (NodeFuture<'a, AcceptFileTransferKernel>, SocketAddr) {
-        crate::test_common::server_test_node(AcceptFileTransferKernel, |_| {})
+    pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, AcceptFileTransferKernel<R>>, SocketAddr)
+    {
+        crate::test_common::server_test_node(AcceptFileTransferKernel::<R>::default(), |_| {})
     }
 
     #[rstest]
@@ -118,7 +171,7 @@ mod tests {
     ) {
         citadel_logging::setup_log();
         let client_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<StackedRatchet>();
         let uuid = Uuid::new_v4();
 
         let source_dir = PathBuf::from("../resources/TheBridge.pdf");
@@ -130,7 +183,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .disable_udp()
                 .with_session_security_settings(session_security_settings)
                 .build()
@@ -138,12 +191,12 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &remote,
+                    &connection.remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -151,7 +204,7 @@ mod tests {
                 .await?;
                 log::info!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::read(&remote, virtual_path).await?;
+                let save_dir = crate::fs::read(&connection.remote, virtual_path).await?;
                 // now, compare bytes
                 log::info!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
@@ -159,11 +212,11 @@ mod tests {
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::info!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let result = citadel_io::tokio::select! {
             res0 = client => res0.map(|_| ()),
@@ -191,7 +244,7 @@ mod tests {
     ) {
         citadel_logging::setup_log();
         let client_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<StackedRatchet>();
         let uuid = Uuid::new_v4();
 
         let source_dir = PathBuf::from("../resources/TheBridge.pdf");
@@ -203,7 +256,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .disable_udp()
                 .with_session_security_settings(session_security_settings)
                 .build()
@@ -211,12 +264,12 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &remote,
+                    &connection.remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -224,7 +277,7 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::take(&remote, &virtual_path).await?;
+                let save_dir = crate::fs::take(&connection.remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
@@ -232,13 +285,15 @@ mod tests {
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
                 // prove we can no longer read from this virtual file
-                assert!(crate::fs::read(&remote, &virtual_path).await.is_err());
+                assert!(crate::fs::read(&connection.remote, &virtual_path)
+                    .await
+                    .is_err());
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let result = citadel_io::tokio::select! {
             res0 = client => res0.map(|_| ()),
@@ -266,7 +321,7 @@ mod tests {
     ) {
         citadel_logging::setup_log();
         let client_success = &AtomicBool::new(false);
-        let (server, server_addr) = server_info();
+        let (server, server_addr) = server_info::<StackedRatchet>();
         let uuid = Uuid::new_v4();
 
         let source_dir = PathBuf::from("../resources/TheBridge.pdf");
@@ -278,7 +333,7 @@ mod tests {
             .unwrap();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .disable_udp()
                 .with_session_security_settings(session_security_settings)
                 .build()
@@ -286,12 +341,12 @@ mod tests {
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
-            |_channel, remote| async move {
+            |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
-                    &remote,
+                    &connection.remote,
                     source_dir.clone(),
                     security_level,
                     &virtual_path,
@@ -299,22 +354,24 @@ mod tests {
                 .await?;
                 log::trace!(target: "citadel", "***CLIENT FILE TRANSFER SUCCESS***");
                 // now, pull it
-                let save_dir = crate::fs::read(&remote, &virtual_path).await?;
+                let save_dir = crate::fs::read(&connection.remote, &virtual_path).await?;
                 // now, compare bytes
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL SUCCESS");
                 let original_bytes = citadel_io::tokio::fs::read(&source_dir).await.unwrap();
                 let revfs_pulled_bytes = citadel_io::tokio::fs::read(&save_dir).await.unwrap();
                 assert_eq!(original_bytes, revfs_pulled_bytes);
                 log::trace!(target: "citadel", "***CLIENT REVFS PULL COMPARE SUCCESS");
-                crate::fs::delete(&remote, &virtual_path).await?;
+                crate::fs::delete(&connection.remote, &virtual_path).await?;
                 // prove we can no longer read from this virtual file since it was just deleted
-                assert!(crate::fs::read(&remote, &virtual_path).await.is_err());
+                assert!(crate::fs::read(&connection.remote, &virtual_path)
+                    .await
+                    .is_err());
                 client_success.store(true, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+                connection.shutdown_kernel().await
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let result = citadel_io::tokio::select! {
             res0 = client => res0.map(|_| ()),
@@ -340,7 +397,7 @@ mod tests {
         let client0_success = &AtomicBool::new(false);
         let client1_success = &AtomicBool::new(false);
 
-        let (server, server_addr) = crate::test_common::server_info();
+        let (server, server_addr) = crate::test_common::server_info::<StackedRatchet>();
 
         let uuid0 = Uuid::new_v4();
         let uuid1 = Uuid::new_v4();
@@ -355,7 +412,7 @@ mod tests {
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
                 .disable_udp()
                 .with_session_security_settings(session_security)
                 .build()
@@ -375,7 +432,7 @@ mod tests {
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
-                let cid = connection.channel.get_implicated_cid();
+                let cid = connection.channel.get_session_cid();
                 wait_for_peers().await;
                 // The other peer will send the file first
                 log::info!(target: "citadel", "***CLIENT A {cid} LOGIN SUCCESS :: File transfer next ***");
@@ -410,7 +467,7 @@ mod tests {
         );
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
+            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
                 .disable_udp()
                 .with_session_security_settings(session_security)
                 .build()
@@ -429,7 +486,7 @@ mod tests {
             move |mut connection, remote_outer| async move {
                 wait_for_peers().await;
                 let mut connection = connection.recv().await.unwrap()?;
-                let cid = connection.channel.get_implicated_cid();
+                let cid = connection.channel.get_session_cid();
                 wait_for_peers().await;
                 let remote = connection.remote.clone();
                 let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
@@ -463,8 +520,8 @@ mod tests {
             },
         );
 
-        let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
-        let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
+        let client0 = DefaultNodeBuilder::default().build(client_kernel0).unwrap();
+        let client1 = DefaultNodeBuilder::default().build(client_kernel1).unwrap();
         let clients = futures::future::try_join(client0, client1);
 
         let task = async move {

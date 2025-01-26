@@ -1,3 +1,33 @@
+//! Entropy Bank: Dynamic Cryptographic State Management
+//!
+//! This module implements a secure entropy bank system that provides dynamic,
+//! evolving cryptographic states for packet protection and nonce generation.
+//! It ensures replay attack prevention and maintains secure packet ordering.
+//!
+//! # Features
+//!
+//! - Dynamic nonce generation and management
+//! - Packet encryption and decryption
+//! - Replay attack prevention
+//! - Ordered packet delivery enforcement
+//! - Random scrambling of ciphertext bytes
+//! - Post-quantum cryptography support
+//! - Transient counter management
+//!
+//! # Important Notes
+//!
+//! - Nonce reuse is prevented by design
+//! - Ordered packet delivery is mandatory
+//! - Port mappings are randomized for security
+//! - Thread-safe transient counter handling
+//! - Serialization support for persistence
+//!
+//! # Related Components
+//!
+//! - [`citadel_pqcrypto::PostQuantumContainer`] - Post-quantum crypto operations
+//! - [`crate::misc::CryptError`] - Error handling
+//! - [`crate::misc::create_port_mapping`] - Port scrambling
+
 use crate::misc::{create_port_mapping, CryptError};
 use byteorder::{BigEndian, ByteOrder};
 use rand::{thread_rng, Rng, RngCore};
@@ -10,20 +40,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
 use rand::prelude::ThreadRng;
 
-pub const PORT_RANGE: usize = 14;
+pub const DRILL_RANGE: usize = 14;
 pub const BYTES_PER_STORE: usize = LARGEST_NONCE_LEN;
 
 /// The default endianness for byte storage
 pub type DrillEndian = BigEndian;
 
 impl EntropyBank {
-    /// Creates a new drill
+    /// Creates a new entropy_bank
     pub fn new(
         cid: u64,
         version: u32,
         algorithm: EncryptionAlgorithm,
     ) -> Result<Self, CryptError<String>> {
-        Self::generate_raw_3d_array().map(|bytes| {
+        Self::generate_random_array().map(|bytes| {
             let port_mappings = create_port_mapping();
             let transient_counter = Default::default();
             EntropyBank {
@@ -37,7 +67,7 @@ impl EntropyBank {
         })
     }
 
-    /// For generating a random nonce, independent to any drill
+    /// For generating a random nonce, independent to any entropy_bank
     pub fn generate_public_nonce(
         enx_algorithm: EncryptionAlgorithm,
     ) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
@@ -225,13 +255,19 @@ impl EntropyBank {
         self.cid
     }
 
-    /// Gets the version of the drill
+    /// Gets the version of the entropy_bank
     pub fn get_version(&self) -> u32 {
         self.version
     }
 
-    /// Downloads the data necessary to create a drill
-    fn generate_raw_3d_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
+    /// Updates the version of the entropy_bank
+    pub fn update_version(&mut self, version: u32) -> Result<(), CryptError<String>> {
+        self.version = version;
+        Ok(())
+    }
+
+    /// Downloads the data necessary to create a entropy_bank
+    fn generate_random_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
         let mut bytes: [u8; BYTES_PER_STORE] = [0u8; BYTES_PER_STORE];
         let mut trng = thread_rng();
         trng.fill_bytes(&mut bytes);
@@ -239,20 +275,15 @@ impl EntropyBank {
         Ok(bytes)
     }
 
-    /// Gets randmonized port mappings which contain the true information. Other ports may get bogons
-    pub fn get_port_mapping(&self) -> &Vec<(u16, u16)> {
-        &self.scramble_mappings
-    }
-
     /// Serializes self to a vector
     pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError<String>> {
-        bincode::serialize(self).map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+        bincode::serialize(self).map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
     }
 
     /// Deserializes self from a set of bytes
-    pub fn deserialize_from<T: AsRef<[u8]>>(drill: T) -> Result<Self, CryptError<String>> {
-        bincode::deserialize(drill.as_ref())
-            .map_err(|err| CryptError::DrillUpdateError(err.to_string()))
+    pub fn deserialize_from<T: AsRef<[u8]>>(entropy_bank: T) -> Result<Self, CryptError<String>> {
+        bincode::deserialize(entropy_bank.as_ref())
+            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
     }
 }
 
@@ -267,17 +298,17 @@ use zeroize::Zeroizing;
 /// A entropy bank is a fundamental dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
 pub struct EntropyBank {
-    pub(super) algorithm: EncryptionAlgorithm,
-    pub(super) version: u32,
-    pub(super) cid: u64,
-    pub(super) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
-    pub(super) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
-    pub(super) transient_counter: AtomicU64,
+    pub(crate) algorithm: EncryptionAlgorithm,
+    pub(crate) version: u32,
+    pub(crate) cid: u64,
+    pub(crate) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
+    pub(crate) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
+    pub(crate) transient_counter: AtomicU64,
 }
 
 /// Returns the approximate number of bytes needed to serialize a Drill
-pub const fn get_approx_serialized_drill_len() -> usize {
-    4 + 8 + BYTES_PER_STORE + (PORT_RANGE * 16 * 2)
+pub const fn get_approx_serialized_entropy_bank_len() -> usize {
+    4 + 8 + BYTES_PER_STORE + (DRILL_RANGE * 16 * 2)
 }
 
 impl Debug for EntropyBank {

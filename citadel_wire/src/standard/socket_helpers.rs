@@ -1,3 +1,58 @@
+//! Socket Creation and Configuration Utilities
+//!
+//! This module provides a comprehensive set of utilities for creating and configuring
+//! network sockets with proper settings for NAT traversal and peer-to-peer communication.
+//! It handles platform-specific socket options and provides a unified interface for both
+//! TCP and UDP protocols.
+//!
+//! # Features
+//!
+//! - TCP and UDP socket creation with proper options
+//! - Platform-specific socket configuration handling
+//! - IPv4 and IPv6 support with automatic mapping
+//! - Socket reuse options for NAT traversal
+//! - Connection timeout management
+//! - Backlog configuration for TCP listeners
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::socket_helpers;
+//! use std::net::SocketAddr;
+//! use std::time::Duration;
+//!
+//! async fn setup_sockets() -> Result<(), anyhow::Error> {
+//!     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
+//!
+//!     // Create UDP socket with address reuse
+//!     let udp = socket_helpers::get_reuse_udp_socket(addr)?;
+//!
+//!     // Create TCP listener with default options
+//!     let tcp = socket_helpers::get_tcp_listener(addr)?;
+//!
+//!     // Create TCP client with timeout
+//!     let stream = socket_helpers::get_tcp_stream(addr, Duration::from_secs(5)).await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Socket reuse options are essential for NAT traversal
+//! - Platform-specific behaviors are handled automatically
+//! - IPv6 support requires system configuration
+//! - TCP listeners have configurable connection backlogs
+//! - Default timeouts are recommended for reliability
+//!
+//! # Related Components
+//!
+//! - [`crate::standard::nat_identification`] - NAT behavior analysis
+//! - [`crate::udp_traversal`] - UDP hole punching implementation
+//! - [`crate::standard::upnp_handler`] - UPnP port forwarding
+//! - [`crate::error::FirewallError`] - Network error handling
+//!
+
 use citadel_io::tokio::net::{TcpListener, TcpStream, UdpSocket};
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};

@@ -56,7 +56,7 @@ Multiple Key Encapsulation Mechanism (KEM) families:
 - [NTRU](https://ntru.org/) (Sntrup761)
 
 Novel Multi-layered Security Architecture:
-- [Patent-pending](#-patent-and-open-source-commitment) multi-layered ratcheting algorithm
+- [Patent-pending (allowed)](#-patent-and-open-source-commitment) 3D matrix ratcheting algorithm
 - Per-message re-keying mechanism
 - Multi-layered key exchange protocol
 - Multi-layered encryption with customizable algorithms
@@ -166,7 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 The Citadel Protocol implements a novel multi-layered security approach that goes beyond traditional encryption methods:
 
 ### 🔄 Multi-layered Ratcheting
-- Implements an advanced patent-pending ratcheting algorithm that operates across multiple security layers
+- Implements an advanced patent-pending (allowed as of Dec 2024) ratcheting algorithm that operates across multiple security layers
 - Each layer maintains its own independent key schedule
 - Provides enhanced forward secrecy by frequently rotating keys at different intervals
 - Resistant against quantum attacks through post-quantum primitives
@@ -307,6 +307,8 @@ The Citadel Protocol offers flexible data persistence options to suit various de
 - [📄 Technical Architecture](The_Citadel_Protocol.pdf)
 
 ## 📜 Patent and Open Source Commitment
+
+Status: Allowed as of December 2024
 
 The Citadel Protocol's core technology is a [patent-pending innovative security architecture](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/20230403261) that combines multiple novel features into a unique, highly secure communication system. Despite the patent protection, we remain committed to keeping this technology free and open source for the benefit of the entire community. This approach ensures that:
 

@@ -1,3 +1,32 @@
+//! UDP Internal Interface
+//!
+//! This module provides the internal interface for UDP communication in the Citadel Protocol.
+//! It handles UDP packet processing, hole punching, and NAT traversal operations.
+//!
+//! # Features
+//!
+//! - UDP packet handling
+//! - NAT traversal support
+//! - Hole punching operations
+//! - Connection management
+//! - Error handling
+//! - Packet encryption
+//!
+//! # Important Notes
+//!
+//! - Requires proper NAT configuration
+//! - Handles both IPv4 and IPv6
+//! - Supports multiple UDP streams
+//! - Manages connection timeouts
+//! - Handles packet fragmentation
+//!
+//! # Related Components
+//!
+//! - `net.rs`: Network operations
+//! - `session.rs`: Session management
+//! - `underlying_proto.rs`: Protocol implementation
+//! - `node.rs`: Node management
+
 use crate::constants::CODEC_BUFFER_CAPACITY;
 use crate::error::NetworkError;
 use crate::functional::PairMap;
@@ -8,7 +37,7 @@ use bytes::{Bytes, BytesMut};
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::tokio_util::udp::UdpFramed;
 use citadel_wire::exports::Connection;
-use citadel_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{Sink, Stream, StreamExt};
 use std::net::SocketAddr;

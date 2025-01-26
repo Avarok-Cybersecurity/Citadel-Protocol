@@ -1,3 +1,46 @@
+//! # Google Authentication Service
+//!
+//! Provides functionality for generating custom JWT tokens for Google Firebase authentication.
+//! This module enables server-side authentication token generation using Google service account
+//! credentials.
+//!
+//! ## Features
+//!
+//! * Load Google service account credentials from JSON file
+//! * Generate custom JWT tokens for Firebase authentication
+//! * RSA private key management with SHA-256 signing
+//! * Configurable token expiration
+//!
+//! ## Usage Example
+//!
+//! ```rust,no_run
+//! use citadel_user::external_services::google_auth::GoogleAuth;
+//!
+//! async fn authenticate_user(user_id: &str) -> Result<String, Box<dyn std::error::Error>> {
+//!     // Load service account credentials
+//!     let auth = GoogleAuth::load_from_google_services_file("path/to/service-account.json").await?;
+//!     
+//!     // Generate custom JWT token
+//!     let token = auth.sign_new_custom_jwt_auth(user_id)?;
+//!     
+//!     Ok(token.to_string())
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * Requires a valid Google service account JSON file with private key
+//! * Service account must have appropriate Firebase permissions
+//! * JWT tokens are signed using RSA SHA-256
+//! * Default token expiration is 1 hour
+//!
+//! ## Related Components
+//!
+//! * `JsonWebToken`: Type representing a signed JWT token
+//! * `AccountError`: Error type for authentication operations
+//! * Firebase Admin SDK: External service for token verification
+//!
+
 use crate::external_services::JsonWebToken;
 use crate::misc::AccountError;
 use jwt::{PKeyWithDigest, SignWithKey};
@@ -67,9 +110,9 @@ impl GoogleAuth {
 
         let iat = iat.to_string();
         let exp = exp.to_string();
-        let implicated_cid = uid.to_string();
+        let session_cid = uid.to_string();
 
-        //let final_claim = format!("array(\"cid\" => ${})", &implicated_cid);
+        //let final_claim = format!("array(\"cid\" => ${})", &session_cid);
 
         let mut claims = HashMap::new();
         claims.insert("alg", "RS256");
@@ -78,7 +121,7 @@ impl GoogleAuth {
         claims.insert("aud", "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit");
         claims.insert("iat", iat.as_str());
         claims.insert("exp", exp.as_str());
-        claims.insert("uid", &implicated_cid);
+        claims.insert("uid", &session_cid);
         //claims.insert("claims", final_claim.as_str());
 
         log::trace!(target: "citadel", "{:?}", &claims);

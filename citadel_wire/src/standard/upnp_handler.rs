@@ -1,3 +1,59 @@
+//! UPnP Port Mapping and Gateway Management
+//!
+//! This module provides Universal Plug and Play (UPnP) functionality for automatic
+//! port forwarding and NAT traversal. It handles discovery of Internet Gateway
+//! Devices and manages port mappings for both TCP and UDP protocols.
+//!
+//! # Features
+//!
+//! - Automatic gateway discovery and configuration
+//! - Port mapping for TCP and UDP protocols
+//! - External IP address discovery
+//! - Configurable lease durations for port mappings
+//! - Support for targeted and any-port forwarding
+//! - Automatic local IP detection
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::upnp_handler::UPnPHandler;
+//! use igd::PortMappingProtocol;
+//! use std::time::Duration;
+//!
+//! async fn setup_port_forwarding() -> Result<(), citadel_wire::error::FirewallError> {
+//!     // Create UPnP handler with 5 second timeout
+//!     let upnp = UPnPHandler::new(Some(Duration::from_secs(5))).await?;
+//!     
+//!     // Forward external port 8080 to local port 3000
+//!     upnp.open_firewall_port(
+//!         PortMappingProtocol::TCP,
+//!         Some(3600),  // 1 hour lease
+//!         "my-service",
+//!         None,
+//!         8080,
+//!         3000
+//!     ).await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Requires UPnP-enabled router/gateway
+//! - Port mappings may expire if lease duration set
+//! - External ports may be already in use
+//! - Gateway discovery has configurable timeout
+//! - Only supports IPv4 addresses currently
+//!
+//! # Related Components
+//!
+//! - [`crate::standard::nat_identification`] - NAT behavior analysis
+//! - [`crate::udp_traversal`] - Alternative NAT traversal
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//! - [`crate::error::FirewallError`] - Error handling
+//!
+
 use crate::error::FirewallError;
 use citadel_io::tokio::time::Duration;
 use igd::aio::Gateway;

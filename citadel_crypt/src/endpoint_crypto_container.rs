@@ -1,274 +1,349 @@
+//! Peer Session Cryptographic Container
+//!
+//! This module provides a thread-safe container for managing cryptographic state
+//! between peer sessions. It handles ratchet updates, version management, and
+//! concurrent access control for secure peer-to-peer communication.
+//!
+//! # Features
+//!
+//! - Thread-safe cryptographic state management
+//! - Ratchet version control and updates
+//! - Concurrent update conflict resolution
+//! - Session key management and rotation
+//! - Atomic state transitions
+//! - Rolling object and group ID management
+//! - Post-quantum cryptography support
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
+//! use citadel_crypt::toolset::Toolset;
+//! use citadel_crypt::ratchets::stacked::StackedRatchet;
+//! use citadel_crypt::misc::CryptError;
+//!
+//! # fn get_ratchet() -> StackedRatchet { todo!() }
+//! fn setup_session() -> Result<(), CryptError> {
+//!     // Create ratchet
+//!     let ratchet = get_ratchet();
+//!     let cid = 12345;
+//!     // Create toolset with default parameters
+//!     let toolset = Toolset::new(cid, ratchet);
+//!
+//!     // Initialize peer session (as initiator)
+//!     let session = PeerSessionCrypto::new(toolset, true);
+//!     // Set to "false" for the other peer
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - Updates are atomic and thread-safe
+//! - Version conflicts resolved by initiator priority
+//! - Requires proper lock management
+//! - State transitions must be synchronized
+//! - Supports multiple ratchet versions
+//!
+//! # Related Components
+//!
+//! - [`crate::toolset::Toolset`] - Cryptographic toolset
+//! - [`crate::ratchets::stacked::ratchet::StackedRatchet`] - Ratchet implementation
+//! - [`crate::misc::CryptError`] - Error handling
+//!
+
 #![allow(missing_docs)]
 
 use crate::misc::CryptError;
-use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
-use crate::stacked_ratchet::{Ratchet, StackedRatchet};
-use crate::toolset::{Toolset, UpdateStatus};
+use crate::ratchets::Ratchet;
+use crate::sync_toggle::{CurrentToggleState, SyncToggle};
+use crate::toolset::{Toolset, ToolsetUpdateStatus};
+use citadel_io::RwLock;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::CryptoParameters;
-use citadel_types::crypto::SecurityLevel;
-use citadel_types::prelude::ObjectId;
+use citadel_types::prelude::{ObjectId, SecurityLevel};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::fmt::Debug;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
 /// A container that holds the toolset as well as some boolean flags to ensure validity
 /// in tight concurrency situations. It is up to the networking protocol to ensure
 /// that the inner functions are called when appropriate
-#[derive(Serialize, Deserialize)]
-pub struct PeerSessionCrypto<R: Ratchet = StackedRatchet> {
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PeerSessionCrypto<R: Ratchet> {
     #[serde(bound = "")]
-    pub toolset: Toolset<R>,
-    pub update_in_progress: Arc<AtomicBool>,
+    toolset: Arc<RwLock<Toolset<R>>>,
+    pub update_in_progress: SyncToggle,
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
-    pub local_is_initiator: bool,
-    pub rolling_object_id: ObjectId,
-    pub rolling_group_id: u64,
-    pub lock_set_by_alice: Option<bool>,
+    local_is_initiator: bool,
+    cid: u64,
+    incrementing_group_id_messaging: Arc<AtomicU64>,
+    pub incrementing_group_id_file_transfer: Arc<AtomicU64>,
     /// Alice sends to Bob, then bob updates internally the toolset. However. Bob can't send packets to Alice quite yet using that newest version. He must first wait from Alice to commit on her end and wait for an ACK.
-    /// If alice sends a packet using the latest version, that's okay since we already have that drill version on Bob's side; it's just that Bob can't send packets using the latest version until AFTER receiving the ACK
-    pub latest_usable_version: u32,
+    /// If alice sends a packet using the latest version, that's okay since we already have that entropy_bank version on Bob's side; it's just that Bob can't send packets using the latest version until AFTER receiving the ACK
+    pub latest_usable_version: Arc<AtomicU32>,
 }
 
+const ORDERING: Ordering = Ordering::Relaxed;
+
 impl<R: Ratchet> PeerSessionCrypto<R> {
-    /// Creates a new [PeerSessionCrypto] instance
+    /// Creates a new [`PeerSessionCrypto`] instance
     ///
     /// `local_is_initiator`: May also be "local_is_server", or any constant designation used to determine
     /// priority in case of concurrent conflicts
+    ///
+    /// This should only be called by the RatchetConstructor
     pub fn new(toolset: Toolset<R>, local_is_initiator: bool) -> Self {
         Self {
-            toolset,
-            update_in_progress: Arc::new(AtomicBool::new(false)),
+            cid: toolset.cid,
+            toolset: Arc::new(RwLock::new(toolset)),
+            update_in_progress: SyncToggle::new(),
             local_is_initiator,
-            rolling_object_id: ObjectId::random(),
-            rolling_group_id: 0,
-            lock_set_by_alice: None,
-            latest_usable_version: 0,
+            incrementing_group_id_messaging: Arc::new(AtomicU64::new(0)),
+            incrementing_group_id_file_transfer: Arc::new(AtomicU64::new(0)),
+            latest_usable_version: Arc::new(AtomicU32::new(0)),
         }
     }
 
-    /// Derives a new version of self safe to be used in the protocol
-    /// Changes made to the returned version will not persist
-    pub fn new_session(&self) -> Self {
-        Self {
-            toolset: self.toolset.clone(),
-            update_in_progress: self.update_in_progress.clone(),
-            local_is_initiator: self.local_is_initiator,
-            rolling_object_id: self.rolling_object_id,
-            rolling_group_id: self.rolling_group_id,
-            lock_set_by_alice: self.lock_set_by_alice,
-            latest_usable_version: self.latest_usable_version,
-        }
-    }
-
-    /// Gets a specific drill version, or, gets the latest version committed
-    pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<&R> {
+    /// Gets a specific entropy_bank version, or, gets the latest version committed
+    pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
         self.toolset
-            .get_hyper_ratchet(version.unwrap_or(self.latest_usable_version))
+            .read()
+            .get_ratchet(version.unwrap_or_else(|| self.latest_usable_version.load(ORDERING)))
+            .cloned()
     }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
     /// that the endpoint updated the ratchet (no transfer received, since none needed)
-    pub fn commit_next_hyper_ratchet_version(
-        &mut self,
+    #[allow(clippy::type_complexity)]
+    pub fn commit_next_ratchet_version(
+        &self,
         mut newest_version: R::Constructor,
         local_cid: u64,
-        local_is_alice: bool,
-    ) -> Result<(Option<BobToAliceTransferType>, UpdateStatus), CryptError> {
-        let cur_vers = self.toolset.get_most_recent_hyper_ratchet_version();
+        generate_next: bool,
+    ) -> Result<
+        (
+            Option<<R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer>,
+            ToolsetUpdateStatus,
+        ),
+        CryptError,
+    > {
+        let mut toolset = self.toolset.write();
+        let cur_vers = toolset.get_most_recent_ratchet_version();
         let next_vers = cur_vers.wrapping_add(1);
+
+        // Update version before any stage operations
         newest_version.update_version(next_vers).ok_or_else(|| {
-            CryptError::DrillUpdateError("Unable to progress past update_version".to_string())
+            CryptError::RekeyUpdateError("Unable to progress past update_version".to_string())
         })?;
 
-        let transfer = if local_is_alice {
-            None
-        } else {
-            // we don't want to custom CID here
-            Some(newest_version.stage0_bob().ok_or_else(|| {
-                CryptError::DrillUpdateError("Unable to progress past stage0_bob".to_string())
-            })?)
-        };
+        if !generate_next {
+            let latest_ratchet = newest_version
+                .finish_with_custom_cid(local_cid)
+                .ok_or_else(|| {
+                    CryptError::RekeyUpdateError(
+                        "Unable to progress past finish_with_custom_cid for bob-to-alice trigger"
+                            .to_string(),
+                    )
+                })?;
+            let status = toolset.update_from(latest_ratchet).ok_or_else(|| {
+                CryptError::RekeyUpdateError(
+                    "Unable to progress past update_from for bob-to-alice trigger".to_string(),
+                )
+            })?;
 
-        let next_hyper_ratchet = newest_version
+            return Ok((None, status));
+        }
+
+        // Generate transfer after version update
+        let transfer = newest_version.stage0_bob().ok_or_else(|| {
+            CryptError::RekeyUpdateError("Unable to progress past stage0_bob".to_string())
+        })?;
+
+        let next_ratchet = newest_version
             .finish_with_custom_cid(local_cid)
             .ok_or_else(|| {
-                CryptError::DrillUpdateError(
+                CryptError::RekeyUpdateError(
                     "Unable to progress past finish_with_custom_cid".to_string(),
                 )
             })?;
-        let status = self
-            .toolset
-            .update_from(next_hyper_ratchet)
-            .ok_or_else(|| {
-                CryptError::DrillUpdateError("Unable to progress past update_from".to_string())
-            })?;
-        log::trace!(target: "citadel", "[E2E] Successfully updated StackedRatchet from v{} to v{}", cur_vers, next_vers);
-        //self.latest_hyper_ratchet_version_committed = next_vers;
+        let status = toolset.update_from(next_ratchet).ok_or_else(|| {
+            CryptError::RekeyUpdateError("Unable to progress past update_from".to_string())
+        })?;
+        log::trace!(target: "citadel", "[E2E] Client {local_cid} successfully updated Ratchet from v{cur_vers} to v{next_vers}");
 
-        Ok((transfer, status))
+        Ok((Some(transfer), status))
     }
 
     /// Deregisters the oldest StackedRatchet version. Requires the version input to ensure program/network consistency for debug purposes
-    pub fn deregister_oldest_hyper_ratchet(
-        &mut self,
-        version: u32,
-    ) -> Result<(), CryptError<String>> {
-        self.toolset.deregister_oldest_hyper_ratchet(version)
+    pub fn deregister_oldest_ratchet(&self, version: u32) -> Result<(), CryptError<String>> {
+        self.toolset.write().deregister_oldest_ratchet(version)
     }
 
     /// Performs an update internally, only if sync conditions allow
     pub fn update_sync_safe(
-        &mut self,
+        &self,
         constructor: R::Constructor,
-        local_is_alice: bool,
-        local_cid: u64,
-    ) -> Result<KemTransferStatus, CryptError> {
-        let update_in_progress = self.update_in_progress.load(Ordering::SeqCst);
-        log::trace!(target: "citadel", "[E2E] Calling UPDATE (local_is_alice: {}. Update in progress: {})", local_is_alice, update_in_progress);
-        // if local is alice (relative), then update_in_progress will be expected to be true. As such, we don't want this to occur
-        if update_in_progress && !local_is_alice {
+        triggered_by_bob_to_alice_transfer: bool,
+    ) -> Result<KemTransferStatus<R>, CryptError> {
+        let local_cid = self.cid;
+        let update_in_progress =
+            self.update_in_progress.toggle_on_if_untoggled() == CurrentToggleState::AlreadyToggled;
+
+        log::trace!(target: "citadel", "[E2E] Calling UPDATE (triggered by bob_to_alice tx: {triggered_by_bob_to_alice_transfer}. Update in progress: {update_in_progress})");
+
+        if update_in_progress && !triggered_by_bob_to_alice_transfer {
             // update is in progress. We only update if local is NOT the initiator (this implies the packet triggering this was sent by the initiator, which takes the preference as desired)
             // if local is initiator, then the packet was sent by the non-initiator, and as such, we don't update on local
-            if self.local_is_initiator {
-                return Ok(KemTransferStatus::Omitted);
+            if !self.local_is_initiator {
+                return Ok(KemTransferStatus::Contended);
             }
         }
 
         // There is one last special possibility. Let's say the initiator spam sends a bunch of FastMessage packets. Since the initiator's local won't have the appropriate proposed version ID
         // we need to ensure that it gets the right version, The crypt container will take care of that for us
-        let (transfer, status) =
-            self.commit_next_hyper_ratchet_version(constructor, local_cid, local_is_alice)?;
+        let result = self.commit_next_ratchet_version(
+            constructor,
+            local_cid,
+            !triggered_by_bob_to_alice_transfer,
+        );
 
-        let ret = if let Some(transfer) = transfer {
-            KemTransferStatus::Some(transfer, status)
+        if let Err(err) = &result {
+            log::error!(target: "citadel", "[E2E] Error during update: {:?}", err);
+            self.update_in_progress.toggle_off();
+        }
+
+        let (transfer, status) = result?;
+
+        if let Some(transfer) = transfer {
+            Ok(KemTransferStatus::Some(transfer, status))
         } else {
-            // if it returns with None, and local isn't alice, return an error since we expected Some
-            if !local_is_alice {
-                return Err(CryptError::DrillUpdateError(
-                    "Local is not alice, yet, conflicting program state".to_string(),
+            // if it returns with None, and this wasn't triggered by a bob to alice tx return an error since we expected Some
+            if !triggered_by_bob_to_alice_transfer {
+                return Err(CryptError::RekeyUpdateError(
+                    "This should only be reached if triggered by a bob-to-alice transfer event, yet, conflicting program state".to_string(),
                 ));
             }
 
-            KemTransferStatus::StatusNoTransfer(status)
-        };
-
-        // if ret has some, we need one more thing. If we are upgrading the ratchet here on bob's end, we need to place a lock to ensure to updates come from this end until after a TRUNCATE packet comes
-        // if this is alice's end, we don't unlock quite yet
-        if !local_is_alice && ret.has_some() {
-            self.update_in_progress.store(true, Ordering::SeqCst);
-            self.lock_set_by_alice = Some(false);
+            Ok(KemTransferStatus::StatusNoTransfer(status))
         }
-
-        Ok(ret)
     }
 
-    /// Unlocks the hold on future updates, then returns the latest hyper_ratchet
-    /// Providing "false" will unconditionally unlock the ratchet
-    pub fn maybe_unlock(&mut self, requires_locked_by_alice: bool) -> Option<&R> {
-        if requires_locked_by_alice {
-            if self.lock_set_by_alice.unwrap_or(false) {
-                if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
-                    log::error!(target: "citadel", "Expected update_in_progress to be true");
-                }
-
-                //self.update_in_progress.store(false, Ordering::SeqCst);
-                self.lock_set_by_alice = None;
-                log::trace!(target: "citadel", "Unlocking for {}", self.toolset.cid);
-            }
-        } else {
-            if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
-                log::error!(target: "citadel", "Expected update_in_progress to be true. LSBA: {:?} | Cid: {}", self.lock_set_by_alice, self.toolset.cid);
-                //std::process::exit(-1);
-            }
-
-            //self.update_in_progress.store(false, Ordering::SeqCst);
-            self.lock_set_by_alice = None;
-            log::trace!(target: "citadel", "Unlocking for {}", self.toolset.cid);
+    /// Unlocks the hold on future updates, then returns the latest ratchet
+    pub fn maybe_unlock(&self) -> Option<R> {
+        if self.update_in_progress.reset_and_get_previous() != CurrentToggleState::AlreadyToggled {
+            log::error!(target: "citadel", "Client {} expected update_in_progress to be true", self.cid);
+            return None;
         }
 
-        self.get_hyper_ratchet(None)
+        log::trace!(target: "citadel", "Unlocking for {}", self.cid);
+
+        self.get_ratchet(None)
     }
 
     /// For alice: this should be called ONLY if the update occurred locally. This updates the latest usable version at the endpoint
     /// For bob: this should be called AFTER receiving the TRUNCATE_STATUS/ACK packet
-    pub fn post_alice_stage1_or_post_stage1_bob(&mut self) {
-        self.latest_usable_version = self.latest_usable_version.wrapping_add(1);
+    pub fn post_alice_stage1_or_post_stage1_bob(&self) {
+        log::trace!(target: "citadel", "post_alice_stage1_or_post_stage1_bob for {}: Upgrading from {} to {}", self.cid, self.latest_usable_version(), self.latest_usable_version().wrapping_add(1));
+        let _ = self.latest_usable_version.fetch_add(1, ORDERING);
     }
 
-    pub fn get_and_increment_group_id(&mut self) -> u64 {
-        self.rolling_group_id = self.rolling_group_id.wrapping_add(1);
-        self.rolling_group_id.wrapping_sub(1)
+    pub fn get_and_increment_group_id(&self) -> u64 {
+        self.incrementing_group_id_messaging.fetch_add(1, ORDERING)
     }
 
-    pub fn get_next_object_id(&mut self) -> ObjectId {
+    pub fn get_and_increment_group_file_transfer(&self) -> u64 {
+        self.incrementing_group_id_file_transfer
+            .fetch_add(1, ORDERING)
+    }
+
+    pub fn get_next_object_id(&self) -> ObjectId {
         Uuid::new_v4().as_u128().into()
     }
 
-    /// Returns a new constructor only if a concurrent update isn't occurring
-    /// `force`: If the internal boolean was locked prior to calling this in anticipation, force should be true
-    pub fn get_next_constructor(&mut self, force: bool) -> Option<R::Constructor> {
-        let set_lock = move |this: &mut Self| {
-            this.update_in_progress.store(true, Ordering::SeqCst);
-            this.lock_set_by_alice = Some(true);
-            this.get_hyper_ratchet(None)?.next_alice_constructor()
-        };
-
-        if force {
-            return set_lock(self);
-        }
-
-        if self.update_in_progress.load(Ordering::SeqCst) {
-            None
+    pub fn get_next_constructor(&self) -> Option<R::Constructor> {
+        if self.update_in_progress.toggle_on_if_untoggled() == CurrentToggleState::JustToggled {
+            self.get_ratchet(None)?.next_alice_constructor()
         } else {
-            set_lock(self)
+            None
         }
     }
 
     /// Refreshed the internal state to init state
-    pub fn refresh_state(&mut self) {
-        self.update_in_progress = Arc::new(AtomicBool::new(false));
-        self.lock_set_by_alice = None;
-        self.rolling_group_id = 0;
-        self.rolling_object_id = ObjectId::random();
+    pub fn refresh_state(&self) {
+        self.update_in_progress.toggle_off();
+        self.incrementing_group_id_messaging.store(0, ORDERING);
+        self.incrementing_group_id_file_transfer.store(0, ORDERING);
     }
 
     /// Gets the parameters used at registrations
     pub fn get_default_params(&self) -> CryptoParameters {
         self.toolset
+            .read()
             .get_static_auxiliary_ratchet()
-            .message_pqc_drill(None)
+            .get_message_pqc_and_entropy_bank_at_layer(None)
+            .expect("Expected to get message pqc and entropy bank")
             .0
             .params
     }
+
+    pub fn local_is_initiator(&self) -> bool {
+        self.local_is_initiator
+    }
+
+    pub fn latest_usable_version(&self) -> u32 {
+        self.latest_usable_version.load(ORDERING)
+    }
+
+    pub fn cid(&self) -> u64 {
+        self.cid
+    }
+
+    pub fn toolset(&self) -> &Arc<RwLock<Toolset<R>>> {
+        &self.toolset
+    }
 }
 
-// TODO: Use GAT's to have a type AliceToBobConstructor<'a>. Get rid of these enums
-pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
-    fn new_alice(
-        opts: Vec<ConstructorOpts>,
+pub trait AssociatedSecurityLevel {
+    fn security_level(&self) -> SecurityLevel;
+}
+
+pub trait AssociatedCryptoParams {
+    fn crypto_params(&self) -> CryptoParameters;
+}
+
+pub trait EndpointRatchetConstructor<R: Ratchet>: Debug + Send + Sync + 'static {
+    type AliceToBobWireTransfer: Send
+        + Sync
+        + Serialize
+        + DeserializeOwned
+        + AssociatedSecurityLevel
+        + AssociatedCryptoParams;
+    type BobToAliceWireTransfer: Send
+        + Sync
+        + Serialize
+        + DeserializeOwned
+        + AssociatedSecurityLevel;
+    fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self>
+    where
+        Self: Sized;
+    fn new_bob<T: AsRef<[u8]>>(
         cid: u64,
-        new_version: u32,
-        security_level: Option<SecurityLevel>,
+        opts: Vec<ConstructorOpts>,
+        transfer: Self::AliceToBobWireTransfer,
+        psks: &[T],
     ) -> Option<Self>
     where
         Self: Sized;
-    fn new_bob(
-        cid: u64,
-        new_drill_vers: u32,
-        opts: Vec<ConstructorOpts>,
-        transfer: AliceToBobTransferType,
-        psks: &[Vec<u8>],
-    ) -> Option<Self>
-    where
-        Self: Sized;
-    fn stage0_alice(&self) -> Option<AliceToBobTransferType>;
-    fn stage0_bob(&self) -> Option<BobToAliceTransferType>;
-    fn stage1_alice(
+    fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer>;
+    fn stage0_bob(&mut self) -> Option<Self::BobToAliceWireTransfer>;
+    fn stage1_alice<T: AsRef<[u8]>>(
         &mut self,
-        transfer: BobToAliceTransferType,
-        psks: &[Vec<u8>],
+        transfer: Self::BobToAliceWireTransfer,
+        psks: &[T],
     ) -> Result<(), CryptError>;
 
     fn update_version(&mut self, version: u32) -> Option<()>;
@@ -278,23 +353,47 @@ pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
 
 #[derive(Serialize, Deserialize)]
 #[allow(variant_size_differences)]
-pub enum KemTransferStatus {
-    StatusNoTransfer(UpdateStatus),
+pub enum KemTransferStatus<R: Ratchet> {
+    StatusNoTransfer(ToolsetUpdateStatus),
     Empty,
-    Omitted,
-    Some(BobToAliceTransferType, UpdateStatus),
+    Contended,
+    #[serde(bound = "")]
+    Some(
+        <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
+        ToolsetUpdateStatus,
+    ),
 }
 
-impl KemTransferStatus {
+impl<R: Ratchet> Debug for KemTransferStatus<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KemTransferStatus::StatusNoTransfer(status) => {
+                write!(f, "KemTransferStatus::StatusNoTransfer({:?})", status)
+            }
+            KemTransferStatus::Empty => write!(f, "KemTransferStatus::Empty"),
+            KemTransferStatus::Contended => write!(f, "KemTransferStatus::Contended"),
+            KemTransferStatus::Some(_, status) => {
+                write!(f, "KemTransferStatus::Some(transfer, {status:?})")
+            }
+        }
+    }
+}
+
+impl<R: Ratchet> KemTransferStatus<R> {
     pub fn requires_truncation(&self) -> Option<u32> {
         match self {
-            KemTransferStatus::StatusNoTransfer(UpdateStatus::CommittedNeedsSynchronization {
-                old_version,
-                ..
-            })
+            KemTransferStatus::StatusNoTransfer(
+                ToolsetUpdateStatus::CommittedNeedsSynchronization {
+                    oldest_version: old_version,
+                    ..
+                },
+            )
             | KemTransferStatus::Some(
                 _,
-                UpdateStatus::CommittedNeedsSynchronization { old_version, .. },
+                ToolsetUpdateStatus::CommittedNeedsSynchronization {
+                    oldest_version: old_version,
+                    ..
+                },
             ) => Some(*old_version),
 
             _ => None,
@@ -302,57 +401,10 @@ impl KemTransferStatus {
     }
 
     pub fn omitted(&self) -> bool {
-        matches!(self, Self::Omitted)
+        matches!(self, Self::Contended)
     }
 
     pub fn has_some(&self) -> bool {
         matches!(self, KemTransferStatus::Some(..))
     }
 }
-
-/*
-#[cfg(test)]
-mod tests {
-    use crate::hyper_ratchet::StackedRatchet;
-    use crate::hyper_ratchet::constructor::{StackedRatchetConstructor, BobToAliceTransferType};
-    use crate::prelude::{ConstructorOpts, Toolset};
-    use citadel_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
-    use crate::drill::SecurityLevel;
-    use crate::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
-
-    fn gen(enx: EncryptionAlgorithm, kem: KemAlgorithm, security_level: SecurityLevel, version: u32, opts: Option<Vec<ConstructorOpts>>) -> (StackedRatchet, StackedRatchet) {
-        let opts = opts.unwrap_or_else(||ConstructorOpts::new_vec_init(Some(enx + kem), (security_level.value() + 1) as usize));
-        let mut cx_alice = StackedRatchetConstructor::new_alice(opts.clone(), 0, version, Some(security_level));
-        let cx_bob = StackedRatchetConstructor::new_bob(0, version, opts, cx_alice.stage0_alice()).unwrap();
-        cx_alice.stage1_alice(&BobToAliceTransferType::Default(cx_bob.stage0_bob().unwrap())).unwrap();
-
-        (cx_alice.finish().unwrap(), cx_bob.finish().unwrap())
-    }
-
-    #[test]
-    fn upgrades() {
-        const NUM_UPDATES: usize = 1;
-        citadel_logging::setup_log();
-        for level in 0..10u8 {
-            let level = SecurityLevel::from(level);
-            let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Kyber, level, 0, None);
-            let mut endpoint_alice = PeerSessionCrypto::new(Toolset::new(0, hr_alice), true);
-            let mut endpoint_bob = PeerSessionCrypto::new(Toolset::new(0, hr_bob), false);
-
-            for vers in 1..=NUM_UPDATES {
-                // now, upgrade
-                let alice_hr_cons = endpoint_alice.get_next_constructor(false).unwrap();
-                let transfer = alice_hr_cons.stage0_alice();
-
-                let bob_constructor = StackedRatchetConstructor::new_bob(0, vers as _, )
-                match endpoint_bob.update_sync_safe(next_alice_2_bob, false, 0).unwrap() {
-                    KemTransferStatus::Some(transfer, status) => {
-                        let
-                        endpoint_alice.update_sync_safe(transfer.assume_default().unwrap())
-                    }
-                    _ => panic!("Did not expect this kem status")
-                }
-            }
-        }
-    }
-}*/

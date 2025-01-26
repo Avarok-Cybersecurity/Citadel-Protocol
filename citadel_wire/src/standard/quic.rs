@@ -1,3 +1,54 @@
+//! QUIC Protocol Implementation for Secure Connections
+//!
+//! This module provides a high-level interface for establishing QUIC (Quick UDP Internet
+//! Connections) connections. It supports both client and server roles with configurable
+//! security options and NAT traversal capabilities.
+//!
+//! # Features
+//!
+//! - Client and server QUIC endpoint creation
+//! - Self-signed and PKCS#12 certificate support
+//! - Configurable TLS security levels
+//! - NAT traversal-friendly transport configuration
+//! - Bidirectional stream support
+//! - Custom certificate verification options
+//! - Async/await support with Tokio runtime
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::quic::{QuicServer, QuicClient};
+//! use citadel_io::tokio::net::UdpSocket;
+//!
+//! async fn setup_quic() -> Result<(), anyhow::Error> {
+//!     // Create a self-signed server
+//!     let socket = UdpSocket::bind("127.0.0.1:0").await?;
+//!     let server = QuicServer::new_self_signed(socket)?;
+//!     
+//!     // Create a non-verifying client
+//!     let socket = UdpSocket::bind("127.0.0.1:0").await?;
+//!     let client = QuicClient::new_no_verify(socket)?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - QUIC requires UDP connectivity
+//! - TLS 1.3 is mandatory for QUIC
+//! - Certificate verification is configurable
+//! - Self-signed certificates use 'localhost' domain
+//! - Transport config optimized for NAT traversal
+//!
+//! # Related Components
+//!
+//! - [`crate::standard::nat_identification`] - NAT behavior analysis
+//! - [`crate::standard::socket_helpers`] - UDP socket utilities
+//! - [`crate::standard::tls`] - TLS configuration helpers
+//! - [`crate::udp_traversal`] - UDP hole punching support
+//!
+
 use futures::Future;
 use quinn::{
     Accept, ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream, SendStream,

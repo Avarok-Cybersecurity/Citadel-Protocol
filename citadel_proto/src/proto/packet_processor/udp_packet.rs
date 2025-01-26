@@ -1,15 +1,53 @@
+//! UDP Packet Processor for Citadel Protocol
+//!
+//! This module handles the processing of UDP packets in the Citadel Protocol network.
+//! It provides secure, unordered data transmission over UDP while maintaining the
+//! protocol's security guarantees.
+//!
+//! # Features
+//!
+//! - Secure UDP packet processing
+//! - Unordered data channel management
+//! - Packet validation and authentication
+//! - Channel state monitoring
+//! - Automatic channel cleanup
+//!
+//! # Important Notes
+//!
+//! - Requires an established session
+//! - All packets must be authenticated
+//! - Handles unordered data transmission
+//! - Automatically closes inactive channels
+//! - Validates packet headers and payloads
+//!
+//! # Related Components
+//!
+//! - `EndpointCryptoAccessor`: Provides cryptographic operations
+//! - `StateContainer`: Manages UDP channel state
+//! - `SecBuffer`: Handles secure data buffering
+//! - `HdpPacket`: Base packet structure
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
+use citadel_crypt::ratchets::Ratchet;
 
 /// This will handle an inbound group packet
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_udp_packet(
-    _session: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub fn process_udp_packet<R: Ratchet>(
+    _session: &CitadelSession<R>,
     packet: HdpPacket,
     hr_version: u32,
-    accessor: &EndpointCryptoAccessor,
+    accessor: &EndpointCryptoAccessor<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
 

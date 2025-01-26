@@ -44,7 +44,7 @@ pub const KEEP_ALIVE_INTERVAL_MS: u64 = 15000;
 /// The keep alive max interval
 pub const KEEP_ALIVE_TIMEOUT_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 3 * 1_000_000) as i64;
 // 1ms = 1 million ns
-/// Timeout for the drill update subroutine
+/// Timeout for the entropy_bank update subroutine
 pub const DRILL_UPDATE_TIMEOUT_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
 /// For setting up the GroupReceivers
 pub const GROUP_TIMEOUT_MS: usize = KEEP_ALIVE_INTERVAL_MS as usize;
@@ -73,15 +73,15 @@ pub const MULTIPORT_START: u16 = 25000;
 pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
 pub const PRIMARY_PORT: u16 = 25021;
 pub const DEFAULT_PQC_ALGORITHM: u8 = citadel_pqcrypto::algorithm_dictionary::FIRESABER;
-/// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
+/// The minimum time (in nanoseconds) per entropy_bank update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 1 * 240 * 1_000_000_000;
-/// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
+/// The minimum time (in nanoseconds) per entropy_bank update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 1 * 240 * 1_000_000_000;
-/// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
+/// The minimum time (in nanoseconds) per entropy_bank update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 240 * 1_000_000_000;
-/// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
+/// The minimum time (in nanoseconds) per entropy_bank update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 240 * 1_000_000_000;
-/// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
+/// The minimum time (in nanoseconds) per entropy_bank update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 240 * 1_000_000_000;
 
 /// For ensuring that the hole-punching process begin at about the same time (required)

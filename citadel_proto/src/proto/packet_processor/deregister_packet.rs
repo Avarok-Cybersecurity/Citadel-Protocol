@@ -1,20 +1,56 @@
+//! Deregistration Packet Processor for Citadel Protocol
+//!
+//! This module handles the deregistration process for clients in the Citadel Protocol
+//! network. It manages the secure removal of client accounts and cleanup of associated
+//! resources from both the client and server sides.
+//!
+//! # Features
+//!
+//! - Secure client deregistration
+//! - Resource cleanup
+//! - Session state validation
+//! - Ticket-based tracking
+//! - Success/failure handling
+//!
+//! # Important Notes
+//!
+//! - Client must be connected to deregister
+//! - Process is irreversible
+//! - Handles both client and server-side cleanup
+//! - Maintains security during account removal
+//! - Requires valid session state
+//!
+//! # Related Components
+//!
+//! - `StateContainer`: Manages deregistration state
+//! - `AccountManager`: Handles account removal
+//! - `SessionManager`: Manages session cleanup
+//! - `KernelInterface`: Reports deregistration results
+
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::node_result::DeRegistration;
-use crate::proto::packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
-use std::sync::atomic::Ordering;
+use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
+use citadel_crypt::ratchets::Ratchet;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
-#[cfg_attr(feature = "localhost-testing", tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub async fn process_deregister(
-    session_ref: &CitadelSession,
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(
+    level = "trace",
+    target = "citadel",
+    skip_all,
+    ret,
+    err,
+    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    )
+))]
+pub async fn process_deregister<R: Ratchet>(
+    session_ref: &CitadelSession<R>,
     packet: HdpPacket,
-    header_drill_vers: u32,
+    header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
 
-    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
+    if !session.state.is_connected() {
         log::error!(target: "citadel", "disconnect packet received, but session state is not connected. Must be connected to deregister. Dropping");
         return Ok(PrimaryProcessorResult::Void);
     }
@@ -24,28 +60,28 @@ pub async fn process_deregister(
         let hr = {
             let state_container = inner_state!(session.state_container);
             return_if_none!(
-                get_proper_hyper_ratchet(header_drill_vers, &state_container, None),
+                get_orientation_safe_ratchet(header_entropy_bank_vers, &state_container, None),
                 "Could not get proper HR [deregister]"
             )
         };
 
         let timestamp = session.time_tracker.get_global_time_ns();
         let (header, payload, _, _) = packet.decompose();
-        let (header, _payload, hyper_ratchet) = return_if_none!(
+        let (header, _payload, ratchet) = return_if_none!(
             validation::aead::validate(hr, &header, payload),
             "Unable to validate dereg packet"
         );
         let header = &header;
-        let implicated_cid = header.session_cid.get();
+        let session_cid = header.session_cid.get();
         let security_level = header.security_level.into();
 
         match header.cmd_aux {
             packet_flags::cmd::aux::do_deregister::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 0 DEREGISTER PACKET RECV");
                 deregister_client_from_self(
-                    implicated_cid,
+                    session_cid,
                     session,
-                    &hyper_ratchet,
+                    &ratchet,
                     timestamp,
                     security_level,
                 )
@@ -54,7 +90,7 @@ pub async fn process_deregister(
 
             packet_flags::cmd::aux::do_deregister::SUCCESS => {
                 log::trace!(target: "citadel", "STAGE SUCCESS DEREGISTER PACKET RECV");
-                deregister_from_hyperlan_server_as_client(implicated_cid, session).await
+                deregister_from_hyperlan_server_as_client(session_cid, session).await
             }
 
             packet_flags::cmd::aux::do_deregister::FAILURE => {
@@ -63,12 +99,11 @@ pub async fn process_deregister(
                 let ticket = state_container.deregister_state.current_ticket;
                 // state_container.deregister_state.on_fail();
                 std::mem::drop(state_container);
-                let cid =
-                    return_if_none!(session.implicated_cid.get(), "implicated CID not loaded");
+                let cid = return_if_none!(session.session_cid.get(), "implicated CID not loaded");
                 session
                     .kernel_tx
                     .unbounded_send(NodeResult::DeRegistration(DeRegistration {
-                        implicated_cid: cid,
+                        session_cid: cid,
                         ticket_opt: ticket,
                         success: false,
                     }))?;
@@ -88,10 +123,10 @@ pub async fn process_deregister(
     to_concurrent_processor!(task)
 }
 
-async fn deregister_client_from_self(
-    implicated_cid: u64,
-    session_ref: &CitadelSession,
-    hyper_ratchet: &StackedRatchet,
+async fn deregister_client_from_self<R: Ratchet>(
+    session_cid: u64,
+    session_ref: &CitadelSession<R>,
+    ratchet: &R,
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -105,11 +140,11 @@ async fn deregister_client_from_self(
         (acc_manager, ticket)
     };
 
-    let (ret, success) = match acc_mgr.delete_client_by_cid(implicated_cid).await {
+    let (ret, success) = match acc_mgr.delete_client_by_cid(session_cid).await {
         Ok(_) => {
-            log::trace!(target: "citadel", "Successfully purged account {} locally!", implicated_cid);
+            log::trace!(target: "citadel", "Successfully purged account {} locally!", session_cid);
             let stage_success_packet = packet_crafter::do_deregister::craft_final(
-                hyper_ratchet,
+                ratchet,
                 true,
                 timestamp,
                 security_level,
@@ -122,9 +157,9 @@ async fn deregister_client_from_self(
         }
 
         Err(err) => {
-            log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin ({:?})", implicated_cid, err);
+            log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin ({:?})", session_cid, err);
             let stage_failure_packet = packet_crafter::do_deregister::craft_final(
-                hyper_ratchet,
+                ratchet,
                 false,
                 timestamp,
                 security_level,
@@ -139,15 +174,13 @@ async fn deregister_client_from_self(
     let session = session_ref;
 
     session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
-        implicated_cid,
+        session_cid,
         ticket_opt: ticket,
         success,
     }))?;
 
     // This ensures no further packets are processed
-    session
-        .state
-        .store(SessionState::NeedsRegister, Ordering::Relaxed);
+    session.state.set(SessionState::NeedsRegister);
     session.send_session_dc_signal(
         ticket,
         success,
@@ -157,9 +190,9 @@ async fn deregister_client_from_self(
     Ok(ret)
 }
 
-async fn deregister_from_hyperlan_server_as_client(
-    implicated_cid: u64,
-    session_ref: &CitadelSession,
+async fn deregister_from_hyperlan_server_as_client<R: Ratchet>(
+    session_cid: u64,
+    session_ref: &CitadelSession<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let (acc_manager, dereg_ticket) = {
@@ -171,20 +204,20 @@ async fn deregister_from_hyperlan_server_as_client(
         (acc_manager, dereg_ticket)
     };
 
-    let success = match acc_manager.delete_client_by_cid(implicated_cid).await {
+    let success = match acc_manager.delete_client_by_cid(session_cid).await {
         Ok(_) => {
-            log::trace!(target: "citadel", "Successfully purged account {} locally!", implicated_cid);
+            log::trace!(target: "citadel", "Successfully purged account {} locally!", session_cid);
             true
         }
 
         Err(err) => {
-            log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin. Reason: {:?}", implicated_cid, err);
+            log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin. Reason: {:?}", session_cid, err);
             false
         }
     };
 
     session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
-        implicated_cid,
+        session_cid,
         ticket_opt: dereg_ticket,
         success: true,
     }))?;

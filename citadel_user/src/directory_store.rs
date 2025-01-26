@@ -1,3 +1,88 @@
+//! # Directory Store Management
+//!
+//! This module manages the filesystem structure for the Citadel Protocol,
+//! handling directory creation, path management, and file organization for
+//! both client and server applications.
+//!
+//! ## Features
+//!
+//! * **Directory Structure**
+//!   - Home directory management (.citadel)
+//!   - Account storage organization
+//!   - Server and client configuration
+//!   - Virtual filesystem support
+//!
+//! * **Path Management**
+//!   - Cross-platform path handling
+//!   - Standardized path formatting
+//!   - Directory hierarchy maintenance
+//!   - File path generation
+//!
+//! * **Storage Organization**
+//!   - Personal account storage
+//!   - Impersonal account storage
+//!   - File transfer management
+//!   - Configuration storage
+//!
+//! ## Directory Structure
+//!
+//! ```text
+//! .citadel/
+//! ├── accounts/
+//! │   ├── personal/     # Personal account storage
+//! │   └── impersonal/   # Impersonal account storage
+//! ├── server/           # Server-specific files
+//! ├── config/           # Configuration files
+//! ├── virtual/          # Virtual encrypted filesystem
+//! └── transfers/        # File transfer storage
+//! ```
+//!
+//! ## Usage Example
+//!
+//! ```rust
+//! use citadel_user::directory_store::{DirectoryStore, BasePath, setup_directories};
+//! use std::path::PathBuf;
+//!
+//! fn manage_directories() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Initialize directory structure
+//!     let store = setup_directories(String::from("/home/user"))?;
+//!     
+//!     // Generate paths for different purposes
+//!     let config_path: PathBuf = store.make_path(
+//!         BasePath::ConfigDir,
+//!         "settings.conf"
+//!     );
+//!     
+//!     let account_path: PathBuf = store.make_path(
+//!         BasePath::NacDirPersonal,
+//!         "user123.hca"
+//!     );
+//!     
+//!     let transfer_path: PathBuf = store.make_path(
+//!         BasePath::FileTransferDir,
+//!         "download.tmp"
+//!     );
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Important Notes
+//!
+//! * All paths are automatically formatted for the target OS
+//! * Directory structure is created on initialization
+//! * File names in storage are obfuscated (50 chars)
+//! * Base directory is `.citadel` in the user's home
+//! * Paths are managed through the `BasePath` enum
+//!
+//! ## Related Components
+//!
+//! * `AccountManager` - Uses directory store for account storage
+//! * `ClientNetworkAccount` - Stored in account directories
+//! * `FilesystemBackend` - Interacts with directory structure
+//! * `VirtualFilesystem` - Uses virtual directory
+//!
+
 use crate::misc::{format_path, AccountError};
 use std::fs::create_dir_all as mkdir;
 use std::path::PathBuf;

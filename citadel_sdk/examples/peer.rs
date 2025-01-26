@@ -19,14 +19,15 @@ async fn main() {
         .ensure_registered()
         .add();
 
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        addr,
-        my_peer_id,
-        "dunny name",
-        "password",
-    )
-    .build()
-    .unwrap();
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            addr,
+            my_peer_id,
+            "dunny name",
+            "password",
+        )
+        .build()
+        .unwrap();
 
     let finished = &AtomicBool::new(false);
     let peer = citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel::new(
@@ -49,7 +50,7 @@ async fn main() {
         },
     );
 
-    let _ = NodeBuilder::default()
+    let _ = DefaultNodeBuilder::default()
         .with_node_type(NodeType::Peer)
         .with_stun_servers([stun0, stun1, stun2])
         .build(peer)

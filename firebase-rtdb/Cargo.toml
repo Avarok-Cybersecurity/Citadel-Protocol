@@ -21,3 +21,4 @@ serde = { workspace = true, features = ["derive"] }
 [dev-dependencies]
 citadel_io = { workspace = true }
 citadel_logging = { workspace = true }
+serde_json = { workspace = true }

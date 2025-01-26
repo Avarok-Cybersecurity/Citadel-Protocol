@@ -1,3 +1,30 @@
+//! Dual-Mode Read-Write Lock
+//!
+//! This module provides a read-write lock implementation that can operate in both
+//! single-threaded and multi-threaded contexts. It automatically selects the
+//! appropriate locking mechanism based on compile-time feature flags.
+//!
+//! # Features
+//!
+//! - Compile-time thread safety selection
+//! - Multiple reader support
+//! - Exclusive writer access
+//! - Deadlock prevention
+//! - Zero-cost abstraction
+//!
+//! # Important Notes
+//!
+//! - Uses RefCell in single-threaded mode
+//! - Uses RwLock in multi-threaded mode
+//! - No runtime overhead for thread safety
+//! - Requires Send + Sync for multi-threaded use
+//!
+//! # Related Components
+//!
+//! - `dual_cell.rs`: Thread-safe cell
+//! - `dual_late_init.rs`: Late initialization
+//! - `lock_holder.rs`: Resource locking
+
 use crate::macros::{ContextRequirements, WeakBorrowType};
 use std::ops::Deref;
 

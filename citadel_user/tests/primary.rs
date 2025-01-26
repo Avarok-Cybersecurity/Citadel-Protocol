@@ -1,19 +1,16 @@
 #[cfg(test)]
 mod tests {
-
-    use citadel_crypt::prelude::ConstructorOpts;
-    use citadel_crypt::stacked_ratchet::constructor::{
-        BobToAliceTransferType, StackedRatchetConstructor,
-    };
-    use citadel_crypt::stacked_ratchet::StackedRatchet;
+    use citadel_crypt::prelude::{ConstructorOpts, Toolset};
+    use citadel_crypt::ratchets::stacked::constructor::StackedRatchetConstructor;
+    use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_types::crypto::KemAlgorithm;
     use citadel_user::account_manager::AccountManager;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::backend::{BackendType, PersistenceHandler};
     use citadel_user::client_account::ClientNetworkAccount;
     use futures::Future;
-    use std::str::FromStr;
 
+    use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
     use citadel_io::tokio;
     use citadel_types::crypto::EncryptionAlgorithm;
     use citadel_types::crypto::SecBuffer;
@@ -22,7 +19,6 @@ mod tests {
     use citadel_user::misc::{AccountError, CNACMetadata};
     use citadel_user::prelude::ConnectionInfo;
     use std::collections::HashMap;
-    use std::net::SocketAddr;
 
     #[derive(Clone)]
     struct TestContainer {
@@ -47,14 +43,17 @@ mod tests {
             password: &str,
             full_name: &str,
         ) -> (ClientNetworkAccount, ClientNetworkAccount) {
-            let conn_info = ConnectionInfo {
-                addr: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
-            };
+            let conn_info = ConnectionInfo::new("127.0.0.1:12345").unwrap();
             let cid = self
                 .server_acc_mgr
                 .get_persistence_handler()
                 .get_cid_by_username(username);
             let (client_hr, server_hr) = gen(cid, 0, None);
+            let server_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, server_hr), false);
+            let client_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, client_hr), true);
+
             let server_vers = self
                 .server_acc_mgr
                 .register_impersonal_hyperlan_client_network_account(
@@ -66,14 +65,14 @@ mod tests {
                     )
                     .await
                     .unwrap(),
-                    server_hr,
+                    server_session_crypto_state,
                 )
                 .await
                 .unwrap();
             let client_vers = self
                 .client_acc_mgr
                 .register_personal_hyperlan_server(
-                    client_hr,
+                    client_session_crypto_state,
                     ProposedCredentials::new_register(
                         full_name,
                         username,
@@ -97,9 +96,7 @@ mod tests {
             peer_backend: BackendType,
         ) -> (ClientNetworkAccount, TestContainer) {
             // we assume same server node
-            let conn_info = ConnectionInfo {
-                addr: SocketAddr::from_str("127.0.0.1:54321").unwrap(),
-            };
+            let conn_info = ConnectionInfo::new("127.0.0.1:54321").unwrap();
             let server_acc_mgr = self.server_acc_mgr.clone();
             let client_acc_mgr = acc_mgr(peer_backend).await;
 
@@ -108,6 +105,10 @@ mod tests {
                 .get_persistence_handler()
                 .get_cid_by_username(username);
             let (client_hr, server_hr) = gen(cid, 0, None);
+            let server_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, server_hr), false);
+            let client_session_crypto_state =
+                PeerSessionCrypto::new(Toolset::new(cid, client_hr), true);
 
             let _server_vers = self
                 .server_acc_mgr
@@ -120,13 +121,13 @@ mod tests {
                     )
                     .await
                     .unwrap(),
-                    server_hr,
+                    server_session_crypto_state,
                 )
                 .await
                 .unwrap();
             let client_vers = client_acc_mgr
                 .register_personal_hyperlan_server(
-                    client_hr,
+                    client_session_crypto_state,
                     ProposedCredentials::new_register(
                         full_name,
                         username,
@@ -465,16 +466,13 @@ mod tests {
                 }]
             );
 
-            let lock_server = server.write();
-            let lock_client = client.write();
-
-            assert!(!lock_server.is_local_personal);
-            assert!(lock_client.is_local_personal);
-            assert_eq!(lock_client.auth_store.username(), USERNAME);
-            assert_eq!(lock_server.auth_store.username(), USERNAME);
-            assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
-            assert_eq!(lock_server.auth_store.full_name(), FULL_NAME);
-            assert_eq!(lock_server.cid, lock_server.cid);
+            assert!(!server.is_personal());
+            assert!(client.is_personal());
+            assert_eq!(client.auth_store().username(), USERNAME);
+            assert_eq!(server.auth_store().username(), USERNAME);
+            assert_eq!(client.auth_store().full_name(), FULL_NAME);
+            assert_eq!(server.auth_store().full_name(), FULL_NAME);
+            assert_eq!(server.get_cid(), client.get_cid());
 
             Ok(())
         })
@@ -684,16 +682,13 @@ mod tests {
             assert_eq!(pers_se.get_cid_by_username(USERNAME), client.get_cid());
             assert_eq!(pers_cl.get_cid_by_username(USERNAME), client.get_cid());
 
-            let lock_server = se2.write();
-            let lock_client = cl2.write();
-
-            assert!(!lock_server.is_local_personal);
-            assert!(lock_client.is_local_personal);
-            assert_eq!(lock_client.auth_store.username(), USERNAME);
-            assert_eq!(lock_server.auth_store.username(), USERNAME);
-            assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
-            assert_eq!(lock_server.auth_store.full_name(), FULL_NAME);
-            assert_eq!(lock_server.cid, lock_server.cid);
+            assert!(!se2.is_personal());
+            assert!(cl2.is_personal());
+            assert_eq!(cl2.auth_store().username(), USERNAME);
+            assert_eq!(se2.auth_store().username(), USERNAME);
+            assert_eq!(cl2.auth_store().full_name(), FULL_NAME);
+            assert_eq!(se2.auth_store().full_name(), FULL_NAME);
+            assert_eq!(se2.get_cid(), cl2.get_cid());
             Ok(())
         })
         .await
@@ -860,13 +855,6 @@ mod tests {
             );
 
             assert_eq!(
-                peer_pers
-                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &[client.get_cid()])
-                    .await
-                    .unwrap(),
-                vec![true]
-            );
-            assert_eq!(
                 pers_cl
                     .hyperlan_peers_are_mutuals(client.get_cid(), &[peer_cnac.get_cid()])
                     .await
@@ -883,6 +871,13 @@ mod tests {
             assert_eq!(
                 pers_se
                     .hyperlan_peers_are_mutuals(client.get_cid(), &[peer_cnac.get_cid()])
+                    .await
+                    .unwrap(),
+                vec![true]
+            );
+            assert_eq!(
+                pers_se
+                    .hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &[client.get_cid()])
                     .await
                     .unwrap(),
                 vec![true]
@@ -1448,23 +1443,18 @@ mod tests {
     ) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(
             Some(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256),
-            1,
+            Default::default(),
         );
-        let mut alice =
-            StackedRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
-        let bob = StackedRatchetConstructor::new_bob(
+        let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), cid, version).unwrap();
+        let mut bob = StackedRatchetConstructor::new_bob::<Vec<u8>>(
             cid,
-            version,
             opts,
             alice.stage0_alice().unwrap(),
             &[],
         )
         .unwrap();
         alice
-            .stage1_alice(
-                BobToAliceTransferType::Default(bob.stage0_bob().unwrap()),
-                &[],
-            )
+            .stage1_alice::<Vec<u8>>(bob.stage0_bob().unwrap(), &[])
             .unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid {
             bob.finish_with_custom_cid(cid).unwrap()

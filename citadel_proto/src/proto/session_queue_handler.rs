@@ -1,3 +1,34 @@
+//! # Session Queue Handler
+//!
+//! This module implements a queue-based task scheduling system for Citadel Protocol sessions.
+//! It manages timed operations, periodic checks, and session-specific tasks using a delay queue.
+//!
+//! ## Features
+//!
+//! - **Task Scheduling**: Manages scheduled tasks with customizable timeouts
+//! - **Reserved System Processes**: Dedicated slots for critical system operations
+//! - **One-shot Tasks**: Support for single-execution future tasks
+//! - **State Management**: Integration with session state container
+//! - **Async Stream Interface**: Implements Stream and Future traits
+//!
+//! ## Task Types
+//!
+//! - **Reserved Tasks** (indices 0-9): System-level operations like keep-alive checks
+//! - **Ordinary Tasks** (indices 10+): Session-specific operations like group timeouts
+//! - **One-shot Tasks**: Single-execution tasks with custom timeouts
+//!
+//! ## Important Notes
+//!
+//! - Reserved indices below 10 are preserved for system operations
+//! - Task execution is managed through a DelayQueue system
+//! - Supports both blocking and non-blocking task execution
+//!
+//! ## Related Components
+//!
+//! - [`SessionState`]: Session state management
+//! - [`StateContainer`]: Session state storage
+//! - [`NetworkError`]: Error handling
+//!
 use crate::error::NetworkError;
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;
@@ -12,6 +43,7 @@ use std::task::{Context, Poll, Waker};
 
 use crate::inner_arg::ExpectedInnerTargetMut;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -24,45 +56,51 @@ pub const DRILL_REKEY_WORKER: usize = 1;
 pub const KEEP_ALIVE_CHECKER: usize = 2;
 pub const FIREWALL_KEEP_ALIVE: usize = 3;
 
-pub trait QueueFunction:
-    Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + Send + 'static
+pub trait QueueFunction<R: Ratchet>:
+    Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult + Send + 'static
 {
 }
 
 impl<
-        T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult
+        R: Ratchet,
+        T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
             + Send
             + 'static,
-    > QueueFunction for T
+    > QueueFunction<R> for T
 {
 }
 
-pub struct SessionQueueWorker {
-    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration)>,
+#[allow(clippy::type_complexity)]
+pub struct SessionQueueWorker<R: Ratchet> {
+    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction<R>>, delay_queue::Key, Duration)>,
     expirations: DelayQueue<QueueWorkerTicket>,
-    state_container: Option<StateContainer>,
+    state_container: Option<StateContainer<R>>,
     sess_shutdown: Sender<()>,
     waker: Option<Waker>,
-    rx: UnboundedReceiver<ChannelInner>,
+    rx: UnboundedReceiver<ChannelInner<R>>,
     // keeps track of how many items have been added
     rolling_idx: usize,
 }
 
 #[derive(Clone)]
-pub struct SessionQueueWorkerHandle {
-    tx: UnboundedSender<ChannelInner>,
+pub struct SessionQueueWorkerHandle<R: Ratchet> {
+    tx: UnboundedSender<ChannelInner<R>>,
     rolling_idx: Arc<AtomicUsize>,
 }
 
-type ChannelInner = (Option<QueueWorkerTicket>, Duration, Box<dyn QueueFunction>);
+type ChannelInner<R> = (
+    Option<QueueWorkerTicket>,
+    Duration,
+    Box<dyn QueueFunction<R>>,
+);
 
-impl SessionQueueWorkerHandle {
+impl<R: Ratchet> SessionQueueWorkerHandle<R> {
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     pub fn insert_reserved(
         &self,
         key: Option<QueueWorkerTicket>,
         timeout: Duration,
-        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult
+        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
             + Send
             + 'static,
     ) {
@@ -74,7 +112,7 @@ impl SessionQueueWorkerHandle {
     pub fn insert_oneshot(
         &self,
         call_in: Duration,
-        on_call: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + Send + 'static,
+        on_call: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) + Send + 'static,
     ) {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);
@@ -88,7 +126,7 @@ impl SessionQueueWorkerHandle {
         idx: usize,
         target_cid: u64,
         timeout: Duration,
-        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult
+        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
             + Send
             + 'static,
     ) {
@@ -116,8 +154,8 @@ pub enum QueueWorkerResult {
     AdjustPeriodicity(Duration),
 }
 
-impl SessionQueueWorker {
-    pub fn new(sess_shutdown: Sender<()>) -> (Self, SessionQueueWorkerHandle) {
+impl<R: Ratchet> SessionQueueWorker<R> {
+    pub fn new(sess_shutdown: Sender<()>) -> (Self, SessionQueueWorkerHandle<R>) {
         let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let handle = SessionQueueWorkerHandle {
             tx,
@@ -138,7 +176,7 @@ impl SessionQueueWorker {
     }
 
     /// MUST be called when a session's timer subroutine begins!
-    pub fn load_state_container(&mut self, state_container: StateContainer) {
+    pub fn load_state_container(&mut self, state_container: StateContainer<R>) {
         self.state_container = Some(state_container);
     }
 
@@ -148,7 +186,7 @@ impl SessionQueueWorker {
         &mut self,
         key_orig: Option<QueueWorkerTicket>,
         timeout: Duration,
-        on_timeout: Box<dyn QueueFunction>,
+        on_timeout: Box<dyn QueueFunction<R>>,
     ) {
         // the zero in the default unwrap ensures that the key is going to be unique
         let key_new = key_orig.unwrap_or(QueueWorkerTicket::Oneshot(
@@ -168,7 +206,7 @@ impl SessionQueueWorker {
         &mut self,
         key: Option<QueueWorkerTicket>,
         timeout: Duration,
-        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult
+        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
             + Send
             + 'static,
     ) {
@@ -197,7 +235,7 @@ impl SessionQueueWorker {
         } = &mut *self;
 
         let mut state_container = inner_mut_state!(state_container.as_ref().unwrap());
-        if state_container.state.load(Ordering::Relaxed) != SessionState::Disconnected {
+        if state_container.state.get() != SessionState::Disconnected {
             while let Some(res) = futures::ready!(expirations.poll_expired(cx)) {
                 let entry: QueueWorkerTicket = res.into_inner();
                 //log::trace!(target: "citadel", "POLL_EXPIRED: {:?}", &entry);
@@ -253,7 +291,7 @@ impl SessionQueueWorker {
     }
 }
 
-impl Stream for SessionQueueWorker {
+impl<R: Ratchet> Stream for SessionQueueWorker<R> {
     // DelayQueue seems much more specific, where a user may care that it
     // has reached capacity, so return those errors instead of panicking.
     type Item = ();
@@ -278,7 +316,7 @@ impl Stream for SessionQueueWorker {
     }
 }
 
-impl futures::Future for SessionQueueWorker {
+impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
     type Output = Result<(), NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

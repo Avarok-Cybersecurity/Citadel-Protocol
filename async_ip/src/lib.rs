@@ -1,4 +1,64 @@
-//! An asynchronous client used to obtain one's global Ipv6 or Ipv4 address
+//! # Async IP Resolution
+//!
+//! A lightweight, asynchronous client for obtaining global IPv4 and IPv6 addresses.
+//! This crate provides reliable IP address resolution using multiple fallback services
+//! and concurrent requests for improved reliability.
+//!
+//! ## Features
+//!
+//! - Async IP address resolution
+//! - Support for both IPv4 and IPv6
+//! - Multiple fallback services
+//! - Concurrent resolution for improved reliability
+//! - Internal IP address detection
+//! - WebAssembly support
+//! - Custom HTTP client support
+//!
+//! ## Usage
+//!
+//! ```rust,no_run
+//! use async_ip::get_all;
+//! use citadel_io::tokio;
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), async_ip::IpRetrieveError> {
+//!     // Get both internal and external IP addresses
+//!     use reqwest::Client;
+//! let ip_info = get_all::<Client>(None).await?;
+//!     println!("External IPv6: {:?}", ip_info.external_ipv6);
+//!     println!("Internal IPv4: {:?}", ip_info.internal_ip);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Advanced Usage
+//!
+//! ```rust,no_run
+//! use async_ip::{get_all_multi_concurrent, get_default_client};
+//! use citadel_io::tokio;
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), async_ip::IpRetrieveError> {
+//!     // Use multiple services concurrently with a custom client
+//!     let client = get_default_client();
+//!     let ip_info = get_all_multi_concurrent(Some(client)).await?;
+//!     println!("External IPs: {:?}", ip_info);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## WebAssembly Support
+//!
+//! When compiled with the `wasm` target, this crate uses a lightweight HTTP client
+//! suitable for WebAssembly environments. The functionality remains the same, but
+//! some features (like internal IP detection) may be limited.
+//!
+//! ## Error Handling
+//!
+//! The crate uses a custom `IpRetrieveError` type that wraps various error
+//! conditions that may occur during IP resolution, including network errors
+//! and parsing failures.
+
 #![deny(
     missing_docs,
     trivial_numeric_casts,
@@ -176,10 +236,12 @@ fn addr(addr: &str) -> Option<SocketAddr> {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn get_default_client() -> Client {
+/// Returns a default client
+pub fn get_default_client() -> Client {
     Client::builder().tcp_nodelay(true).build().unwrap()
 }
 #[cfg(target_family = "wasm")]
+/// Returns a default client
 fn get_default_client() -> UreqClient {
     UreqClient
 }

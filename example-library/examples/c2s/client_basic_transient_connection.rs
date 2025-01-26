@@ -51,22 +51,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create server connection settings. If a custom transient ID is required, use `transient_with_id` over `transient`.
-    let server_connection_settings = ServerConnectionSettingsBuilder::transient(server_addr)
+    let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient(server_addr)
         .with_session_security_settings(session_security)
         .disable_udp()
         .build()?;
 
     // Create client kernel
-    let kernel = SingleClientServerConnectionKernel::new(
-        server_connection_settings,
-        |connect_success, remote| async move {
-            println!("Connected to server! CID: {}", connect_success.cid);
-            remote.shutdown_kernel().await
-        },
-    );
+    let kernel =
+        SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
+            println!("Connected to server! CID: {}", conn.cid);
+            conn.shutdown_kernel().await
+        });
 
     // Build the node
-    let client = NodeBuilder::default().build(kernel)?;
+    let client = DefaultNodeBuilder::default().build(kernel)?;
 
     // Run the node
     client.await?;

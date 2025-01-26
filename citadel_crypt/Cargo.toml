@@ -30,12 +30,12 @@ wasm = [
     "citadel_pqcrypto/wasm",
     "citadel_io/wasm",
 ]
-fcm = []
 
 [dependencies]
 async-trait = { workspace = true }
 bincode = { workspace = true }
 serde = { workspace = true, features=["rc", "derive"] }
+serde-big-array = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 byteorder = { workspace = true }
@@ -52,6 +52,8 @@ auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }
 uuid = { version = "1.8.0", features = ["v4"] }
+atomic = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = { workspace = true }
@@ -62,6 +64,7 @@ num_cpus = { workspace = true }
 citadel_logging = { workspace = true }
 rstest = { workspace = true }
 lazy_static = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [lib]
 doctest = false

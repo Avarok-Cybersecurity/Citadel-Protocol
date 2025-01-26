@@ -1,3 +1,32 @@
+//! Network Utilities for Citadel Protocol
+//!
+//! This module provides core networking utilities and types used throughout the
+//! Citadel Protocol. It handles network connections, address resolution, and
+//! protocol-specific networking operations.
+//!
+//! # Features
+//!
+//! - Socket management
+//! - Address resolution
+//! - Connection handling
+//! - Protocol negotiation
+//! - Network error handling
+//! - Transport selection
+//!
+//! # Important Notes
+//!
+//! - Supports TCP and UDP transports
+//! - Handles IPv4 and IPv6 addresses
+//! - Implements connection timeouts
+//! - Provides error recovery
+//!
+//! # Related Components
+//!
+//! - `underlying_proto.rs`: Protocol implementation
+//! - `udp_internal_interface.rs`: UDP handling
+//! - `session.rs`: Session management
+//! - `node.rs`: Node implementation
+
 use crate::error::NetworkError;
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use crate::proto::misc::clean_shutdown::{
@@ -204,7 +233,7 @@ impl GenericNetworkListener {
         listener: TcpListener,
         redirect_to_quic: Option<(TlsDomain, bool)>,
     ) -> std::io::Result<Self> {
-        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
+        let (inbound_streams_tx, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let local_addr = listener.local_addr()?;
         let tls_domain = redirect_to_quic.as_ref().and_then(|r| r.0.clone());
 
@@ -244,9 +273,20 @@ impl GenericNetworkListener {
                     Ok((GenericNetworkStream::Tcp(conn), addr))
                 }
 
-                send.send(handle_stream_non_terminating(stream, addr, redirect_to_quic).await)
-                    .await
-                    .map_err(|err| generic_error(err.to_string()))?;
+                let redirect_to_quic = redirect_to_quic.clone();
+                let inbound_streams_tx = inbound_streams_tx.clone();
+                let handle_stream = async move {
+                    if let Err(err) = inbound_streams_tx
+                        .send(handle_stream_non_terminating(stream, addr, &redirect_to_quic).await)
+                        .await
+                        .map_err(|err| generic_error(err.to_string()))
+                    {
+                        log::error!(target: "citadel", "Error sending inbound stream from {addr} to listener: {err}");
+                    }
+                };
+
+                // Spawn to prevent backpressure against pending inbound connections
+                spawn!(handle_stream);
             }
         };
 
@@ -432,19 +472,7 @@ impl QuicListener {
 
                 let acceptor_stream = async_stream::stream! {
                     loop {
-                        let res = server.next_connection().await.map_err(|err| generic_error(err.to_string()));
-                        match res {
-                            Err(res) => {
-                                if res.to_string().contains(citadel_wire::quic::QUIC_LISTENER_DIED) {
-                                    // terminate by yielding error
-                                    yield Err(res)
-                                } else {
-                                    log::warn!(target: "citadel", "QUIC accept err: {:?}", res);
-                                }
-                            }
-
-                            res => yield res
-                        }
+                        yield server.next_connection().await.map_err(|err| generic_error(err.to_string()));
                     }
                 };
 
@@ -470,9 +498,6 @@ impl QuicListener {
         }
     }
 }
-
-trait StreamOutputImpl: Future<Output = std::io::Result<()>> + SyncContextRequirements {}
-impl<T: Future<Output = std::io::Result<()>> + SyncContextRequirements> StreamOutputImpl for T {}
 
 impl Stream for QuicListener {
     type Item = std::io::Result<(Connection, SendStream, RecvStream, SocketAddr, Endpoint)>;
@@ -578,7 +603,7 @@ impl Stream for DualListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
 
-        // if this future ends, it's over
+        // If this future ends, it's over
         match future.as_mut().poll(cx) {
             Poll::Pending => {}
             Poll::Ready(res) => {
@@ -591,3 +616,6 @@ impl Stream for DualListener {
         Pin::new(recv).poll_recv(cx)
     }
 }
+
+trait StreamOutputImpl: Future<Output = std::io::Result<()>> + SyncContextRequirements {}
+impl<T: Future<Output = std::io::Result<()>> + SyncContextRequirements> StreamOutputImpl for T {}

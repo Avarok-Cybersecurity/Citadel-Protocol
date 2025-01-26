@@ -1,3 +1,32 @@
+//! Underlying Protocol Implementation
+//!
+//! This module defines the low-level protocol implementation details for the Citadel Protocol.
+//! It handles protocol negotiation, packet framing, and transport selection.
+//!
+//! # Features
+//!
+//! - Protocol negotiation
+//! - Transport selection
+//! - Packet framing
+//! - Protocol versioning
+//! - Error handling
+//! - Security settings
+//!
+//! # Important Notes
+//!
+//! - Supports multiple transports
+//! - Handles protocol upgrades
+//! - Maintains backward compatibility
+//! - Ensures secure defaults
+//! - Validates protocol settings
+//!
+//! # Related Components
+//!
+//! - `net.rs`: Network operations
+//! - `session_security_settings.rs`: Security configuration
+//! - `session.rs`: Session management
+//! - `node.rs`: Node implementation
+
 use crate::error::NetworkError;
 use crate::proto::node::TlsDomain;
 use citadel_io::Mutex;

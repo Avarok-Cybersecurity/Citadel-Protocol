@@ -64,15 +64,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Create server connection settings
-    let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration(
-        server_addr,
-        my_user,
-        "Name",
-        "notsecurepassword",
-    )
-    .with_session_security_settings(session_security)
-    .disable_udp()
-    .build()?;
+    let server_connection_settings =
+        DefaultServerConnectionSettingsBuilder::credentialed_registration(
+            server_addr,
+            my_user,
+            "Name",
+            "notsecurepassword",
+        )
+        .with_session_security_settings(session_security)
+        .disable_udp()
+        .build()?;
 
     // Create peer connection setup
     let peer_connection = PeerConnectionSetupAggregator::default()
@@ -95,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Wait for peer connection
             let peer_conn = connection.recv().await.unwrap()?;
-            let (tx, mut rx) = peer_conn.channel.split();
+            let (mut tx, mut rx) = peer_conn.channel.split();
             let peer_remote = peer_conn.remote;
             println!("Connected to peer {:?}!", peer_remote.target_username());
 
@@ -114,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::fs::read_to_string(&locally_downloaded_file).await?;
                 assert_eq!(file_contents, downloaded_file_contents);
                 // Alert the other side that the file has been successfully processed
-                tx.send_message(SecBuffer::from("success").into()).await?;
+                tx.send(SecBuffer::from("success")).await?;
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             } else {
                 let incoming_file_requests = remote.get_incoming_file_transfer_handle().unwrap();
@@ -131,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the peer
-    let node = NodeBuilder::default().build(kernel)?;
+    let node = DefaultNodeBuilder::default().build(kernel)?;
 
     // Run the peer
     node.await?;

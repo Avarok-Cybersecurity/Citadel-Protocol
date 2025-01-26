@@ -1,11 +1,52 @@
+//! Backend Storage and Persistence Layer
+//!
+//! This module provides the persistence and storage infrastructure for the Citadel Protocol,
+//! supporting multiple backend types including filesystem, in-memory, Redis, and SQL databases.
+//!
+//! # Features
+//!
+//! * **Multiple Backend Support**
+//!   - In-memory storage for ephemeral data
+//!   - Filesystem persistence
+//!   - Redis database integration
+//!   - SQL database support (PostgreSQL, MySQL, SQLite)
+//!
+//! * **Common Interface**
+//!   - Unified backend connection trait
+//!   - Consistent error handling
+//!   - Async operation support
+//!   - Transaction management
+//!
+//! * **Data Management**
+//!   - Account persistence
+//!   - Virtual filesystem operations
+//!   - Peer relationship storage
+//!   - Object transfer handling
+//!
+//! # Important Notes
+//!
+//! * Backend selection is feature-gated at compile time
+//! * In-memory backend does not persist between restarts
+//! * Database connections are managed automatically
+//! * All operations are thread-safe
+//! * Backends implement automatic reconnection
+//!
+//! # Related Components
+//!
+//! * `AccountManager` - Primary user of backend services
+//! * `ClientNetworkAccount` - Stored account data
+//! * `VirtualObjectMetadata` - File transfer metadata
+//! * `PersistenceHandler` - Backend connection management
+
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
-use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 
 #[cfg(all(feature = "redis", not(coverage)))]
 use crate::backend::redis_backend::RedisConnectionOptions;
@@ -13,7 +54,7 @@ use crate::backend::redis_backend::RedisConnectionOptions;
 use crate::backend::sql_backend::SqlConnectionOptions;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use citadel_crypt::streaming_crypt_scrambler::ObjectSource;
+use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user;
@@ -176,7 +217,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// registers p2p as client
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError>;
@@ -185,18 +226,18 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Deregisters two peers from each other
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError>;
     /// Returns a list of hyperlan peers for the client
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError>;
     /// Returns the metadata for a client
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError>;
     /// Gets all the metadata for many clients
     async fn get_clients_metadata(
@@ -206,40 +247,40 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Gets hyperlan peer
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError>;
     /// Determines if the peer exists or not
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError>;
     /// Determines if the input cids are mutual to the implicated cid in order
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError>;
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError>;
     /// Gets hyperland peer by username
     async fn get_hyperlan_peer_by_username(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         username: &str,
     ) -> Result<Option<MutualPeer>, AccountError> {
-        self.get_hyperlan_peer_by_cid(implicated_cid, user::username_to_cid(username))
+        self.get_hyperlan_peer_by_cid(session_cid, user::username_to_cid(username))
             .await
     }
     /// Gets all peers for client
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
     async fn synchronize_hyperlan_peer_list_as_client(
@@ -250,7 +291,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Returns a vector of bytes from the byte map
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -258,7 +299,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Removes a value from the byte map, returning the previous value
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -266,7 +307,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Stores a value in the byte map, either creating or overwriting any pre-existing value
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -275,14 +316,14 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Obtains a list of K,V pairs such that they reside inside `key`
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError>;
@@ -319,7 +360,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
-pub struct PersistenceHandler<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct PersistenceHandler<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     inner: Arc<dyn BackendConnection<R, Fcm>>,
 }
 

@@ -1,3 +1,31 @@
+//! Miscellaneous Utilities for Citadel Protocol
+//!
+//! This module provides various utility types and functions used throughout the
+//! Citadel Protocol implementation. It includes thread-safe containers, network
+//! utilities, and resource management tools.
+//!
+//! # Features
+//!
+//! - Thread-safe data structures
+//! - Network utility functions
+//! - Resource management tools
+//! - Async utilities
+//! - Protocol type definitions
+//!
+//! # Important Notes
+//!
+//! - Supports both single and multi-threaded operation
+//! - Provides zero-cost abstractions
+//! - Ensures proper resource cleanup
+//! - Maintains thread safety guarantees
+//!
+//! # Related Components
+//!
+//! - `proto/node.rs`: Network node implementation
+//! - `proto/session.rs`: Session management
+//! - `kernel/mod.rs`: Kernel implementation
+//! - `error.rs`: Error handling
+
 use crate::error::NetworkError;
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite};
@@ -13,7 +41,6 @@ pub mod dual_late_init;
 pub mod dual_rwlock;
 pub mod lock_holder;
 pub mod net;
-pub mod ordered_channel;
 pub mod panic_future;
 pub mod session_security_settings;
 pub mod udp_internal_interface;

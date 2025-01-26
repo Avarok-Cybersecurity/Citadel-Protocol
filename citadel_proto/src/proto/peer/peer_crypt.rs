@@ -1,3 +1,34 @@
+/*!
+# Peer Cryptography Module
+
+This module implements the cryptographic key exchange and NAT traversal functionality for peer-to-peer connections in the Citadel Protocol.
+
+## Features
+- **Key Exchange Protocol**: Implements a multi-stage key exchange process
+- **NAT Traversal Support**: Provides NAT type detection and compatibility checking
+- **TLS Integration**: Supports TLS domain configuration for secure connections
+- **Security Settings**: Configurable security levels and UDP modes
+- **STUN/TURN Support**: Automatic TURN server fallback for incompatible NATs
+
+## Core Components
+- `KeyExchangeProcess`: Manages the stages of peer key exchange
+- `PeerNatInfo`: Handles NAT-related information and compatibility
+- `TlsDomain`: Configures TLS settings for secure connections
+
+## Important Notes
+1. Key exchange follows a three-stage protocol for security
+2. NAT compatibility is checked before direct connections
+3. TURN servers are used as fallback for incompatible NATs
+4. TLS domains ensure secure communication channels
+
+## Related Components
+- `p2p_conn_handler`: Manages peer connections
+- `hole_punch_compat_sink_stream`: Handles hole punching
+- `session`: Manages connection sessions
+- `state_container`: Tracks connection state
+
+*/
+
 use crate::proto::node::TlsDomain;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::UdpMode;

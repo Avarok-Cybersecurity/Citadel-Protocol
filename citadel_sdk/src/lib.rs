@@ -34,6 +34,7 @@
 //!
 //! # Encryption Algorithms
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
+//!
 //! - AES-256-GCM
 //! - Chacha20Poly-1305
 //! - Ascon-80pq
@@ -114,7 +115,7 @@
 //! use citadel_sdk::prefabs::server::empty::EmptyKernel;
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults. When calling 'build', a NetKernel is specified
-//! let server = NodeBuilder::default()
+//! let server = DefaultNodeBuilder::default()
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .build(EmptyKernel::default())?;
 //!
@@ -132,11 +133,11 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, remote| async move {
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     // handle program logic here
-//!     let (sink, mut stream) = connect_success.channel.split();
+//!     let (sink, mut stream) = conn.split();
 //!     while let Some(message) = stream.next().await {
 //!         // message received in the form of a SecBuffer (memory-protected)
 //!     }
@@ -144,7 +145,7 @@
 //!     Ok(())
 //! });
 //!
-//! let client = NodeBuilder::default().build(client_kernel)?;
+//! let client = DefaultNodeBuilder::default().build(client_kernel)?;
 //! # async move {
 //! let result = client.await;
 //! # };
@@ -171,7 +172,7 @@
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults with a kernel
 //! // that auto-accepts inbound file transfer requests
-//! let server = NodeBuilder::default()
+//! let server = DefaultNodeBuilder::default()
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .build(AcceptFileTransferKernel::default())?;
 //!
@@ -188,19 +189,19 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = ServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
 //!
-//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |connect_success, mut remote| async move {
+//! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";
 //!     // write the contents with reinforced security.
-//!     citadel_sdk::fs::write_with_security_level(&mut remote, "../path/to/input.pdf", SecurityLevel::Reinforced, virtual_path).await?;
+//!     citadel_sdk::fs::write_with_security_level(&conn.remote, "../path/to/input.pdf", SecurityLevel::Reinforced, virtual_path).await?;
 //!     // read the contents. Reading downloads the file to a local path
-//!     let stored_local_path = citadel_sdk::fs::read(&mut remote, virtual_path).await?;
+//!     let stored_local_path = citadel_sdk::fs::read(&conn.remote, virtual_path).await?;
 //!  
 //!     Ok(())
 //! });
 //!
-//! let client = NodeBuilder::default().build(client_kernel)?;
+//! let client = DefaultNodeBuilder::default().build(client_kernel)?;
 //! # async move {
 //!     let result = client.await;
 //! # };
@@ -219,7 +220,13 @@
 //! [`NodeType`]: crate::prelude::NodeType
 //! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
 //! [`PeerConnectionType`]: crate::prelude::PeerConnectionType
-#![deny(unsafe_code)]
+//! [`TargetLockedRemote`]: crate::prelude::TargetLockedRemote
+//! [`PersistenceHandler`]: crate::prelude::PersistenceHandler
+//! [`SecurityLevel`]: crate::prelude::SecurityLevel
+//! [`ObjectSource`]: crate::prelude::ObjectSource
+//! [`NetworkError`]: crate::prelude::NetworkError
+#![forbid(unsafe_code)]
+#![allow(rustdoc::invalid_html_tags)]
 #![deny(
     clippy::cognitive_complexity,
     trivial_numeric_casts,
@@ -236,7 +243,11 @@ pub mod prelude {
     pub use crate::builder::node_builder::*;
     pub use crate::prefabs::client::peer_connection::PeerConnectionSetupAggregator;
     pub use crate::prefabs::client::PrefabFunctions;
-    pub use crate::prefabs::client::{ServerConnectionSettings, ServerConnectionSettingsBuilder};
+    pub use crate::prefabs::client::{
+        DefaultServerConnectionSettingsBuilder, ServerConnectionSettings,
+    };
+    pub use crate::prefabs::ClientServerRemote;
+    pub use crate::remote_ext::remote_specialization::PeerRemote;
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;
@@ -249,7 +260,7 @@ pub mod backend_kv_store;
 mod builder;
 /// Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)
 pub mod fs;
-/// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
+/// The prefabs module contains pre-built kernels for common use cases.
 pub mod prefabs;
 /// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
 pub mod remote_ext;

@@ -1,13 +1,46 @@
+//! # Redis Backend
+//!
+//! The Redis backend provides distributed storage for Citadel client accounts and data using Redis.
+//! It implements the `BackendConnection` trait and enables scalable, high-performance data storage
+//! with support for clustering and replication.
+//!
+//! ## Features
+//!
+//! * Distributed storage using Redis
+//! * Connection pooling for efficient resource management
+//! * Support for Redis clustering
+//! * Configurable connection options
+//! * Atomic operations for data consistency
+//! * Peer relationship management
+//! * Byte map storage functionality
+//!
+//! ## Important Notes
+//!
+//! * Requires a running Redis server
+//! * Supports both standalone and clustered Redis deployments
+//! * Implements connection health checks
+//! * Handles connection pooling and timeouts
+//! * Provides automatic reconnection
+//!
+//! ## Related Components
+//!
+//! * `BackendConnection`: The trait implemented for backend storage
+//! * `RedisConnectionManager`: Manages Redis connections
+//! * `RedisConnectionOptions`: Configuration for Redis connections
+//! * `ClientNetworkAccount`: The core data structure being stored
+//!
+
 use crate::backend::memory::no_backend_streaming;
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
+use crate::prelude::HYPERLAN_IDX;
 use crate::serialization::SyncIO;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
+use futures::TryFutureExt;
 use mobc::async_trait;
 use mobc::Manager;
 use mobc::Pool;
@@ -16,7 +49,18 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-/// Backend struct for redis
+/// Backend implementation that stores client data in Redis, providing distributed storage
+/// with support for clustering and replication. This backend is suitable for production
+/// deployments requiring high availability and scalability.
+///
+/// The Redis backend manages a connection pool for efficient resource utilization and
+/// implements automatic reconnection and health checks. It supports both standalone
+/// Redis servers and Redis clusters.
+///
+/// # Type Parameters
+///
+/// * `R`: The ratchet type used for encryption
+/// * `Fcm`: The ratchet type used for FCM (Firebase Cloud Messaging)
 pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
     url: String,
     conn_options: RedisConnectionOptions,
@@ -26,8 +70,13 @@ pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
 
 type RedisPool = Pool<RedisConnectionManager>;
 
+/// Configuration options for the Redis connection pool. These options allow fine-tuning
+/// of connection management, timeouts, and health checks.
+///
+/// The connection pool helps manage Redis connections efficiently by maintaining
+/// a pool of reusable connections, reducing the overhead of creating new connections
+/// for each operation.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
-/// For setting custom options for the internal redis connection pool
 pub struct RedisConnectionOptions {
     /// Sets the number of connections. Default 10
     pub max_open: Option<u64>,
@@ -276,20 +325,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::pipe()
             .atomic()
-            .hset(
-                get_peer_username_key(implicated_cid),
-                peer_cid,
-                &peer_username,
-            )
+            .hset(get_peer_username_key(session_cid), peer_cid, &peer_username)
             .ignore()
-            .hset(get_peer_cid_key(implicated_cid), &peer_username, peer_cid)
+            .hset(get_peer_cid_key(session_cid), &peer_username, peer_cid)
             .ignore()
             .query_async(&mut conn)
             .await
@@ -324,7 +369,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
@@ -336,10 +381,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             return peer_username
         ",
         )
-        .key(implicated_cid) // 1
+        .key(session_cid) // 1
         .key(peer_cid) // 2
-        .key(get_peer_cid_key(implicated_cid)) // 3
-        .key(get_peer_username_key(implicated_cid)) // 4
+        .key(get_peer_cid_key(session_cid)) // 3
+        .key(get_peer_username_key(session_cid)) // 4
         .invoke_async(&mut conn)
         .await
         .map_err(|err| AccountError::msg(err.to_string()))
@@ -354,11 +399,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         self.get_conn()
             .await?
-            .hkeys(get_peer_username_key(implicated_cid))
+            .hkeys(get_peer_username_key(session_cid))
             .await
             .map(Some)
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -366,10 +411,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError> {
         Ok(self
-            .fetch_cnac(implicated_cid)
+            .fetch_cnac(session_cid)
             .await?
             .map(|r| r.get_metadata()))
     }
@@ -407,12 +452,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         self.get_conn()
             .await?
-            .hget(get_peer_username_key(implicated_cid), peer_cid)
+            .hget(get_peer_username_key(session_cid), peer_cid)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
             .map(|peer_username: Option<String>| {
@@ -426,12 +471,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError> {
         self.get_conn()
             .await?
-            .hexists(get_peer_username_key(implicated_cid), peer_cid)
+            .hexists(get_peer_username_key(session_cid), peer_cid)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
@@ -439,7 +484,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     #[allow(unused_results)]
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         let mut conn = self.get_conn().await?;
@@ -457,7 +502,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         ",
         );
 
-        let mut script = script.key(get_peer_username_key(implicated_cid));
+        let mut script = script.key(get_peer_username_key(session_cid));
 
         for peer in peers {
             script.key(*peer);
@@ -472,7 +517,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     #[allow(unused_results)]
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
@@ -490,7 +535,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         ",
         );
 
-        let mut script = script.key(get_peer_username_key(implicated_cid));
+        let mut script = script.key(get_peer_username_key(session_cid));
 
         for peer in peers {
             script.key(*peer);
@@ -514,12 +559,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         let usernames_map: HashMap<u64, String> = self
             .get_conn()
             .await?
-            .hgetall(get_peer_username_key(implicated_cid)) // get all (peer_cid, username)
+            .hgetall(get_peer_username_key(session_cid)) // get all (peer_cid, username)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))?;
 
@@ -543,9 +588,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     ) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         let mut pipe = redis_base::pipe();
-        let implicated_cid = cnac.get_cid();
-        let peer_cid_key = get_peer_cid_key(implicated_cid);
-        let peer_username_key = get_peer_username_key(implicated_cid);
+        let session_cid = cnac.get_cid();
+        let peer_cid_key = get_peer_cid_key(session_cid);
+        let peer_username_key = get_peer_username_key(session_cid);
 
         pipe.atomic();
 
@@ -573,27 +618,27 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         self.get_conn()
             .await?
-            .hget(get_byte_map_key(implicated_cid, peer_cid, key), sub_key)
+            .hget(get_byte_map_key(session_cid, peer_cid, key), sub_key)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let mut conn = self.get_conn().await?;
-        let key = get_byte_map_key(implicated_cid, peer_cid, key);
+        let key = get_byte_map_key(session_cid, peer_cid, key);
         redis_base::Script::new(
             r"
             local ret = redis.call('hget', KEYS[1], KEYS[2])
@@ -610,14 +655,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let mut conn = self.get_conn().await?;
-        let key = get_byte_map_key(implicated_cid, peer_cid, key);
+        let key = get_byte_map_key(session_cid, peer_cid, key);
         redis_base::Script::new(
             r"
             local ret = redis.call('hget', KEYS[1], KEYS[2])
@@ -635,25 +680,25 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         self.get_conn()
             .await?
-            .hgetall(get_byte_map_key(implicated_cid, peer_cid, key))
+            .hgetall(get_byte_map_key(session_cid, peer_cid, key))
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let mut conn = self.get_conn().await?;
-        let key = get_byte_map_key(implicated_cid, peer_cid, key);
+        let key = get_byte_map_key(session_cid, peer_cid, key);
         redis_base::Script::new(
             r"
             local ret = redis.call('hgetall', KEYS[1])
@@ -713,6 +758,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
             .get_conn()
             .await?
             .hget::<_, _, Option<Vec<u8>>>(get_cid_to_cnac_key(), cid)
+            .map_err(|err| AccountError::msg(err.to_string()))
             .await?
         {
             self.cnac_bytes_to_cnac(value).map(Some)
@@ -725,9 +771,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
         &self,
         bytes: Vec<u8>,
     ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        let deserialized =
-            ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(bytes.as_ref())?;
-        Ok(deserialized.into())
+        ClientNetworkAccount::<R, Fcm>::deserialize_from_vector(bytes.as_ref())
     }
 
     async fn get_conn(&self) -> Result<redis_base::aio::Connection, AccountError> {
@@ -763,16 +807,16 @@ fn get_cid_to_username_key(cid: u64) -> String {
     format!("{LOCAL_CID_TO_USERNAME}.{cid}")
 }
 
-fn get_peer_cid_key(implicated_cid: u64) -> String {
-    format!("{PEER_CID_PREFIX}.{implicated_cid}")
+fn get_peer_cid_key(session_cid: u64) -> String {
+    format!("{PEER_CID_PREFIX}.{session_cid}")
 }
 
-fn get_peer_username_key(implicated_cid: u64) -> String {
-    format!("{PEER_USERNAME_PREFIX}.{implicated_cid}")
+fn get_peer_username_key(session_cid: u64) -> String {
+    format!("{PEER_USERNAME_PREFIX}.{session_cid}")
 }
 
-fn get_byte_map_key(implicated_cid: u64, peer_cid: u64, key: &str) -> String {
-    format!("{BYTE_MAP_PREFIX}.{implicated_cid}.{peer_cid}.{key}",)
+fn get_byte_map_key(session_cid: u64, peer_cid: u64, key: &str) -> String {
+    format!("{BYTE_MAP_PREFIX}.{session_cid}.{peer_cid}.{key}",)
 }
 
 fn get_impersonal_status_key() -> &'static str {

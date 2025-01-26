@@ -1,32 +1,63 @@
+/*!
+# Pre-connection State Container Module
+
+This module manages the state of pre-connection setup in the Citadel Protocol, handling initial handshakes and cryptographic setup.
+
+## Features
+- **Stage Tracking**: Manages pre-connection stages
+- **Node Type Management**: Handles different node types
+- **Cryptographic Setup**: Manages ratchet construction
+- **UDP Channel Setup**: Handles UDP channel initialization
+- **Ticket Management**: Tracks connection tickets
+
+## Core Components
+- `PreConnectState`: Main structure for pre-connection state
+- `UdpChannelSender`: Manages UDP channel communication
+- `StackedRatchetConstructor`: Handles cryptographic setup
+- `NodeType`: Configures node behavior
+
+## Important Notes
+1. Pre-connection state is critical for secure setup
+2. UDP channels are managed through oneshot channels
+3. Ratchet construction must complete before connection
+4. Node types affect connection behavior
+
+## Related Components
+- `connect_state_container`: Handles main connection
+- `peer_kem_state_container`: Manages key exchange
+- `packet_processor`: Uses pre-connection state
+- `state_container`: Parent state management
+
+*/
+
 use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::channel::UdpChannel;
 use crate::proto::remote::Ticket;
-use citadel_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
-use citadel_crypt::stacked_ratchet::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_wire::hypernode_type::NodeType;
 
 /// For keeping track of the pre-connect state
-pub struct PreConnectState {
+pub struct PreConnectState<R: Ratchet> {
     pub(crate) last_stage: u8,
     #[allow(dead_code)]
     pub(crate) adjacent_node_type: Option<NodeType>,
-    // This drill should be turned .into() the next toolset once the other side updated
-    pub(crate) constructor: Option<StackedRatchetConstructor>,
+    // This entropy_bank should be turned .into() the next toolset once the other side updated
+    pub(crate) constructor: Option<R::Constructor>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
+    pub(crate) udp_channel_oneshot_tx: UdpChannelSender<R>,
     pub(crate) success: bool,
-    pub(crate) generated_ratchet: Option<StackedRatchet>,
+    pub(crate) generated_ratchet: Option<R>,
 }
 
-impl PreConnectState {
+impl<R: Ratchet> PreConnectState<R> {
     pub fn on_packet_received(&mut self) {
         self.last_packet_time = Some(Instant::now());
     }
 }
 
-impl Default for PreConnectState {
+impl<R: Ratchet> Default for PreConnectState<R> {
     fn default() -> Self {
         Self {
             generated_ratchet: None,
@@ -41,18 +72,18 @@ impl Default for PreConnectState {
     }
 }
 
-pub struct UdpChannelSender {
-    pub tx: Option<Sender<UdpChannel>>,
-    pub rx: Option<Receiver<UdpChannel>>,
+pub struct UdpChannelSender<R: Ratchet> {
+    pub tx: Option<Sender<UdpChannel<R>>>,
+    pub rx: Option<Receiver<UdpChannel<R>>>,
 }
 
-impl UdpChannelSender {
+impl<R: Ratchet> UdpChannelSender<R> {
     pub(crate) fn empty() -> Self {
         Self { tx: None, rx: None }
     }
 }
 
-impl Default for UdpChannelSender {
+impl<R: Ratchet> Default for UdpChannelSender<R> {
     fn default() -> Self {
         let (tx, rx) = channel();
         Self {

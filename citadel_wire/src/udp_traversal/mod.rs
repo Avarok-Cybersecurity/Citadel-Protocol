@@ -1,3 +1,58 @@
+//! UDP NAT Traversal Framework
+//!
+//! This module provides a comprehensive framework for UDP NAT traversal,
+//! implementing multiple traversal methods including UPnP, hole punching,
+//! and specialized techniques. It coordinates between different traversal
+//! strategies and manages connection establishment across NAT boundaries.
+//!
+//! # Architecture
+//!
+//! The framework is organized into several key components:
+//!
+//! - Linear traversal: Sequential hole punching attempts
+//! - Multi traversal: Concurrent traversal strategies
+//! - UPnP integration: Automatic port forwarding
+//! - Socket management: NAT-aware socket handling
+//!
+//! # Features
+//!
+//! - Multiple NAT traversal methods
+//! - Unique connection identification
+//! - Method prioritization and fallback
+//! - Binary serialization support
+//! - Connection state tracking
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::udp_traversal::{
+//!     NatTraversalMethod,
+//!     HolePunchID
+//! };
+//!
+//! // Select traversal method based on NAT type
+//! let method = NatTraversalMethod::UPnP;
+//! let method_byte = method.into_byte();
+//!
+//! // Generate unique connection ID
+//! let punch_id = HolePunchID::default();
+//! ```
+//!
+//! # Important Notes
+//!
+//! - UPnP requires router support
+//! - Method3 is a fallback strategy
+//! - Connection IDs are UUID-based
+//! - Methods are tried in priority order
+//! - Binary encoding is network-safe
+//!
+//! # Related Components
+//!
+//! - [`crate::standard::upnp_handler`] - UPnP support
+//! - [`crate::nat_identification`] - NAT analysis
+//! - [`crate::standard::socket_helpers`] - Socket utilities
+//!
+
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
@@ -5,7 +60,7 @@ use uuid::Uuid;
 /// Linear hole-punching
 pub mod linear;
 
-pub mod targetted_udp_socket_addr;
+pub mod hole_punched_socket;
 
 pub mod udp_hole_puncher;
 

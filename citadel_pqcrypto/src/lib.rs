@@ -1,5 +1,50 @@
 #![allow(non_camel_case_types)]
 #![forbid(unsafe_code)]
+//! Post-quantum cryptographic library for secure communication.
+//!
+//! This crate provides a comprehensive implementation of post-quantum cryptographic
+//! primitives and protocols, designed to be resistant to attacks from both classical
+//! and quantum computers. It supports various encryption algorithms, key exchange
+//! mechanisms, and signature schemes.
+//!
+//! # Features
+//! - Post-quantum key exchange using NIST Round 3 algorithms
+//! - Hybrid classical/post-quantum encryption
+//! - Authenticated encryption with associated data (AEAD)
+//! - Anti-replay attack protection
+//! - Zero-knowledge proofs
+//! - Secure serialization and deserialization
+//!
+//! # Security Considerations
+//! - All sensitive data is wrapped in `Zeroizing` to ensure secure cleanup
+//! - No unsafe code is allowed (enforced by `forbid(unsafe_code)`)
+//! - Anti-replay attack protection is enabled by default
+//! - Cryptographic operations are constant-time where possible
+//!
+//! # Examples
+//! ```
+//! use citadel_pqcrypto::prelude::*;
+//! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+//! use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
+//!
+//! // Define the cryptographic parameters
+//! let opts = ConstructorOpts::default();
+//!
+//! // Create a new Alice instance
+//! let mut alice = PostQuantumContainer::new_alice(
+//!     opts.clone(),
+//! ).unwrap();
+//!
+//! // Create a new Bob instance using Alice's parameters
+//! let params = alice.generate_alice_to_bob_transfer().unwrap();
+//! let bob = PostQuantumContainer::new_bob(opts, params, &[b"my-psk"]).unwrap();
+//!
+//! // Complete the key exchange
+//! let bob_params = bob.generate_bob_to_alice_transfer().unwrap();
+//! alice.alice_on_receive_ciphertext(bob_params, &[b"my-psk"]).unwrap();
+//!
+//! // Now both parties can communicate securely
+//! ```
 
 use crate::bytes_in_place::{EzBuffer, InPlaceBuffer};
 use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
@@ -249,10 +294,10 @@ impl PostQuantumContainer {
 
     /// Creates a new [PostQuantumContainer] for Bob. This will panic if the algorithm is
     /// invalid
-    pub fn new_bob(
+    pub fn new_bob<T: AsRef<[u8]>>(
         opts: ConstructorOpts,
         tx_params: AliceToBobTransferParameters,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
         let params = opts.cryptography.unwrap_or_default();
@@ -286,14 +331,14 @@ impl PostQuantumContainer {
     }
 
     /// `psks`: Pre-shared keys
-    fn generate_recursive_keystore(
+    fn generate_recursive_keystore<T: AsRef<[u8]>>(
         pq_node: PQNode,
         params: CryptoParameters,
         sig: Option<PostQuantumMetaSig>,
         ss: Arc<Zeroizing<Vec<u8>>>,
         previous_chain: Option<&RecursiveChain>,
         kex: PostQuantumMetaKex,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<(RecursiveChain, KeyStore), Error> {
         let (chain, alice_key, bob_key) = if let Some(prev) = previous_chain {
             // prev = C_n
@@ -306,7 +351,7 @@ impl PostQuantumContainer {
                     .chain
                     .iter()
                     .chain(ss.iter())
-                    .chain(psks.iter().flatten())
+                    .chain(psks.iter().flat_map(|r| r.as_ref()))
                     .copied()
                     .collect::<Vec<u8>>()[..],
             );
@@ -369,7 +414,7 @@ impl PostQuantumContainer {
             let mut hasher_temp = sha3::Sha3_512::new();
             hasher_temp.update(
                 ss.iter()
-                    .chain(psks.iter().flatten())
+                    .chain(psks.iter().flat_map(|r| r.as_ref()))
                     .copied()
                     .collect::<Vec<u8>>(),
             );
@@ -446,7 +491,7 @@ impl PostQuantumContainer {
     }
 
     /// This should always be called after deserialization
-    fn load_symmetric_keys(&mut self, psks: &[Vec<u8>]) -> Result<(), Error> {
+    fn load_symmetric_keys<T: AsRef<[u8]>>(&mut self, psks: &[T]) -> Result<(), Error> {
         let pq_node = self.node;
         let params = self.params;
         let sig = self.data.sig().cloned();
@@ -471,10 +516,10 @@ impl PostQuantumContainer {
     }
 
     /// Internally creates shared key after bob sends a response back to Alice
-    pub fn alice_on_receive_ciphertext(
+    pub fn alice_on_receive_ciphertext<T: AsRef<[u8]>>(
         &mut self,
         params: BobToAliceTransferParameters,
-        psks: &[Vec<u8>],
+        psks: &[T],
     ) -> Result<(), Error> {
         self.data.alice_on_receive_ciphertext(params)?;
         let _ss = self.data.get_shared_secret()?; // call once to load internally

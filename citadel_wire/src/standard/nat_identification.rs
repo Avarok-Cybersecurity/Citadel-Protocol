@@ -1,3 +1,53 @@
+//! NAT Type Identification and Traversal Analysis
+//!
+//! This module provides functionality to identify and analyze Network Address Translation (NAT)
+//! configurations in network environments. It uses STUN servers to determine NAT behavior
+//! and predict external address mappings for peer-to-peer connections.
+//!
+//! # Features
+//!
+//! - STUN-based NAT type detection
+//! - Port and IP translation pattern analysis
+//! - Predictive external address mapping
+//! - IPv4 and IPv6 compatibility checks
+//! - Multiple STUN server fallback support
+//! - NAT traversal strategy determination
+//!
+//! # Examples
+//!
+//! ```rust
+//! use citadel_wire::nat_identification::NatType;
+//! use citadel_wire::nat_identification::TraversalTypeRequired;
+//!
+//! async fn identify_nat() -> Result<(), citadel_wire::error::FirewallError> {
+//!     // Identify NAT type using default STUN servers
+//!     let nat = NatType::identify(None).await?;
+//!     
+//!     // Check if peer-to-peer connection is possible
+//!     if nat.traversal_type_required() == TraversalTypeRequired::Direct {
+//!         println!("Direct connection possible");
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Important Notes
+//!
+//! - NAT detection requires active internet connection
+//! - Multiple STUN requests are made for accurate detection
+//! - Port prediction may fail with symmetric NATs
+//! - IPv6 support depends on system configuration
+//! - Detection timeout defaults to 5 seconds
+//!
+//! # Related Components
+//!
+//! - [`crate::udp_traversal`] - UDP hole punching implementation
+//! - [`crate::standard::upnp_handler`] - UPnP port forwarding
+//! - [`crate::standard::socket_helpers`] - Socket utility functions
+//! - [`crate::error::FirewallError`] - Error handling for NAT operations
+//!
+
 use crate::error::FirewallError;
 use crate::socket_helpers::is_ipv6_enabled;
 use async_ip::IpAddressInfo;

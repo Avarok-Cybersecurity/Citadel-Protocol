@@ -1,8 +1,48 @@
+//! In-Memory Backend Storage
+//!
+//! This module provides an in-memory implementation of the backend storage system,
+//! primarily used for testing and environments without filesystem access (e.g., WASM).
+//!
+//! # Features
+//!
+//! * **Storage Management**
+//!   - Thread-safe client storage
+//!   - Peer relationship tracking
+//!   - Metadata management
+//!   - Byte map operations
+//!
+//! * **Memory Safety**
+//!   - Read-write locking
+//!   - Atomic operations
+//!   - Resource cleanup
+//!   - Reference management
+//!
+//! * **Client Operations**
+//!   - Account registration
+//!   - Peer management
+//!   - Data persistence
+//!   - Client lookup
+//!
+//! # Important Notes
+//!
+//! * Data is not persisted between program restarts
+//! * All operations are thread-safe through RwLock
+//! * Suitable for testing and WASM environments
+//! * Memory usage scales with stored data
+//! * Peer relationships are bi-directionally maintained
+//!
+//! # Related Components
+//!
+//! * `BackendConnection` - Implemented interface
+//! * `ClientNetworkAccount` - Stored data type
+//! * `AccountManager` - Uses backend storage
+//! * `PersistenceHandler` - Manages backend lifecycle
+
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;
-use citadel_crypt::stacked_ratchet::Ratchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio;
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
@@ -117,14 +157,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError> {
         self.clients
             .read()
-            .get(&implicated_cid)
-            .ok_or(AccountError::ClientNonExists(implicated_cid))?
+            .get(&session_cid)
+            .ok_or(AccountError::ClientNonExists(session_cid))?
             .insert_hyperlan_peer(peer_cid, peer_username);
 
         Ok(())
@@ -140,23 +180,23 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         Ok(self
             .clients
             .read()
-            .get(&implicated_cid)
-            .ok_or(AccountError::ClientNonExists(implicated_cid))?
+            .get(&session_cid)
+            .ok_or(AccountError::ClientNonExists(session_cid))?
             .remove_hyperlan_peer(peer_cid))
     }
 
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             Ok(cnac.get_hyperlan_peer_list())
         } else {
             Ok(None)
@@ -165,10 +205,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             Ok(Some(cnac.get_metadata()))
         } else {
             Ok(None)
@@ -193,11 +233,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             Ok(cnac.get_hyperlan_peer(peer_cid))
         } else {
             Ok(None)
@@ -206,17 +246,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError> {
-        self.get_hyperlan_peer_by_cid(implicated_cid, peer_cid)
+        self.get_hyperlan_peer_by_cid(session_cid, peer_cid)
             .await
             .map(|r| r.is_some())
     }
 
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         if peers.is_empty() {
@@ -224,7 +264,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         }
 
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             Ok(cnac.hyperlan_peers_exist(peers))
         } else {
             Ok(Default::default())
@@ -233,7 +273,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         if peers.is_empty() {
@@ -241,7 +281,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         }
 
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             Ok(cnac.get_hyperlan_peers(peers).unwrap_or_default())
         } else {
             Ok(Default::default())
@@ -250,10 +290,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             Ok(cnac.get_hyperlan_peer_mutuals())
         } else {
             Ok(Default::default())
@@ -271,13 +311,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             let mut lock = cnac.write();
             Ok(lock
                 .byte_map
@@ -294,13 +334,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             let mut lock = cnac.write();
             Ok(lock
                 .byte_map
@@ -316,14 +356,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             let mut lock = cnac.write();
             Ok(lock
                 .byte_map
@@ -339,12 +379,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             let mut lock = cnac.write();
             let map = lock
                 .byte_map
@@ -361,12 +401,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let read = self.clients.read();
-        if let Some(cnac) = read.get(&implicated_cid) {
+        if let Some(cnac) = read.get(&session_cid) {
             let mut lock = cnac.write();
             let submap = lock
                 .byte_map

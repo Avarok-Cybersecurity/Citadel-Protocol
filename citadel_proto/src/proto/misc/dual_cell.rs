@@ -1,4 +1,31 @@
+//! Dual-Mode Cell Implementation
+//!
+//! This module provides a thread-safe cell type that can operate in both single-threaded
+//! and multi-threaded contexts. It automatically selects the appropriate implementation
+//! based on compile-time feature flags.
+//!
+//! # Features
+//!
+//! - Compile-time thread safety selection
+//! - Interior mutability
+//! - Zero-cost abstraction
+//! - Automatic feature detection
+//!
+//! # Important Notes
+//!
+//! - Uses std::cell::Cell in single-threaded mode
+//! - Uses atomic types in multi-threaded mode
+//! - No runtime overhead for thread safety checks
+//! - Requires Send + Sync for multi-threaded use
+//!
+//! # Related Components
+//!
+//! - `dual_rwlock.rs`: Read-write lock implementation
+//! - `dual_late_init.rs`: Late initialization
+//! - `lock_holder.rs`: Resource locking
+
 use crate::macros::ContextRequirements;
+use crate::proto::session::SessionState;
 use bytemuck::NoUninit;
 
 pub struct DualCell<T: ContextRequirements> {
@@ -19,7 +46,7 @@ impl<T: ContextRequirements> DualCell<T> {
         }
         #[cfg(feature = "multi-threaded")]
         {
-            let _ = self.inner.swap(new, atomic::Ordering::SeqCst);
+            let _ = self.inner.swap(new, atomic::Ordering::Relaxed);
         }
     }
 
@@ -33,7 +60,7 @@ impl<T: ContextRequirements> DualCell<T> {
         }
         #[cfg(feature = "multi-threaded")]
         {
-            self.inner.load(atomic::Ordering::SeqCst)
+            self.inner.load(atomic::Ordering::Relaxed)
         }
     }
 }
@@ -60,5 +87,11 @@ impl<T: ContextRequirements> Clone for DualCell<T> {
         Self {
             inner: self.inner.clone(),
         }
+    }
+}
+
+impl DualCell<SessionState> {
+    pub fn is_connected(&self) -> bool {
+        self.get() == SessionState::Connected
     }
 }

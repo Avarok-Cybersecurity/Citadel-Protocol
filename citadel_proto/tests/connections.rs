@@ -59,7 +59,14 @@ pub mod tests {
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[timeout(Duration::from_secs(60))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(
+        feature = "multi-threaded",
+        citadel_io::tokio::test(flavor = "multi_thread")
+    )]
+    #[cfg_attr(
+        not(feature = "multi-threaded"),
+        citadel_io::tokio::test(flavor = "current_thread")
+    )]
     async fn test_tcp_or_tls(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerUnderlyingProtocol>,
@@ -72,10 +79,18 @@ pub mod tests {
             return Ok(());
         }
 
+        if !cfg!(feature = "multi-threaded") {
+            log::warn!(target: "citadel", "Skipping test since only works on multi-threaded mode");
+            return Ok(());
+        }
+
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let res = Node::server_create_primary_listen_socket(proto.clone(), addr);
+            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
+                proto.clone(),
+                addr,
+            );
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket: {:?}", err);
@@ -92,9 +107,10 @@ pub mod tests {
             };
 
             let client = async move {
-                let (stream, _) = Node::c2s_connect_defaults(None, addr, client_config)
-                    .await
-                    .unwrap();
+                let (stream, _) =
+                    CitadelNode::<StackedRatchet>::c2s_connect_defaults(None, addr, client_config)
+                        .await
+                        .unwrap();
                 on_client_received_stream(stream).await
             };
 
@@ -113,7 +129,14 @@ pub mod tests {
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[timeout(Duration::from_secs(60))]
-    #[citadel_io::tokio::test(flavor = "current_thread")]
+    #[cfg_attr(
+        feature = "multi-threaded",
+        citadel_io::tokio::test(flavor = "multi_thread")
+    )]
+    #[cfg_attr(
+        not(feature = "multi-threaded"),
+        citadel_io::tokio::test(flavor = "current_thread")
+    )]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerUnderlyingProtocol>,
@@ -121,8 +144,13 @@ pub mod tests {
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();
 
+        if !cfg!(feature = "multi-threaded") {
+            log::trace!(target: "citadel", "Skipping test since only works on multi-threaded mode");
+            return Ok(());
+        }
+
         if !is_ipv6_enabled() && addr.is_ipv6() {
-            log::trace!(target: "citadel", "Skipping ipv6 test since ipv6 is not enabled locally");
+            log::warn!(target: "citadel", "Skipping ipv6 test since ipv6 is not enabled locally");
             return Ok(());
         }
 
@@ -131,7 +159,10 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = Node::server_create_primary_listen_socket(proto.clone(), addr);
+            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
+                proto.clone(),
+                addr,
+            );
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket w/mode {proto:?}: {err:?}");
@@ -159,7 +190,12 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let (stream, _) = Node::c2s_connect_defaults(None, addr, client_config).await?;
+                    let (stream, _) = CitadelNode::<StackedRatchet>::c2s_connect_defaults(
+                        None,
+                        addr,
+                        client_config,
+                    )
+                    .await?;
                     on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())
@@ -170,6 +206,7 @@ pub mod tests {
             // if server ends, bad. If client ends, maybe good
             let res = citadel_io::tokio::select! {
                 res0 = server => {
+                    log::error!(target: "citadel", "Server ended! {res0:?}");
                     res0
                 },
                 res1 = client => {
@@ -199,6 +236,7 @@ pub mod tests {
         sink.send(BytesMut::from(&[100u8] as &[u8]).freeze())
             .await?;
         log::trace!(target: "citadel", "[Server] Sent packet");
+        tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(())
     }
 

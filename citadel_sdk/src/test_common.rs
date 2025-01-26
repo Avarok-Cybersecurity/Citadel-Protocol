@@ -1,3 +1,43 @@
+//! Testing Utilities for Citadel Protocol
+//!
+//! This module provides common utilities and helpers for testing Citadel Protocol
+//! components. It includes functions for setting up test servers, managing test
+//! barriers, and performing common assertions.
+//!
+//! # Features
+//! - Test server creation and configuration
+//! - Synchronization barriers for multi-peer tests
+//! - UDP mode testing utilities
+//! - P2P connection testing helpers
+//! - Local test peer management
+//!
+//! # Example
+//! ```rust
+//! use citadel_sdk::test_common::*;
+//! use citadel_sdk::prelude::*;
+//!
+//! async fn test_server() {
+//!     // Create a test server with default settings
+//!     let (server_future, addr) = server_info::<StackedRatchet>();
+//!
+//!     // Run server and handle connections
+//!     server_future.await.expect("Server failed to start");
+//! }
+//! ```
+//!
+//! # Important Notes
+//! - Most functionality requires "localhost-testing" feature
+//! - Test barriers help coordinate multi-peer tests
+//! - UDP assertions verify connection modes
+//! - P2P assertions validate peer connections
+//!
+//! # Related Components
+//! - [`DefaultNodeBuilder`]: Server configuration builder
+//! - [`EmptyKernel`]: Basic test server kernel
+//! - [`UdpMode`]: UDP connection configuration
+//! - [`PeerConnectSuccess`]: Peer connection validation
+//!
+
 #![allow(missing_docs, unused_imports)]
 #![doc(hidden)]
 use crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
@@ -12,9 +52,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 #[allow(dead_code)]
-pub fn server_test_node<'a, K: NetKernel + 'a>(
+pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
     kernel: K,
-    opts: impl FnOnce(&mut NodeBuilder),
+    opts: impl FnOnce(&mut NodeBuilder<R>),
 ) -> (NodeFuture<'a, K>, SocketAddr) {
     let mut builder = NodeBuilder::default();
     let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
@@ -28,33 +68,33 @@ pub fn server_test_node<'a, K: NetKernel + 'a>(
 
     (opts)(builder);
 
-    (builder.build(kernel).unwrap(), bind_addr)
+    (builder.build::<K>(kernel).unwrap(), bind_addr)
 }
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
-pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
-    crate::test_common::server_test_node(EmptyKernel, |_| {})
+pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
+    crate::test_common::server_test_node(EmptyKernel::<R>::default(), |_| {})
 }
 
 #[allow(dead_code)]
 #[cfg(not(feature = "localhost-testing"))]
-pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
+pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
     panic!("Function server_info is not available without the localhost-testing feature");
 }
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
-pub fn server_info_reactive<'a, F, Fut>(
+pub fn server_info_reactive<'a, F, Fut, R: Ratchet>(
     f: F,
-    opts: impl FnOnce(&mut NodeBuilder),
-) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
+    opts: impl FnOnce(&mut NodeBuilder<R>),
+) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr)
 where
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync + 'a,
+    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
 {
     server_test_node(
-        Box::new(ClientConnectListenerKernel::new(f)) as Box<dyn NetKernel>,
+        Box::new(ClientConnectListenerKernel::<_, _, R>::new(f)) as Box<dyn NetKernel<R>>,
         opts,
     )
 }
@@ -63,12 +103,13 @@ where
 #[cfg(not(feature = "localhost-testing"))]
 pub fn server_info_reactive<
     'a,
-    F: Fn(ConnectionSuccess, ClientServerRemote) -> Fut + Send + Sync + 'a,
+    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
     Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
+    R: Ratchet,
 >(
     _f: F,
-    _opts: impl FnOnce(&mut NodeBuilder),
-) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr) {
+    _opts: impl FnOnce(&mut NodeBuilder<R>),
+) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr) {
     panic!("Function server_info_reactive is not available without the localhost-testing feature");
 }
 
@@ -180,9 +221,9 @@ lazy_static::lazy_static! {
     tracing::instrument(level = "trace", target = "citadel")
 )]
 #[allow(dead_code)]
-pub async fn udp_mode_assertions(
+pub async fn udp_mode_assertions<R: Ratchet>(
     udp_mode: UdpMode,
-    udp_channel_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel>>,
+    udp_channel_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
 ) {
     use futures::StreamExt;
     citadel_logging::info!(target: "citadel", "Inside UDP mode assertions ...");
@@ -216,18 +257,18 @@ pub async fn udp_mode_assertions(
 
 #[cfg(feature = "localhost-testing")]
 #[allow(dead_code)]
-pub async fn p2p_assertions(implicated_cid: u64, conn_success: &PeerConnectSuccess) {
+pub async fn p2p_assertions<R: Ratchet>(session_cid: u64, conn_success: &PeerConnectSuccess<R>) {
     log::info!(target: "citadel", "Inside p2p assertions ...");
     let peer_cid = conn_success.channel.get_peer_cid();
 
-    assert_eq!(implicated_cid, conn_success.channel.get_implicated_cid());
-    assert_ne!(implicated_cid, peer_cid);
+    assert_eq!(session_cid, conn_success.channel.get_session_cid());
+    assert_ne!(session_cid, peer_cid);
     assert!(conn_success
         .remote
         .inner
         .account_manager()
         .get_persistence_handler()
-        .hyperlan_peer_exists(implicated_cid, peer_cid)
+        .hyperlan_peer_exists(session_cid, peer_cid)
         .await
         .unwrap());
 
@@ -236,4 +277,4 @@ pub async fn p2p_assertions(implicated_cid: u64, conn_success: &PeerConnectSucce
 
 #[cfg(not(feature = "localhost-testing"))]
 #[allow(dead_code)]
-pub async fn p2p_assertions(_implicated_cid: u64, _conn_success: &PeerConnectSuccess) {}
+pub async fn p2p_assertions<R: Ratchet>(_session_cid: u64, _conn_success: &PeerConnectSuccess<R>) {}

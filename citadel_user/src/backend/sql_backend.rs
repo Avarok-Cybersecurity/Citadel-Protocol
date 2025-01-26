@@ -1,12 +1,45 @@
+//! # SQL Backend
+//!
+//! The SQL backend provides relational database storage for Citadel client accounts and data.
+//! It implements the `BackendConnection` trait and supports multiple SQL database variants
+//! including MySQL, PostgreSQL, and SQLite.
+//!
+//! ## Features
+//!
+//! * Support for multiple SQL database variants
+//! * Connection pooling for efficient resource management
+//! * Configurable connection options
+//! * Automatic schema creation and migration
+//! * Atomic database operations
+//! * Peer relationship management
+//! * Byte map storage functionality
+//!
+//! ## Important Notes
+//!
+//! * Requires a running SQL database server (except for SQLite)
+//! * Handles database-specific SQL syntax differences
+//! * Implements connection pooling and timeouts
+//! * Provides automatic schema management
+//! * Supports both blob and text storage
+//!
+//! ## Related Components
+//!
+//! * `BackendConnection`: The trait implemented for backend storage
+//! * `SqlConnectionOptions`: Configuration for SQL connections
+//! * `SqlVariant`: Enum for supported SQL database types
+//! * `ClientNetworkAccount`: The core data structure being stored
+//!
+
 use crate::backend::memory::no_backend_streaming;
 use crate::backend::{BackendConnection, BackendType};
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
-use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
+use crate::prelude::HYPERLAN_IDX;
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
-use citadel_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+use citadel_crypt::ratchets::mono::MonoRatchet;
+use citadel_crypt::ratchets::stacked::StackedRatchet;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
@@ -21,8 +54,19 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 use std::time::Duration;
 
-/// A container for handling db conns
-pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+/// Backend implementation that stores client data in SQL databases, supporting multiple
+/// database variants including MySQL, PostgreSQL, and SQLite. This backend provides
+/// relational storage with ACID properties and efficient querying capabilities.
+///
+/// The SQL backend manages a connection pool for efficient resource utilization and
+/// handles database-specific SQL syntax differences automatically. It supports both
+/// blob and text storage formats for different data types.
+///
+/// # Type Parameters
+///
+/// * `R`: The ratchet type used for encryption
+/// * `Fcm`: The ratchet type used for FCM (Firebase Cloud Messaging)
+pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     url: String,
     conn: Option<AnyPool>,
     variant: SqlVariant,
@@ -30,17 +74,28 @@ pub struct SqlBackend<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     _pd: PhantomData<(R, Fcm)>,
 }
 
+/// The supported SQL database variants.
+/// Each variant requires specific connection string formatting and SQL syntax.
 #[derive(Eq, PartialEq)]
 enum SqlVariant {
+    /// MySQL/MariaDB database
     MySQL,
+    /// PostgreSQL database
     Postgre,
+    /// SQLite database
     Sqlite,
 }
 
+/// Default value for the CAR (Connection Auto-Reconnect) mode
 const CAR_MODE_DEFAULT: bool = false;
 
+/// Configuration options for SQL database connections. These options allow fine-tuning
+/// of connection management, pooling behavior, and timeouts.
+///
+/// The connection pool helps manage database connections efficiently by maintaining
+/// a pool of reusable connections, reducing the overhead of creating new connections
+/// for each operation.
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-/// Custom connection options
 pub struct SqlConnectionOptions {
     /// The maximum number of connections to keep
     pub max_connections: Option<usize>,
@@ -54,6 +109,12 @@ pub struct SqlConnectionOptions {
     pub max_lifetime: Option<Duration>,
     /// Create and release (CAR) mode. Holding connections pools may be undesirable for certain platforms with execution restrictions, thus, CAR mode does not keep connections
     pub car_mode: Option<bool>,
+}
+
+impl From<sqlx::Error> for AccountError {
+    fn from(e: sqlx::Error) -> Self {
+        AccountError::IoError(e.to_string())
+    }
 }
 
 impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
@@ -183,7 +244,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
-        let serded = cnac.generate_proper_bytes()?;
+        let bytes = cnac.generate_proper_bytes()?;
 
         let metadata = cnac.get_metadata();
 
@@ -214,7 +275,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         args.add(metadata.username);
         args.add(metadata.full_name);
         args.add(metadata.creation_date);
-        args.add(serded);
+        args.add(bytes);
 
         let _query = sqlx::query_with(query.as_str(), args)
             .execute(conn)
@@ -343,14 +404,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // We must update the CNAC && the sql database
     async fn register_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         peer_username: String,
     ) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
-        log::trace!(target: "citadel", "Registering p2p ({} <-> {}) as client", implicated_cid, peer_cid);
+        log::trace!(target: "citadel", "Registering p2p ({} <-> {}) as client", session_cid, peer_cid);
         let query = self.format("INSERT INTO peers (peer_cid, cid, username) VALUES (?, ?, ?)");
-        let _query = gen_query!(sqlx::query(&query), self, peer_cid, implicated_cid)
+        let _query = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .bind(peer_username)
             .execute(conn)
             .await?;
@@ -372,20 +433,20 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn deregister_p2p_as_client(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let conn = &(self.get_conn().await?);
         let mut tx = conn.begin().await?;
         let query = self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?");
-        let row: Option<AnyRow> = gen_query!(sqlx::query(&query), self, peer_cid, implicated_cid)
+        let row: Option<AnyRow> = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .fetch_optional(tx.deref_mut())
             .await?;
 
         if let Some(row) = row {
             let peer_username = try_get_blob_as_utf8("username", &row)?;
             let query = self.format("DELETE FROM peers WHERE peer_cid = ? AND cid = ?");
-            let _query = gen_query!(sqlx::query(&query), self, peer_cid, implicated_cid)
+            let _query = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
                 .execute(tx.deref_mut())
                 .await?;
             tx.commit().await?;
@@ -402,11 +463,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_list(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let query = self.format("SELECT peer_cid FROM peers WHERE cid = ?");
-        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid)
+        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await?;
 
@@ -423,12 +484,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_client_metadata(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<CNACMetadata>, AccountError> {
         let conn = &(self.get_conn().await?);
-        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid))
         let query = self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1");
-        let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid)
+        let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_optional(conn)
             .await?;
 
@@ -438,7 +499,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             let full_name = try_get_blob_as_utf8("full_name", &query)?;
             let creation_date = try_get_blob_as_utf8("creation_date", &query)?;
             Ok(Some(CNACMetadata {
-                cid: implicated_cid,
+                cid: session_cid,
                 is_personal,
                 username,
                 full_name,
@@ -454,7 +515,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         limit: Option<i32>,
     ) -> Result<Vec<CNACMetadata>, AccountError> {
         let conn = &(self.get_conn().await?);
-        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid))
         let query = if let Some(limit) = limit {
             format!(
                 "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {limit}",
@@ -486,13 +547,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_by_cid(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let conn = &(self.get_conn().await?);
         let query =
             self.format("SELECT username FROM peers WHERE cid = ? AND peer_cid = ? LIMIT 1");
-        let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid, peer_cid)
+        let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .fetch_optional(conn)
             .await?;
 
@@ -513,13 +574,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn hyperlan_peer_exists(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
     ) -> Result<bool, AccountError> {
         let conn = &(self.get_conn().await?);
         let query = self
             .format("SELECT COUNT(*) as count FROM peers WHERE peer_cid = ? AND cid = ? LIMIT 1");
-        let query: AnyRow = gen_query!(sqlx::query(&query), self, peer_cid, implicated_cid)
+        let query: AnyRow = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .fetch_one(conn)
             .await?;
 
@@ -528,7 +589,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn hyperlan_peers_are_mutuals(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<bool>, AccountError> {
         if peers.is_empty() {
@@ -541,7 +602,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let insert = self.construct_arg_insert_any(peers);
 
         let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
-        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid)
+        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await?;
 
@@ -558,7 +619,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peers(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peers: &[u64],
     ) -> Result<Vec<MutualPeer>, AccountError> {
         if peers.is_empty() {
@@ -571,7 +632,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let insert = self.construct_arg_insert_any(peers);
 
         let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
-        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid)
+        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await?;
 
@@ -591,11 +652,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_list_as_server(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
     ) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let query = self.format("SELECT peers.peer_cid, peers.username FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?");
-        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid)
+        let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await?;
         let mut ret = Vec::with_capacity(query.len());
@@ -629,16 +690,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             let conn = &(self.get_conn().await?);
 
             let mut tx = conn.begin().await?;
-            let implicated_cid = cnac.get_cid();
+            let session_cid = cnac.get_cid();
 
             let query = self.format("DELETE FROM peers WHERE cid = ?");
-            let _query = gen_query!(sqlx::query(&query), self, implicated_cid)
+            let _query = gen_query!(sqlx::query(&query), self, session_cid)
                 .execute(tx.deref_mut())
                 .await?;
             for MutualPeer { cid, username, .. } in peers {
                 let query =
                     self.format("INSERT INTO peers (peer_cid, cid, username) VALUES(?, ?, ?)");
-                let _ = gen_query!(sqlx::query(&query), self, cid, implicated_cid)
+                let _ = gen_query!(sqlx::query(&query), self, cid, session_cid)
                     .bind(username.unwrap_or_else(|| "NULL".into()))
                     .execute(tx.deref_mut())
                     .await?;
@@ -652,14 +713,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let query = self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1");
-        let row: Option<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid, peer_cid)
+        let row: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .bind(key)
             .bind(sub_key)
             .fetch_optional(conn)
@@ -678,21 +739,21 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn remove_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
         // TODO: Optimize this into a single step
         if let Some(value) = self
-            .get_byte_map_value(implicated_cid, peer_cid, key, sub_key)
+            .get_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await?
         {
             let conn = &(self.get_conn().await?);
             let query = self.format(
                 "DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ?",
             );
-            let _ = gen_query!(sqlx::query(&query), self, implicated_cid, peer_cid)
+            let _ = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
                 .bind(key)
                 .bind(sub_key)
                 .execute(conn)
@@ -706,7 +767,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn store_byte_map_value(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
         sub_key: &str,
@@ -717,14 +778,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let set_query = self
             .format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)");
 
-        let row: Option<AnyRow> =
-            gen_query!(sqlx::query(&get_query), self, implicated_cid, peer_cid)
-                .bind(key)
-                .bind(sub_key)
-                .fetch_optional(&conn)
-                .await?;
+        let row: Option<AnyRow> = gen_query!(sqlx::query(&get_query), self, session_cid, peer_cid)
+            .bind(key)
+            .bind(sub_key)
+            .fetch_optional(&conn)
+            .await?;
 
-        let _query = gen_query!(sqlx::query(&set_query), self, implicated_cid, peer_cid)
+        let _query = gen_query!(sqlx::query(&set_query), self, session_cid, peer_cid)
             .bind(key)
             .bind(sub_key)
             .bind(value)
@@ -744,14 +804,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let query = self
             .format("SELECT sub_id, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?");
-        let rows: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, implicated_cid, peer_cid)
+        let rows: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .bind(key)
             .fetch_all(conn)
             .await?;
@@ -769,17 +829,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn remove_byte_map_values_by_key(
         &self,
-        implicated_cid: u64,
+        session_cid: u64,
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let values = self
-            .get_byte_map_values_by_key(implicated_cid, peer_cid, key)
+            .get_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
         let conn = &(self.get_conn().await?);
 
         let query = self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?");
-        let _ = gen_query!(sqlx::query(&query), self, implicated_cid, peer_cid)
+        let _ = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .bind(key)
             .execute(conn)
             .await?;
@@ -820,9 +880,8 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
             let bin = row.try_get::<Vec<u8>, _>("bin")?;
-            let cnac_inner =
-                ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
-            Ok(Some(cnac_inner.into()))
+            let cnac_inner = ClientNetworkAccount::<R, Fcm>::deserialize_from_owned_vector(bin)?;
+            Ok(Some(cnac_inner))
         } else {
             Ok(None)
         }
@@ -938,7 +997,7 @@ pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountEr
         }
         AnyTypeInfoKind::Blob => {
             let blob = row.try_get::<Vec<u8>, _>(key)?;
-            let blob = String::from_utf8(blob)?;
+            let blob = String::from_utf8(blob).map_err(|err| AccountError::msg(err.to_string()))?;
             Ok(blob)
         }
         res => Err(AccountError::Generic(format!(
