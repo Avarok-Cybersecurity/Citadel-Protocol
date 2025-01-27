@@ -1,6 +1,6 @@
 [package]
 name = "firebase-rtdb"
-version = "0.11.3"
+version = "0.12.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Firebase client for the Citadel Protocol"
 edition = "2021"

@@ -1,6 +1,6 @@
 [package]
 name = "netbeam"
-version = "0.11.3"
+version = "0.12.0"
 description = "a pure-rust asynchronous network synchronization crate (using tokio) that recreates familiar asynchronous paradigms but in a network context"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 edition = "2021"
