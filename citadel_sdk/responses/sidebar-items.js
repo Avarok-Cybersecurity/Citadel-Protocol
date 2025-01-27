@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["group_invite","peer_connect","peer_register"]};
