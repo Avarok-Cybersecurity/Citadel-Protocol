@@ -23,18 +23,18 @@ exclude = [
 
 [workspace.dependencies]
 # workspace deps
-citadel_sdk = { path = "./citadel_sdk", default-features = false }
-citadel_wire = { path = "./citadel_wire", default-features = false }
-citadel_user = { path = "./citadel_user", default-features = false }
-citadel_crypt = { path = "./citadel_crypt", default-features = false }
-citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false }
-citadel_proto = { path = "./citadel_proto", default-features = false }
-citadel_logging = { path = "./citadel_logging", default-features = false }
-citadel_io = { path = "./citadel_io", default-features = false }
-citadel_types = { path = "./citadel_types", default-features = false }
-netbeam = { path = "./netbeam", default-features = false }
-firebase-rtdb = { path = "./firebase-rtdb", default-features = false }
-async_ip = { path = "./async_ip", default-features = false }
+citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.12.0" }
+citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.12.0" }
+citadel_user = { path = "./citadel_user", default-features = false, version = "0.12.0" }
+citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.12.0" }
+citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, version = "0.12.0" }
+citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.12.0" }
+citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.12.0" }
+citadel_io = { path = "./citadel_io", default-features = false, version = "0.12.0" }
+citadel_types = { path = "./citadel_types", default-features = false, version = "0.12.0" }
+netbeam = { path = "./netbeam", default-features = false, version = "0.12.0" }
+firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.12.0" }
+async_ip = { path = "./async_ip", default-features = false, version = "0.12.0" }
 
 # examples
 citadel-examples = { path = "./example-library", default-features = false }
