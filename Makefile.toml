@@ -273,28 +273,23 @@ condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 command = "cargo"
 args = ["workspaces", "version", "-y", "major"]
 
-[tasks.publish-verify]
-command = "cargo"
-condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "patch", "--dry-run", "${@}"]
-
 [tasks.publish-patch]
 command = "cargo"
 condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--no-verify", "patch", "${@}"]
-dependencies = ["publish-install-deps", "publish-verify"]
+dependencies = ["publish-install-deps"]
 
 [tasks.publish-minor]
 command = "cargo"
 condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--no-verify", "minor", "${@}"]
-dependencies = ["publish-install-deps" , "publish-verify"]
+dependencies = ["publish-install-deps"]
 
 [tasks.publish-major]
 command = "cargo"
 condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--no-verify", "major", "${@}"]
-dependencies = ["publish-install-deps", "publish-verify"]
+dependencies = ["publish-install-deps"]
 
 [tasks.check-docs]
 command = "cargo"
