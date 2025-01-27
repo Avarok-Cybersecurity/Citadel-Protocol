@@ -273,27 +273,32 @@ condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
 command = "cargo"
 args = ["workspaces", "version", "-y", "major"]
 
+[tasks.publish-verify]
+command = "cargo"
+condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "patch", "--dry-run", "${@}"]
+
 [tasks.publish-patch]
 command = "cargo"
 condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "patch", "${@}"]
-dependencies = ["publish-install-deps"]
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--no-verify", "patch", "${@}"]
+dependencies = ["publish-install-deps", "publish-verify"]
 
 [tasks.publish-minor]
 command = "cargo"
 condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "minor", "${@}"]
-dependencies = ["publish-install-deps"]
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--no-verify", "minor", "${@}"]
+dependencies = ["publish-install-deps" , "publish-verify"]
 
 [tasks.publish-major]
 command = "cargo"
 condition = { env_set = ["CARGO_REGISTRY_TOKEN"] }
-args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--allow-dirty", "major", "${@}"]
-dependencies = ["publish-install-deps"]
+args = ["workspaces", "publish", "-y", "--token", "${CARGO_REGISTRY_TOKEN}", "--no-verify", "major", "${@}"]
+dependencies = ["publish-install-deps", "publish-verify"]
 
 [tasks.check-docs]
 command = "cargo"
-args = ["test", "--package", "citadel_sdk", "--doc", "${@}"]
+args = ["test", "--doc", "${@}"]
 
 [tasks.install-cargo-wasix]
 command = "cargo"
