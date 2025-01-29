@@ -1,6 +1,6 @@
 [package]
 name = "citadel_wire"
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "NAT traversal and wire support for the Citadel Protocol"
 edition = "2021"
@@ -46,7 +46,6 @@ either = { workspace = true }
 netbeam = { workspace = true  }
 uuid = { workspace = true, features = ["v4", "serde"] }
 tracing = { workspace = true, optional = true, features = ["attributes"] }
-lazy_static = { workspace = true }
 rustls = { workspace = true }
 socket2 = { workspace = true, features = ["all"] }
 

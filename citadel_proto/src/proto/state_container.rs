@@ -798,7 +798,8 @@ impl<R: Ratchet> StateContainerInner<R> {
         let task_outbound = async move {
             while let Some(ratchet_layer_message) = rx_from_ratchet_manager_to_outbound.recv().await
             {
-                // TODO: Streamline and just send the message here
+                // TODO: Streamline and just send the message here, copying the logic from session.rs where the corresponding
+                // SessionRequest is handled in the spawn_message_sender_function near line
                 if let Err(err) = tx_to_outbound
                     .send(SessionRequest::SendMessage(ratchet_layer_message))
                     .await
