@@ -1099,9 +1099,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
-        log::error!(target: "citadel", "Create_group");
         while let Some(evt) = subscription.next().await {
-            log::error!(target: "citadel", "Create_group {evt:?}");
             if let NodeResult::GroupChannelCreated(GroupChannelCreated {
                 ticket: _,
                 channel,

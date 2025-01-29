@@ -1,6 +1,6 @@
 [package]
 name = "citadel_types"
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Types for the citadel protocol"
 edition = "2021"
