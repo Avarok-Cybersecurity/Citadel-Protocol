@@ -732,7 +732,11 @@ impl<R: Ratchet> CitadelNode<R> {
             )
         };
 
-        let send_error = |ticket_id: Ticket, err: NetworkError| {
+        fn send_error<K: Ratchet>(
+            to_kernel_tx: &UnboundedSender<NodeResult<K>>,
+            ticket_id: Ticket,
+            err: NetworkError,
+        ) -> Result<(), NetworkError> {
             let err = err.into_string();
             if to_kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
@@ -749,9 +753,15 @@ impl<R: Ratchet> CitadelNode<R> {
             } else {
                 Ok(())
             }
-        };
+        }
 
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
+            if let Some(cid) = outbound_request.session_cid() {
+                if cid == 0 {
+                    send_error(&to_kernel_tx, ticket_id, NetworkError::msg(format!("Cannot use zero-cid for outbound requests. Invalid: {outbound_request:?}")))?;
+                    continue;
+                }
+            }
             match outbound_request {
                 NodeRequest::GroupBroadcastCommand(GroupBroadcastCommand {
                     session_cid,
@@ -762,7 +772,7 @@ impl<R: Ratchet> CitadelNode<R> {
                         session_cid,
                         cmd,
                     ) {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -789,11 +799,18 @@ impl<R: Ratchet> CitadelNode<R> {
                         .await
                     {
                         Ok(session) => {
-                            spawn!(session);
+                            let to_kernel_tx = to_kernel_tx.clone();
+                            let task = async move {
+                                if let Err(err) = session.await {
+                                    let _ = send_error(&to_kernel_tx, ticket_id, err);
+                                }
+                            };
+
+                            spawn!(task);
                         }
 
                         Err(err) => {
-                            send_error(ticket_id, err)?;
+                            send_error(&to_kernel_tx, ticket_id, err)?;
                         }
                     }
                 }
@@ -823,18 +840,24 @@ impl<R: Ratchet> CitadelNode<R> {
                         .await
                     {
                         Ok(session) => {
-                            spawn!(session);
+                            let to_kernel_tx = to_kernel_tx.clone();
+                            let task = async move {
+                                if let Err(err) = session.await {
+                                    let _ = send_error(&to_kernel_tx, ticket_id, err);
+                                }
+                            };
+                            spawn!(task);
                         }
 
                         Err(err) => {
-                            send_error(ticket_id, err)?;
+                            send_error(&to_kernel_tx, ticket_id, err)?;
                         }
                     }
                 }
 
                 NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid }) => {
                     if let Err(err) = session_manager.initiate_disconnect(session_cid, ticket_id) {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -844,7 +867,7 @@ impl<R: Ratchet> CitadelNode<R> {
                     if let Err(err) = session_manager
                         .initiate_update_entropy_bank_subroutine(virtual_target, ticket_id)
                     {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -857,7 +880,7 @@ impl<R: Ratchet> CitadelNode<R> {
                         virtual_connection_type,
                         ticket_id,
                     ) {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -875,7 +898,7 @@ impl<R: Ratchet> CitadelNode<R> {
                         )
                         .await
                     {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -895,7 +918,7 @@ impl<R: Ratchet> CitadelNode<R> {
                         SecurityLevel::Standard,
                         transfer_type,
                     ) {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -913,7 +936,7 @@ impl<R: Ratchet> CitadelNode<R> {
                         delete_on_pull,
                         transfer_security_level,
                     ) {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -929,7 +952,7 @@ impl<R: Ratchet> CitadelNode<R> {
                         virtual_dir,
                         security_level,
                     ) {
-                        send_error(ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, err)?;
                     }
                 }
 
@@ -940,7 +963,11 @@ impl<R: Ratchet> CitadelNode<R> {
                             sessions: session_manager.get_active_sessions(),
                         }))
                     {
-                        send_error(ticket_id, NetworkError::Generic(err.to_string()))?;
+                        send_error(
+                            &to_kernel_tx,
+                            ticket_id,
+                            NetworkError::Generic(err.to_string()),
+                        )?;
                     }
                 }
 

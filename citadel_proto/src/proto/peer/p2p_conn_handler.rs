@@ -156,7 +156,7 @@ async fn p2p_conn_handler<R: Ratchet>(
     match p2p_listener.next().await {
         Some(Ok((p2p_stream, _))) => {
             let session = CitadelSession::upgrade_weak(weak)
-                .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
+                .ok_or(NetworkError::InternalError("P2P Session dropped"))?;
 
             handle_p2p_stream(
                 p2p_stream,

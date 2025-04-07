@@ -530,8 +530,9 @@ impl<R: Ratchet> CitadelSession<R> {
         };
 
         if let Err(err) = handle_zero_state.await {
-            log::error!(target: "citadel", "Unable to proceed past session zero-state. Stopping session: {:?}", &err);
-            return Err((err, session_cid.get()));
+            let err =
+                format!("Unable to proceed past session zero-state. Stopping session: {err:?}");
+            return Err((NetworkError::Generic(err), session_cid.get()));
         }
 
         let res = session_future
@@ -674,8 +675,9 @@ impl<R: Ratchet> CitadelSession<R> {
         session: &CitadelSession<R>,
         cnac: &ClientNetworkAccount<R, R>,
     ) -> Result<(), NetworkError> {
-        log::trace!(target: "citadel", "Beginning pre-connect subroutine!");
+        log::trace!(target: "citadel", "Beginning pre-connect subroutine");
         let session_ref = session;
+        session.state.set(SessionState::NeedsConnect);
         let connect_mode = (*inner!(session.connect_mode))
             .ok_or(NetworkError::InternalError("Connect mode not loaded"))?;
         let mut state_container = inner_mut_state!(session_ref.state_container);
@@ -2466,7 +2468,12 @@ impl<R: Ratchet> Drop for CitadelSession<R> {
     fn drop(&mut self) {
         if self.strong_count() == 1 {
             log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
-            self.send_session_dc_signal(None, false, "Session dropped");
+            if self.is_provisional() {
+                log::trace!(target: "citadel", "Provisional session dropped, will not send D/C signal");
+                self.disable_dc_signal();
+            } else {
+                self.send_session_dc_signal(None, false, "Session dropped");
+            }
 
             if self.on_drop.unbounded_send(()).is_err() {
                 //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
