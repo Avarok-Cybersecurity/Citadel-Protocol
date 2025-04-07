@@ -848,7 +848,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     security_level,
                 )
             }) {
-                log::warn!(target: "citadel", "Unable to send signal to peer {}: {}", peer_cid, err.to_string());
+                log::warn!(target: "citadel", "Unable to send signal to peer {peer_cid}: {err}");
             }
         }
 
@@ -881,7 +881,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                             security_level,
                         )
                     }) {
-                        log::warn!(target: "citadel", "Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
+                        log::warn!(target: "citadel", "Unable to send d/c signal to peer {peer_cid}: {err}");
                     }
                 }
             }
@@ -948,7 +948,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let len = to_broadcast_dc.len();
         let peers_and_statuses_dc = to_broadcast_dc
             .into_iter()
-            .zip(std::iter::repeat(true).take(len));
+            .zip(std::iter::repeat_n(true, len));
         let _ = self
             .send_group_broadcast_signal_to(
                 timestamp,
@@ -964,7 +964,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let len = to_broadcast_left.len();
         let peers_and_statuses_left = to_broadcast_left
             .into_iter()
-            .zip(std::iter::repeat(true).take(len));
+            .zip(std::iter::repeat_n(true, len));
         let _ = self
             .send_group_broadcast_signal_to(
                 timestamp,

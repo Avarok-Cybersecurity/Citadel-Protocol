@@ -191,7 +191,7 @@ impl ObjectTransferHandler {
     ///
     /// If the orientation is Receiver, this will return an error
     pub async fn transfer_file(&mut self) -> Result<(), AccountError> {
-        if !matches!(self.orientation, ObjectTransferOrientation::Sender { .. }) {
+        if !matches!(self.orientation, ObjectTransferOrientation::Sender) {
             return Err(AccountError::msg(
                 "Cannot transfer file: orientation is not Sender",
             ));

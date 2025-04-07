@@ -207,7 +207,7 @@ pub async fn process_connect<R: Ratchet>(
                         }
 
                         Err(err) => {
-                            log::error!(target: "citadel", "Error validating stage2 packet. Reason: {}", err.to_string());
+                            log::error!(target: "citadel", "Error validating stage2 packet. Reason: {err}");
                             let fail_time = time_tracker.get_global_time_ns();
 
                             //session.state = SessionState::NeedsConnect;

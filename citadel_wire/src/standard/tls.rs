@@ -190,7 +190,6 @@ pub fn load_native_certs() -> Result<Vec<Certificate<'static>>, Error> {
     Ok(rustls_native_certs::load_native_certs()
         .certs
         .into_iter()
-        .map(Certificate::from)
         .collect())
 }
 

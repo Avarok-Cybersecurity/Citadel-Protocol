@@ -156,7 +156,7 @@ async fn p2p_conn_handler<R: Ratchet>(
     match p2p_listener.next().await {
         Some(Ok((p2p_stream, _))) => {
             let session = CitadelSession::upgrade_weak(weak)
-                .ok_or(NetworkError::InternalError("HdpSession dropped"))?;
+                .ok_or(NetworkError::InternalError("P2P Session dropped"))?;
 
             handle_p2p_stream(
                 p2p_stream,
@@ -275,7 +275,7 @@ fn handle_p2p_stream<R: Ratchet>(
         if let Err(err) = &res {
             // TODO: better error code handling
             if !err.to_string().contains("p2p stopper triggered") {
-                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {err}");
             }
         }
 
