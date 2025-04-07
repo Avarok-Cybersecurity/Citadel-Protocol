@@ -1796,7 +1796,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             if let Err(err) = sess.try_action(Some(ticket), || {
                                 transmitter.transmit_group_header(virtual_target)
                             }) {
-                                log::error!(target: "citadel", "Unable to send through primary stream: {}", err.to_string());
+                                log::error!(target: "citadel", "Unable to send through primary stream: {err}");
                                 return;
                             }
                             let group_byte_len = transmitter.get_total_plaintext_bytes();
