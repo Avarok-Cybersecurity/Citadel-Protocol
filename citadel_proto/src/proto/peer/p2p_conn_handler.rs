@@ -275,7 +275,7 @@ fn handle_p2p_stream<R: Ratchet>(
         if let Err(err) = &res {
             // TODO: better error code handling
             if !err.to_string().contains("p2p stopper triggered") {
-                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {err}");
             }
         }
 

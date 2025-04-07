@@ -1046,7 +1046,7 @@ impl<R: Ratchet> CitadelSession<R> {
             let error = err.raw_os_error().unwrap_or(-1);
             // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
             if error != -1 {
-                log::error!(target: "citadel", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, peer_cid.is_some());
+                log::error!(target: "citadel", "primary port reader error {}: {err}. is server: {}. P2P: {}", error, is_server, peer_cid.is_some());
             }
 
             let err_string = err.to_string();
@@ -1769,7 +1769,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             {
                                 Ok(r) => r.ratchet_manager.get_ratchet(None),
                                 Err(err) => {
-                                    log::error!(target: "citadel", "Unable to get endpoint container: {}", err.to_string());
+                                    log::error!(target: "citadel", "Unable to get endpoint container: {err}");
                                     return;
                                 }
                             };

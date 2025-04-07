@@ -689,7 +689,7 @@ impl<R: Ratchet> CitadelNode<R> {
                 Some(Err(err)) => {
                     const WSACCEPT_ERROR: i32 = 10093;
                     if err.raw_os_error().unwrap_or(-1) != WSACCEPT_ERROR {
-                        log::error!(target: "citadel", "Error accepting stream: {}", err.to_string());
+                        log::error!(target: "citadel", "Error accepting stream: {err}");
                     }
                 }
 

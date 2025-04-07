@@ -403,7 +403,7 @@ pub async fn process_preconnect<R: Ratchet>(
                     ),
 
                     Err(err) => {
-                        log::warn!(target: "citadel", "Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
+                        log::warn!(target: "citadel", "Hole punch attempt failed ({err}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange");
                         // We await the initiator to choose a method
                         let mut state_container = inner_mut_state!(session.state_container);
                         state_container.udp_mode = UdpMode::Disabled;

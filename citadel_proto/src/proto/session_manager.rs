@@ -848,7 +848,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     security_level,
                 )
             }) {
-                log::warn!(target: "citadel", "Unable to send signal to peer {}: {}", peer_cid, err.to_string());
+                log::warn!(target: "citadel", "Unable to send signal to peer {peer_cid}: {err}");
             }
         }
 
@@ -881,7 +881,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                             security_level,
                         )
                     }) {
-                        log::warn!(target: "citadel", "Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
+                        log::warn!(target: "citadel", "Unable to send d/c signal to peer {peer_cid}: {err}");
                     }
                 }
             }
