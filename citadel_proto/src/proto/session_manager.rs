@@ -53,7 +53,7 @@ use crate::auth::AuthenticationRequest;
 use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::macros::{FutureRequirements, SyncContextRequirements};
-use crate::prelude::{Disconnect, PreSharedKey};
+use crate::prelude::Disconnect;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
@@ -76,7 +76,7 @@ use crate::proto::session::{
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::broadcast::Sender;
-use citadel_types::crypto::SecurityLevel;
+use citadel_types::crypto::{PreSharedKey, SecurityLevel};
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;

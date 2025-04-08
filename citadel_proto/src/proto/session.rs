@@ -57,7 +57,7 @@ use crate::constants::{
     LOGIN_EXPIRATION_TIME, REKEY_UPDATE_FREQUENCY_STANDARD,
 };
 use crate::error::NetworkError;
-use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse, PreSharedKey};
+use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 //use futures_codec::Framed;
 use crate::proto::misc;
@@ -105,7 +105,7 @@ use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
-use citadel_types::crypto::{HeaderObfuscatorSettings, SecBuffer, SecurityLevel};
+use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey, SecBuffer, SecurityLevel};
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;

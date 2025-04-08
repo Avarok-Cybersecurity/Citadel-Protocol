@@ -72,6 +72,7 @@ pub mod sync_toggle;
 /// Provides entropy_bank management, update, and versioning. This is what's exposed to the citadel_user api. The entropy_banks themselves are abstracted beneath
 pub mod toolset;
 
+mod crypto;
 /// For secure messaging with concurrent ratcheting operations
 pub mod messaging;
 pub mod ordered_channel;
