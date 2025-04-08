@@ -504,7 +504,6 @@ mod tests {
                 log::info!(target: "citadel", "***CLIENT B {cid} FILE TRANSFER SUCCESS***");
                 // Wait some time for the file to synchronize
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                tokio::time::sleep(Duration::from_secs(1)).await;
                 wait_for_peers().await;
                 // now, pull it
                 let save_dir = crate::fs::read(&remote, virtual_path).await?;

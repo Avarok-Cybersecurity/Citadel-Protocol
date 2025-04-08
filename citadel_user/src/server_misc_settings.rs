@@ -45,7 +45,7 @@ use crate::credentials::CredentialRequirements;
 #[derive(Clone)]
 pub struct ServerMiscSettings {
     /// If enabled, allows inbound connections to use no credentials when logging-in
-    pub allow_passwordless: bool,
+    pub allow_transient_connections: bool,
     /// Enforces specific requirements on credentials
     pub credential_requirements: CredentialRequirements,
 }
@@ -53,7 +53,7 @@ pub struct ServerMiscSettings {
 impl Default for ServerMiscSettings {
     fn default() -> Self {
         Self {
-            allow_passwordless: true,
+            allow_transient_connections: true,
             credential_requirements: Default::default(),
         }
     }

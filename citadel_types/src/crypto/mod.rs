@@ -63,6 +63,7 @@ use bytes::{Bytes, BytesMut};
 use packed_struct::derive::{PackedStruct, PrimitiveEnum_u8};
 use packed_struct::{PackedStruct, PrimitiveEnum};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha3::Digest;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, Deref, DerefMut};
 use strum::{EnumCount, ParseError};
@@ -575,5 +576,34 @@ mod test {
         let a = SecBuffer::from("Hello................");
         let b = SecBuffer::from("World");
         assert_ne!(a, b);
+    }
+}
+
+#[derive(Default, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct PreSharedKey {
+    passwords: Vec<Vec<u8>>,
+}
+
+impl PreSharedKey {
+    /// Adds a password to the session password list. Both connecting nodes
+    /// must have matching passwords in order to establish a connection.
+    /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
+    pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
+        let mut hasher = sha3::Sha3_256::default();
+        hasher.update(password.as_ref());
+        self.passwords.push(hasher.finalize().to_vec());
+        self
+    }
+}
+
+impl AsRef<[Vec<u8>]> for PreSharedKey {
+    fn as_ref(&self) -> &[Vec<u8>] {
+        &self.passwords
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
+    fn from(password: T) -> Self {
+        PreSharedKey::default().add_password(password)
     }
 }
