@@ -1271,14 +1271,14 @@ impl<R: Ratchet> StateContainerInner<R> {
             let is_server = self.is_server;
 
             let task = async move {
-                log::info!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
+                log::debug!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
                 let res = if let Some(start_rx) = start_recv_rx {
                     start_rx.await
                 } else {
                     Ok(true)
                 };
 
-                log::info!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
+                log::debug!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
 
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender

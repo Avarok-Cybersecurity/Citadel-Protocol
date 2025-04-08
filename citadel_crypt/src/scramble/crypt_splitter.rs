@@ -430,6 +430,7 @@ pub struct GroupReceiver {
     packets_received_order: BitVec,
     waves_received: BitVec,
     packets_needed: usize,
+    packets_received: usize,
     last_packet_recv_time: Instant,
     max_payload_size: usize,
     /// All packets will necessarily be the same size, except for the last packet (although, it is possible for it to be the same size)
@@ -623,6 +624,7 @@ impl GroupReceiver {
             unified_plaintext_slab,
             temp_wave_store,
             packets_received_order,
+            packets_received: 0,
             packets_needed: cfg.packets_needed as usize,
             last_packet_recv_time,
             max_payload_size: cfg.max_payload_size as usize,
@@ -658,6 +660,8 @@ impl GroupReceiver {
             };
 
         if !is_received {
+            self.packets_received += 1;
+            log::trace!(target: "citadel", "[FILE TRANSFER] Packet {}/{} received", self.packets_received, self.packets_needed);
             // Now, take the ciphertext and place it into the buffer
             let wave_store = self.temp_wave_store.get_mut(&wave_id);
 
@@ -847,7 +851,6 @@ impl GroupReceiver {
         plaintext: &[u8],
         max_plaintext_wave_length: usize,
     ) -> Range<usize> {
-        // TODO!!!!! remove unwrap
         let plaintext_length = plaintext.len();
         let start_idx = wave_id as usize * max_plaintext_wave_length;
         let end_idx = start_idx + plaintext_length;

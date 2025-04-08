@@ -485,7 +485,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         let chunk_size = sink_metadata.plaintext_length.min(MAX_BYTES_PER_GROUP);
 
-        log::info!(target: "citadel", "Will stream object to {file_path:?}");
+        log::debug!(target: "citadel", "Will stream object to {file_path:?}");
         let file = tokio::fs::File::create(&file_path)
             .await
             .map_err(|err| AccountError::IoError(err.to_string()))?;
@@ -499,7 +499,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let mut writer = tokio::io::BufWriter::new(file);
         let reader = citadel_io::tokio_util::io::StreamReader::new(
             citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(source).map(|r| {
-                log::trace!(target: "citadel", "Received {} byte chunk", r.len());
+                log::debug!(target: "citadel", "Received {} byte chunk", r.len());
                 size += r.len();
                 Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>
             }),

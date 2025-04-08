@@ -41,7 +41,7 @@ pub struct RegisterState<R: Ratchet> {
     pub(crate) constructor: Option<R::Constructor>,
     pub(crate) created_ratchet: Option<R>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) passwordless: Option<bool>,
+    pub(crate) transient_mode: Option<bool>,
 }
 
 impl<R: Ratchet> Default for RegisterState<R> {
@@ -51,7 +51,7 @@ impl<R: Ratchet> Default for RegisterState<R> {
             constructor: None,
             created_ratchet: None,
             last_packet_time: None,
-            passwordless: None,
+            transient_mode: None,
         }
     }
 }

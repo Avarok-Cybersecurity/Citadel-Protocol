@@ -271,5 +271,8 @@ pub mod test_common;
 
 #[macro_use]
 pub(crate) mod macros;
+
+pub use citadel_logging as logging;
 /// Convenience for SDK users
 pub use citadel_proto::prelude::async_trait;
+pub use citadel_types as types;

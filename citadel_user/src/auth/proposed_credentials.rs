@@ -240,7 +240,7 @@ impl ProposedCredentials {
     ) -> Result<DeclaredAuthenticationMode, AccountError> {
         match self {
             Self::Disabled { .. } => {
-                if server_misc_settings.allow_passwordless {
+                if server_misc_settings.allow_transient_connections {
                     Ok(self.into_auth_store())
                 } else {
                     Err(AccountError::msg(
