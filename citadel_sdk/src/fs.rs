@@ -157,7 +157,7 @@ mod tests {
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Kyber,
+        EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]

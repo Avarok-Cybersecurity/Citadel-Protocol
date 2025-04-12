@@ -14,6 +14,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 serde = { workspace = true, features = ["derive"]}
 strum = { workspace = true, features = ["derive"] }
+strum_macros = { workspace = true }
 bytes = { workspace = true, features = ["serde"] }
 twox-hash = { workspace = true }
 packed_struct = { workspace = true, features = ["serde"] }

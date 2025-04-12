@@ -210,7 +210,7 @@ mod tests {
         const HEADER_LEN: usize = 50;
 
         let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::Kyber;
+        let encryption_algorithm = EncryptionAlgorithm::KyberHybrid;
         let signature_algorithm = SigAlgorithm::Falcon1024;
 
         let (alice_container, bob_container) = gen(
@@ -415,7 +415,7 @@ mod tests {
             if algorithm == KemAlgorithm::Kyber {
                 run::<Vec<u8>>(
                     algorithm.as_u8(),
-                    EncryptionAlgorithm::Kyber,
+                    EncryptionAlgorithm::KyberHybrid,
                     SigAlgorithm::Falcon1024,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -430,7 +430,7 @@ mod tests {
         citadel_logging::setup_log();
         run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
-            EncryptionAlgorithm::Kyber,
+            EncryptionAlgorithm::KyberHybrid,
             SigAlgorithm::Falcon1024,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn test_bad_crypto_params() {
-        let bad_params = EncryptionAlgorithm::Kyber + KemAlgorithm::Kyber;
+        let bad_params = EncryptionAlgorithm::KyberHybrid + KemAlgorithm::Kyber;
         assert!(validate_crypto_params(&bad_params).is_err());
     }
 }
