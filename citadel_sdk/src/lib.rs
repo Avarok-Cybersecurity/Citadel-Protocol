@@ -38,10 +38,10 @@
 //! - AES-256-GCM
 //! - Chacha20Poly-1305
 //! - Ascon-80pq
-//! - Kyber "scramcryption" (see below for explanation)
+//! - Kyber Hybrid Encryption (see below for explanation)
 //!
 //! Whereas AES-GCM and ChaCha are only quantum resistant (as opposed to post-quantum), a novel method of encryption may be used that
-//! combines the post-quantum asymmetric encryption algorithm Kyber coupled with AES. When Kyber "scramcryption" is used, several modifications to the protocol outlined in the whitepaper
+//! combines the post-quantum asymmetric encryption algorithm Kyber coupled with AES. When Kyber Hybrid Encryption is used, several modifications to the protocol outlined in the whitepaper
 //! is applied. The first modification is the use of Falcon-1024 to sign each message to ensure non-repudiation. The second modification is more complex. Ciphertext is first encrypted by AES-GCM, then, randomly shifted using modular arithmetic
 //! in 32-byte blocks using a 32-byte long quasi one-time pad (OTP). The OTP is unique for each ciphertext, and, is appended at the end of the ciphertext in encrypted form (using Kyber1024 encryption). Even if the attacker uses Grover's algorithm to
 //! discover the AES key, the attacker would also have to break the lattice-based Kyber cryptography in order to properly order
@@ -155,7 +155,7 @@
 //! ## Remote Encrypted Virtual Filesystem (RE-VFS)
 //! The RE-VFS allows clients, servers, and peers to treat each other as remote endpoints for encrypted file storage.
 //! Since encrypting data locally using a symmetric key poses a vulnerability if the local node is compromised, The
-//! Citadel Protocol solves this issue by using a local 1024-Kyber public key to encrypt the data (via Kyber scramcryption for
+//! Citadel Protocol solves this issue by using a local 1024-Kyber public key to encrypt the data (via Kyber Hybrid Encryption for
 //! keeping the data size to a minimum), then, sending the contents to the adjacent endpoint. By doing this, the private decryption
 //! key and the contents are kept separate, forcing the hacker to compromise both endpoints.
 //!

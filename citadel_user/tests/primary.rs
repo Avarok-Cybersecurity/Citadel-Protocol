@@ -583,6 +583,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_byte_map_local() -> Result<(), AccountError> {
+        test_harness(|_container, pers_cl, _pers_se| async move {
+            let dummy = Vec::from("Hello, world!");
+
+            assert!(pers_cl
+                .store_byte_map_value(0, 0, "thekey", "sub_key", dummy.clone())
+                .await
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                pers_cl
+                    .get_byte_map_value(0, 0, "thekey", "sub_key")
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                dummy.clone()
+            );
+            assert_eq!(
+                pers_cl
+                    .get_byte_map_values_by_key(0, 0, "thekey")
+                    .await
+                    .unwrap()
+                    .remove("sub_key")
+                    .unwrap(),
+                dummy.clone()
+            );
+            assert_eq!(
+                pers_cl
+                    .remove_byte_map_value(0, 0, "thekey", "sub_key")
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                dummy.clone()
+            );
+            assert!(pers_cl
+                .remove_byte_map_value(0, 0, "thekey", "sub_key")
+                .await
+                .unwrap()
+                .is_none());
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
     async fn test_byte_map2() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, _pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
