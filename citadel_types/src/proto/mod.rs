@@ -1,9 +1,11 @@
 use crate::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
 use crate::prelude::HeaderObfuscatorSettings;
 use crate::utils;
+use packed_struct::derive::PrimitiveEnum_u8;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
+use strum::VariantNames;
 use uuid::Uuid;
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
@@ -164,11 +166,31 @@ pub struct SessionSecuritySettings {
     pub header_obfuscator_settings: HeaderObfuscatorSettings,
 }
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Default)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Default,
+    PrimitiveEnum_u8,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::EnumCount,
+    strum_macros::VariantNames,
+)]
 pub enum UdpMode {
-    Enabled,
     #[default]
     Disabled,
+    Enabled,
+}
+
+impl UdpMode {
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

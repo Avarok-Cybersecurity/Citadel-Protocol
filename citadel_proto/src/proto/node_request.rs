@@ -28,12 +28,10 @@ use crate::auth::AuthenticationRequest;
 use crate::prelude::{GroupBroadcast, PeerSignal, VirtualTargetType};
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
-use citadel_types::crypto::SecurityLevel;
+use citadel_types::crypto::{PreSharedKey, SecurityLevel};
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{ConnectMode, SessionSecuritySettings, UdpMode};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
-use serde::{Deserialize, Serialize};
-use sha3::Digest;
 use std::fmt::{Debug, Formatter};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -158,34 +156,5 @@ impl NodeRequest {
 impl Debug for NodeRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeRequest")
-    }
-}
-
-#[derive(Default, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub struct PreSharedKey {
-    passwords: Vec<Vec<u8>>,
-}
-
-impl PreSharedKey {
-    /// Adds a password to the session password list. Both connecting nodes
-    /// must have matching passwords in order to establish a connection.
-    /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
-    pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
-        let mut hasher = sha3::Sha3_256::default();
-        hasher.update(password.as_ref());
-        self.passwords.push(hasher.finalize().to_vec());
-        self
-    }
-}
-
-impl AsRef<[Vec<u8>]> for PreSharedKey {
-    fn as_ref(&self) -> &[Vec<u8>] {
-        &self.passwords
-    }
-}
-
-impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
-    fn from(password: T) -> Self {
-        PreSharedKey::default().add_password(password)
     }
 }

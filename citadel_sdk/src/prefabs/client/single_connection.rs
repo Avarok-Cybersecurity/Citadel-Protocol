@@ -61,6 +61,7 @@ use crate::remote_ext::CitadelClientServerConnection;
 use crate::remote_ext::ProtocolRemoteExt;
 use citadel_io::Mutex;
 use citadel_proto::prelude::*;
+use citadel_types::crypto::PreSharedKey;
 use futures::Future;
 use std::marker::PhantomData;
 use std::net::SocketAddr;

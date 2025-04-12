@@ -60,7 +60,7 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::{InternalServerError, PreSharedKey, ReKeyResult, ReKeyReturnType};
+use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
@@ -98,8 +98,8 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::unbounded_channel;
 use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
 use citadel_io::{tokio, Mutex};
-use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::crypto::{PreSharedKey, SecBuffer};
 use citadel_types::prelude::ObjectId;
 use citadel_types::proto::{
     MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
@@ -1271,14 +1271,14 @@ impl<R: Ratchet> StateContainerInner<R> {
             let is_server = self.is_server;
 
             let task = async move {
-                log::info!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
+                log::debug!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
                 let res = if let Some(start_rx) = start_recv_rx {
                     start_rx.await
                 } else {
                     Ok(true)
                 };
 
-                log::info!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
+                log::debug!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
 
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender

@@ -91,6 +91,7 @@
 //!
 
 use crate::auth::proposed_credentials::ProposedCredentials;
+use crate::auth::DeclaredAuthenticationMode;
 use crate::backend::memory::MemoryBackend;
 use crate::backend::{BackendType, PersistenceHandler};
 use crate::client_account::ClientNetworkAccount;
@@ -188,6 +189,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             server_misc_settings: server_misc_settings.unwrap_or_default(),
         };
 
+        // Allow the local node to use the backend to store arbitrary data
+        this.setup_local_only_account().await?;
+
         Ok(this)
     }
 
@@ -209,6 +213,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let reserved_cid = self
             .persistence_handler
             .get_cid_by_username(creds.username());
+
+        if reserved_cid == 0 {
+            return Err(AccountError::Generic(
+                "Cannot call register_impersonal_hyperlan_client_network_account with a CID of 0"
+                    .to_string(),
+            ));
+        }
+
         let auth_store = creds
             .derive_server_container(&self.node_argon_settings, self.get_misc_settings())
             .await?;
@@ -237,7 +249,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             false,
             conn_info,
             auth_store,
-            session_crypto_state,
+            Some(session_crypto_state),
         )
         .await?;
         log::trace!(target: "citadel", "Created impersonal CNAC ...");
@@ -257,10 +269,17 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let valid_cid = self
             .persistence_handler
             .get_cid_by_username(creds.username());
+
+        if valid_cid == 0 {
+            return Err(AccountError::Generic(
+                "Cannot call register_personal_hyperlan_server with a CID of 0".to_string(),
+            ));
+        }
+
         let client_auth_store = creds.into_auth_store();
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             valid_cid,
-            session_crypto_state,
+            Some(session_crypto_state),
             client_auth_store,
             conn_info,
         )
@@ -268,6 +287,28 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         self.persistence_handler.save_cnac(&cnac).await?;
 
         Ok(cnac)
+    }
+
+    /// Sets up a local-only account that should only be accessed by a local handle. Network requests
+    /// to the zero CID will be rejected by the networking layer to deter any malicious behavior. However,
+    /// it is highly advisable to independently use and store an encryption key outside of the local program such
+    /// that all stored data is encrypted in case of attack. This function needs to be used with caution.
+    async fn setup_local_only_account(&self) -> Result<(), AccountError> {
+        // Setup mock CNAC
+        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
+            0,
+            None,
+            DeclaredAuthenticationMode::Transient {
+                username: Default::default(),
+                full_name: Default::default(),
+            },
+            ConnectionInfo::new("127.0.0.1:12345").expect("Should be valid addr"),
+        )
+        .await?;
+
+        self.persistence_handler.save_cnac(&cnac).await?;
+
+        Ok(())
     }
 
     /// Determines if the HyperLAN client is registered

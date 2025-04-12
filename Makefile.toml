@@ -80,23 +80,13 @@ command = "choco"
 args = ["install", "-y", "llvm", "openssl", "cmake"]
 
 [tasks.docs]
-script_runner = "@rust"
-env = { "CARGO_MAKE_RUST_SCRIPT_PROVIDER" = "cargo-script" }
+script_runner = "@duckscript"
 dependencies = ["docs-html"]
 script = '''
-//! ```cargo
-fn main() {
-    std::fs::copy(
-        "./resources/avarok.png",
-        "./target/doc/citadel_sdk/avarok.png",
-    )
-    .expect("Failed to copy crate logo when building documentation.");
-    std::fs::copy(
-        "./resources/favicon.png",
-        "./target/doc/citadel_sdk/favicon.png",
-    )
-    .expect("Failed to copy crate favicon when building documentation.");
-}
+# Copy logo
+cp ./resources/avarok.png ./target/doc/citadel_sdk/avarok.png
+# Copy favicon
+cp ./resources/favicon.png ./target/doc/citadel_sdk/favicon.png
 '''
 
 [tasks.install-llvm-tools]
