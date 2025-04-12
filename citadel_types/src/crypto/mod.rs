@@ -67,7 +67,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha3::Digest;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, Deref, DerefMut};
-use strum::{EnumCount, IntoEnumIterator, ParseError};
+use strum::{EnumCount, IntoEnumIterator, ParseError, VariantNames};
 use uuid::Uuid;
 
 pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
@@ -349,6 +349,7 @@ impl TryFrom<u8> for CryptoParameters {
     strum::EnumString,
     strum::EnumIter,
     strum::EnumCount,
+    strum_macros::VariantNames,
 )]
 pub enum EncryptionAlgorithm {
     #[default]
@@ -359,8 +360,8 @@ pub enum EncryptionAlgorithm {
 }
 
 impl EncryptionAlgorithm {
-    pub fn variants() -> Vec<Self> {
-        Self::iter().collect()
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
     }
 }
 
@@ -377,6 +378,7 @@ impl EncryptionAlgorithm {
     strum::EnumString,
     strum::EnumIter,
     strum::EnumCount,
+    strum_macros::VariantNames,
 )]
 pub enum SecrecyMode {
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
@@ -387,8 +389,8 @@ pub enum SecrecyMode {
 }
 
 impl SecrecyMode {
-    pub fn variants() -> Vec<Self> {
-        Self::iter().collect()
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
     }
 }
 
@@ -429,8 +431,8 @@ pub enum KemAlgorithm {
 }
 
 impl KemAlgorithm {
-    pub fn variants() -> Vec<Self> {
-        Self::iter().collect()
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
     }
 }
 
@@ -456,8 +458,8 @@ pub enum SigAlgorithm {
 }
 
 impl SigAlgorithm {
-    pub fn variants() -> Vec<Self> {
-        Self::iter().collect()
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
     }
 }
 
