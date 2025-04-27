@@ -323,7 +323,7 @@ impl GenericNetworkListener {
                         }
                     }
                     Err(err) => {
-                        log::warn!(target: "citadel", "TLS Stream died: {err:?}")
+                        log::debug!(target: "citadel", "TLS Stream died: {err:?}")
                     }
                 }
             }
