@@ -157,7 +157,7 @@ mod tests {
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Kyber,
+        EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
         SigAlgorithm::Falcon1024
     )]
@@ -503,7 +503,6 @@ mod tests {
                 .await?;
                 log::info!(target: "citadel", "***CLIENT B {cid} FILE TRANSFER SUCCESS***");
                 // Wait some time for the file to synchronize
-                tokio::time::sleep(Duration::from_secs(1)).await;
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 wait_for_peers().await;
                 // now, pull it

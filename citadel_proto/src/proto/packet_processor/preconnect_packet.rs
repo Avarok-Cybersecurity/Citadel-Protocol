@@ -45,6 +45,7 @@ use crate::proto::state_container::{StateContainerInner, VirtualTargetType};
 use citadel_types::proto::UdpMode;
 
 use super::includes::*;
+use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
@@ -77,8 +78,9 @@ pub async fn process_preconnect<R: Ratchet>(
     let task = async move {
         let session = &session;
         let (header_main, payload) = return_if_none!(packet.parse(), "Unable to parse packet");
-        let header = header_main;
+        let header = header_main.clone();
         let security_level = header.security_level.into();
+        let ticket = Ticket::from(header.context_info.get());
 
         match header.cmd_aux {
             packet_flags::cmd::aux::do_preconnect::SYN => {
@@ -94,18 +96,10 @@ pub async fn process_preconnect<R: Ratchet>(
                     .session_manager
                     .session_active(header.session_cid.get());
                 let account_manager = session.account_manager.clone();
-                let header_if_err_occurs = header.clone();
-
-                let error = |err: NetworkError| {
-                    let packet = packet_crafter::pre_connect::craft_halt(
-                        &header_if_err_occurs,
-                        err.into_string(),
-                    );
-                    Ok(PrimaryProcessorResult::ReplyToSender(packet))
-                };
 
                 if session_already_active {
-                    return error(NetworkError::InvalidRequest("Session Already Connected"));
+                    const REASON: &str = "Session Already Connected";
+                    return send_error_and_end_session(&header, None, REASON);
                 }
 
                 if let Some(cnac) = account_manager
@@ -132,6 +126,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             new_ratchet,
                         )) => {
                             session.adjacent_nat_type.set_once(Some(nat_type));
+                            session.kernel_ticket.set(ticket);
                             state_container.pre_connect_state.generated_ratchet = Some(new_ratchet);
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level();
@@ -154,6 +149,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                 session.local_nat_type.clone(),
                                 timestamp,
                                 security_level,
+                                ticket,
                             );
 
                             state_container.udp_mode = udp_mode;
@@ -168,15 +164,16 @@ pub async fn process_preconnect<R: Ratchet>(
                         }
 
                         Err(err) => {
-                            log::error!(target: "citadel", "Invalid SYN packet received: {:?}", &err);
-                            error(err)
+                            const REASON: &str = "Invalid SYN Packet received. Bad PSK or keys?";
+                            send_error_and_end_session(&header, Some(err), REASON)
                         }
                     }
                 } else {
+                    const REASON: &str = "CID not registered to this node";
                     let bad_cid = header.session_cid.get();
-                    let error = format!("CID {bad_cid} is not registered to this node");
-                    let packet = packet_crafter::pre_connect::craft_halt(&header, error);
-                    Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                    let error_message = format!("CID {bad_cid} is not registered to this node");
+                    let error = NetworkError::Generic(error_message);
+                    send_error_and_end_session(&header, Some(error), REASON)
                 }
             }
 
@@ -221,6 +218,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                         timestamp,
                                         local_node_type,
                                         security_level,
+                                        ticket,
                                     );
                                 state_container.pre_connect_state.last_stage =
                                     packet_flags::cmd::aux::do_preconnect::SUCCESS;
@@ -244,6 +242,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                     security_level,
                                     session_cid,
                                     &mut state_container,
+                                    ticket,
                                 );
                             }
 
@@ -253,6 +252,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                     timestamp,
                                     local_node_type,
                                     security_level,
+                                    ticket,
                                 );
                             let to_primary_stream = return_if_none!(
                                 session.to_primary_stream.clone(),
@@ -269,8 +269,9 @@ pub async fn process_preconnect<R: Ratchet>(
                             );
                             (stream, new_ratchet)
                         } else {
-                            log::error!(target: "citadel", "Invalid SYN_ACK");
-                            return Ok(PrimaryProcessorResult::Void);
+                            const REASON: &str =
+                                "Invalid SYN_ACK Packet received. Bad PSK or keys?";
+                            return send_error_and_end_session(&header, None, REASON);
                         }
                     } else {
                         log::error!(target: "citadel", "Expected stage SYN_ACK, but local state was not valid");
@@ -302,6 +303,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             security_level,
                             session_cid,
                             &mut inner_mut_state!(session.state_container),
+                            ticket,
                         )
                     }
 
@@ -314,6 +316,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             security_level,
                             session_cid,
                             &mut inner_mut_state!(session.state_container),
+                            ticket,
                         )
                     }
                 }
@@ -352,6 +355,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                     &ratchet,
                                     timestamp,
                                     security_level,
+                                    ticket,
                                 );
                                 return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                             } // .. otherwise, continue logic below to punch a hole through the firewall
@@ -371,8 +375,9 @@ pub async fn process_preconnect<R: Ratchet>(
                             );
                             (ratchet, stream)
                         } else {
-                            log::error!(target: "citadel", "Unable to validate stage 0 packet");
-                            return Ok(PrimaryProcessorResult::Void);
+                            const REASON: &str =
+                                "Invalid STAGE0 Packet received. Bad PSK, keys, or serialization?";
+                            return send_error_and_end_session(&header, None, REASON);
                         }
                     } else {
                         log::error!(target: "citadel", "Packet state 0, last stage not 0. Dropping");
@@ -448,6 +453,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             &ratchet,
                             timestamp,
                             security_level,
+                            ticket,
                         );
                         return Ok(PrimaryProcessorResult::ReplyToSender(begin_connect));
                     }
@@ -474,7 +480,6 @@ pub async fn process_preconnect<R: Ratchet>(
                             .ticket
                             .unwrap_or_else(|| session.kernel_ticket.get());
                         drop(state_container);
-                        //session.needs_close_message.set(false);
                         session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
                             ticket,
                             cid_opt: Some(cnac.get_cid()),
@@ -488,6 +493,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             &ratchet,
                             timestamp,
                             security_level,
+                            ticket,
                         );
                         Ok(PrimaryProcessorResult::ReplyToSender(begin_connect))
                     }
@@ -515,7 +521,7 @@ pub async fn process_preconnect<R: Ratchet>(
                         state_container.pre_connect_state.success = true;
                         std::mem::drop(state_container);
                         // now, begin stage 0 connect
-                        begin_connect_process(session, &ratchet, security_level)
+                        begin_connect_process(session, &ratchet, security_level, ticket)
                     } else {
                         log::error!(target: "citadel", "Unable to validate success_ack packet. Dropping");
                         Ok(PrimaryProcessorResult::Void)
@@ -535,7 +541,6 @@ pub async fn process_preconnect<R: Ratchet>(
                     cid_opt: Some(header.session_cid.get()),
                     error_message: message,
                 }))?;
-                //session.needs_close_message.set(false);
                 Ok(PrimaryProcessorResult::EndSession(
                     "Preconnect signalled to halt",
                 ))
@@ -555,8 +560,9 @@ fn begin_connect_process<R: Ratchet>(
     session: &CitadelSession<R>,
     ratchet: &R,
     security_level: SecurityLevel,
+    ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    // at this point, the session keys have already been re-established. We just need to begin the login stage
+    // At this point, the session keys have already been re-established. We just need to begin the login stage
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
     let proposed_credentials = return_if_none!(
@@ -570,6 +576,7 @@ fn begin_connect_process<R: Ratchet>(
         timestamp,
         security_level,
         session.account_manager.get_backend_type(),
+        ticket,
     );
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container
@@ -590,6 +597,7 @@ fn send_success_as_initiator<R: Ratchet>(
     security_level: SecurityLevel,
     session_cid: u64,
     state_container: &mut StateContainerInner<R>,
+    ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let _ = handle_success_as_receiver(udp_splittable, session, session_cid, state_container)?;
 
@@ -599,6 +607,7 @@ fn send_success_as_initiator<R: Ratchet>(
         false,
         session.time_tracker.get_global_time_ns(),
         security_level,
+        ticket,
     );
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
@@ -706,6 +715,26 @@ fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
 fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpSplittableTypes {
     log::trace!(target: "citadel", "Will use QUIC UDP for UDP transmission");
     UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(quic_conn, local_addr))
+}
+
+pub fn send_error_and_end_session(
+    header: &HdpHeader,
+    err: Option<NetworkError>,
+    reason: &'static str,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let err = if let Some(err) = err {
+        format!("{reason}: {err}")
+    } else {
+        reason.to_string()
+    };
+
+    log::error!(target: "citadel", "{err}");
+
+    let packet = packet_crafter::pre_connect::craft_halt(header, err);
+
+    Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+        packet, reason,
+    ))
 }
 
 #[cfg(test)]

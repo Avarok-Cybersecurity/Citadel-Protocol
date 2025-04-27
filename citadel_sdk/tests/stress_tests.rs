@@ -307,7 +307,7 @@ mod tests {
         #[case] secrecy_mode: SecrecyMode,
         #[case] server_password: Option<&'static str>,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
-        #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
+        #[values(EncryptionAlgorithm::KyberHybrid)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);

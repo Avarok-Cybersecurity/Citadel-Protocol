@@ -472,7 +472,7 @@ impl PostQuantumContainer {
     }
 
     fn get_decryption_key(&self) -> Option<&dyn AeadModule> {
-        if let EncryptionAlgorithm::Kyber = self.params.encryption_algorithm {
+        if let EncryptionAlgorithm::KyberHybrid = self.params.encryption_algorithm {
             // use multi-modal asymmetric + symmetric ratcheted encryption
             // alice's key is in alice, bob's key is in bob. Thus, use encryption key
             self.get_encryption_key()
@@ -1145,7 +1145,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
         match self {
             Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
             Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
-            Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
+            Self::KyberHybrid => KYBER_NONCE_LENGTH_BYTES,
             Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
         }
     }
@@ -1159,7 +1159,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             // Add 32 for internal apendees
-            Self::Kyber => {
+            Self::KyberHybrid => {
                 const LENGTH_FIELD: usize = 8;
                 let signature_len = functions::signature_bytes();
 
@@ -1183,7 +1183,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::AES_GCM_256 => Some(ciphertext.len() - 16),
             Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
             Self::Ascon80pq => Some(ciphertext.len() - 16),
-            Self::Kyber => kyber_pke::plaintext_len(ciphertext),
+            Self::KyberHybrid => kyber_pke::plaintext_len(ciphertext),
         }
     }
 }

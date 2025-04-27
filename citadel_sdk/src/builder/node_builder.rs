@@ -40,7 +40,7 @@ use citadel_proto::prelude::*;
 use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::macros::{ContextRequirements, LocalContextRequirements};
 use citadel_proto::re_imports::RustlsClientConfig;
-use citadel_types::crypto::HeaderObfuscatorSettings;
+use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey};
 use futures::Future;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
