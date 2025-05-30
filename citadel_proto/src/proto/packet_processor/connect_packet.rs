@@ -82,16 +82,16 @@ pub async fn process_connect<R: Ratchet>(
                 .ok_or(NetworkError::InternalError("Could not get proper HR [connect]"))?;
             let cnac = state_container.cnac.clone()
                 .ok_or(NetworkError::InternalError("CNAC missing"))?;
-            
+
             let (header_bytes, payload_bytes, _, _) = packet.decompose_arc(); // Assuming decompose_arc or similar for owned parts
             (hr, cnac, header_bytes, payload_bytes)
         };
 
         // AEAD validation
-        let (validated_header_ref, validated_payload, validated_ratchet) = 
+        let (validated_header_ref, validated_payload, validated_ratchet) =
             validation::aead::validate(hr, &initial_header_bytes, BytesMut::from(&initial_payload_bytes[..]))
             .ok_or(NetworkError::InternalError("Unable to validate connect packet (AEAD)"))?;
-        
+
         // We need to return owned data from the blocking task
         let owned_header = parsed_header_from_ref(&validated_header_ref); // Helper needed
 
@@ -109,7 +109,7 @@ pub async fn process_connect<R: Ratchet>(
             // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
             packet_flags::cmd::aux::do_connect::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 0 CONNECT PACKET");
-                
+
                 // validate_stage0_packet is async, so it's called outside spawn_blocking here
                 // but it needs to handle its own internal blocking calls if any
                 match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
@@ -132,7 +132,7 @@ pub async fn process_connect<R: Ratchet>(
                                 .file_transfer_compatible
                                 .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
                             let cid = ratchet_clone_for_blocking.get_cid();
-                            
+
                             state_container.connect_state.last_stage =
                                 packet_flags::cmd::aux::do_connect::SUCCESS;
                             state_container.connect_state.fail_time = None;
@@ -152,7 +152,7 @@ pub async fn process_connect<R: Ratchet>(
                             let session_security_settings = state_container
                                 .session_security_settings
                                 .expect("Should be set");
-                            
+
                             // Upgrade connection (synchronous, uses lock on session_manager)
                             if !session_clone_for_blocking.session_manager.upgrade_connection(remote_peer_addr, cid) {
                                 // Cannot directly return Ok(PrimaryProcessorResult...) from spawn_blocking if it needs to be async reply
@@ -181,7 +181,7 @@ pub async fn process_connect<R: Ratchet>(
                             #[cfg(not(feature = "google-services"))]
                             let post_login_object =
                                 citadel_user::external_services::ServicesObject::default();
-                            
+
                             let success_time = session.time_tracker.get_global_time_ns(); // Access non-locking field or pass from sync block
 
                             let success_packet =
@@ -196,9 +196,9 @@ pub async fn process_connect<R: Ratchet>(
                                     security_level, // Original security_level
                                     session.account_manager.get_backend_type(),
                                 );
-                            
+
                             // These are now safe as they are on the original session Arc after await
-                            session.session_cid.set(Some(cid)); 
+                            session.session_cid.set(Some(cid));
                             session.state.set(SessionState::Connected);
 
                             let cxn_type =
@@ -215,7 +215,7 @@ pub async fn process_connect<R: Ratchet>(
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
                             });
-                            
+
                             // This lock needs to be async or also in spawn_blocking if it's blocking
                             let session_clone_for_signal = session.clone();
                             tokio::task::spawn_blocking(move || {
@@ -225,7 +225,7 @@ pub async fn process_connect<R: Ratchet>(
                                     .unwrap()
                                     .channel_signal = Some(channel_signal);
                             }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for channel_signal set failed: {}", e)))?;
-                            
+
                             Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
                         }).await
                     }
@@ -296,7 +296,7 @@ pub async fn process_connect<R: Ratchet>(
                 // This whole block is complex, involving async calls and sync lock access.
                 // It needs careful sequential application of spawn_blocking for its synchronous parts.
                 // The original structure was: read state -> validate (sync, CPU) -> update state (sync) -> IO (async) -> update state (sync)
-                
+
                 let session_clone_success_outer = session.clone();
                 let cnac_clone_outer = cnac.clone();
                 let ratchet_clone_outer = ratchet.clone();
@@ -305,7 +305,7 @@ pub async fn process_connect<R: Ratchet>(
 
                 // Task for validation and initial state updates (synchronous part)
                 let (
-                    message, kernel_ticket_val, cid, use_ka, connect_mode_val, 
+                    message, kernel_ticket_val, cid, use_ka, connect_mode_val,
                     udp_channel_rx, channel, session_security_settings_val,
                     addr_val, is_personal_val, mailbox_delivery_val, peers_val,
                     backend_type_val, success_time_val
@@ -328,7 +328,7 @@ pub async fn process_connect<R: Ratchet>(
 
                     let validated_payload = validation::do_connect::validate_final_status_packet(&payload_clone_outer)
                         .ok_or(NetworkError::InvalidPacket("Invalid SUCCESS packet; deserialization/validation failed"))?;
-                    
+
                     let msg = String::from_utf8(validated_payload.message.to_vec())
                         .unwrap_or_else(|_| String::from("Invalid message"));
                     let kt = session_clone_success_outer.kernel_ticket.get();
@@ -344,7 +344,7 @@ pub async fn process_connect<R: Ratchet>(
                         &cnac_clone_outer, kt, header_clone_outer.session_cid.get(), &session_clone_success_outer
                     );
                     let sss = state_container.session_security_settings.expect("Should be set");
-                    
+
                     // Release state_container lock before other potentially locking session operations
                     drop(state_container);
 
@@ -353,7 +353,7 @@ pub async fn process_connect<R: Ratchet>(
                         return Err(NetworkError::InternalError("Unable to upgrade from a provisional to a protected connection (Client)"));
                     }
                     session_clone_success_outer.state.set(SessionState::Connected);
-                    
+
                     let s_addr = session_clone_success_outer.remote_peer;
                     let s_is_personal = !session_clone_success_outer.is_server;
                     let s_backend_type = session_clone_success_outer.account_manager.get_backend_type();
@@ -361,7 +361,7 @@ pub async fn process_connect<R: Ratchet>(
 
                     Ok((msg, kt, r_cid, ka, cm, udp_rx, ch, sss, s_addr, s_is_personal, validated_payload.mailbox, validated_payload.peers, s_backend_type, s_success_time, validated_payload.post_login_object))
                 }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for SUCCESS validation/state update failed: {}", e)))??;
-                
+
                 log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", &message);
 
                 let success_ack = packet_crafter::do_connect::craft_success_ack(
@@ -393,7 +393,7 @@ pub async fn process_connect<R: Ratchet>(
                         },
                     ))?;
                 }
-                
+
                 let persistence_handler = session.account_manager.get_persistence_handler().clone();
                 let cnac_for_sync = cnac.clone(); // cnac from initial_sync_data
                 let post_login_object_for_sync = initial_sync_data.3; // Assuming it's the 4th element
@@ -402,7 +402,7 @@ pub async fn process_connect<R: Ratchet>(
                 persistence_handler
                     .synchronize_hyperlan_peer_list_as_client(&cnac_for_sync, peers_val)
                     .await?;
-                
+
                 #[cfg(feature = "google-services")]
                 if let (Some(rtdb_cfg), Some(jwt)) =
                     (post_login_object_for_sync.rtdb, post_login_object_for_sync.google_auth_jwt)
@@ -471,7 +471,7 @@ pub async fn process_connect<R: Ratchet>(
                             .ok_or(NetworkError::InternalError("Channel signal missing"))?;
                         session_clone_ack.send_to_kernel(signal) // Non-blocking channel send
                     }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for SUCCESS_ACK failed: {}", e)))??;
-                    
+
                     Ok(PrimaryProcessorResult::Void)
                 } else {
                     Err(NetworkError::InvalidPacket(

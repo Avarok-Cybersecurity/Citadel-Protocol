@@ -72,41 +72,34 @@ pub async fn process_raw_packet<R: Ratchet>(
     };
 
     log::trace!(target: "citadel", "RECV Raw packet: {:?}", &parsed_header);
-    
+
     let target_cid = parsed_header.target_cid.get();
     let cmd_primary = parsed_header.cmd_primary;
     let cmd_aux = parsed_header.cmd_aux;
     let header_entropy_bank_vers = parsed_header.entropy_bank_version.get();
     let header_session_cid = parsed_header.session_cid.get();
 
-    // Clone necessary data for spawn_blocking
-    let session_clone_for_check_proxy = session.clone();
-    // HdpPacket should be Send. BytesMut is Send.
-    let packet_for_check_proxy = input_packet; 
+    // Directly prepare arguments for check_proxy
+    // Note: input_packet was the original name for the BytesMut argument to process_raw_packet
+    let hdp_packet_for_check_proxy = HdpPacket::new_recv(input_packet.clone(), remote_peer, local_primary_port);
+    let mut endpoint_cid_info: Option<(u64, u64)> = None;
 
-    let (packet_after_proxy_check_opt, endpoint_cid_info_from_blocking) = 
-        tokio::task::spawn_blocking(move || {
-            let mut endpoint_cid_info_blocking: Option<(u64,u64)> = None;
-            // Reconstruct HdpPacket inside blocking task if it's not Send, or if original packet is modified by parse()
-            // For now, assuming packet_for_check_proxy (BytesMut) is sufficient to reconstruct or HdpPacket is Send
-            let hdp_packet_for_check_proxy = HdpPacket::new_recv(packet_for_check_proxy, remote_peer, local_primary_port);
-
-            let result_packet = check_proxy(
-                this_session_cid,
-                cmd_primary, // Use pre-parsed cmd_primary
-                cmd_aux,     // Use pre-parsed cmd_aux
-                header_session_cid, // Use pre-parsed header_session_cid
-                target_cid,  // Use pre-parsed target_cid
-                &session_clone_for_check_proxy,
-                &mut endpoint_cid_info_blocking,
-                ReceivePortType::OrderedReliable,
-                hdp_packet_for_check_proxy, // Pass the HdpPacket
-            );
-            (result_packet, endpoint_cid_info_blocking)
-        }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for check_proxy failed: {}", e)))?;
+    let packet_after_proxy_check_opt = check_proxy(
+        this_session_cid,
+        cmd_primary,        // Use pre-parsed cmd_primary
+        cmd_aux,            // Use pre-parsed cmd_aux
+        header_session_cid, // Use pre-parsed header_session_cid
+        target_cid,         // Use pre-parsed target_cid
+        session,            // Pass direct reference to session
+        &mut endpoint_cid_info, // Pass mutable reference to local variable
+        ReceivePortType::OrderedReliable,
+        hdp_packet_for_check_proxy, // Pass the HdpPacket
+    );
 
     if let Some(packet_to_process) = packet_after_proxy_check_opt {
-        let final_endpoint_cid_info = endpoint_cid_info_from_blocking;
+        // endpoint_cid_info is already updated if check_proxy mutated it.
+        // final_endpoint_cid_info was previously endpoint_cid_info_from_blocking
+        let final_endpoint_cid_info = endpoint_cid_info;
 
         match cmd_primary {
             packet_flags::cmd::primary::DO_REGISTER => {
@@ -122,14 +115,15 @@ pub async fn process_raw_packet<R: Ratchet>(
             }
 
             packet_flags::cmd::primary::GROUP_PACKET => {
-                // This was originally synchronous. Wrap in spawn_blocking.
+                // This was originally synchronous. Wrap in spawn_blocking if it's CPU intensive.
+                // For now, assuming it needs spawn_blocking as per previous structure.
                 let session_clone_group = session.clone();
                 tokio::task::spawn_blocking(move || {
                     super::primary_group_packet::process_primary_packet(
                         &session_clone_group,
                         cmd_aux,
                         packet_to_process,
-                        final_endpoint_cid_info,
+                        final_endpoint_cid_info, // final_endpoint_cid_info is now the locally mutated endpoint_cid_info
                     )
                 }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for group_packet failed: {}", e)))?
             }
@@ -157,22 +151,28 @@ pub async fn process_raw_packet<R: Ratchet>(
             }
 
             packet_flags::cmd::primary::FILE => {
-                // This was originally synchronous. Wrap in spawn_blocking.
+                // This was originally synchronous. Wrap in spawn_blocking if it's CPU intensive.
+                // For now, assuming it needs spawn_blocking as per previous structure.
                 let session_clone_file = session.clone();
                 tokio::task::spawn_blocking(move || {
-                    super::file_packet::process_file_packet(&session_clone_file, packet_to_process, final_endpoint_cid_info)
+                    super::file_packet::process_file_packet(
+                        &session_clone_file,
+                        packet_to_process,
+                        final_endpoint_cid_info // final_endpoint_cid_info is now the locally mutated endpoint_cid_info
+                    )
                 }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for file_packet failed: {}", e)))?
             }
 
             packet_flags::cmd::primary::HOLE_PUNCH => {
-                // This was originally synchronous. Wrap in spawn_blocking.
+                // This was originally synchronous. Wrap in spawn_blocking if it's CPU intensive.
+                // For now, assuming it needs spawn_blocking as per previous structure.
                 let session_clone_hole_punch = session.clone();
                 tokio::task::spawn_blocking(move || {
                     super::hole_punch::process_hole_punch(
                         &session_clone_hole_punch,
                         packet_to_process,
                         header_entropy_bank_vers,
-                        final_endpoint_cid_info,
+                        final_endpoint_cid_info, // final_endpoint_cid_info is now the locally mutated endpoint_cid_info
                     )
                 }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for hole_punch failed: {}", e)))?
             }

@@ -96,7 +96,7 @@ pub async fn process_register<R: Ratchet>(
                                     return Ok(PrimaryProcessorResult::ReplyToSender(err));
                                 }
                                 // Drop lock before inner async block
-                                std::mem::drop(state_container); 
+                                std::mem::drop(state_container);
                                 let session_password = session.session_password.clone();
                                 let session_clone_stage0 = session.clone(); // Clone for inner async block
 
@@ -125,7 +125,7 @@ pub async fn process_register<R: Ratchet>(
                                             transfer_bob, // Use renamed variable
                                             header.session_cid.get(),
                                         );
-                                    
+
                                     // Re-acquire lock for modification
                                     let mut state_container_inner = inner_mut_state!(session_clone_stage0.state_container);
                                     state_container_inner.register_state.created_ratchet =
@@ -165,7 +165,7 @@ pub async fn process_register<R: Ratchet>(
             packet_flags::cmd::aux::do_register::STAGE1 => {
                 log::trace!(target: "citadel", "STAGE 1 REGISTER PACKET");
                 // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
-                
+
                 // Clone necessary variables for spawn_blocking
                 let session_clone_stage1 = session.clone();
                 let payload_clone_stage1 = payload.clone(); // BytesMut is cheap to clone (Arc inner)
@@ -186,13 +186,13 @@ pub async fn process_register<R: Ratchet>(
                     if let Some(mut alice_constructor) =
                         state_container.register_state.constructor.take()
                     {
-                        let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = 
+                        let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer =
                             SyncIO::deserialize_from_vector(&payload_clone_stage1[..]).map_err(|_| NetworkError::DeSerializationError("Unable to deserialize BobToAliceTransfer"))?;
-                        
+
                         alice_constructor
                             .stage1_alice(transfer, session_clone_stage1.session_password.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                        
+
                         let new_ratchet = alice_constructor.finish().ok_or(NetworkError::InternalError("Unable to finish alice constructor"))?;
 
                         let proposed_credentials = state_container.connect_state.proposed_credentials.as_ref()
@@ -374,7 +374,7 @@ pub async fn process_register<R: Ratchet>(
                                                 inner_mut_state!(session_for_blocking.state_container).cnac = Some(new_cnac_clone);
                                                 Ok::<_, NetworkError>(())
                                             }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for passwordless connect failed: {}", e)))??;
-                                            
+
                                             Ok(PrimaryProcessorResult::Void)
                                         } else {
                                             session_clone_success.session_manager.clear_provisional_session(

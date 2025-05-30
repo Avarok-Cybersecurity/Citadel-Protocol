@@ -614,7 +614,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         .register_state
                         .passwordless
                         .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
-                    
+
                     let alice_constructor =
                         <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
                             ConstructorOpts::new_vec_init(
@@ -645,7 +645,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             passwordless,
                             proposed_cid,
                         );
-                    
+
                     // This send is on an UnboundedSender, which is non-blocking.
                     // If it were an async send, it would need to be done outside spawn_blocking
                     // or the entire spawn_blocking task would need to be an async block
@@ -679,7 +679,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 log::error!(target: "citadel", "Invalid initial state. Check program logic");
                 // Consider returning an error here instead of exiting, if recoverable.
                 // For now, matching existing behavior.
-                std::process::exit(-1); 
+                std::process::exit(-1);
             }
         }
 
@@ -1175,13 +1175,13 @@ impl<R: Ratchet> CitadelSession<R> {
     async fn execute_queue_worker(this_main: CitadelSession<R>) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
-        let (mut configured_queue_worker, time_tracker_2, kernel_ticket_val, is_server_val) = 
+        let (mut configured_queue_worker, time_tracker_2, kernel_ticket_val, is_server_val) =
             tokio::task::spawn_blocking(move || {
                 // this_main is already a clone of the original session Arc
                 let (mut queue_worker, sender) = SessionQueueWorker::new(this_main.stopper_tx.get()); // Blocking read
-                
+
                 inner_mut_state!(this_main.state_container) // Blocking write
-                    .queue_handle 
+                    .queue_handle
                     .set_once(sender.clone());
                 this_main.queue_handle.set_once(sender); // DualLateInit, likely fine
 
@@ -1189,10 +1189,10 @@ impl<R: Ratchet> CitadelSession<R> {
                 let tt2 = this_main.time_tracker; // Copy
                 let kt_val = this_main.kernel_ticket.get(); // Atomic
                 let is_srv = this_main.is_server; // Copy
-                
+
                 (queue_worker, tt2, kt_val, is_srv)
             }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for queue_worker setup failed: {}", e)))?;
-        
+
         configured_queue_worker.insert_reserved_fn(
             Some(QueueWorkerTicket::Oneshot(
                 PROVISIONAL_CHECKER,
@@ -2205,17 +2205,26 @@ impl<R: Ratchet> CitadelSession<R> {
             citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
-        while let Some((cmd_aux, packet)) = receiver.next().await {
+        while let Some((cmd_aux, original_packet_data)) = receiver.next().await {
             let send_addr = hole_punched_addr.send_address;
-            let packet = peer_session_accessor.borrow_hr(None, |hr, _| {
-                packet_crafter::udp::craft_udp_packet(
-                    hr,
-                    cmd_aux,
-                    packet,
-                    target_cid,
-                    SecurityLevel::Standard,
-                )
-            })?;
+            // Clone necessary data for spawn_blocking
+            let accessor_clone = peer_session_accessor.clone();
+
+            let crafted_packet_result = tokio::task::spawn_blocking(move || {
+                // original_packet_data is moved into the closure
+                accessor_clone.borrow_hr(None, |hr, _| {
+                    packet_crafter::udp::craft_udp_packet(
+                        hr,
+                        cmd_aux,
+                        original_packet_data, // Use the moved original_packet_data
+                        target_cid,
+                        SecurityLevel::Standard,
+                    )
+                })
+            }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for udp_craft failed: {}", e)))?;
+
+            let packet = crafted_packet_result?; // This is the result of the craft_udp_packet call
+
             log::trace!(target: "citadel", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
             sink.send(packet.freeze()).await.map_err(|_| {
                 NetworkError::InternalError("UDP sink unable to receive outbound requests")
