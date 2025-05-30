@@ -592,59 +592,72 @@ impl<R: Ratchet> CitadelSession<R> {
         match state {
             SessionState::NeedsRegister => {
                 log::trace!(target: "citadel", "Beginning registration subroutine");
-                let session_ref = session;
-                let mut state_container = inner_mut_state!(session_ref.state_container);
-                let session_security_settings = state_container.session_security_settings.unwrap();
-                let proposed_username = state_container
-                    .connect_state
-                    .proposed_credentials
-                    .as_ref()
-                    .ok_or(NetworkError::InternalError(
-                        "Proposed credentials not loaded",
-                    ))?
-                    .username();
-                let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
-                let passwordless = state_container
-                    .register_state
-                    .passwordless
-                    .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
-                // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
-                let alice_constructor =
-                    <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
-                        ConstructorOpts::new_vec_init(
-                            Some(session_security_settings.crypto_params),
-                            session_security_settings.security_level,
-                        ),
-                        proposed_cid,
-                        0,
-                    )
-                    .ok_or(NetworkError::InternalError(
-                        "Unable to construct Alice ratchet",
-                    ))?;
+                // Clone Arcs and other necessary data to move into spawn_blocking
+                let session_clone = session.clone();
+                let persistence_handler_clone = persistence_handler.clone();
+                let to_outbound_clone = to_outbound.clone();
 
-                state_container.register_state.last_packet_time = Some(Instant::now());
-                log::trace!(target: "citadel", "Running stage0 alice");
-                let transfer =
-                    alice_constructor
-                        .stage0_alice()
+                tokio::task::spawn_blocking(move || {
+                    let session_ref = session_clone; // Use the cloned Arc
+                    let mut state_container = inner_mut_state!(session_ref.state_container);
+                    let session_security_settings = state_container.session_security_settings.unwrap();
+                    let proposed_username = state_container
+                        .connect_state
+                        .proposed_credentials
+                        .as_ref()
                         .ok_or(NetworkError::InternalError(
-                            "Unable to construct AliceToBob transfer",
+                            "Proposed credentials not loaded",
+                        ))?
+                        .username();
+                    let proposed_cid = persistence_handler_clone.get_cid_by_username(proposed_username);
+                    let passwordless = state_container
+                        .register_state
+                        .passwordless
+                        .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
+                    
+                    let alice_constructor =
+                        <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
+                            ConstructorOpts::new_vec_init(
+                                Some(session_security_settings.crypto_params),
+                                session_security_settings.security_level,
+                            ),
+                            proposed_cid,
+                            0,
+                        )
+                        .ok_or(NetworkError::InternalError(
+                            "Unable to construct Alice ratchet",
                         ))?;
 
-                let stage0_register_packet =
-                    crate::proto::packet_crafter::do_register::craft_stage0::<R>(
-                        session_security_settings.crypto_params.into(),
-                        timestamp,
-                        transfer,
-                        passwordless,
-                        proposed_cid,
-                    );
-                to_outbound
-                    .unbounded_send(stage0_register_packet)
-                    .map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
+                    state_container.register_state.last_packet_time = Some(Instant::now());
+                    log::trace!(target: "citadel", "Running stage0 alice");
+                    let transfer =
+                        alice_constructor
+                            .stage0_alice()
+                            .ok_or(NetworkError::InternalError(
+                                "Unable to construct AliceToBob transfer",
+                            ))?;
 
-                state_container.register_state.constructor = Some(alice_constructor);
-                log::trace!(target: "citadel", "Successfully sent stage0 register packet outbound");
+                    let stage0_register_packet =
+                        crate::proto::packet_crafter::do_register::craft_stage0::<R>(
+                            session_security_settings.crypto_params.into(),
+                            timestamp,
+                            transfer,
+                            passwordless,
+                            proposed_cid,
+                        );
+                    
+                    // This send is on an UnboundedSender, which is non-blocking.
+                    // If it were an async send, it would need to be done outside spawn_blocking
+                    // or the entire spawn_blocking task would need to be an async block
+                    // run on a separate runtime, which is overly complex.
+                    to_outbound_clone
+                        .unbounded_send(stage0_register_packet)
+                        .map_err(|_| NetworkError::InternalError("Writer stream corrupted while sending register packet"))?;
+
+                    state_container.register_state.constructor = Some(alice_constructor);
+                    log::trace!(target: "citadel", "Successfully sent stage0 register packet outbound");
+                    Ok(())
+                }).await.map_err(|join_err| NetworkError::Generic(format!("spawn_blocking for NeedsRegister failed: {}", join_err)))??;
             }
 
             SessionState::NeedsConnect => {
@@ -664,7 +677,9 @@ impl<R: Ratchet> CitadelSession<R> {
 
             _ => {
                 log::error!(target: "citadel", "Invalid initial state. Check program logic");
-                std::process::exit(-1);
+                // Consider returning an error here instead of exiting, if recoverable.
+                // For now, matching existing behavior.
+                std::process::exit(-1); 
             }
         }
 
@@ -1160,123 +1175,112 @@ impl<R: Ratchet> CitadelSession<R> {
     async fn execute_queue_worker(this_main: CitadelSession<R>) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
-        let queue_worker = {
-            //let this_interval = this_main.clone();
-            let borrow = this_main;
-            let (mut queue_worker, sender) = SessionQueueWorker::new(borrow.stopper_tx.get());
-            inner_mut_state!(borrow.state_container)
-                .queue_handle
-                .set_once(sender.clone());
-            borrow.queue_handle.set_once(sender);
+        let (mut configured_queue_worker, time_tracker_2, kernel_ticket_val, is_server_val) = 
+            tokio::task::spawn_blocking(move || {
+                // this_main is already a clone of the original session Arc
+                let (mut queue_worker, sender) = SessionQueueWorker::new(this_main.stopper_tx.get()); // Blocking read
+                
+                inner_mut_state!(this_main.state_container) // Blocking write
+                    .queue_handle 
+                    .set_once(sender.clone());
+                this_main.queue_handle.set_once(sender); // DualLateInit, likely fine
 
-            queue_worker.load_state_container(borrow.state_container.clone());
-            let time_tracker = borrow.time_tracker;
-            let time_tracker_2 = time_tracker;
+                queue_worker.load_state_container(this_main.state_container.clone()); // Clones Arc for StateContainer
+                let tt2 = this_main.time_tracker; // Copy
+                let kt_val = this_main.kernel_ticket.get(); // Atomic
+                let is_srv = this_main.is_server; // Copy
+                
+                (queue_worker, tt2, kt_val, is_srv)
+            }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for queue_worker setup failed: {}", e)))?;
+        
+        configured_queue_worker.insert_reserved_fn(
+            Some(QueueWorkerTicket::Oneshot(
+                PROVISIONAL_CHECKER,
+                RESERVED_CID_IDX,
+            )),
+            LOGIN_EXPIRATION_TIME,
+            |state_container| { // state_container is &StateContainer<R>
+                if !state_container.state.is_connected() { // .state is DualCell (atomic)
+                    QueueWorkerResult::EndSession
+                } else {
+                    QueueWorkerResult::Complete
+                }
+            },
+        );
 
-            let kernel_ticket = borrow.kernel_ticket.get();
-            let is_server = borrow.is_server;
-            drop(borrow);
+        if !is_server_val {
+            configured_queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(REKEY_UPDATE_FREQUENCY_STANDARD), move |state_container| {
+                let ticket = kernel_ticket_val; // Captured from outside
 
-            // now, begin loading the subroutines
-            //let mut loop_idx = 0;
-            queue_worker.insert_reserved_fn(
-                Some(QueueWorkerTicket::Oneshot(
-                    PROVISIONAL_CHECKER,
-                    RESERVED_CID_IDX,
-                )),
-                LOGIN_EXPIRATION_TIME,
-                |state_container| {
-                    if !state_container.state.is_connected() {
+                if state_container.state.is_connected() { // Atomic
+                    let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
+                    // The iteration and initiate_rekey calls might use blocking locks on state_container.
+                    // This closure itself might need to use spawn_blocking if work is heavy and SessionQueueWorker doesn't handle it.
+                    let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
+                        if vconn.1.endpoint_container.as_ref()?.ratchet_manager.local_is_initiator() && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
+                            Some(vconn.1.connection_type)
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<VirtualTargetType>>();
+
+                    let virtual_target = VirtualTargetType::LocalGroupServer { session_cid: C2S_IDENTITY_CID };
+                    if state_container.initiate_rekey(virtual_target, Some(ticket)).is_ok() {
+                        for vconn in p2p_sessions {
+                            if let Err(err) = state_container.initiate_rekey(vconn, None) {
+                                log::warn!(target: "citadel", "Unable to initiate entropy_bank update for {:?}: {:?}", vconn, err);
+                            }
+                        }
+                        QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &state_container.transfer_stats))
+                    } else {
+                        log::warn!(target: "citadel", "initiate_entropy_bank_update subroutine signalled failure");
                         QueueWorkerResult::EndSession
-                    } else {
-                        // remove it from being called again
-                        QueueWorkerResult::Complete
-                    }
-                },
-            );
-
-            if !is_server {
-                queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(REKEY_UPDATE_FREQUENCY_STANDARD), move |state_container| {
-                    let ticket = kernel_ticket;
-
-                    if state_container.state.is_connected() {
-                        let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).unwrap();
-
-                        let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
-                            if vconn.1.endpoint_container.as_ref()?.ratchet_manager.local_is_initiator() && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.get().map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
-                                Some(vconn.1.connection_type)
-                            } else {
-                                None
-                            }
-                        }).collect::<Vec<VirtualTargetType>>();
-
-                        let virtual_target = VirtualTargetType::LocalGroupServer { session_cid: C2S_IDENTITY_CID };
-                        if state_container.initiate_rekey(virtual_target, Some(ticket)).is_ok() {
-                            // now, call for each p2p session
-                            for vconn in p2p_sessions {
-                                if let Err(err) = state_container.initiate_rekey(vconn, None) {
-                                    log::warn!(target: "citadel", "Unable to initiate entropy_bank update for {:?}: {:?}", vconn, err);
-                                }
-                            }
-
-                            QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &state_container.transfer_stats))
-                        } else {
-                            log::warn!(target: "citadel", "initiate_entropy_bank_update subroutine signalled failure");
-                            QueueWorkerResult::EndSession
-                        }
-                    } else {
-                        QueueWorkerResult::Incomplete
-                    }
-                });
-            }
-
-            queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(KEEP_ALIVE_CHECKER, 0)), Duration::from_millis(KEEP_ALIVE_INTERVAL_MS), move |state_container| {
-                let timestamp = time_tracker_2.get_global_time_ns();
-                if state_container.state.is_connected() {
-                    if state_container.keep_alive_timeout_ns != 0 {
-                        if state_container.keep_alive_subsystem_timed_out(timestamp) && state_container.meta_expiry_state.expired() {
-                            log::error!(target: "citadel", "The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
-                            QueueWorkerResult::EndSession
-                        } else {
-                            QueueWorkerResult::Incomplete
-                        }
-                    } else {
-                        log::error!(target: "citadel", "Keep alive subsystem will not be used for this session as requested");
-                        QueueWorkerResult::Complete
                     }
                 } else {
-                    // keep it running, as we may be in provisional mode
                     QueueWorkerResult::Incomplete
                 }
             });
+        }
 
-            queue_worker.insert_reserved_fn(
-                Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)),
-                FIREWALL_KEEP_ALIVE_UDP,
-                move |state_container| {
-                    if state_container.state.is_connected() {
-                        if state_container.udp_mode == UdpMode::Disabled {
-                            //log::trace!(target: "citadel", "TCP only mode detected. Removing FIREWALL_KEEP_ALIVE subroutine");
+        configured_queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(KEEP_ALIVE_CHECKER, 0)), Duration::from_millis(KEEP_ALIVE_INTERVAL_MS), move |state_container| {
+            let timestamp = time_tracker_2.get_global_time_ns(); // Captured from outside
+            if state_container.state.is_connected() { // Atomic
+                if state_container.keep_alive_timeout_ns != 0 {
+                    if state_container.keep_alive_subsystem_timed_out(timestamp) && state_container.meta_expiry_state.expired() { // meta_expiry_state likely atomic/simple
+                        log::error!(target: "citadel", "The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
+                        QueueWorkerResult::EndSession
+                    } else {
+                        QueueWorkerResult::Incomplete
+                    }
+                } else {
+                    log::error!(target: "citadel", "Keep alive subsystem will not be used for this session as requested");
+                    QueueWorkerResult::Complete
+                }
+            } else {
+                QueueWorkerResult::Incomplete
+            }
+        });
+
+        configured_queue_worker.insert_reserved_fn(
+            Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)),
+            FIREWALL_KEEP_ALIVE_UDP,
+            move |state_container| {
+                if state_container.state.is_connected() { // Atomic
+                    if state_container.udp_mode == UdpMode::Disabled {
+                        return QueueWorkerResult::Complete;
+                    }
+                    if let Some(tx) = state_container.udp_primary_outbound_tx.as_ref() {
+                        if !tx.needs_manual_ka {
                             return QueueWorkerResult::Complete;
                         }
-
-                        if let Some(tx) = state_container.udp_primary_outbound_tx.as_ref() {
-                            if !tx.needs_manual_ka {
-                                return QueueWorkerResult::Complete;
-                            }
-
-                            let _ = tx.send_keep_alive();
-                        }
+                        let _ = tx.send_keep_alive(); // Assumed non-blocking or very fast.
                     }
+                }
+                QueueWorkerResult::Incomplete
+            },
+        );
 
-                    QueueWorkerResult::Incomplete
-                },
-            );
-
-            queue_worker
-        };
-
-        queue_worker.await
+        configured_queue_worker.await // Run the queue worker
     }
 
     pub fn revfs_pull(
@@ -2506,3 +2510,5 @@ pub enum SessionRequest {
     SendMessage(RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>),
     Group(Group),
 }
+
+[end of citadel_proto/src/proto/session.rs]

@@ -74,9 +74,8 @@ pub async fn process_register<R: Ratchet>(
         match header.cmd_aux {
             packet_flags::cmd::aux::do_register::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 0 REGISTER PACKET");
-                let task = {
+                let task = { // Scoping for state_container lock
                     let mut state_container = inner_mut_state!(session.state_container);
-                    // This node is Bob (receives a stage 0 packet from Alice). The payload should have Alice's public key
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE0
                     {
@@ -84,7 +83,6 @@ pub async fn process_register<R: Ratchet>(
 
                         match validation::do_register::validate_stage0::<R>(&payload) {
                             Some((transfer, passwordless)) => {
-                                // Now, create a stage 1 packet
                                 let timestamp = session.time_tracker.get_global_time_ns();
                                 state_container.register_state.passwordless = Some(passwordless);
 
@@ -94,15 +92,15 @@ pub async fn process_register<R: Ratchet>(
                                         .get_misc_settings()
                                         .allow_passwordless
                                 {
-                                    // passwordless is not allowed on this node
                                     let err = packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
                                     return Ok(PrimaryProcessorResult::ReplyToSender(err));
                                 }
-
-                                std::mem::drop(state_container);
+                                // Drop lock before inner async block
+                                std::mem::drop(state_container); 
                                 let session_password = session.session_password.clone();
+                                let session_clone_stage0 = session.clone(); // Clone for inner async block
 
-                                async move {
+                                async move { // Inner async block
                                     let cid = header.session_cid.get();
                                     let mut bob_constructor =
                                         <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
@@ -115,7 +113,7 @@ pub async fn process_register<R: Ratchet>(
                                             session_password.as_ref(),
                                         )
                                         .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
-                                    let transfer = return_if_none!(
+                                    let transfer_bob = return_if_none!( // Renamed to avoid conflict
                                         bob_constructor.stage0_bob(),
                                         "Unable to advance past stage0-bob"
                                     );
@@ -124,33 +122,32 @@ pub async fn process_register<R: Ratchet>(
                                         packet_crafter::do_register::craft_stage1::<R>(
                                             algorithm,
                                             timestamp,
-                                            transfer,
+                                            transfer_bob, // Use renamed variable
                                             header.session_cid.get(),
                                         );
-
-                                    let mut state_container =
-                                        inner_mut_state!(session.state_container);
-                                    state_container.register_state.created_ratchet =
+                                    
+                                    // Re-acquire lock for modification
+                                    let mut state_container_inner = inner_mut_state!(session_clone_stage0.state_container);
+                                    state_container_inner.register_state.created_ratchet =
                                         Some(return_if_none!(
                                             bob_constructor.finish(),
                                             "Unable to finish bob constructor"
                                         ));
-                                    state_container.register_state.last_stage =
+                                    state_container_inner.register_state.last_stage =
                                         packet_flags::cmd::aux::do_register::STAGE1;
-                                    state_container.register_state.on_register_packet_received();
+                                    state_container_inner.register_state.on_register_packet_received();
 
                                     Ok(PrimaryProcessorResult::ReplyToSender(stage1_packet))
                                 }
                             }
 
-                            _ => {
+                            _ => { // Error in validate_stage0
                                 log::error!(target: "citadel", "Unable to validate STAGE0_REGISTER packet");
                                 state_container.register_state.on_fail();
                                 state_container.register_state.on_register_packet_received();
+                                // Lock `state_container` is dropped when this scope ends
                                 std::mem::drop(state_container);
-
-                                session.state.set(SessionState::NeedsRegister);
-
+                                session.state.set(SessionState::NeedsRegister); // DualCell, atomic, fine
                                 return Ok(PrimaryProcessorResult::EndSession(
                                     "Unable to validate STAGE0_REGISTER packet",
                                 ));
@@ -158,53 +155,56 @@ pub async fn process_register<R: Ratchet>(
                         }
                     } else {
                         warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
-                        return Ok(PrimaryProcessorResult::Void);
+                        return Ok(PrimaryProcessorResult::Void); // state_container lock drops
                     }
                 };
 
-                task.await
+                task.await // Await the inner async block for STAGE0
             }
 
             packet_flags::cmd::aux::do_register::STAGE1 => {
                 log::trace!(target: "citadel", "STAGE 1 REGISTER PACKET");
                 // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
-                let mut state_container = inner_mut_state!(session.state_container);
-                if state_container.register_state.last_stage
-                    == packet_flags::cmd::aux::do_register::STAGE0
-                {
-                    let algorithm = header.algorithm;
+                
+                // Clone necessary variables for spawn_blocking
+                let session_clone_stage1 = session.clone();
+                let payload_clone_stage1 = payload.clone(); // BytesMut is cheap to clone (Arc inner)
+                let algorithm_stage1 = header.algorithm;
+                let security_level_stage1 = security_level; // Already a value
+                let timestamp_stage1 = session.time_tracker.get_global_time_ns();
 
-                    // pqc is stored in the register state container for now
+
+                tokio::task::spawn_blocking(move || {
+                    let mut state_container = inner_mut_state!(session_clone_stage1.state_container);
+                    if state_container.register_state.last_stage
+                        != packet_flags::cmd::aux::do_register::STAGE0
+                    {
+                        warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state for STAGE1. Dropping");
+                        return Ok(PrimaryProcessorResult::Void);
+                    }
+
                     if let Some(mut alice_constructor) =
                         state_container.register_state.constructor.take()
                     {
-                        let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = return_if_none!(
-                            SyncIO::deserialize_from_vector(&payload[..]).ok(),
-                            "Unable to deserialize BobToAliceTransfer"
-                        );
-                        let security_level = transfer.security_level();
+                        let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = 
+                            SyncIO::deserialize_from_vector(&payload_clone_stage1[..]).map_err(|_| NetworkError::DeSerializationError("Unable to deserialize BobToAliceTransfer"))?;
+                        
                         alice_constructor
-                            .stage1_alice(transfer, session.session_password.as_ref())
+                            .stage1_alice(transfer, session_clone_stage1.session_password.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                        let new_ratchet = return_if_none!(
-                            alice_constructor.finish(),
-                            "Unable to finish alice constructor"
-                        );
-                        let timestamp = session.time_tracker.get_global_time_ns();
+                        
+                        let new_ratchet = alice_constructor.finish().ok_or(NetworkError::InternalError("Unable to finish alice constructor"))?;
 
-                        let proposed_credentials = return_if_none!(
-                            state_container.connect_state.proposed_credentials.as_ref(),
-                            "Unable to load proposed credentials"
-                        );
+                        let proposed_credentials = state_container.connect_state.proposed_credentials.as_ref()
+                            .ok_or(NetworkError::InternalError("Unable to load proposed credentials (STAGE1)"))?;
 
                         let stage2_packet = packet_crafter::do_register::craft_stage2(
                             &new_ratchet,
-                            algorithm,
-                            timestamp,
+                            algorithm_stage1,
+                            timestamp_stage1,
                             proposed_credentials,
-                            security_level,
+                            security_level_stage1, // Use the original security_level from header
                         );
-                        //let mut state_container = inner_mut!(session.state_container);
 
                         state_container.register_state.created_ratchet = Some(new_ratchet);
                         state_container.register_state.last_stage =
@@ -216,44 +216,49 @@ pub async fn process_register<R: Ratchet>(
                         log::error!(target: "citadel", "Register stage is one, yet, no PQC is present. Aborting.");
                         Ok(PrimaryProcessorResult::Void)
                     }
-                } else {
-                    warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
-                    Ok(PrimaryProcessorResult::Void)
-                }
+                }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for STAGE1 failed: {}", e)))?
             }
 
             packet_flags::cmd::aux::do_register::STAGE2 => {
                 log::trace!(target: "citadel", "STAGE 2 REGISTER PACKET");
-                // Bob receives this packet. It contains the proposed credentials. We need to register and we're good to go
-
                 let task = {
-                    let state_container = inner_state!(session.state_container);
+                    let state_container = inner_state!(session.state_container); // Read lock, dropped before await
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE1
                     {
                         let algorithm = header.algorithm;
-                        let ratchet = return_if_none!(
+                        let ratchet_clone = return_if_none!( // Clone for spawn_blocking
                             state_container.register_state.created_ratchet.clone(),
                             "Unable to load created hyper ratchet"
                         );
-                        if let Some((stage2_packet, conn_info)) =
+                        // Clone/own necessary data for spawn_blocking
+                        let header_bytes_stage2 = header.bytes().to_vec(); // Owned bytes
+                        let payload_clone_stage2 = payload.clone(); // BytesMut is cheap to clone
+
+                        let validation_result_stage2 = tokio::task::spawn_blocking(move || {
+                            // Reconstruct Ref if necessary from header_bytes_stage2, or adjust validate_stage2
+                            // Assuming validate_stage2 can work with owned data or Ref can be reconstructed
+                            let header_ref_stage2 = Ref::new(&header_bytes_stage2[..]).unwrap();
                             validation::do_register::validate_stage2(
-                                &ratchet,
-                                &header,
-                                payload,
+                                &ratchet_clone,
+                                &header_ref_stage2,
+                                payload_clone_stage2,
                                 remote_addr,
                             )
-                        {
+                        }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for validate_stage2 failed: {}", e)))?;
+
+                        if let Some((stage2_packet, conn_info)) = validation_result_stage2 {
                             let creds = stage2_packet.credentials;
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
-                            std::mem::drop(state_container);
+                            std::mem::drop(state_container); // Drop read lock
+                            let session_clone_stage2 = session.clone(); // Clone for inner async
+
                             let session_crypto_state = initialize_peer_session_crypto(
                                 ratchet.get_cid(),
-                                ratchet.clone(),
+                                ratchet.clone(), // Ratchet is R: Ratchet, which should be Clone
                                 true,
                             );
-                            // we must now create the CNAC
                             async move {
                                 match account_manager
                                     .register_impersonal_hyperlan_client_network_account(
@@ -261,99 +266,94 @@ pub async fn process_register<R: Ratchet>(
                                         creds,
                                         session_crypto_state,
                                     )
-                                    .await
+                                    .await // IO-bound
                                 {
                                     Ok(peer_cnac) => {
                                         log::trace!(target: "citadel", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_cid());
                                         let success_message =
-                                            session.create_register_success_message();
+                                            session_clone_stage2.create_register_success_message();
 
                                         let packet = packet_crafter::do_register::craft_success(
-                                            &ratchet,
+                                            &ratchet, // Ratchet was cloned
                                             algorithm,
                                             timestamp,
                                             success_message,
                                             security_level,
                                         );
-                                        // Do not shutdown the session here. It is up to the client to decide
-                                        // how to shutdown, or continue (in the case of passwordless mode), the session
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                     }
-
                                     Err(err) => {
-                                        let err = err.into_string();
-                                        log::error!(target: "citadel", "Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
+                                        let err_str = err.into_string();
+                                        log::error!(target: "citadel", "Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err_str);
                                         let packet = packet_crafter::do_register::craft_failure(
                                             algorithm,
                                             timestamp,
-                                            err,
+                                            err_str,
                                             header.session_cid.get(),
                                         );
-
-                                        session.session_manager.clear_provisional_session(
+                                        session_clone_stage2.session_manager.clear_provisional_session(
                                             &remote_addr,
-                                            session.init_time,
+                                            session_clone_stage2.init_time,
                                         );
-
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                     }
                                 }
                             }
                         } else {
                             log::error!(target: "citadel", "Unable to validate stage2 packet. Aborting");
-                            return Ok(PrimaryProcessorResult::Void);
+                            return Ok(PrimaryProcessorResult::Void); // state_container lock (read) drops
                         }
                     } else {
                         warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
-                        return Ok(PrimaryProcessorResult::Void);
+                        return Ok(PrimaryProcessorResult::Void); // state_container lock (read) drops
                     }
                 };
-
                 task.await
             }
 
             packet_flags::cmd::aux::do_register::SUCCESS => {
                 log::trace!(target: "citadel", "STAGE SUCCESS REGISTER PACKET");
-                // This will follow stage 4 in the case of a successful registration. The packet's payload contains the CNAC bytes, encrypted using AES-GCM.
-                // The CNAC does not have the credentials (Serde skips the serialization thereof)
-
                 let task = {
-                    let state_container = inner_state!(session.state_container);
+                    let state_container = inner_state!(session.state_container); // Read lock, dropped before await
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE2
                     {
-                        let ratchet = return_if_none!(
+                        let ratchet_clone_success = return_if_none!( // Clone for spawn_blocking
                             state_container.register_state.created_ratchet.clone(),
                             "Unable to load created hyper ratchet"
                         );
+                        // Clone/own necessary data for spawn_blocking
+                        let header_bytes_success = header.bytes().to_vec(); // Owned bytes
+                        let payload_clone_success = payload.clone(); // BytesMut is cheap to clone
 
-                        if let Some((success_message, conn_info)) =
+                        let validation_result_success = tokio::task::spawn_blocking(move || {
+                            let header_ref_success = Ref::new(&header_bytes_success[..]).unwrap();
                             validation::do_register::validate_success(
-                                &ratchet,
-                                &header,
-                                payload,
+                                &ratchet_clone_success,
+                                &header_ref_success,
+                                payload_clone_success,
                                 remote_addr,
                             )
-                        {
-                            // Now, register the CNAC locally
+                        }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for validate_success failed: {}", e)))?;
+
+                        if let Some((success_message, conn_info)) = validation_result_success {
                             let credentials = return_if_none!(
                                 state_container.connect_state.proposed_credentials.clone(),
                                 "Unable to take proposed credentials"
                             );
-
                             let passwordless = return_if_none!(
                                 state_container.register_state.passwordless,
                                 "Passwordless unset (reg)"
                             );
+                            drop(state_container); // Drop read lock
 
-                            drop(state_container);
-
-                            let reg_ticket = session.kernel_ticket.clone();
+                            let reg_ticket = session.kernel_ticket.clone(); // DualCell, atomic, fine
                             let account_manager = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
+                            let session_clone_success = session.clone(); // For async block
 
                             let session_crypto_state =
-                                initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
+                                initialize_peer_session_crypto(ratchet.get_cid(), ratchet.clone(), false);
 
                             async move {
                                 match account_manager
@@ -362,37 +362,44 @@ pub async fn process_register<R: Ratchet>(
                                         credentials,
                                         conn_info,
                                     )
-                                    .await
+                                    .await // IO-bound
                                 {
                                     Ok(new_cnac) => {
                                         if passwordless {
-                                            CitadelSession::begin_connect(&session, &new_cnac)?;
-                                            inner_mut_state!(session.state_container).cnac =
-                                                Some(new_cnac);
-                                            // begin_connect will handle the connection process from here on out
+                                            // This section involves blocking calls to begin_connect and state_container writes
+                                            let new_cnac_clone = new_cnac.clone();
+                                            let session_for_blocking = session_clone_success.clone();
+                                            tokio::task::spawn_blocking(move || {
+                                                CitadelSession::begin_connect(&session_for_blocking, &new_cnac_clone)?;
+                                                inner_mut_state!(session_for_blocking.state_container).cnac = Some(new_cnac_clone);
+                                                Ok::<_, NetworkError>(())
+                                            }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for passwordless connect failed: {}", e)))??;
+                                            
                                             Ok(PrimaryProcessorResult::Void)
                                         } else {
-                                            // Finally, alert the higher-level kernel about the success
-                                            session.session_manager.clear_provisional_session(
+                                            session_clone_success.session_manager.clear_provisional_session(
                                                 &remote_addr,
-                                                session.init_time,
+                                                session_clone_success.init_time,
                                             );
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(
                                                 RegisterOkay {
-                                                    ticket: reg_ticket.get(),
+                                                    ticket: reg_ticket.get(), // DualCell, atomic
                                                     cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
                                                 },
                                             ))?;
-                                            session.shutdown();
+                                            // session.shutdown() involves blocking lock
+                                            let session_for_shutdown = session_clone_success.clone();
+                                            tokio::task::spawn_blocking(move || {
+                                                session_for_shutdown.shutdown();
+                                            }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for shutdown failed: {}", e)))?;
                                             Ok(PrimaryProcessorResult::Void)
                                         }
                                     }
-
                                     Err(err) => {
                                         kernel_tx.unbounded_send(NodeResult::RegisterFailure(
                                             RegisterFailure {
-                                                ticket: reg_ticket.get(),
+                                                ticket: reg_ticket.get(), // DualCell, atomic
                                                 error_message: err.into_string(),
                                             },
                                         ))?;
@@ -404,47 +411,48 @@ pub async fn process_register<R: Ratchet>(
                             }
                         } else {
                             log::error!(target: "citadel", "Unable to validate SUCCESS packet");
-                            return Ok(PrimaryProcessorResult::Void);
+                            return Ok(PrimaryProcessorResult::Void); // state_container read lock drops
                         }
                     } else {
                         warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
-                        return Ok(PrimaryProcessorResult::Void);
+                        return Ok(PrimaryProcessorResult::Void); // state_container read lock drops
                     }
                 };
-
                 task.await
             }
 
             packet_flags::cmd::aux::do_register::FAILURE => {
                 log::trace!(target: "citadel", "STAGE FAILURE REGISTER PACKET");
-                // This node is again Bob. Alice received Bob's stage1 packet, but was unable to connect
-                // A failure can be sent at any stage greater than the zeroth
-                if inner_state!(session.state_container)
-                    .register_state
-                    .last_stage
-                    > packet_flags::cmd::aux::do_register::STAGE0
-                {
-                    if let Some(error_message) =
-                        validation::do_register::validate_failure(&header, &payload[..])
-                    {
-                        session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
-                            ticket: session.kernel_ticket.get(),
-                            error_message: String::from_utf8(error_message)
-                                .unwrap_or_else(|_| "Non-UTF8 error message".to_string()),
-                        }))?;
-                        session.shutdown();
-                    } else {
-                        log::error!(target: "citadel", "Error validating FAILURE packet");
-                        return Ok(PrimaryProcessorResult::Void);
-                    }
+                let session_clone_failure = session.clone(); // Clone for spawn_blocking
 
-                    Ok(PrimaryProcessorResult::EndSession(
-                        "Registration subroutine ended (Status: FAIL)",
-                    ))
-                } else {
-                    log::warn!(target: "citadel", "A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
-                    Ok(PrimaryProcessorResult::Void)
-                }
+                tokio::task::spawn_blocking(move || {
+                    if inner_state!(session_clone_failure.state_container) // Blocking read
+                        .register_state
+                        .last_stage
+                        > packet_flags::cmd::aux::do_register::STAGE0
+                    {
+                        if let Some(error_message) =
+                            validation::do_register::validate_failure(&header, &payload[..])
+                        {
+                            session_clone_failure.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure { // Non-blocking channel send
+                                ticket: session_clone_failure.kernel_ticket.get(), // DualCell, atomic
+                                error_message: String::from_utf8(error_message)
+                                    .unwrap_or_else(|_| "Non-UTF8 error message".to_string()),
+                            }))?;
+                            session_clone_failure.shutdown(); // Involves blocking lock
+                        } else {
+                            log::error!(target: "citadel", "Error validating FAILURE packet");
+                            // Return Ok(Void) from the blocking task to match original flow, error will be handled by outer result
+                            return Ok(PrimaryProcessorResult::Void);
+                        }
+                        Ok(PrimaryProcessorResult::EndSession(
+                            "Registration subroutine ended (Status: FAIL)",
+                        ))
+                    } else {
+                        log::warn!(target: "citadel", "A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
+                        Ok(PrimaryProcessorResult::Void)
+                    }
+                }).await.map_err(|e| NetworkError::Generic(format!("spawn_blocking for FAILURE failed: {}", e)))?
             }
 
             _ => {
