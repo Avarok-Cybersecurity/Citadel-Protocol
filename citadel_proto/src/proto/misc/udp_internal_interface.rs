@@ -137,7 +137,7 @@ impl QuicUdpSocketConnector {
                 yield conn_stream.read_datagram()
                 .await
                 .map(|packet| (BytesMut::from(&packet[..]), addr))
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+                .map_err(|err| std::io::Error::other(err.to_string()))?;
             }
         });
 

@@ -78,7 +78,7 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements
 #[allow(variant_size_differences)]
 pub enum GenericNetworkStream {
     Tcp(TcpStream),
-    Tls(citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>),
+    Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>>),
     // local addr is first addr, remote addr is final addr
     Quic(
         SendStream,
@@ -316,7 +316,7 @@ impl GenericNetworkListener {
                     Ok((stream, addr)) => {
                         log::trace!(target: "citadel", "Received raw TLS stream from {:?}: {:?}", addr, stream);
                         if let Err(err) = send
-                            .send(Ok((GenericNetworkStream::Tls(stream.into()), addr)))
+                            .send(Ok((GenericNetworkStream::Tls(Box::new(citadel_wire::exports::tokio_rustls::TlsStream::Server(stream))), addr)))
                             .await
                         {
                             log::error!(target: "citadel", "Failed to send TLS handshake packet: {err:?}");

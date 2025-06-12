@@ -191,7 +191,7 @@ pub async fn process_connect<R: Ratchet>(
 
                                 let cxn_type =
                                     VirtualConnectionType::LocalGroupServer { session_cid: cid };
-                                let channel_signal = NodeResult::ConnectSuccess(ConnectSuccess {
+                                let channel_signal = NodeResult::ConnectSuccess(Box::new(ConnectSuccess {
                                     ticket: kernel_ticket,
                                     session_cid: cid,
                                     remote_addr: addr,
@@ -202,7 +202,7 @@ pub async fn process_connect<R: Ratchet>(
                                     channel,
                                     udp_rx_opt: udp_channel_rx,
                                     session_security_settings,
-                                });
+                                }));
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container)
                                     .get_endpoint_container_mut(C2S_IDENTITY_CID)
@@ -357,7 +357,7 @@ pub async fn process_connect<R: Ratchet>(
                             );
                             session.send_to_primary_stream(None, success_ack)?;
 
-                            session.send_to_kernel(NodeResult::ConnectSuccess(ConnectSuccess {
+                            session.send_to_kernel(NodeResult::ConnectSuccess(Box::new(ConnectSuccess {
                                 ticket: kernel_ticket,
                                 session_cid: cid,
                                 remote_addr: addr,
@@ -368,7 +368,7 @@ pub async fn process_connect<R: Ratchet>(
                                 channel,
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
-                            }))?;
+                            })))?;
                             //finally, if there are any mailbox items, send them to the kernel for processing
                             if let Some(mailbox_delivery) = payload.mailbox {
                                 session.send_to_kernel(NodeResult::MailboxDelivery(

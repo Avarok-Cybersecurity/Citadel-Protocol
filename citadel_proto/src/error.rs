@@ -33,6 +33,7 @@
 
 use crate::prelude::NodeRequest;
 use citadel_crypt::misc::CryptError;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::error::SendError;
 use citadel_user::misc::AccountError;
 use std::error::Error;
@@ -127,6 +128,13 @@ impl Display for NetworkError {
 
 impl<T> From<citadel_io::tokio::sync::mpsc::error::SendError<T>> for NetworkError {
     fn from(err: SendError<T>) -> Self {
+        NetworkError::Generic(err.to_string())
+    }
+}
+
+// Specific implementation for Box<SendError<NodeResult<R>>>
+impl<R: Ratchet + 'static> From<Box<SendError<crate::proto::node_result::NodeResult<R>>>> for NetworkError {
+    fn from(err: Box<SendError<crate::proto::node_result::NodeResult<R>>>) -> Self {
         NetworkError::Generic(err.to_string())
     }
 }

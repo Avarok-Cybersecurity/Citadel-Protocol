@@ -1025,12 +1025,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         None,
                         cid_opt,
                     )
-                    .map_err(|err| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Unable to ReplyToSender: {:?}", err.into_string()),
-                        )
-                    })?;
+                    .map_err(|err| std::io::Error::other(format!("Unable to ReplyToSender: {:?}", err)))?;
                 }
 
                 Err(reason) => {
@@ -1048,7 +1043,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
             if let Some(err) = session_closing_error {
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
-                Err(std::io::Error::new(std::io::ErrorKind::Other, err))
+                Err(std::io::Error::other(err))
             } else {
                 Ok(())
             }
@@ -1124,7 +1119,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 if !header_obfuscator
                     .on_packet_received(&mut packet)
                     .map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::Other, err.into_string())
+                std::io::Error::other(err.into_string())
                     })?
                 {
                     return Ok(());
@@ -2383,8 +2378,8 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     /// This will panic if cannot be sent
     #[inline]
-    pub fn send_to_kernel(&self, msg: NodeResult<R>) -> Result<(), SendError<NodeResult<R>>> {
-        self.kernel_tx.unbounded_send(msg)
+    pub fn send_to_kernel(&self, msg: NodeResult<R>) -> Result<(), Box<SendError<NodeResult<R>>>> {
+        self.kernel_tx.unbounded_send(msg).map_err(Box::new)
     }
 
     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full

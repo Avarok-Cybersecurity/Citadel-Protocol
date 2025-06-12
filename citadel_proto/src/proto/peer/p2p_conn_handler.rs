@@ -434,5 +434,5 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
 pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
     err: E,
 ) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, err)
+    std::io::Error::other(err)
 }

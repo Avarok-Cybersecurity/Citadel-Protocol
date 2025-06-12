@@ -617,7 +617,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         Ok(peers
             .iter()
-            .map(|cid| results.iter().any(|peer_cid| *cid == *peer_cid))
+            .map(|cid| results.contains(cid))
             .collect())
     }
 

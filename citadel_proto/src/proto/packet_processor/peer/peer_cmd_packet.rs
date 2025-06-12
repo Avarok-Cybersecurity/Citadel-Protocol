@@ -638,11 +638,11 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     };
 
                                     let channel_signal =
-                                        NodeResult::PeerChannelCreated(PeerChannelCreated {
+                                        NodeResult::PeerChannelCreated(Box::new(PeerChannelCreated {
                                             ticket: init_ticket,
                                             channel,
                                             udp_rx_opt,
-                                        });
+                                        }));
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
@@ -793,11 +793,11 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     };
 
                                     let channel_signal =
-                                        NodeResult::PeerChannelCreated(PeerChannelCreated {
+                                        NodeResult::PeerChannelCreated(Box::new(PeerChannelCreated {
                                             ticket: init_ticket,
                                             channel,
                                             udp_rx_opt,
-                                        });
+                                        }));
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
