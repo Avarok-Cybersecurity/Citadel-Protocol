@@ -78,7 +78,7 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements
 #[allow(variant_size_differences)]
 pub enum GenericNetworkStream {
     Tcp(TcpStream),
-    Tls(citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>),
+    Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>>),
     // local addr is first addr, remote addr is final addr
     Quic(
         SendStream,
@@ -307,14 +307,25 @@ impl GenericNetworkListener {
 
         let future = async move {
             loop {
-                let (stream, addr) = listener
+                let next_connection = listener
                     .next()
                     .await
-                    .ok_or_else(|| generic_error("TLS listener died"))??;
-                log::trace!(target: "citadel", "Received raw TLS stream from {:?}: {:?}", addr, stream);
-                send.send(Ok((GenericNetworkStream::Tls(stream.into()), addr)))
-                    .await
-                    .map_err(|err| generic_error(err.to_string()))?;
+                    .ok_or_else(|| generic_error("TLS listener died"))?;
+
+                match next_connection {
+                    Ok((stream, addr)) => {
+                        log::trace!(target: "citadel", "Received raw TLS stream from {:?}: {:?}", addr, stream);
+                        if let Err(err) = send
+                            .send(Ok((GenericNetworkStream::Tls(Box::new(citadel_wire::exports::tokio_rustls::TlsStream::Server(stream))), addr)))
+                            .await
+                        {
+                            log::error!(target: "citadel", "Failed to send TLS handshake packet: {err:?}");
+                        }
+                    }
+                    Err(err) => {
+                        log::debug!(target: "citadel", "TLS Stream died: {err:?}")
+                    }
+                }
             }
         };
 
@@ -485,7 +496,7 @@ impl QuicListener {
                         log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
                         send.send(Ok((conn, tx, rx, addr, endpoint.clone())))
                             .await
-                            .map_err(|err| generic_error(err.to_string()))
+                            .map_err(generic_error)
                     })
                     .await?;
             }

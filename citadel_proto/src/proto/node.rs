@@ -375,8 +375,7 @@ impl<R: Ratchet> CitadelNode<R> {
         match underlying_proto {
             ServerUnderlyingProtocol::Tcp(Some(listener)) => {
                 let listener = listener.lock().take().ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    std::io::Error::other(
                         "TCP listener already taken",
                     )
                 })?;
@@ -566,7 +565,7 @@ impl<R: Ratchet> CitadelNode<R> {
                     )
                     .await
                     .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
-                Ok((GenericNetworkStream::Tls(stream.into()), None))
+                Ok((GenericNetworkStream::Tls(Box::new(citadel_wire::exports::tokio_rustls::TlsStream::Client(stream))), None))
             }
             FirstPacket::Quic {
                 domain,

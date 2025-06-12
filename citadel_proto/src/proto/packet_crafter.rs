@@ -391,6 +391,7 @@ pub(crate) mod do_connect {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::prelude::Ticket;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::MailboxTransfer;
     use citadel_crypt::ratchets::Ratchet;
@@ -416,6 +417,7 @@ pub(crate) mod do_connect {
         timestamp: i64,
         security_level: SecurityLevel,
         backend_type: &BackendType,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -424,7 +426,7 @@ pub(crate) mod do_connect {
             algorithm: 0,
             security_level: security_level.value(),
             // place username len here to allow the other end to know where to split the payload
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -484,6 +486,7 @@ pub(crate) mod do_connect {
         timestamp: i64,
         security_level: SecurityLevel,
         backend_type: &BackendType,
+        ticket: Ticket,
     ) -> BytesMut {
         let payload = DoConnectFinalStatusPacket {
             mailbox,
@@ -506,7 +509,7 @@ pub(crate) mod do_connect {
             cmd_aux,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(is_filesystem as u64),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -533,6 +536,7 @@ pub(crate) mod do_connect {
         ratchet: &R,
         timestamp: i64,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -540,7 +544,7 @@ pub(crate) mod do_connect {
             cmd_aux: packet_flags::cmd::aux::do_connect::SUCCESS_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -602,6 +606,7 @@ pub(crate) mod do_register {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::prelude::Ticket;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_crypt::ratchets::Ratchet;
@@ -628,6 +633,7 @@ pub(crate) mod do_register {
         transfer: <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
         passwordless: bool,
         proposed_cid: u64,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -635,7 +641,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
             algorithm,
             security_level: 0,
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(proposed_cid),
@@ -663,6 +669,7 @@ pub(crate) mod do_register {
         timestamp: i64,
         transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
         proposed_cid: u64,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -670,7 +677,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE1,
             algorithm,
             security_level: 0,
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(proposed_cid),
@@ -701,6 +708,7 @@ pub(crate) mod do_register {
         timestamp: i64,
         credentials: &ProposedCredentials,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -708,7 +716,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
             algorithm,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -739,6 +747,7 @@ pub(crate) mod do_register {
         timestamp: i64,
         success_message: T,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let success_message = success_message.as_ref();
         let success_message_len = success_message.len();
@@ -748,7 +757,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::SUCCESS,
             algorithm,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -774,6 +783,7 @@ pub(crate) mod do_register {
         timestamp: i64,
         error_message: T,
         proposed_cid: u64,
+        ticket: Ticket,
     ) -> BytesMut {
         let error_message = error_message.as_ref();
 
@@ -783,7 +793,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::FAILURE,
             algorithm,
             security_level: 0,
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(proposed_cid),
@@ -956,8 +966,10 @@ pub(crate) mod pre_connect {
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::prelude::Ticket;
     use crate::proto::packet::packet_flags::payload_identifiers;
     use crate::proto::packet::{packet_flags, HdpHeader};
+    use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::SecurityLevel;
@@ -994,6 +1006,7 @@ pub(crate) mod pre_connect {
         session_security_settings: SessionSecuritySettings,
         peer_only_connect_protocol: ConnectProtocol,
         connect_mode: ConnectMode,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1001,7 +1014,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
@@ -1045,6 +1058,7 @@ pub(crate) mod pre_connect {
         nat_type: NatType,
         timestamp: i64,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1052,7 +1066,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
@@ -1087,6 +1101,7 @@ pub(crate) mod pre_connect {
         timestamp: i64,
         node_type: NodeType,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1094,7 +1109,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -1124,6 +1139,7 @@ pub(crate) mod pre_connect {
         tcp_only: bool,
         timestamp: i64,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_preconnect::SUCCESS
@@ -1143,7 +1159,7 @@ pub(crate) mod pre_connect {
             cmd_aux,
             algorithm,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -1165,6 +1181,7 @@ pub(crate) mod pre_connect {
         ratchet: &R,
         timestamp: i64,
         security_level: SecurityLevel,
+        ticket: Ticket,
     ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -1172,7 +1189,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::BEGIN_CONNECT,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),
@@ -1202,7 +1219,7 @@ pub(crate) mod pre_connect {
             session_cid: prev_header.session_cid,
             entropy_bank_version: prev_header.entropy_bank_version,
             timestamp: prev_header.timestamp,
-            target_cid: U64::new(0),
+            target_cid: U64::new(C2S_IDENTITY_CID),
         };
 
         let fail_reason = fail_reason.as_ref();

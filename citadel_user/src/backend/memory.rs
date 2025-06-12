@@ -225,9 +225,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .values()
                 .take(limit as _)
                 .map(|r| r.get_metadata())
+                .filter(|r| r.cid != 0)
                 .collect())
         } else {
-            Ok(read.values().map(|r| r.get_metadata()).collect())
+            Ok(read
+                .values()
+                .map(|r| r.get_metadata())
+                .filter(|r| r.cid != 0)
+                .collect())
         }
     }
 

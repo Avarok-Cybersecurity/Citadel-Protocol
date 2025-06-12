@@ -335,7 +335,7 @@ pub fn rustls_client_config_to_quinn_config(
 ) -> std::io::Result<ClientConfig> {
     Ok(ClientConfig::new(Arc::new(
         QuicClientConfig::try_from(cfg)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?,
+            .map_err(std::io::Error::other)?,
     )))
 }
 

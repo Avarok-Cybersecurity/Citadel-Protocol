@@ -182,7 +182,7 @@ pub enum NodeResult<R: Ratchet> {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(DeRegistration),
     /// Connection succeeded for the cid self.0. bool is "is personal"
-    ConnectSuccess(ConnectSuccess<R>),
+    ConnectSuccess(Box<ConnectSuccess<R>>),
     /// The connection was a failure
     ConnectFail(ConnectFail),
     ReKeyResult(ReKeyResult),
@@ -204,7 +204,7 @@ pub enum NodeResult<R: Ratchet> {
     /// An internal error occurred
     InternalServerError(InternalServerError),
     /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
-    PeerChannelCreated(PeerChannelCreated<R>),
+    PeerChannelCreated(Box<PeerChannelCreated<R>>),
     /// A list of running sessions
     SessionList(SessionList),
     /// For shutdowns
@@ -213,7 +213,7 @@ pub enum NodeResult<R: Ratchet> {
 
 impl<R: Ratchet> NodeResult<R> {
     pub fn is_connect_success_type(&self) -> bool {
-        matches!(self, NodeResult::ConnectSuccess(ConnectSuccess { .. }))
+        matches!(self, NodeResult::ConnectSuccess(..))
     }
 
     pub fn callback_key(&self) -> Option<CallbackKey> {
@@ -232,11 +232,9 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket_opt: t,
                 ..
             }) => Some(CallbackKey::new((*t)?, *session_cid)),
-            NodeResult::ConnectSuccess(ConnectSuccess {
-                ticket: t,
-                session_cid,
-                ..
-            }) => Some(CallbackKey::new(*t, *session_cid)),
+            NodeResult::ConnectSuccess(ref cs) => {
+                Some(CallbackKey::new(cs.ticket, cs.session_cid))
+            }
             NodeResult::ConnectFail(ConnectFail {
                 ticket: t,
                 cid_opt,
@@ -269,9 +267,9 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: t,
                 event: _,
             }) => Some(CallbackKey::new(*t, *session_cid)),
-            NodeResult::PeerChannelCreated(PeerChannelCreated {
-                ticket: t, channel, ..
-            }) => Some(CallbackKey::new(*t, channel.get_session_cid())),
+            NodeResult::PeerChannelCreated(ref pcc) => {
+                Some(CallbackKey::new(pcc.ticket, pcc.channel.get_session_cid()))
+            }
             NodeResult::GroupChannelCreated(GroupChannelCreated {
                 ticket: t,
                 channel: _,

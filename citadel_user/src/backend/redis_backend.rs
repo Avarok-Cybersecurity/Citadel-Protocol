@@ -444,7 +444,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
         let mut ret = vec![];
         for bytes in result {
-            ret.push(self.cnac_bytes_to_cnac(bytes)?.get_metadata())
+            let cnac = self.cnac_bytes_to_cnac(bytes)?.get_metadata();
+            if cnac.cid != 0 {
+                ret.push(cnac);
+            }
         }
 
         Ok(ret)

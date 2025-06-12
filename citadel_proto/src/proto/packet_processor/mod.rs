@@ -132,6 +132,8 @@ pub enum PrimaryProcessorResult {
     EndSession(&'static str),
     /// A response packet should be sent back to the sender
     ReplyToSender(BytesMut),
+    /// A response packet should be sent back to the sender, terminating the session soon thereafter
+    EndSessionAndReplyToSender(BytesMut, &'static str),
 }
 
 impl std::fmt::Debug for PrimaryProcessorResult {
@@ -147,6 +149,13 @@ impl std::fmt::Debug for PrimaryProcessorResult {
                 write!(
                     f,
                     "PrimaryProcessorResult::ReplyToSender(len: {})",
+                    packet.len()
+                )
+            }
+            PrimaryProcessorResult::EndSessionAndReplyToSender(packet, reason) => {
+                write!(
+                    f,
+                    "PrimaryProcessorResult::EndSessionAndReplyToSender(len: {}, {reason})",
                     packet.len()
                 )
             }

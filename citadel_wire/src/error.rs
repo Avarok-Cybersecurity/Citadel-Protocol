@@ -71,7 +71,7 @@ impl std::error::Error for FirewallError {}
 
 impl From<FirewallError> for std::io::Error {
     fn from(val: FirewallError) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, val.to_string())
+        std::io::Error::other(val.to_string())
     }
 }
 

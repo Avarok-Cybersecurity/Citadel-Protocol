@@ -189,7 +189,7 @@ pub(crate) fn keys_to_aead_store(
             )
         }
 
-        EncryptionAlgorithm::Kyber => {
+        EncryptionAlgorithm::KyberHybrid => {
             let kem_alg = params.kem_algorithm;
             let sig_alg = params.sig_algorithm;
 
