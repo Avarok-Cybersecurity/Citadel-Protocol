@@ -199,6 +199,45 @@ let val = atomic.load(Ordering::SeqCst);
 - Implement more specialized concurrent collections
 - Add async-aware profiling tools
 
+### 4. 🆕 Key Generation Operations Made Non-Blocking
+
+**Files:** Multiple files in `citadel_proto/src/proto/`
+
+**Problem:** CPU-intensive cryptographic key generation operations (`new_alice`, `new_bob`, `stage0_alice`, `stage0_bob`, `stage1_alice`, `finish`) were running on the main async executor thread, causing:
+- Blocking of other async tasks
+- Reduced system responsiveness under load
+- Potential executor thread starvation
+
+**Fix:** Wrapped all key generation operations in `tokio::spawn_blocking` to move them to dedicated background thread pool:
+
+```rust
+// Before: Blocking the async executor
+let alice_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(...)?;
+let transfer = alice_constructor.stage0_alice()?;
+
+// After: Non-blocking with spawn_blocking
+let (alice_constructor, transfer) = citadel_io::tokio::task::spawn_blocking({
+    let params = params;
+    move || -> Result<_, NetworkError> {
+        let alice_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(params, cid, 0)?;
+        let transfer = alice_constructor.stage0_alice()?;
+        Ok((alice_constructor, transfer))
+    }
+}).await.map_err(|e| NetworkError::Generic(e.to_string()))??;
+```
+
+**Impact:** 
+- Prevents blocking the main async executor during CPU-intensive operations
+- Allows concurrent connection establishment and registration
+- Significantly improves system responsiveness under load
+
+**Modified Functions:**
+- Session registration: `new_alice`, `stage0_alice`
+- Connection establishment: `begin_connect` (made async)
+- Registration packet processing: `new_bob`, `stage0_bob`, `stage1_alice`, `finish`
+- Pre-connect validation: `validate_syn` (made async)
+- Peer-to-peer key exchange: All peer KEM operations
+
 ## Files Modified
 
 1. `citadel_crypt/src/ratchets/ratchet_manager.rs` - Fixed atomic ordering inconsistencies
@@ -206,6 +245,11 @@ let val = atomic.load(Ordering::SeqCst);
 3. `citadel_proto/src/proto/concurrency_improvements.rs` - New concurrency utilities
 4. `citadel_proto/src/proto/mod.rs` - Added module declaration
 5. `citadel_proto/src/lib.rs` - Exported new utilities
+6. **🆕 `citadel_proto/src/proto/session.rs`** - Made key generation non-blocking
+7. **🆕 `citadel_proto/src/proto/packet_processor/register_packet.rs`** - Wrapped registration key operations
+8. **🆕 `citadel_proto/src/proto/validation.rs`** - Made validation async and non-blocking  
+9. **🆕 `citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs`** - Fixed peer key exchange blocking
+10. **🆕 `citadel_proto/src/proto/packet_processor/preconnect_packet.rs`** - Updated async function calls
 
 ## Summary
 
@@ -216,5 +260,8 @@ These changes significantly improve the concurrency safety and performance of th
 - **Improved** performance with optimized locking patterns  
 - **Enhanced** debugging with better error messages and instrumentation
 - **Provided** safer alternatives to problematic patterns
+- **🆕 Eliminated** executor blocking from CPU-intensive cryptographic operations
+- **🆕 Improved** system responsiveness during connection establishment and registration
+- **🆕 Enhanced** concurrent operation support across the protocol stack
 
-The fixes maintain full backward compatibility while providing new tools for safer concurrent programming. The improvements are particularly important for the high-throughput, security-critical nature of the Citadel Protocol.
+The fixes maintain full backward compatibility while providing new tools for safer concurrent programming. The key generation improvements are particularly critical for the high-throughput, security-focused nature of the Citadel Protocol, ensuring that cryptographic operations don't impact overall system performance.

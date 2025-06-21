@@ -609,27 +609,35 @@ impl<R: Ratchet> CitadelSession<R> {
                     .passwordless
                     .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
                 // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
-                let alice_constructor =
-                    <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
-                        ConstructorOpts::new_vec_init(
-                            Some(session_security_settings.crypto_params),
-                            session_security_settings.security_level,
-                        ),
-                        proposed_cid,
-                        0,
-                    )
-                    .ok_or(NetworkError::InternalError(
-                        "Unable to construct Alice ratchet",
-                    ))?;
+                let (alice_constructor, transfer) = citadel_io::tokio::task::spawn_blocking({
+                    let session_security_settings = session_security_settings;
+                    move || -> Result<_, NetworkError> {
+                        let alice_constructor =
+                            <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
+                                ConstructorOpts::new_vec_init(
+                                    Some(session_security_settings.crypto_params),
+                                    session_security_settings.security_level,
+                                ),
+                                proposed_cid,
+                                0,
+                            )
+                            .ok_or(NetworkError::InternalError(
+                                "Unable to construct Alice ratchet",
+                            ))?;
+
+                        log::trace!(target: "citadel", "Running stage0 alice");
+                        let transfer =
+                            alice_constructor
+                                .stage0_alice()
+                                .ok_or(NetworkError::InternalError(
+                                    "Unable to construct AliceToBob transfer",
+                                ))?;
+                        
+                        Ok((alice_constructor, transfer))
+                    }
+                }).await.map_err(|e| NetworkError::Generic(e.to_string()))??;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
-                log::trace!(target: "citadel", "Running stage0 alice");
-                let transfer =
-                    alice_constructor
-                        .stage0_alice()
-                        .ok_or(NetworkError::InternalError(
-                            "Unable to construct AliceToBob transfer",
-                        ))?;
 
                 let stage0_register_packet =
                     crate::proto::packet_crafter::do_register::craft_stage0::<R>(
@@ -648,7 +656,7 @@ impl<R: Ratchet> CitadelSession<R> {
             }
 
             SessionState::NeedsConnect => {
-                Self::begin_connect(&session, cnac.as_ref().unwrap())?;
+                Self::begin_connect(&session, cnac.as_ref().unwrap()).await?;
             }
 
             // This implies this node received a new incoming connection. It is up to the other node, Alice, to send a stage 0 packet
@@ -671,7 +679,7 @@ impl<R: Ratchet> CitadelSession<R> {
         Ok(())
     }
 
-    pub(crate) fn begin_connect(
+    pub(crate) async fn begin_connect(
         session: &CitadelSession<R>,
         cnac: &ClientNetworkAccount<R, R>,
     ) -> Result<(), NetworkError> {
@@ -696,16 +704,23 @@ impl<R: Ratchet> CitadelSession<R> {
             .into_iter()
             .take((session_security_settings.security_level.value() + 1) as usize)
             .collect();
-        let alice_constructor =
-            <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cnac.get_cid(), 0)
-                .ok_or(NetworkError::InternalError(
-                "Unable to construct Alice ratchet",
-            ))?;
-        let transfer = alice_constructor
-            .stage0_alice()
-            .ok_or(NetworkError::InternalError(
-                "Failed to construct AliceToBobTransfer",
-            ))?;
+        let (alice_constructor, transfer) = {
+            let opts = opts;
+            let cid = cnac.get_cid();
+            citadel_io::tokio::task::spawn_blocking(move || -> Result<_, NetworkError> {
+                let alice_constructor =
+                    <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cid, 0)
+                        .ok_or(NetworkError::InternalError(
+                        "Unable to construct Alice ratchet",
+                    ))?;
+                let transfer = alice_constructor
+                    .stage0_alice()
+                    .ok_or(NetworkError::InternalError(
+                        "Failed to construct AliceToBobTransfer",
+                    ))?;
+                Ok((alice_constructor, transfer))
+            }).await.map_err(|e| NetworkError::Generic(e.to_string()))??
+        };
         // encrypts the entire connect process with the highest possible security level
         let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session_ref.local_nat_type.clone();

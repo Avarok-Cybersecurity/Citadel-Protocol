@@ -238,7 +238,7 @@ pub(crate) mod pre_connect {
         R,
     );
 
-    pub(crate) fn validate_syn<R: Ratchet>(
+    pub(crate) async fn validate_syn<R: Ratchet>(
         cnac: &ClientNetworkAccount<R, R>,
         packet: HdpPacket,
         session_manager: &CitadelSessionManager<R>,
@@ -289,21 +289,30 @@ pub(crate) mod pre_connect {
             .take((transfer.session_security_settings.security_level.value() + 1) as usize)
             .collect();
         //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
-        let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
-            header.session_cid.get(),
-            opts,
-            transfer.transfer,
-            session_password.as_ref(),
-        )
-        .ok_or(NetworkError::InternalError(
-            "Unable to create bob container",
-        ))?;
-        let transfer = bob_constructor
-            .stage0_bob()
-            .ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
-        let new_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError(
-            "Unable to finish bob constructor",
-        ))?;
+        let (transfer, new_ratchet) = citadel_io::tokio::task::spawn_blocking({
+            let opts = opts;
+            let cid = header.session_cid.get();
+            let transfer = transfer.transfer;
+            let session_password = session_password.clone();
+            move || -> Result<_, NetworkError> {
+                let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                    cid,
+                    opts,
+                    transfer,
+                    session_password.as_ref(),
+                )
+                .ok_or(NetworkError::InternalError(
+                    "Unable to create bob container",
+                ))?;
+                let transfer = bob_constructor
+                    .stage0_bob()
+                    .ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
+                let new_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError(
+                    "Unable to finish bob constructor",
+                ))?;
+                Ok((transfer, new_ratchet))
+            }
+        }).await.map_err(|e| NetworkError::Generic(e.to_string()))??;
         let _ = new_ratchet
             .verify_level(transfer.security_level().into())
             .map_err(|err| NetworkError::Generic(err.into_string()))?;

@@ -120,7 +120,7 @@ pub async fn process_preconnect<R: Ratchet>(
                         packet,
                         &session.session_manager,
                         &session.session_password,
-                    ) {
+                    ).await {
                         Ok((
                             static_aux_ratchet,
                             transfer,
