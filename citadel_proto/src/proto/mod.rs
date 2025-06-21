@@ -70,6 +70,8 @@ pub(crate) mod state_subcontainers;
 pub(crate) mod transfer_stats;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;
+/// Concurrency improvements and utilities
+pub mod concurrency_improvements;
 
 /// Returns the preferred primary stream for returning a response
 pub(crate) fn get_preferred_primary_stream<R: Ratchet>(
