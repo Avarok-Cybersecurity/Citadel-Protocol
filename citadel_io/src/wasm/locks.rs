@@ -49,16 +49,28 @@ impl<T> RwLockWasm<T> {
     ///
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
+    /// 
+    /// # Panics
+    /// 
+    /// This method will panic if the lock is poisoned. In WebAssembly environments,
+    /// this should never happen since there's no multi-threading, but we maintain
+    /// API compatibility with std::sync::RwLock.
     pub fn read(&self) -> RwLockReadGuard<T> {
-        self.inner.read().unwrap()
+        self.inner.read().expect("WASM RwLock should never be poisoned")
     }
 
     /// Acquires a write lock, blocking the current thread until it is available.
     ///
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
+    /// 
+    /// # Panics
+    /// 
+    /// This method will panic if the lock is poisoned. In WebAssembly environments,
+    /// this should never happen since there's no multi-threading, but we maintain
+    /// API compatibility with std::sync::RwLock.
     pub fn write(&self) -> RwLockWriteGuard<T> {
-        self.inner.write().unwrap()
+        self.inner.write().expect("WASM RwLock should never be poisoned")
     }
 }
 
@@ -74,7 +86,13 @@ impl<T> MutexWasm<T> {
     ///
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
+    /// 
+    /// # Panics
+    /// 
+    /// This method will panic if the lock is poisoned. In WebAssembly environments,
+    /// this should never happen since there's no multi-threading, but we maintain
+    /// API compatibility with std::sync::Mutex.
     pub fn lock(&self) -> MutexGuard<T> {
-        self.inner.lock().unwrap()
+        self.inner.lock().expect("WASM Mutex should never be poisoned")
     }
 }

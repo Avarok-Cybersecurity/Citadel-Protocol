@@ -278,20 +278,22 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_session_cid();
 
-                                        let alice_constructor = return_if_none!(
-                                            <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
-                                                ConstructorOpts::new_vec_init(
-                                                    Some(endpoint_security_settings.crypto_params),
-                                                    endpoint_security_settings.security_level
-                                                ),
-                                                conn.get_original_target_cid(),
-                                                0,
-                                            )
-                                        );
-                                        let transfer = return_if_none!(
-                                            alice_constructor.stage0_alice(),
-                                            "AliceConstructor None"
-                                        );
+                                        let (alice_constructor, transfer) = return_if_none!({
+                                            let endpoint_security_settings = *endpoint_security_settings;
+                                            let target_cid = conn.get_original_target_cid();
+                                            citadel_io::tokio::task::spawn_blocking(move || -> Option<_> {
+                                                let alice_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
+                                                    ConstructorOpts::new_vec_init(
+                                                        Some(endpoint_security_settings.crypto_params),
+                                                        endpoint_security_settings.security_level
+                                                    ),
+                                                    target_cid,
+                                                    0,
+                                                )?;
+                                                let transfer = alice_constructor.stage0_alice()?;
+                                                Some((alice_constructor, transfer))
+                                            }).await.ok().flatten()
+                                        });
                                         //log::trace!(target: "citadel", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
                                         let msg_bytes = return_if_none!(
                                             SyncIO::serialize_to_vector(&transfer).ok()
@@ -400,18 +402,25 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                     let session_password = session_password.unwrap_or_default();
 
-                                    let mut bob_constructor = return_if_none!(
-                                        <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
-                                            conn.get_original_target_cid(),
-                                            ConstructorOpts::new_vec_init(
-                                                Some(session_security_settings.crypto_params),
-                                                session_security_settings.security_level,
-                                            ),
-                                            transfer_deser,
-                                            session_password.as_ref(),
-                                        )
-                                    );
-                                    let transfer = return_if_none!(bob_constructor.stage0_bob());
+                                    let (mut bob_constructor, transfer) = return_if_none!({
+                                        let session_security_settings = *session_security_settings;
+                                        let target_cid = conn.get_original_target_cid();
+                                        let transfer_deser = transfer_deser;
+                                        let session_password = session_password.clone();
+                                        citadel_io::tokio::task::spawn_blocking(move || -> Option<_> {
+                                            let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                                                target_cid,
+                                                ConstructorOpts::new_vec_init(
+                                                    Some(session_security_settings.crypto_params),
+                                                    session_security_settings.security_level,
+                                                ),
+                                                transfer_deser,
+                                                session_password.as_ref(),
+                                            )?;
+                                            let transfer = bob_constructor.stage0_bob()?;
+                                            Some((bob_constructor, transfer))
+                                        }).await.ok().flatten()
+                                    });
                                     let bob_transfer =
                                         return_if_none!(transfer.serialize_to_vector().ok());
 

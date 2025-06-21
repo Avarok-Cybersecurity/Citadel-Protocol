@@ -601,6 +601,11 @@ pub mod kernel;
 /// The primary module of this crate
 mod proto;
 
+/// Concurrency improvements and utilities
+pub mod concurrency_improvements {
+    pub use crate::proto::concurrency_improvements::*;
+}
+
 pub(crate) type ProtocolRatchetManager<R> =
     DefaultRatchetManager<NetworkError, R, MessengerLayerOrderedMessage<UserMessage>>;
 pub type ProtocolMessengerTx<R> = RatchetManagerMessengerLayerTx<NetworkError, R, UserMessage>;

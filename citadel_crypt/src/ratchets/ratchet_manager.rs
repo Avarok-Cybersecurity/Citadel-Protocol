@@ -374,8 +374,8 @@ where
 
         impl Drop for DropWrapper {
             fn drop(&mut self) {
-                self.state.store(RekeyState::Halted, Ordering::Relaxed);
-                self.role.store(RekeyRole::Idle, Ordering::Relaxed);
+                self.state.store(RekeyState::Halted, Ordering::SeqCst);
+                self.role.store(RekeyRole::Idle, Ordering::SeqCst);
             }
         }
 
@@ -428,7 +428,7 @@ where
             // Do not immediately stop, since some packets may still be in transit
             loop {
                 let now = UNIX_EPOCH.elapsed().unwrap_or_default().as_secs();
-                if time_since_last_packet.load(Ordering::Relaxed) < now.saturating_sub(2000) {
+                if time_since_last_packet.load(Ordering::SeqCst) < now.saturating_sub(2000) {
                     log::trace!(target: "citadel", "Shutting down since last packet has not been received in 2000ms");
                     break;
                 }
@@ -468,7 +468,7 @@ where
             let msg = receiver.next().await;
             self.last_received_message.store(
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
-                Ordering::Relaxed,
+                Ordering::SeqCst,
             );
             match msg {
                 Some(RatchetMessage::AliceToBob {
@@ -887,7 +887,7 @@ where
     }
 
     pub fn role(&self) -> RekeyRole {
-        self.role.load(Ordering::Relaxed)
+        self.role.load(Ordering::SeqCst)
     }
 
     fn set_role(&self, role: RekeyRole) {
@@ -903,11 +903,11 @@ where
     }
 
     pub fn state(&self) -> RekeyState {
-        self.state.load(Ordering::Relaxed)
+        self.state.load(Ordering::SeqCst)
     }
 
     fn set_state(&self, state: RekeyState) {
-        self.state.store(state, Ordering::Relaxed);
+        self.state.store(state, Ordering::SeqCst);
     }
 
     fn validate_role_transition(&self, new_role: RekeyRole) -> RoleTransition {

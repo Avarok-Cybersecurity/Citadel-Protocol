@@ -104,21 +104,32 @@ pub async fn process_register<R: Ratchet>(
 
                                 async move {
                                     let cid = header.session_cid.get();
-                                    let mut bob_constructor =
-                                        <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
-                                            cid,
-                                            ConstructorOpts::new_vec_init(
-                                                Some(transfer.crypto_params()),
-                                                transfer.security_level(),
-                                            ),
-                                            transfer,
-                                            session_password.as_ref(),
-                                        )
-                                        .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
-                                    let transfer = return_if_none!(
-                                        bob_constructor.stage0_bob(),
-                                        "Unable to advance past stage0-bob"
-                                    );
+                                    let (transfer, created_ratchet) = citadel_io::tokio::task::spawn_blocking({
+                                        let transfer = transfer;
+                                        let session_password = session_password.clone();
+                                        move || -> Result<_, NetworkError> {
+                                            let mut bob_constructor =
+                                                <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                                                    cid,
+                                                    ConstructorOpts::new_vec_init(
+                                                        Some(transfer.crypto_params()),
+                                                        transfer.security_level(),
+                                                    ),
+                                                    transfer,
+                                                    session_password.as_ref(),
+                                                )
+                                                .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                                            let transfer = return_if_none!(
+                                                bob_constructor.stage0_bob(),
+                                                "Unable to advance past stage0-bob"
+                                            );
+                                            let created_ratchet = return_if_none!(
+                                                bob_constructor.finish(),
+                                                "Unable to finish bob constructor"
+                                            );
+                                            Ok((transfer, created_ratchet))
+                                        }
+                                    }).await.map_err(|e| NetworkError::Generic(e.to_string()))??;
 
                                     let stage1_packet =
                                         packet_crafter::do_register::craft_stage1::<R>(
@@ -131,10 +142,7 @@ pub async fn process_register<R: Ratchet>(
                                     let mut state_container =
                                         inner_mut_state!(session.state_container);
                                     state_container.register_state.created_ratchet =
-                                        Some(return_if_none!(
-                                            bob_constructor.finish(),
-                                            "Unable to finish bob constructor"
-                                        ));
+                                        Some(created_ratchet);
                                     state_container.register_state.last_stage =
                                         packet_flags::cmd::aux::do_register::STAGE1;
                                     state_container.register_state.on_register_packet_received();
@@ -183,13 +191,21 @@ pub async fn process_register<R: Ratchet>(
                             "Unable to deserialize BobToAliceTransfer"
                         );
                         let security_level = transfer.security_level();
-                        alice_constructor
-                            .stage1_alice(transfer, session.session_password.as_ref())
-                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                        let new_ratchet = return_if_none!(
-                            alice_constructor.finish(),
-                            "Unable to finish alice constructor"
-                        );
+                        let new_ratchet = citadel_io::tokio::task::spawn_blocking({
+                            let mut alice_constructor = alice_constructor;
+                            let transfer = transfer;
+                            let session_password = session.session_password.clone();
+                            move || -> Result<_, NetworkError> {
+                                alice_constructor
+                                    .stage1_alice(transfer, session_password.as_ref())
+                                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                let new_ratchet = return_if_none!(
+                                    alice_constructor.finish(),
+                                    "Unable to finish alice constructor"
+                                );
+                                Ok(new_ratchet)
+                            }
+                        }).await.map_err(|e| NetworkError::Generic(e.to_string()))??;
                         let timestamp = session.time_tracker.get_global_time_ns();
 
                         let proposed_credentials = return_if_none!(
@@ -366,7 +382,7 @@ pub async fn process_register<R: Ratchet>(
                                 {
                                     Ok(new_cnac) => {
                                         if passwordless {
-                                            CitadelSession::begin_connect(&session, &new_cnac)?;
+                                            CitadelSession::begin_connect(&session, &new_cnac).await?;
                                             inner_mut_state!(session.state_container).cnac =
                                                 Some(new_cnac);
                                             // begin_connect will handle the connection process from here on out
