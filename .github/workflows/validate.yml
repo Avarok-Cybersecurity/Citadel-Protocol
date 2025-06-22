@@ -64,9 +64,9 @@ jobs:
         env:
           SKIP_EXT_BACKENDS: "true"
         run: cargo nextest run --package citadel_user --features localhost-testing
-      - run: cargo nextest run --features=localhost-testing,multi-threaded --package citadel_proto
+      - run: cargo nextest run --features=localhost-testing --package citadel_proto
         if: ${{ !startsWith(matrix.os, 'windows') }}
-      - run: cargo nextest run --features=localhost-testing,multi-threaded,vendored --package citadel_proto
+      - run: cargo nextest run --features=localhost-testing,vendored --package citadel_proto
         if: ${{ startsWith(matrix.os, 'windows') }}
 
   nat:
@@ -101,12 +101,9 @@ jobs:
       - name: Single-threaded testing (windows only)
         run: cargo nextest run --package citadel_sdk --features=localhost-testing,vendored
         if: startsWith(matrix.os, 'windows')
-      - name: Multi-threaded testing (windows only)
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,vendored
-        if: startsWith(matrix.os, 'windows')
-      - name: Multi-threaded testing
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
+      - name: Skipped multi-threaded testing
+        run: echo "multi-threaded feature disabled"
+        if: false
 
   citadel_sdk_release:
     strategy:
@@ -119,8 +116,8 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing --release
-      - name: Multi-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing --release
+      - name: Skipped multi-threaded testing
+        run: echo "multi-threaded feature disabled"
 
   misc_checks:
     name: miscellaneous
@@ -142,11 +139,9 @@ jobs:
       # Run with valgrind
       #      - name: Run valgrind secmem_string
       #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
-      - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
+      - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis
       - run: cargo install --locked cargo-deny && cargo deny check all
       - run: rustup component add clippy-preview
-      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded -- -D warnings
-      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
       - run: cargo clippy --features=webrtc,sql,redis -- -D warnings
       - run: cargo clippy --features=webrtc,sql,redis --release -- -D warnings
       - run: cargo clippy --tests --examples -- -D warnings
@@ -183,7 +178,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs"
       - uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
