@@ -107,7 +107,10 @@ pub async fn process_register<R: Ratchet>(
                                     let (transfer, created_ratchet) = citadel_io::tokio::task::spawn_blocking({
                                         let transfer = transfer;
                                         let session_password = session_password.clone();
-                                        move || -> Result<_, NetworkError> {
+                                        move || -> Result<(
+                                            <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
+                                            R,
+                                        ), NetworkError> {
                                             let mut bob_constructor =
                                                 <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                                     cid,
@@ -119,14 +122,16 @@ pub async fn process_register<R: Ratchet>(
                                                     session_password.as_ref(),
                                                 )
                                                 .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
-                                            let transfer = return_if_none!(
-                                                bob_constructor.stage0_bob(),
-                                                "Unable to advance past stage0-bob"
-                                            );
-                                            let created_ratchet = return_if_none!(
-                                                bob_constructor.finish(),
-                                                "Unable to finish bob constructor"
-                                            );
+                                            let transfer = bob_constructor
+                                                .stage0_bob()
+                                                .ok_or(NetworkError::InvalidRequest(
+                                                    "Unable to advance past stage0-bob",
+                                                ))?;
+                                            let created_ratchet = bob_constructor
+                                                .finish()
+                                                .ok_or(NetworkError::InvalidRequest(
+                                                    "Unable to finish bob constructor",
+                                                ))?;
                                             Ok((transfer, created_ratchet))
                                         }
                                     }).await.map_err(|e| NetworkError::Generic(e.to_string()))??;
@@ -183,7 +188,7 @@ pub async fn process_register<R: Ratchet>(
                     let algorithm = header.algorithm;
 
                     // pqc is stored in the register state container for now
-                    if let Some(mut alice_constructor) =
+                    if let Some(alice_constructor) =
                         state_container.register_state.constructor.take()
                     {
                         let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = return_if_none!(
@@ -195,14 +200,15 @@ pub async fn process_register<R: Ratchet>(
                             let mut alice_constructor = alice_constructor;
                             let transfer = transfer;
                             let session_password = session.session_password.clone();
-                            move || -> Result<_, NetworkError> {
+                            move || -> Result<R, NetworkError> {
                                 alice_constructor
                                     .stage1_alice(transfer, session_password.as_ref())
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                let new_ratchet = return_if_none!(
-                                    alice_constructor.finish(),
-                                    "Unable to finish alice constructor"
-                                );
+                                let new_ratchet = alice_constructor
+                                    .finish()
+                                    .ok_or(NetworkError::InvalidRequest(
+                                        "Unable to finish alice constructor",
+                                    ))?;
                                 Ok(new_ratchet)
                             }
                         }).await.map_err(|e| NetworkError::Generic(e.to_string()))??;

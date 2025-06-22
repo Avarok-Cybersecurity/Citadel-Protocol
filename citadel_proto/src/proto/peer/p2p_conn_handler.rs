@@ -289,7 +289,8 @@ fn handle_p2p_stream<R: Ratchet>(
         res
     };
 
-    spawn!(future);
+    // Use local task spawning since this future is !Send
+    citadel_io::tokio::task::spawn_local(future);
 
     Ok(())
 }

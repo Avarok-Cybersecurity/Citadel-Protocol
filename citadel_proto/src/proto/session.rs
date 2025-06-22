@@ -510,7 +510,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 cnac_opt,
             );
 
-            let session_future = spawn_handle!(async move {
+            let session_future = citadel_io::tokio::task::spawn_local(async move {
                 citadel_io::tokio::select! {
                     res0 = writer_future => res0,
                     res1 = reader_future => res1,
