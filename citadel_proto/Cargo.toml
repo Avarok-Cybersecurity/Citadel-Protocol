@@ -14,7 +14,6 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["filesystem", "std"]
 filesystem = ["citadel_user/filesystem"]
-multi-threaded = []
 sql = ["citadel_user/sql"]
 redis = ["citadel_user/redis"]
 webrtc = ["webrtc-util"]
@@ -22,6 +21,7 @@ localhost-testing = ["citadel_wire/localhost-testing", "citadel_user/localhost-t
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 google-services = ["citadel_user/google-services"]
 vendored = ["citadel_user/vendored", "citadel_wire/vendored"]
+multi-threaded = []
 
 std = [
     "citadel_user/std",

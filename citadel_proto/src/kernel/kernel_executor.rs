@@ -143,11 +143,9 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             );
             #[cfg(feature = "multi-threaded")]
             {
-                use crate::proto::misc::panic_future::ExplicitPanicFuture;
-                let citadel_server_future = ExplicitPanicFuture::new(_rt.spawn(citadel_server));
                 citadel_io::tokio::select! {
                     ret0 = kernel_future => ret0,
-                    ret1 = citadel_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
+                    ret1 = citadel_server => ret1
                 }
             }
             #[cfg(not(feature = "multi-threaded"))]

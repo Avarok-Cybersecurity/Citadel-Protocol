@@ -263,10 +263,10 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     /// Creates a Google Realtime Database configuration given the project URL and API Key. Requires the use of [`Self::with_google_services_json_path`] to allow minting of JsonWebTokens
     /// at the central server
     #[cfg(feature = "google-services")]
-    pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(
+    pub fn with_google_realtime_database_config<T: Into<String>, S: Into<String>>(
         &mut self,
         url: T,
-        api_key: R,
+        api_key: S,
     ) -> &mut Self {
         let cfg = self.get_or_create_services();
         cfg.google_rtdb = Some(RtdbConfig {

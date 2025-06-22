@@ -402,7 +402,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                     let session_password = session_password.unwrap_or_default();
 
-                                    let (mut bob_constructor, transfer) = return_if_none!({
+                                    let (bob_constructor, transfer) = return_if_none!({
                                         let session_security_settings = *session_security_settings;
                                         let target_cid = conn.get_original_target_cid();
                                         let transfer_deser = transfer_deser;
@@ -1177,9 +1177,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                     .await;
                             }
                             drop(peer_layer_lock);
-                            let peer_alert_signal = PeerSignal::DeregistrationSuccess {
-                                peer_conn_type: peer_conn_type.reverse(),
-                            };
+                            let peer_alert_signal = PeerSignal::DeregistrationSuccess { peer_conn_type };
                             if !session_manager.send_signal_to_peer(
                                 target_cid,
                                 ticket,

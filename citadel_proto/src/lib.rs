@@ -260,6 +260,7 @@ pub mod macros {
         };
     }
 
+    #[allow(unused_macros)]
     macro_rules! spawn_handle {
         ($future:expr) => {
             crate::proto::misc::panic_future::ExplicitPanicFuture::new(
@@ -304,14 +305,14 @@ pub mod macros {
 
     pub type EitherOwnedGuard<'a, T> = Either<OwnedReadGuard<'a, T>, OwnedWriteGuard<'a, T>>;
 
-    pub trait ContextRequirements: Send + 'static {}
-    impl<T: Send + 'static> ContextRequirements for T {}
+    pub trait ContextRequirements: 'static {}
+    impl<T: 'static> ContextRequirements for T {}
 
-    pub trait LocalContextRequirements<'a>: Send + 'a {}
-    impl<'a, T: Send + 'a> LocalContextRequirements<'a> for T {}
+    pub trait LocalContextRequirements<'a>: 'a {}
+    impl<'a, T: 'a> LocalContextRequirements<'a> for T {}
 
-    pub trait SyncContextRequirements: Send + Sync + 'static {}
-    impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
+    pub trait SyncContextRequirements: Sync + 'static {}
+    impl<T: Sync + 'static> SyncContextRequirements for T {}
 
     pub trait FutureRequirements: ContextRequirements + Future {}
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
@@ -455,17 +456,18 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if citadel_io::tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::tokio::task::spawn($future)));
+            std::mem::drop(crate::proto::misc::panic_future::ExplicitPanicFuture::new(citadel_io::tokio::task::spawn_local($future)));
         } else {
             log::warn!(target: "citadel", "Unable to spawn future: {:?}", stringify!($future));
         }
     };
 }
 
+    #[allow(unused_macros)]
     macro_rules! spawn_handle {
         ($future:expr) => {
             crate::proto::misc::panic_future::ExplicitPanicFuture::new(
-                citadel_io::tokio::task::spawn($future),
+                citadel_io::tokio::task::spawn_local($future),
             )
         };
     }
@@ -600,11 +602,6 @@ mod inner_arg;
 pub mod kernel;
 /// The primary module of this crate
 mod proto;
-
-/// Concurrency improvements and utilities
-pub mod concurrency_improvements {
-    pub use crate::proto::concurrency_improvements::*;
-}
 
 pub(crate) type ProtocolRatchetManager<R> =
     DefaultRatchetManager<NetworkError, R, MessengerLayerOrderedMessage<UserMessage>>;

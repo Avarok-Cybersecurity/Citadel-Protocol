@@ -15,7 +15,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["filesystem", "std"]
 filesystem = ["citadel_proto/filesystem", "dirs2"]
-multi-threaded = ["citadel_proto/multi-threaded"]
+multi-threaded = []
 sql = ["citadel_proto/sql"]
 redis = ["citadel_proto/redis"]
 webrtc = ["citadel_proto/webrtc"]
@@ -62,4 +62,4 @@ skip_feature_sets = [
     ["std", "wasm"],
 ]
 
-allowlist = ["std", "filesystem", "google-services", "multi-threaded", "sql", "redis", "webrtc"]
+allowlist = ["std", "filesystem", "google-services", "sql", "redis", "webrtc"]
