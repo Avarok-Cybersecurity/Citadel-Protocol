@@ -143,7 +143,7 @@ impl SecBuffer {
     }
 
     /// For accessing the inner element
-    pub fn handle(&mut self) -> SecureBufMutHandle {
+    pub fn handle(&mut self) -> SecureBufMutHandle<'_> {
         SecureBufMutHandle::new(self)
     }
 

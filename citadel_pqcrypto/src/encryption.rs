@@ -144,8 +144,6 @@ pub mod ascon_impl {
 }
 
 pub mod kyber_module {
-    #[cfg(target_family = "wasm")]
-    use crate::functions::AsSlice;
     use crate::wire::ScramCryptDictionary;
     use crate::{AeadModule, PostQuantumMetaKex, PostQuantumMetaSig};
     use aes_gcm::aead::Buffer;
@@ -173,16 +171,19 @@ pub mod kyber_module {
             // signing the header ensures header does not change
             // encrypting the input ciphertext + the signature ensures ciphertext works
 
+            log::trace!(target: "citadel", "KyberModule::encrypt_in_place: nonce len = {}, ad len = {}, input len = {}", nonce.len(), ad.len(), input.len());
+
             //let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let signature = crate::functions::signature_sign(
-                sha3_256_with_ad(ad, input.as_ref()),
-                self.sig.sig_private_key.as_slice(),
-            )?;
+            let hash = sha3_256_with_ad(ad, input.as_ref());
+            let signature =
+                crate::functions::signature_sign(&hash[..], self.sig.sig_private_key.as_slice())?;
             // append the signature of the header onto the plaintext
             input
                 .extend_from_slice(signature.as_slice())
                 .map_err(|err| Error::Other(err.to_string()))?;
             encode_length_be_bytes(signature.as_slice().len(), input)?;
+
+            log::trace!(target: "citadel", "KyberModule::encrypt_in_place: after signature, input len = {}", input.len());
 
             // encrypt the data using the remote's public key
             let remote_public_key = self.kex.remote_public_key.as_deref().unwrap();
@@ -219,7 +220,7 @@ pub mod kyber_module {
             let (_, signature_bytes) = input.as_ref().split_at(split_pt);
             let sig_verify_input = sha3_256_with_ad(ad, &input.as_ref()[..split_pt]);
             crate::functions::signature_verify(
-                sig_verify_input,
+                &sig_verify_input[..],
                 signature_bytes,
                 sig_remote_pk.as_slice(),
             )?;
@@ -235,6 +236,8 @@ pub mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), Error> {
+            // Pass the full nonce to the AES module for local encryption
+            // The AES module will handle nonce slicing internally in core_kyber_otp_encrypt
             self.symmetric_key_local
                 .local_user_encrypt_in_place(nonce, ad, input)
         }
@@ -245,6 +248,8 @@ pub mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), Error> {
+            // Pass the full nonce to the AES module for local decryption
+            // The AES module will handle nonce slicing internally in core_kyber_otp_decrypt
             self.symmetric_key_local
                 .local_user_decrypt_in_place(nonce, ad, input)
         }
@@ -314,8 +319,9 @@ pub mod kyber_module {
         ad: &[u8],
         input: &mut dyn Buffer,
     ) -> Result<(), Error> {
-        // encrypt everything so far with AES GCM
-        symmetric_cipher.encrypt_in_place(nonce, ad, input)?;
+        // Use only the first 12 bytes of nonce for AES-GCM
+        let cipher_nonce = &nonce[..citadel_types::crypto::AES_GCM_NONCE_LENGTH_BYTES];
+        symmetric_cipher.encrypt_in_place(cipher_nonce, ad, input)?;
 
         let pre_scramble_len = input.len();
         // scramble the AES GCM encrypted ciphertext
@@ -377,7 +383,9 @@ pub mod kyber_module {
         // truncate
         input.truncate(pre_scramble_length);
         // with the AES-GCM encrypted ciphertext descrambled, now, decrypt it
-        symmetric_cipher.decrypt_in_place(nonce, ad, input)?;
+        // Use only the first 12 bytes of nonce for AES-GCM
+        let cipher_nonce = &nonce[..citadel_types::crypto::AES_GCM_NONCE_LENGTH_BYTES];
+        symmetric_cipher.decrypt_in_place(cipher_nonce, ad, input)?;
 
         Ok(())
     }
@@ -397,67 +405,4 @@ pub mod kyber_module {
         digest.update(input);
         digest.finalize().into()
     }
-}
-
-#[macro_export]
-macro_rules! impl_basic_aead_module {
-    ($val:ty, $nonce_len:expr) => {
-        impl AeadModule for $val {
-            fn encrypt_in_place(
-                &self,
-                nonce: &[u8],
-                ad: &[u8],
-                input: &mut dyn Buffer,
-            ) -> Result<(), Error> {
-                self.aead
-                    .encrypt_in_place(GenericArray::from_slice(&nonce[..$nonce_len]), ad, input)
-                    .map_err(|_| Error::EncryptionFailure)
-            }
-
-            fn decrypt_in_place(
-                &self,
-                nonce: &[u8],
-                ad: &[u8],
-                input: &mut dyn Buffer,
-            ) -> Result<(), Error> {
-                self.aead
-                    .decrypt_in_place(GenericArray::from_slice(&nonce[..$nonce_len]), ad, input)
-                    .map_err(|_| Error::EncryptionFailure)
-            }
-
-            fn local_user_encrypt_in_place(
-                &self,
-                nonce: &[u8],
-                ad: &[u8],
-                input: &mut dyn Buffer,
-            ) -> Result<(), Error> {
-                let public_key = &*self.kex.public_key;
-                super::kyber_module::core_kyber_otp_encrypt(
-                    self,
-                    public_key,
-                    self.kex.kem_alg,
-                    nonce,
-                    ad,
-                    input,
-                )
-            }
-
-            fn local_user_decrypt_in_place(
-                &self,
-                nonce: &[u8],
-                ad: &[u8],
-                input: &mut dyn Buffer,
-            ) -> Result<(), Error> {
-                let private_key = self.kex.secret_key.as_deref().unwrap();
-                super::kyber_module::core_kyber_otp_decrypt(
-                    self,
-                    private_key,
-                    self.kex.kem_alg,
-                    nonce,
-                    ad,
-                    input,
-                )
-            }
-        }
-    };
 }

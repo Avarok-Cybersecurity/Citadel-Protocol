@@ -117,7 +117,7 @@ impl<const N: usize> PartitionedSecBuffer<N> {
     /// # Errors
     ///
     /// Returns an error if the index is out of bounds
-    pub fn partition_window(&mut self, idx: usize) -> std::io::Result<SliceHandle> {
+    pub fn partition_window(&mut self, idx: usize) -> std::io::Result<SliceHandle<'_>> {
         let range = self.get_range(idx)?;
         Ok(SliceHandle {
             ptr: &mut self.buffer,

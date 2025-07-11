@@ -39,13 +39,18 @@ impl RngCore for WasmRng {
 
     /// Fills the provided buffer with random bytes.
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        getrandom::getrandom(dest).unwrap();
+        getrandom::fill(dest).unwrap();
     }
 
     /// Attempts to fill the provided buffer with random bytes.
     /// Returns an error if the operation fails.
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        getrandom::getrandom(dest).map_err(|err| Error::from(err.code()))
+        getrandom::fill(dest).map_err(|err| {
+            Error::from(
+                std::num::NonZeroU32::new(err.raw_os_error().unwrap_or(1) as u32)
+                    .expect("NonZeroU32 should be non-zero"),
+            )
+        })
     }
 }
 
@@ -60,6 +65,6 @@ impl CryptoRng for WasmRng {}
 /// This should never happen in practice when using the Web Crypto API.
 fn random_array<const N: usize>() -> [u8; N] {
     let mut bytes = [0u8; N];
-    getrandom::getrandom(&mut bytes).unwrap();
+    getrandom::fill(&mut bytes).unwrap();
     bytes
 }

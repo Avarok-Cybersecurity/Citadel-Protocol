@@ -148,7 +148,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
     }
 
     /// Returns a future which resolves once the lock can be established with the network
-    pub fn lock(&self) -> NetMutexGuardAcquirer<T, S> {
+    pub fn lock(&self) -> NetMutexGuardAcquirer<'_, T, S> {
         NetMutexGuardAcquirer::new(self)
     }
 

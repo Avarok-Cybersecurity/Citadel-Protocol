@@ -135,7 +135,8 @@ mod tests {
                 plaintext.push((x % 256) as u8)
             }
 
-            let nonce = &Vec::from_iter(0..citadel_types::crypto::LARGEST_NONCE_LEN as u8);
+            let nonce_len = encryption_algorithm.nonce_len();
+            let nonce = &Vec::from_iter(0..nonce_len as u8);
 
             let mut ciphertext = alice_container
                 .encrypt(plaintext.as_slice(), nonce)
@@ -153,7 +154,9 @@ mod tests {
 
             assert_eq!(plaintext.as_slice(), decrypted);
 
-            if kem_algorithm == KemAlgorithm::Kyber {
+            if kem_algorithm == KemAlgorithm::Kyber
+                && encryption_algorithm == EncryptionAlgorithm::KyberHybrid
+            {
                 // test local encryption
                 local_encryption(&alice_container, &bob_container, &plaintext, nonce);
             }

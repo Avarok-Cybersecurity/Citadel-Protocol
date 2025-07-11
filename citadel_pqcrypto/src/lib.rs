@@ -65,9 +65,6 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-#[cfg(target_family = "wasm")]
-use crate::functions::AsSlice;
-
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
@@ -98,27 +95,33 @@ pub const fn get_approx_bytes_per_container() -> usize {
     2000
 }
 
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod functions {
     use citadel_types::errors::Error;
-    use oqs::sig::Sig;
+    use falcon_rust::falcon1024;
     use zeroize::Zeroizing;
 
     pub type SecretKeyType = Zeroizing<Vec<u8>>;
     pub type PublicKeyType = Zeroizing<Vec<u8>>;
-    const ALG: oqs::sig::Algorithm = oqs::sig::Algorithm::Falcon1024;
 
     pub fn signature_sign(
         message: impl AsRef<[u8]>,
         secret_key: impl AsRef<[u8]>,
     ) -> Result<Vec<u8>, Error> {
-        let sig = get_sig()?;
-        let secret_key = sig
-            .secret_key_from_bytes(secret_key.as_ref())
-            .ok_or(Error::Generic("Bad secret key length"))?;
-        sig.sign(message.as_ref(), secret_key)
-            .map(|r| r.into_vec())
-            .map_err(|err| Error::Other(err.to_string()))
+        log::trace!(target: "citadel", "signature_sign: message len = {}, secret_key len = {}", message.as_ref().len(), secret_key.as_ref().len());
+
+        // Deserialize the secret key from bytes
+        let sk = falcon1024::SecretKey::from_bytes(secret_key.as_ref()).map_err(|_| {
+            log::error!(target: "citadel", "Failed to deserialize secret key");
+            Error::Generic("Failed to deserialize secret key")
+        })?;
+
+        // Sign the message
+        let sig = falcon1024::sign(message.as_ref(), &sk);
+
+        // Convert signature to bytes
+        let sig_bytes = sig.to_bytes();
+        log::trace!(target: "citadel", "signature_sign: signature len = {}", sig_bytes.len());
+        Ok(sig_bytes)
     }
 
     pub fn signature_verify(
@@ -126,101 +129,41 @@ pub(crate) mod functions {
         signature: impl AsRef<[u8]>,
         public_key: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
-        let sig = get_sig()?;
-        let signature = sig
-            .signature_from_bytes(signature.as_ref())
-            .ok_or(Error::Generic("Bad signature length"))?;
-        let public_key = sig
-            .public_key_from_bytes(public_key.as_ref())
-            .ok_or(Error::Generic("Bad public key length"))?;
+        // Deserialize the public key
+        let pk = falcon1024::PublicKey::from_bytes(public_key.as_ref())
+            .map_err(|_| Error::Generic("Failed to deserialize public key"))?;
 
-        sig.verify(message.as_ref(), signature, public_key)
-            .map_err(|err| Error::Other(err.to_string()))
+        // Deserialize the signature
+        let sig = falcon1024::Signature::from_bytes(signature.as_ref())
+            .map_err(|_| Error::Generic("Failed to deserialize signature"))?;
+
+        // Verify the signature
+        if falcon1024::verify(message.as_ref(), &sig, &pk) {
+            Ok(())
+        } else {
+            Err(Error::Generic("Signature verification failed"))
+        }
     }
 
     pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
-        get_sig()?
-            .keypair()
-            .map_err(|err| Error::Other(err.to_string()))
-            .map(|(l, r)| (l.into_vec().into(), r.into_vec().into()))
+        // Generate random seed
+        let mut rng = citadel_io::ThreadRng::default();
+        let seed: [u8; 32] = citadel_io::Rng::gen(&mut rng);
+
+        // Generate keypair
+        let (sk, pk) = falcon1024::keygen(seed);
+
+        // Convert keys to bytes
+        let pk_bytes = pk.to_bytes();
+        let sk_bytes = sk.to_bytes();
+        log::trace!(target: "citadel", "signature_keypair: pk len = {}, sk len = {}", pk_bytes.len(), sk_bytes.len());
+
+        Ok((Zeroizing::new(pk_bytes), Zeroizing::new(sk_bytes)))
     }
 
     pub fn signature_bytes() -> usize {
-        get_sig().unwrap().length_signature()
-    }
-
-    fn get_sig() -> Result<Sig, Error> {
-        oqs::sig::Sig::new(ALG).map_err(|err| Error::Other(err.to_string()))
-    }
-}
-
-#[cfg(target_family = "wasm")]
-pub(crate) mod functions {
-    use citadel_types::errors::Error;
-    use pqcrypto_falcon_wasi::falcon1024;
-    use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
-    use pqcrypto_traits_wasi::sign::PublicKey as PublicKeyTrait;
-    use pqcrypto_traits_wasi::sign::{DetachedSignature as DetachedSignatureTrait, SecretKey};
-
-    pub trait AsSlice {
-        fn as_slice(&self) -> &[u8];
-    }
-
-    pub type SecretKeyType = falcon1024::SecretKey;
-    pub type PublicKeyType = falcon1024::PublicKey;
-
-    impl AsSlice for SecretKeyType {
-        fn as_slice(&self) -> &[u8] {
-            self.as_bytes()
-        }
-    }
-
-    impl AsSlice for DetachedSignature {
-        fn as_slice(&self) -> &[u8] {
-            self.as_bytes()
-        }
-    }
-
-    impl AsSlice for PublicKeyType {
-        fn as_slice(&self) -> &[u8] {
-            use pqcrypto_traits_wasi::sign::PublicKey;
-            self.as_bytes()
-        }
-    }
-
-    pub fn signature_sign(
-        message: impl AsRef<[u8]>,
-        secret_key: impl AsRef<[u8]>,
-    ) -> Result<Vec<u8>, Error> {
-        let secret_key = falcon1024::SecretKey::from_bytes(secret_key.as_ref())
-            .map_err(|err| Error::Other(err.to_string()))?;
-        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key)
-            .as_bytes()
-            .to_vec())
-    }
-
-    pub fn signature_verify(
-        message: impl AsRef<[u8]>,
-        signature: impl AsRef<[u8]>,
-        public_key: impl AsRef<[u8]>,
-    ) -> Result<(), Error> {
-        let signature = deserialize::<falcon1024::DetachedSignature>(signature.as_ref())?;
-        let public_key = falcon1024::PublicKey::from_bytes(public_key.as_ref())
-            .map_err(|err| Error::Other(err.to_string()))?;
-        falcon1024::verify_detached_signature(&signature, message.as_ref(), &public_key)
-            .map_err(|err| Error::Other(err.to_string()))
-    }
-
-    pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
-        Ok(falcon1024::keypair())
-    }
-
-    pub fn signature_bytes() -> usize {
-        pqcrypto_falcon_wasi::falcon1024::signature_bytes()
-    }
-
-    fn deserialize<T: DetachedSignatureTrait>(bytes: &[u8]) -> Result<T, Error> {
-        T::from_bytes(bytes).map_err(|err| Error::Other(err.to_string()))
+        // Falcon1024 signature size
+        1280
     }
 }
 
@@ -1186,4 +1129,91 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::KyberHybrid => kyber_pke::plaintext_len(ciphertext),
         }
     }
+}
+
+#[macro_export]
+macro_rules! impl_basic_aead_module {
+    ($val:ty, $nonce_len:expr) => {
+        impl AeadModule for $val {
+            fn encrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                // Take only the required nonce length, handling cases where provided nonce is longer
+                let nonce_slice = if nonce.len() >= $nonce_len {
+                    &nonce[..$nonce_len]
+                } else {
+                    return Err(Error::Generic("Nonce too short"));
+                };
+
+                self.aead
+                    .encrypt_in_place(GenericArray::from_slice(nonce_slice), ad, input)
+                    .map_err(|err| {
+                        log::error!(target: "citadel", "AEAD encrypt_in_place failed: {:?}", err);
+                        Error::EncryptionFailure
+                    })
+            }
+
+            fn decrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                // Take only the required nonce length, handling cases where provided nonce is longer
+                let nonce_slice = if nonce.len() >= $nonce_len {
+                    &nonce[..$nonce_len]
+                } else {
+                    return Err(Error::Generic("Nonce too short"));
+                };
+
+                self.aead
+                    .decrypt_in_place(GenericArray::from_slice(nonce_slice), ad, input)
+                    .map_err(|err| {
+                        log::error!(target: "citadel", "AEAD decrypt_in_place failed: {:?}", err);
+                        Error::EncryptionFailure
+                    })
+            }
+
+            fn local_user_encrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                let public_key = &*self.kex.public_key;
+                use crate::encryption::kyber_module;
+                // Use full nonce for Kyber PKE operations, but slice for internal symmetric cipher
+                kyber_module::core_kyber_otp_encrypt(
+                    self,
+                    public_key,
+                    self.kex.kem_alg,
+                    nonce,
+                    ad,
+                    input,
+                )
+            }
+
+            fn local_user_decrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                let private_key = self.kex.secret_key.as_deref().unwrap();
+                use crate::encryption::kyber_module;
+                // Use full nonce for Kyber PKE operations, but slice for internal symmetric cipher
+                kyber_module::core_kyber_otp_decrypt(
+                    self,
+                    private_key,
+                    self.kex.kem_alg,
+                    nonce,
+                    ad,
+                    input,
+                )
+            }
+        }
+    };
 }

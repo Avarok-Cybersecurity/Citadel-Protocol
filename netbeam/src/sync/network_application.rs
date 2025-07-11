@@ -221,7 +221,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     /// returns at about the same time as the adjacent node
-    pub fn sync(&self) -> NetSyncStart<()> {
+    pub fn sync(&self) -> NetSyncStart<'_, ()> {
         NetSyncStart::<()>::new_sync_only(self, self.node_type())
     }
 
@@ -250,17 +250,17 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     /// Creates a Mutex with an adjacent node on the network. One node must set the initial value, the other must set None
-    pub fn mutex<R: NetObject + 'static>(&self, value: Option<R>) -> NetMutexLoader<R, Self> {
+    pub fn mutex<R: NetObject + 'static>(&self, value: Option<R>) -> NetMutexLoader<'_, R, Self> {
         NetMutex::create(self, value)
     }
 
     /// Creates a RwLock with an adjacent node on the network. One node must set the initial value, the other must set None
-    pub fn rwlock<R: NetObject + 'static>(&self, value: Option<R>) -> NetRwLockLoader<R, Self> {
+    pub fn rwlock<R: NetObject + 'static>(&self, value: Option<R>) -> NetRwLockLoader<'_, R, Self> {
         NetRwLock::create(self, value)
     }
 
     /// Creates a bidirectional channel between two endpoints
-    pub fn bi_channel<R: NetObject>(&self) -> bi_channel::ChannelLoader<R, Self> {
+    pub fn bi_channel<R: NetObject>(&self) -> bi_channel::ChannelLoader<'_, R, Self> {
         bi_channel::Channel::create(self)
     }
 }

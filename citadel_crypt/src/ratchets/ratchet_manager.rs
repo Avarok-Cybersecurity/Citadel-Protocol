@@ -1222,7 +1222,8 @@ pub(crate) mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_contentious() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
@@ -1243,7 +1244,8 @@ pub(crate) mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(360))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_with_random_start_lag(
         #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
@@ -1259,7 +1261,8 @@ pub(crate) mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_one_at_a_time() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();

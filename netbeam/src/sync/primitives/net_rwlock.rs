@@ -135,21 +135,21 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
     }
 
     /// Creates a new network rwlock loader with the given connection and initial value.
-    pub fn create(conn: &S, t: Option<T>) -> NetRwLockLoader<T, S> {
+    pub fn create(conn: &S, t: Option<T>) -> NetRwLockLoader<'_, T, S> {
         NetRwLockLoader {
             future: Box::pin(sync_establish_init(conn, t, Self::new_internal)),
         }
     }
 
     /// Acquires a read lock on the network rwlock.
-    pub fn read(&self) -> RwLockReadAcquirer<T, S> {
+    pub fn read(&self) -> RwLockReadAcquirer<'_, T, S> {
         RwLockReadAcquirer {
             future: Box::pin(acquire_read(self)),
         }
     }
 
     /// Acquires a write lock on the network rwlock.
-    pub fn write(&self) -> RwLockWriteAcquirer<T, S> {
+    pub fn write(&self) -> RwLockWriteAcquirer<'_, T, S> {
         RwLockWriteAcquirer {
             future: Box::pin(acquire_write(self)),
         }

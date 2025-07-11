@@ -118,7 +118,7 @@ impl From<KeyStoreIntermediate> for KeyStore {
             bob_key: int.bob_key,
             kex: int.kex,
             sig: int.sig,
-            pq_node: PQNode::Alice,
+            pq_node: int.pq_node,
             params: int.params,
         }
     }

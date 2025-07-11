@@ -5,6 +5,8 @@
 //! these primitives are still useful for maintaining API compatibility with native code
 //! and for potential future multi-threading support.
 
+use serde::{Deserialize, Serialize};
+
 /// Type alias for WebAssembly-compatible RwLock implementation
 pub type RwLock<T> = RwLockWasm<T>;
 /// Type alias for WebAssembly-compatible read guard
@@ -22,7 +24,7 @@ pub type MutexGuard<'a, T> = std::sync::MutexGuard<'a, T>;
 /// This type wraps the standard library's RwLock to provide a WebAssembly-safe
 /// synchronization primitive. While WebAssembly is currently single-threaded,
 /// this implementation maintains API compatibility with native code.
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct RwLockWasm<T> {
     inner: std::sync::RwLock<T>,
 }
@@ -49,7 +51,7 @@ impl<T> RwLockWasm<T> {
     ///
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
-    pub fn read(&self) -> RwLockReadGuard<T> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
         self.inner.read().unwrap()
     }
 
@@ -57,7 +59,7 @@ impl<T> RwLockWasm<T> {
     ///
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
-    pub fn write(&self) -> RwLockWriteGuard<T> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
         self.inner.write().unwrap()
     }
 }
@@ -74,7 +76,7 @@ impl<T> MutexWasm<T> {
     ///
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         self.inner.lock().unwrap()
     }
 }

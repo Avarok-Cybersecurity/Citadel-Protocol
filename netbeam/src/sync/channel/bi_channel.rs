@@ -155,7 +155,7 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
 
 impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
     /// Creates a new channel.
-    pub fn create(conn: &S) -> ChannelLoader<T, S> {
+    pub fn create(conn: &S) -> ChannelLoader<'_, T, S> {
         ChannelLoader {
             inner: Box::pin(
                 conn.initiate_subscription()
