@@ -15,9 +15,10 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["std"]
-std = []
+std = ["net"]
 wasm = []
 deadlock-detection = ["parking_lot/deadlock_detection"]
+net = ["tokio/net"]
 
 [dependencies]
 rand = { workspace = true }
@@ -29,7 +30,7 @@ tokio-stream = { workspace = true }
 parking_lot = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio_wasm = { package = "tokio", version = "=1.36.0", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = ["macros", "sync", "rt", "time", "net", "fs", "rt-multi-thread", "io-std", "io-util"] }
+tokio_wasm = { package = "tokio", version = "=1.36.0", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = ["macros", "sync", "rt", "time", "fs", "rt-multi-thread", "io-std", "io-util"] }
 socket2_wasm = { package = "socket2", version = "=0.5.7", git = "https://github.com/second-state/socket2.git", branch = "v0.5.x" }
 tokio-util-wasm = { package = "tokio-util", version = "0.7.3", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = ["codec", "net", "time", "io"]}
 tokio-stream-wasm = { package = "tokio-stream", version = "0.1.4", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x"}
