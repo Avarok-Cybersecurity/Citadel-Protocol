@@ -334,8 +334,7 @@ pub fn rustls_client_config_to_quinn_config(
     cfg: Arc<rustls::ClientConfig>,
 ) -> std::io::Result<ClientConfig> {
     Ok(ClientConfig::new(Arc::new(
-        QuicClientConfig::try_from(cfg)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?,
+        QuicClientConfig::try_from(cfg).map_err(std::io::Error::other)?,
     )))
 }
 
@@ -485,7 +484,7 @@ mod tests {
         let addr = server.endpoint.local_addr()?;
 
         let server = async move {
-            log::trace!(target: "citadel", "Starting server @ {:?}", addr);
+            log::trace!(target: "citadel", "Starting server @ {addr:?}");
             start_tx.send(()).unwrap();
             let (conn, _tx, mut rx) = server.next_connection().await.unwrap();
             let addr = conn.remote_address();
@@ -505,7 +504,7 @@ mod tests {
             )
             .unwrap();
             let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;
-            log::trace!(target: "citadel", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {res:?}");
             let (_conn, mut tx, _rx) = res.unwrap();
             tx.write_all(&[1, 2, 3]).await.unwrap();
             end_rx.await.unwrap();

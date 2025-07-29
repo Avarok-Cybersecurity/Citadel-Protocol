@@ -66,8 +66,7 @@
     unused_import_braces,
     variant_size_differences,
     unused_features,
-    unused_results,
-    warnings
+    unused_results
 )]
 
 use std::fmt::Formatter;
@@ -170,7 +169,7 @@ pub async fn get_ip_from(
     client: Option<reqwest::Client>,
     addr: &str,
 ) -> Result<IpAddr, IpRetrieveError> {
-    let client = client.unwrap_or_else(|| get_default_client());
+    let client = client.unwrap_or_else(get_default_client);
 
     let resp = client
         .get(addr)
@@ -234,7 +233,7 @@ pub enum IpRetrieveError {
 impl std::fmt::Display for IpRetrieveError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            IpRetrieveError::Error(err) => write!(f, "{}", err),
+            IpRetrieveError::Error(err) => write!(f, "{err}"),
         }
     }
 }

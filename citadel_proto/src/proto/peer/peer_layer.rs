@@ -148,7 +148,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             let mut this_orig = self.inner.write().await;
 
             this_orig.message_groups.entry(cid).or_insert_with(|| {
-                log::trace!(target: "citadel", "Adding message group hashmap for {}", cid);
+                log::trace!(target: "citadel", "Adding message group hashmap for {cid}");
                 HashMap::new()
             });
 
@@ -156,7 +156,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
 
             // Otherwise, add only if it doesn't already exist
             this.observed_postings.entry(cid).or_insert_with(|| {
-                log::trace!(target: "citadel", "Adding observed postings handler for {}", cid);
+                log::trace!(target: "citadel", "Adding observed postings handler for {cid}");
                 HashMap::new()
             });
 
@@ -166,7 +166,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         // drain mailbox, return to user (means there was mail to view)
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
         if !items.is_empty() {
-            log::trace!(target: "citadel", "Returning enqueued mailbox items for {}", cid);
+            log::trace!(target: "citadel", "Returning enqueued mailbox items for {cid}");
             Ok(Some(MailboxTransfer::from(
                 items
                     .into_values()
@@ -238,7 +238,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 None
             }
         } else {
-            log::warn!(target: "citadel", "The maximum number of groups per session has been reached for {}", session_cid);
+            log::warn!(target: "citadel", "The maximum number of groups per session has been reached for {session_cid}");
             None
         }
     }
@@ -411,10 +411,10 @@ impl CitadelNodePeerLayerExecutor {
             let (session_cid, ticket) = res.into_inner();
             if let Some(active_postings) = this.observed_postings.get_mut(&session_cid) {
                 if let Some(posting) = active_postings.remove(&ticket) {
-                    log::warn!(target: "citadel", "Running on_timeout for active posting {} for CID {}", ticket, session_cid);
+                    log::warn!(target: "citadel", "Running on_timeout for active posting {ticket} for CID {session_cid}");
                     (posting.on_timeout)(posting.signal)
                 } else {
-                    log::warn!(target: "citadel", "Attempted to remove active posting {} for CID {}, but failed", session_cid, ticket);
+                    log::warn!(target: "citadel", "Attempted to remove active posting {session_cid} for CID {ticket}, but failed");
                 }
             }
         }
@@ -443,10 +443,10 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", session_cid, peer_cid);
+        log::trace!(target: "citadel", "Checking simultaneous register between {session_cid} and {peer_cid}");
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostRegister { peer_conn_type: conn, inviter_username: _, invitee_username: _, ticket_opt: _, invitee_response: None, .. } = &posting.signal {
-            log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, session_cid);
+            log::trace!(target: "citadel", "Checking if posting from conn={conn:?} ~ {session_cid:?}");
             if let PeerConnectionType::LocalGroupPeer { session_cid: _, peer_cid: b } = conn {
                 *b == session_cid
             } else {
@@ -464,10 +464,10 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        log::trace!(target: "citadel", "Checking simultaneous register between {} and {}", session_cid, peer_cid);
+        log::trace!(target: "citadel", "Checking simultaneous register between {session_cid} and {peer_cid}");
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, ticket_opt: _, invitee_response: _, session_security_settings: _, udp_mode: _, .. } = &posting.signal {
-            log::trace!(target: "citadel", "Checking if posting from conn={:?} ~ {:?}", conn, session_cid);
+            log::trace!(target: "citadel", "Checking if posting from conn={conn:?} ~ {session_cid:?}");
             if let PeerConnectionType::LocalGroupPeer { session_cid: _, peer_cid: b } = conn {
                 *b == session_cid
             } else {
@@ -483,12 +483,17 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
-        log::trace!(target: "citadel", "Checking simultaneous deregister between {} and {}", session_cid, peer_cid);
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::DeregistrationSuccess { peer_conn_type: peer } = &posting.signal {
-            log::trace!(target: "citadel", "Checking if posting from {} == {}", peer, session_cid);
-            peer.get_original_target_cid() == session_cid
-        } else {
-            false
+        log::trace!(target: "citadel", "Checking simultaneous deregister between {session_cid} and {peer_cid}");
+        self.check_simultaneous_event(peer_cid, |posting| {
+            if let PeerSignal::DeregistrationSuccess {
+                peer_conn_type: peer,
+            } = &posting.signal
+            {
+                log::trace!(target: "citadel", "Checking if posting from {peer} == {session_cid}");
+                peer.get_original_target_cid() == session_cid
+            } else {
+                false
+            }
         })
     }
 
@@ -521,7 +526,7 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     ) {
         let mut this = self.inner.write();
         let delay_key = this.delay_queue.insert((session_cid, ticket), timeout);
-        log::trace!(target: "citadel", "Creating TrackedPosting {} (Ticket: {})", session_cid, ticket);
+        log::trace!(target: "citadel", "Creating TrackedPosting {session_cid} (Ticket: {ticket})");
 
         if let Some(map) = this.observed_postings.get_mut(&session_cid) {
             let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
@@ -539,21 +544,21 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         session_cid: u64,
         ticket: Ticket,
     ) -> Option<PeerSignal> {
-        log::trace!(target: "citadel", "Removing tracked posting for {} (ticket: {})", session_cid, ticket);
+        log::trace!(target: "citadel", "Removing tracked posting for {session_cid} (ticket: {ticket})");
         let mut this = self.inner.write();
         if let Some(active_postings) = this.observed_postings.get_mut(&session_cid) {
             if let Some(active_posting) = active_postings.remove(&ticket) {
-                log::trace!(target: "citadel", "Successfully removed tracked posting {} (ticket: {})", session_cid, ticket);
+                log::trace!(target: "citadel", "Successfully removed tracked posting {session_cid} (ticket: {ticket})");
                 let _ = this.delay_queue.remove(&active_posting.key);
                 std::mem::drop(this);
                 self.waker.wake();
                 Some(active_posting.signal)
             } else {
-                log::warn!(target: "citadel", "Tracked posting for {} (ticket: {}) does not exist since key for ticket does not exist", session_cid, ticket);
+                log::warn!(target: "citadel", "Tracked posting for {session_cid} (ticket: {ticket}) does not exist since key for ticket does not exist");
                 None
             }
         } else {
-            log::warn!(target: "citadel", "Tracked posting for {} (ticket: {}) does not exist since key for cid does not exist", session_cid, ticket);
+            log::warn!(target: "citadel", "Tracked posting for {session_cid} (ticket: {ticket}) does not exist since key for cid does not exist");
             None
         }
     }

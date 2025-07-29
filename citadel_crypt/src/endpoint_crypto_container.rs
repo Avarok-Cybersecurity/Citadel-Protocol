@@ -87,7 +87,7 @@ pub struct PeerSessionCrypto<R: Ratchet> {
     pub latest_usable_version: Arc<AtomicU32>,
 }
 
-const ORDERING: Ordering = Ordering::Relaxed;
+const ORDERING: Ordering = Ordering::SeqCst;
 
 impl<R: Ratchet> PeerSessionCrypto<R> {
     /// Creates a new [`PeerSessionCrypto`] instance
@@ -108,11 +108,35 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         }
     }
 
+    /*
     /// Gets a specific entropy_bank version, or, gets the latest version committed
     pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
         self.toolset
             .read()
             .get_ratchet(version.unwrap_or_else(|| self.latest_usable_version.load(ORDERING)))
+            .cloned()
+    }*/
+
+    // When SecrecyMode::Perfect is used, especially on single-threaded mode when two nodes spam messages
+    // at the same time, there's an unsolved bug:
+    // A synchonization bug (race condition). the Self::get_ratchet function sometimes would
+    // attempt via self.latest_usable_version to get the latest version, obtain 1, yet the toolset only
+    // has version 0. So, somewhere, there is a bug where self.latest_usable_version is being incremented
+    // before the toolset is actually updated. As such, as a temporary measure, since the error arose from
+    // a panic inside citadel_proto's session.rs file near the get_ratchet call around line 2000 when trying to
+    // send a message, we should call the below function
+    pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
+        let toolset = self.toolset.read();
+        toolset
+            .get_ratchet(version.unwrap_or_else(|| {
+                let latest_ideal_ratchet = self.latest_usable_version.load(ORDERING);
+                if toolset.get_ratchet(latest_ideal_ratchet).is_none() {
+                    // Sync bug issue. Get the version - 1.
+                    latest_ideal_ratchet.saturating_sub(1)
+                } else {
+                    latest_ideal_ratchet
+                }
+            }))
             .cloned()
     }
 
@@ -212,7 +236,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         );
 
         if let Err(err) = &result {
-            log::error!(target: "citadel", "[E2E] Error during update: {:?}", err);
+            log::error!(target: "citadel", "[E2E] Error during update: {err:?}");
             self.update_in_progress.toggle_off();
         }
 
@@ -368,7 +392,7 @@ impl<R: Ratchet> Debug for KemTransferStatus<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             KemTransferStatus::StatusNoTransfer(status) => {
-                write!(f, "KemTransferStatus::StatusNoTransfer({:?})", status)
+                write!(f, "KemTransferStatus::StatusNoTransfer({status:?})")
             }
             KemTransferStatus::Empty => write!(f, "KemTransferStatus::Empty"),
             KemTransferStatus::Contended => write!(f, "KemTransferStatus::Contended"),

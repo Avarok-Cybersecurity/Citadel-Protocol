@@ -345,7 +345,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                     None,
                     None,
                 ),
-                channel: Some(channel),
+                channel: Some(*channel),
                 udp_channel_rx,
                 services,
                 cid,
@@ -754,7 +754,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 }) => {}
 
                 res => {
-                    log::error!(target: "citadel", "Invalid NodeResult for REVFS FileTransfer request received: {:?}", res);
+                    log::error!(target: "citadel", "Invalid NodeResult for REVFS FileTransfer request received: {res:?}");
                     return Err(NetworkError::InternalError(
                         "Received invalid response from protocol",
                     ));
@@ -843,7 +843,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
 
                     return Ok(PeerConnectSuccess {
                         remote,
-                        channel,
+                        channel: *channel,
                         udp_channel_rx: udp_rx_opt,
                         incoming_object_transfer_handles: None,
                     });

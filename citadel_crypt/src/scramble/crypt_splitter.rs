@@ -666,7 +666,7 @@ impl GroupReceiver {
             let wave_store = self.temp_wave_store.get_mut(&wave_id);
 
             if wave_store.is_none() {
-                log::trace!(target: "citadel", "Packet {} (Parent wave: {}) does not have a wave store", true_sequence, wave_id);
+                log::trace!(target: "citadel", "Packet {true_sequence} (Parent wave: {wave_id}) does not have a wave store");
                 return GroupReceiverStatus::INVALID_PACKET;
             }
 
@@ -769,7 +769,7 @@ impl GroupReceiver {
                 GroupReceiverStatus::INSERT_SUCCESS
             }
         } else {
-            log::trace!(target: "citadel", "Packet {} (Parent Wave: {}) already received", true_sequence, wave_id);
+            log::trace!(target: "citadel", "Packet {true_sequence} (Parent Wave: {wave_id}) already received");
             GroupReceiverStatus::ALREADY_RECEIVED
         }
     }
@@ -955,7 +955,7 @@ impl<const N: usize> GroupSenderDevice<N> {
 
         let end = offset + packets_in_this_wave as u32;
 
-        log::trace!(target: "citadel", "Wave tail received for wave {}. Removing entries from {} to {}", wave_id, offset, end);
+        log::trace!(target: "citadel", "Wave tail received for wave {wave_id}. Removing entries from {offset} to {end}");
 
         for idx in offset..end {
             self.packets_in_ram.remove(&(idx as usize));

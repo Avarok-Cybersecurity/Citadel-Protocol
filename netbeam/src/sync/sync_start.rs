@@ -252,7 +252,7 @@ mod tests {
                     .sync_execute(dummy_function, 100)
                     .await
                     .unwrap();
-                log::trace!(target: "citadel", "Server res: {:?}", res);
+                log::trace!(target: "citadel", "Server res: {res:?}");
                 res
             };
 
@@ -262,7 +262,7 @@ mod tests {
                     .sync_execute(dummy_function, 99)
                     .await
                     .unwrap();
-                log::trace!(target: "citadel", "Client res: {:?}", res);
+                log::trace!(target: "citadel", "Client res: {res:?}");
                 res
             };
 
@@ -291,13 +291,13 @@ mod tests {
 
         let server = async move {
             let res = server.sync_exchange_payload(100).await.unwrap();
-            log::trace!(target: "citadel", "Server res: {:?}", res);
+            log::trace!(target: "citadel", "Server res: {res:?}");
             res
         };
 
         let client = async move {
             let res = client.sync_exchange_payload(99).await.unwrap();
-            log::trace!(target: "citadel", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {res:?}");
             res
         };
 

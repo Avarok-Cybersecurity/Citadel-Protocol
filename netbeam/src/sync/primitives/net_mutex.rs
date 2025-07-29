@@ -600,7 +600,7 @@ mod tests {
             std::mem::drop(guard);
 
             for idx in 1..count {
-                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {idx}");
                 let mut lock = mutex.lock().await.unwrap();
                 log::trace!(target: "citadel", "****Server obtained lock {} w/val {:?}", idx, &*lock);
                 assert_eq!(idx + init_value, *lock);

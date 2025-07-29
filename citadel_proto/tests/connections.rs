@@ -93,15 +93,15 @@ pub mod tests {
             );
 
             if let Err(err) = res.as_ref() {
-                log::error!(target: "citadel", "Error creating primary socket: {:?}", err);
+                log::error!(target: "citadel", "Error creating primary socket: {err:?}");
             }
 
             let (mut listener, addr) = res.unwrap();
-            log::trace!(target: "citadel", "Bind/connect addr: {:?}", addr);
+            log::trace!(target: "citadel", "Bind/connect addr: {addr:?}");
 
             let server = async move {
                 let next = listener.next().await;
-                log::trace!(target: "citadel", "[Server] Next conn: {:?}", next);
+                log::trace!(target: "citadel", "[Server] Next conn: {next:?}");
                 let (stream, peer_addr) = next.unwrap().unwrap();
                 on_server_received_connection(stream, peer_addr).await
             };
@@ -115,9 +115,9 @@ pub mod tests {
             };
 
             let res = citadel_io::tokio::try_join!(server, client);
-            log::trace!("RES: {:?}", res);
+            log::trace!("RES: {res:?}");
             if let Err(err) = res {
-                log::error!(target: "citadel", "Error: {:?}", err);
+                log::error!(target: "citadel", "Error: {err:?}");
             }
             log::trace!(target: "citadel", "Ended");
         }
@@ -169,7 +169,7 @@ pub mod tests {
             }
 
             let (mut listener, addr) = res.unwrap();
-            log::trace!(target: "citadel", "Bind/connect addr: {:?}", addr);
+            log::trace!(target: "citadel", "Bind/connect addr: {addr:?}");
 
             let server = async move {
                 let stream = async_stream::stream! {
@@ -214,7 +214,7 @@ pub mod tests {
                 }
             };
 
-            log::trace!(target: "citadel", "Res: {:?}", res);
+            log::trace!(target: "citadel", "Res: {res:?}");
 
             assert_eq!(cnt.load(Ordering::SeqCst), count);
 
@@ -228,7 +228,7 @@ pub mod tests {
         stream: GenericNetworkStream,
         peer_addr: SocketAddr,
     ) -> std::io::Result<()> {
-        log::trace!(target: "citadel", "[Server] Received stream from {}", peer_addr);
+        log::trace!(target: "citadel", "[Server] Received stream from {peer_addr}");
         let (mut sink, mut stream) = safe_split_stream(stream);
         let packet = stream.next().await.unwrap()?;
         log::trace!(target: "citadel", "[Server] Received packet");
@@ -247,7 +247,7 @@ pub mod tests {
             .await?;
         log::trace!(target: "citadel", "Client - sent packet");
         let packet_opt = stream.next().await;
-        log::trace!(target: "citadel", "Client - next: {:?}", packet_opt);
+        log::trace!(target: "citadel", "Client - next: {packet_opt:?}");
         let packet = packet_opt.unwrap()?;
         log::trace!(target: "citadel", "Client - obtained packet");
         assert_eq!(&packet[..], &[100u8]);

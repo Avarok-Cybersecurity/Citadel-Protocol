@@ -176,7 +176,7 @@ where
         }
 
         loop {
-            log::trace!(target: "citadel", "{:?} awaiting ...", local_node_type);
+            log::trace!(target: "citadel", "{local_node_type:?} awaiting ...");
             let received_remote_state = conn.recv_serialized::<State>().await?;
             log::trace!(target: "citadel", "{:?} RECV'd {:?}", local_node_type, &received_remote_state);
             let mut lock = local_state_ref.lock().await;
@@ -352,7 +352,7 @@ mod tests {
         const COUNT: i32 = 100;
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] ERR:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] ERR:ERR ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -363,7 +363,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] OK:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] OK:OK ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -374,7 +374,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] ERR:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] ERR:OK ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -385,7 +385,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] OK:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] OK:ERR ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -408,13 +408,13 @@ mod tests {
     ) {
         let server = async move {
             let res = conn0.net_select_ok(fx_1).await.unwrap();
-            log::trace!(target: "citadel", "Server res: {:?}", res);
+            log::trace!(target: "citadel", "Server res: {res:?}");
             res
         };
 
         let client = async move {
             let res = conn1.net_select_ok(fx_2).await.unwrap();
-            log::trace!(target: "citadel", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {res:?}");
             res
         };
 

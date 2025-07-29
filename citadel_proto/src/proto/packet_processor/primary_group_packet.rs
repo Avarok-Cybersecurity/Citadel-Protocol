@@ -106,7 +106,7 @@ pub fn process_primary_packet<R: Ratchet>(
     //log::trace!(target: "citadel", "[Peer StackedRatchet] Obtained version {} w/ CID {} (local CID: {})", ratchet.version(), ratchet.get_cid(), header.session_cid.get());
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
-            log::trace!(target: "citadel", "RECV GROUP PAYLOAD {:?}", header);
+            log::trace!(target: "citadel", "RECV GROUP PAYLOAD {header:?}");
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
             match state_container.on_group_payload_received(&header, payload.freeze(), &ratchet) {
                 Ok(res) => {
@@ -115,7 +115,7 @@ pub fn process_primary_packet<R: Ratchet>(
                 }
 
                 Err((err, ticket, object_id)) => {
-                    log::error!(target: "citadel", "on_group_payload_received error: {:?}", err);
+                    log::error!(target: "citadel", "on_group_payload_received error: {err:?}");
                     // Send an error packet back to the source and send a signal to the handle
                     // TODO: File transfer handle cleanup on failure
                     if let Err(err) = state_container.notify_object_transfer_handle_failure(
@@ -242,7 +242,7 @@ pub fn process_primary_packet<R: Ratchet>(
                                                 if group.has_begun {
                                                     if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
                                                         if state_container.meta_expiry_state.expired() {
-                                                            log::warn!(target: "citadel", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
+                                                            log::warn!(target: "citadel", "Inbound group {group_id} has expired; removing for {peer_cid}.");
                                                             if let Some(group) = state_container.inbound_groups.remove(&key) {
                                                                 if group.object_id != ObjectId::zero() {
                                                                     // belongs to a file. Delete file; stop transmission
@@ -259,7 +259,7 @@ pub fn process_primary_packet<R: Ratchet>(
 
                                                             QueueWorkerResult::Complete
                                                         } else {
-                                                            log::trace!(target: "citadel", "Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                            log::trace!(target: "citadel", "Other inbound groups being processed; patiently awaiting group {group_id}");
                                                             QueueWorkerResult::Incomplete
                                                         }
                                                     } else {
@@ -359,7 +359,7 @@ pub fn process_primary_packet<R: Ratchet>(
                                         GroupKey::new(header.session_cid.get(), group, object_id);
                                     if state_container.outbound_transmitters.remove(&key).is_none()
                                     {
-                                        log::error!(target: "citadel", "Unable to remove outbound transmitter for group {} (non-existent)", group);
+                                        log::error!(target: "citadel", "Unable to remove outbound transmitter for group {group} (non-existent)");
                                     }
                                     //std::mem::drop(state_container);
 
@@ -457,7 +457,7 @@ pub(super) fn get_orientation_safe_ratchet<R: Ratchet>(
             //log::trace!(target: "citadel", "[Peer StackedRatchet] v{} from vconn w/ {}", header_entropy_bank_vers, original_session_cid);
             vconn.get_endpoint_ratchet(Some(header_entropy_bank_vers))
         } else {
-            log::warn!(target: "citadel", "Unable to find vconn for {}. Unable to process primary group packet", original_session_cid);
+            log::warn!(target: "citadel", "Unable to find vconn for {original_session_cid}. Unable to process primary group packet");
             None
         }
     } else {

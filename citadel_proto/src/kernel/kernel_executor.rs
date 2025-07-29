@@ -196,7 +196,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             };
 
             reader.try_for_each_concurrent(kernel_settings.max_concurrency, |message: NodeResult<R>| async move {
-                log::trace!(target: "citadel", "[KernelExecutor] Received message {:?}", message);
+                log::trace!(target: "citadel", "[KernelExecutor] Received message {message:?}");
                 match message {
                     NodeResult::Shutdown => {
                         log::trace!(target: "citadel", "Kernel received safe shutdown signal");

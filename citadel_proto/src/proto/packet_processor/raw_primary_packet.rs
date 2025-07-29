@@ -226,7 +226,7 @@ pub(crate) fn check_proxy<R: Ratchet>(
         if let Some(this_session_cid) = this_session_cid {
             // this implies there is at least a connection between hLAN client and hLAN server, but we don't know which is which
             if this_session_cid != target_cid {
-                log::trace!(target: "citadel", "Proxying {}:{} packet from {} to {}", cmd_primary, cmd_aux, this_session_cid, target_cid);
+                log::trace!(target: "citadel", "Proxying {cmd_primary}:{cmd_aux} packet from {this_session_cid} to {target_cid}");
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
 
                 let mut state_container = inner_mut_state!(session.state_container);
@@ -262,7 +262,7 @@ pub(crate) fn check_proxy<R: Ratchet>(
                                 .1
                                 .unbounded_send(packet.into_packet())
                             {
-                                log::warn!(target: "citadel", "Proxy TrySendError to {}", target_cid);
+                                log::warn!(target: "citadel", "Proxy TrySendError to {target_cid}");
                             }
                         }
 
@@ -270,7 +270,7 @@ pub(crate) fn check_proxy<R: Ratchet>(
                             if let Some(udp_sender) = peer_vconn.sender.as_ref().unwrap().0.as_ref()
                             {
                                 if let Err(_err) = udp_sender.unbounded_send(packet.into_packet()) {
-                                    log::error!(target: "citadel", "Proxy TrySendError to {}", target_cid);
+                                    log::error!(target: "citadel", "Proxy TrySendError to {target_cid}");
                                 }
                             } else {
                                 log::error!(target: "citadel", "UDP sender not yet loaded (proxy)");
@@ -278,7 +278,7 @@ pub(crate) fn check_proxy<R: Ratchet>(
                         }
                     }
                 } else {
-                    log::warn!(target: "citadel", "Unable to proxy; virtual connection to {} is not alive", target_cid);
+                    log::warn!(target: "citadel", "Unable to proxy; virtual connection to {target_cid} is not alive");
                 }
 
                 return None;

@@ -144,7 +144,7 @@ impl DualStackUdpHolePuncher {
         let task = async move {
             citadel_io::tokio::task::spawn(drive(hole_punchers, relative_node_type, napp))
                 .await
-                .map_err(|err| anyhow::Error::msg(format!("panic in hole puncher: {:?}", err)))?
+                .map_err(|err| anyhow::Error::msg(format!("panic in hole puncher: {err:?}")))?
         };
 
         Ok(Self {
@@ -331,13 +331,13 @@ async fn drive(
             // Note: if properly implemented, the below should return almost instantly
             loop {
                 let result = post_rebuild_rx.recv().await;
-                log::trace!(target: "citadel", "*** [rebuild] Received signal {:?}", result);
+                log::trace!(target: "citadel", "*** [rebuild] Received signal {result:?}");
                 match result {
                     None => return Err(anyhow::Error::msg("post_rebuild_rx failed")),
 
                     Some(None) => {
                         let fail_count = rebuilder.lock().await.local_failures.len();
-                        log::trace!(target: "citadel", "*** [rebuild] So-far, {}/{} have finished", fail_count, hole_puncher_count);
+                        log::trace!(target: "citadel", "*** [rebuild] So-far, {fail_count}/{hole_puncher_count} have finished");
                         if fail_count == hole_puncher_count {
                             return Err(anyhow::Error::msg("All hole-punchers have failed (t2)"));
                         }
@@ -423,7 +423,7 @@ async fn drive(
                         }
                     } else {
                         // We are the winner
-                        log::trace!(target: "citadel", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
+                        log::trace!(target: "citadel", "*** Local won! Will command other side to use ({peer_unique_id:?}, {local_id:?})");
                         // Tell the other side we won, that way the rebuilder background process for the other
                         // side can respond. If we don't send this message, then, it's possible hanging occurs
                         // on the loser end because the winner combo isn't obtained until this futures
@@ -549,7 +549,7 @@ async fn drive(
         if let DualStackCandidateSignal::WinnerCanEnd = signal {
             log::trace!(target: "citadel", "Received WinnerCanEnd signal");
         } else {
-            log::warn!(target: "citadel", "Received unexpected signal: {:?}", signal);
+            log::warn!(target: "citadel", "Received unexpected signal: {signal:?}");
         }
     } else {
         // We are the "loser"

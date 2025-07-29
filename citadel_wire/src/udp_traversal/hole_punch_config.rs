@@ -147,7 +147,7 @@ impl HolePunchConfig {
             let mut bands = if let Some(bands) = peer_nat.predict(peer_internal_addr) {
                 bands
             } else if cfg!(feature = "localhost-testing") {
-                log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {:?}))", peer_internal_addr);
+                log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {peer_internal_addr:?}))");
                 get_localhost_bands(peer_internal_addr)
             } else {
                 // the peer nat is untraversable. However, they may still be able to connect to this node.

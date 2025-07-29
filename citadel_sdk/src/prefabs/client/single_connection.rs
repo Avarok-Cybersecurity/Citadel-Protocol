@@ -275,15 +275,15 @@ where
         match message {
             NodeResult::ObjectTransferHandle(handle) => {
                 if let Err(err) = self.tx_incoming_object_transfer_handle.send(handle.handle) {
-                    log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
+                    log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {err:?}")
                 }
             }
 
             message => {
                 if let Some(val) = self.unprocessed_signal_filter_tx.lock().as_ref() {
-                    log::trace!(target: "citadel", "Will forward message {:?}", val);
+                    log::trace!(target: "citadel", "Will forward message {val:?}");
                     if let Err(err) = val.send(message) {
-                        log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {:?}", err)
+                        log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {err:?}")
                     }
                 }
             }

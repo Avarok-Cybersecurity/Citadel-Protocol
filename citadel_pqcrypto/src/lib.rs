@@ -734,7 +734,7 @@ pub enum PostQuantumMeta {
 
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
-        log::trace!(target: "citadel", "About to generate keypair for {:?}", kem_alg);
+        log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
         let (public_key, secret_key) = match kem_alg {
             KemAlgorithm::Kyber => {
                 let pk_alice =
@@ -1166,7 +1166,7 @@ macro_rules! impl_basic_aead_module {
                 let nonce_slice = if nonce.len() >= $nonce_len {
                     &nonce[..$nonce_len]
                 } else {
-                    return Err(Error::Generic("Nonce too short"));
+                    return Err(Error::Generic("Nonce too short."));
                 };
 
                 self.aead
@@ -1184,7 +1184,7 @@ macro_rules! impl_basic_aead_module {
                 input: &mut dyn Buffer,
             ) -> Result<(), Error> {
                 let public_key = &*self.kex.public_key;
-                use crate::encryption::kyber_module;
+                use $crate::encryption::kyber_module;
                 // Use full nonce for Kyber PKE operations, but slice for internal symmetric cipher
                 kyber_module::core_kyber_otp_encrypt(
                     self,
@@ -1203,7 +1203,7 @@ macro_rules! impl_basic_aead_module {
                 input: &mut dyn Buffer,
             ) -> Result<(), Error> {
                 let private_key = self.kex.secret_key.as_deref().unwrap();
-                use crate::encryption::kyber_module;
+                use $crate::encryption::kyber_module;
                 // Use full nonce for Kyber PKE operations, but slice for internal symmetric cipher
                 kyber_module::core_kyber_otp_decrypt(
                     self,

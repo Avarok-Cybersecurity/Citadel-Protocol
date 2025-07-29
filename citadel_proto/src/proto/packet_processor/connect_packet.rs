@@ -199,7 +199,7 @@ pub async fn process_connect<R: Ratchet>(
                                     v_conn_type: cxn_type,
                                     services: post_login_object,
                                     welcome_message: format!("Client {cid} successfully established a connection to the local HyperNode"),
-                                    channel,
+                                    channel: channel.into(),
                                     udp_rx_opt: udp_channel_rx,
                                     session_security_settings,
                                 });
@@ -365,7 +365,7 @@ pub async fn process_connect<R: Ratchet>(
                                 v_conn_type: cxn_type,
                                 services: payload.post_login_object,
                                 welcome_message: message,
-                                channel,
+                                channel: channel.into(),
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
                             }))?;
@@ -471,7 +471,7 @@ pub async fn process_connect<R: Ratchet>(
             }
 
             n => {
-                log::error!(target: "citadel", "Invalid auxiliary command: {}", n);
+                log::error!(target: "citadel", "Invalid auxiliary command: {n}");
                 Ok(PrimaryProcessorResult::Void)
             }
         }

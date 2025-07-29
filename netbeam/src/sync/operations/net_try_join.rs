@@ -265,7 +265,7 @@ mod tests {
         let (server_stream, client_stream) = create_streams().await;
         const COUNT: i32 = 10;
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] ERR:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] ERR:ERR ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -277,7 +277,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] OK:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] OK:OK ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -289,7 +289,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] ERR:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] ERR:OK ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -301,7 +301,7 @@ mod tests {
         }
 
         for idx in 0..COUNT {
-            log::trace!(target: "citadel", "[Meta] OK:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "citadel", "[Meta] OK:ERR ({idx}/{COUNT})");
             inner(
                 server_stream.clone(),
                 client_stream.clone(),
@@ -332,7 +332,7 @@ mod tests {
 
         let client = async move {
             let res = conn1.net_try_join(fx_2).await.unwrap();
-            log::trace!(target: "citadel", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {res:?}");
             res
         };
 

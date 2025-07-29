@@ -482,7 +482,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                     let peer_sess = &peer_sess.1;
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
                                     if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
-                                        log::warn!(target: "citadel", "While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", session_cid, peer_cid);
+                                        log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
                                     }
                                 }
                             }
@@ -757,7 +757,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 // from a provisional to a protected connection must be allowed. As such, issue a warning here,
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection
-                log::warn!(target: "citadel", "Cleaned up lingering session for {}", session_cid);
+                log::warn!(target: "citadel", "Cleaned up lingering session for {session_cid}");
                 let prev_conn = &lingering_conn.1;
                 prev_conn.do_static_hr_refresh_atexit.set(false);
             }
@@ -811,7 +811,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             if *prev_init_time == init_time {
                 this.provisional_connections.remove(addr);
             } else {
-                log::warn!(target: "citadel", "Attempted to remove a connection {:?} that was provisional yet for a different process", addr);
+                log::warn!(target: "citadel", "Attempted to remove a connection {addr:?} that was provisional yet for a different process");
             }
         }
     }
@@ -998,7 +998,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 .iter()
                 .filter(|peer| **peer != session_cid)
                 .map(|r| (*r, true));
-            log::trace!(target: "citadel", "[Server/Group] peers_and_statuses: {:?}", broadcastees);
+            log::trace!(target: "citadel", "[Server/Group] peers_and_statuses: {broadcastees:?}");
             let (_success, failed) = self
                 .send_group_broadcast_signal_to(
                     timestamp,
@@ -1111,7 +1111,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
         let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
         accessor.borrow_hr(None, |hr, _| {
-            log::trace!(target: "citadel", "Routing packet through primary stream -> {}", target_cid);
+            log::trace!(target: "citadel", "Routing packet through primary stream -> {target_cid}");
             let packet = packet(hr);
             peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
         }).map_err(|err| err.into_string())?
@@ -1160,7 +1160,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
 
                 accessor.borrow_hr(None, |hr, _| {
-                    log::trace!(target: "citadel", "Routing packet through primary stream ({} -> {})", session_cid, target_cid);
+                    log::trace!(target: "citadel", "Routing packet through primary stream ({session_cid} -> {target_cid})");
                     let packet = packet(hr);
                     peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                 }).map_err(|err| err.into_string())?

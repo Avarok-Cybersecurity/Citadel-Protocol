@@ -302,7 +302,7 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
             };
 
             if let Err(err) = self.node_remote.try_send(command) {
-                log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
+                log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {err:?}");
             }
         }
     }

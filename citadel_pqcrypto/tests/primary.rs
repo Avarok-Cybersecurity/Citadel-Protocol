@@ -29,7 +29,7 @@ mod tests {
         bob_psks: &[T],
         alice_psks: &[R],
     ) -> (PostQuantumContainer, PostQuantumContainer) {
-        log::trace!(target: "citadel", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
+        log::trace!(target: "citadel", "Test algorithm {kem_algorithm:?} w/ {encryption_algorithm:?}");
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
             kem_algorithm + encryption_algorithm + sig_alg,
         )))
@@ -86,7 +86,7 @@ mod tests {
         alice_psk: &[T],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
-        log::trace!(target: "citadel", "Test: {:?} w/ {:?} w/ {:?}", kem_algorithm, encryption_algorithm, signature_algorithm);
+        log::trace!(target: "citadel", "Test: {kem_algorithm:?} w/ {encryption_algorithm:?} w/ {signature_algorithm:?}");
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
             kem_algorithm + encryption_algorithm + signature_algorithm,
@@ -390,7 +390,7 @@ mod tests {
     fn test_all_kems() {
         citadel_logging::setup_log();
         for algorithm in KemAlgorithm::list() {
-            log::trace!(target: "citadel", "About to test {:?}", algorithm);
+            log::trace!(target: "citadel", "About to test {algorithm:?}");
             run::<Vec<u8>>(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::AES_GCM_256,

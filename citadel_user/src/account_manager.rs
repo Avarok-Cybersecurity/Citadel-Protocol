@@ -179,7 +179,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             ));
         }
 
-        log::info!(target: "citadel", "Successfully established connection to backend {:?}...", backend_type);
+        log::info!(target: "citadel", "Successfully established connection to backend {backend_type:?}...");
 
         let this = Self {
             backend_ty: backend_type,

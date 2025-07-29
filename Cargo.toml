@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 
 members = [
     "citadel_sdk",
@@ -53,13 +53,10 @@ packed_struct = { version = "0.10.1" }
 getrandom = { version = "0.2.8", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
-oqs = { version = "0.9.0", default-features = false }
-pqcrypto-falcon-wasi = { version = "0.2.14", default-features = false }
-pqcrypto-traits-wasi = { version = "0.3.4", default-features = false }
 tracing-subscriber = { version = "0.3.16" }
 reqwest_wasi = { version = "0.11.16", default-features = false }
 reqwest = { version = "0.12.7", default-features = false }
-tokio = { version = "1.36.0" }
+tokio = { version = "1.47.0" }
 bytes = { default-features = false, version = "1.3.0" }
 async-trait = { default-features = false, version = "0.1.61" }
 anyhow = { default-features = false, version = "1.0.68" }
@@ -110,7 +107,7 @@ mobc = { version = "0.8.1", default-features = false }
 jwt = { version = "0.16.0", default-features = false }
 openssl = { version = "0.10.66", default-features = false }
 chrono = { default-features = false, version = "0.4.23" }
-tokio-util = { version = "0.7.4", default-features = false }
+tokio-util = { version = "0.7.15", default-features = false }
 dirs2 = { default-features = false, version = "3.0.1" }
 embedded-semver = { version = "0.3.0", default-features = false }
 auto_impl = { default-features = false, version = "1.0.1" }

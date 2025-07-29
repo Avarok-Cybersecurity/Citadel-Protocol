@@ -181,7 +181,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
             log::trace!(target: "citadel", "Will transfer {} packets", packets.len());
             for packet in packets {
                 if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
-                    log::error!(target: "citadel", "[FILE] to_primary_stream died {:?}", err);
+                    log::error!(target: "citadel", "[FILE] to_primary_stream died {err:?}");
                 }
             }
 

@@ -143,7 +143,7 @@ async fn driver_inner(
     // exchange internal bind port, also synchronizing the beginning of the hole punch process
     // while doing so
     let peer_internal_bind_addrs = conn.sync_exchange_payload(internal_addresses).await?;
-    log::info!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {:?}\n Peer NAT type: {:?}", local_nat_type, peer_nat_type);
+    log::info!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {local_nat_type:?}\n Peer NAT type: {peer_nat_type:?}");
     log::info!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
     log::info!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
@@ -151,7 +151,7 @@ async fn driver_inner(
     let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);
 
     let conn = conn.clone();
-    log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
+    log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {hole_punch_config:?}");
     let res = DualStackUdpHolePuncher::new(
         conn.node_type(),
         encrypted_config_container,
@@ -247,20 +247,20 @@ mod tests {
 
         let server = async move {
             let res = server_stream.begin_udp_hole_punch(Default::default()).await;
-            log::trace!(target: "citadel", "Server res: {:?}", res);
+            log::trace!(target: "citadel", "Server res: {res:?}");
             res.unwrap()
         };
 
         let client = async move {
             let res = client_stream.begin_udp_hole_punch(Default::default()).await;
-            log::trace!(target: "citadel", "Client res: {:?}", res);
+            log::trace!(target: "citadel", "Client res: {res:?}");
             res.unwrap()
         };
 
         let server = citadel_io::tokio::task::spawn(server);
         let client = citadel_io::tokio::task::spawn(client);
         let (res0, res1) = citadel_io::tokio::join!(server, client);
-        log::trace!(target: "citadel", "JOIN complete! {:?} | {:?}", res0, res1);
+        log::trace!(target: "citadel", "JOIN complete! {res0:?} | {res1:?}");
         let (_res0, _res1) = (res0.unwrap(), res1.unwrap());
 
         // due to the error "An existing connection was forcibly closed by the remote host",

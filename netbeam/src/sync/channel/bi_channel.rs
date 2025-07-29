@@ -310,12 +310,12 @@ mod tests {
 
             for x in 0..1000 {
                 channel.send_item(x).await.unwrap();
-                log::trace!(target: "citadel", "[S] Send {:?}", x)
+                log::trace!(target: "citadel", "[S] Send {x:?}")
             }
 
             for x in 0..1000 {
                 assert_eq!(x, channel.next().await.unwrap());
-                log::trace!(target: "citadel", "[S] Recv {:?}", x)
+                log::trace!(target: "citadel", "[S] Recv {x:?}")
             }
         });
 
@@ -324,12 +324,12 @@ mod tests {
 
             for x in 0..1000 {
                 channel.send_item(x).await.unwrap();
-                log::trace!(target: "citadel", "[C] Send {:?}", x)
+                log::trace!(target: "citadel", "[C] Send {x:?}")
             }
 
             for x in 0..1000 {
                 assert_eq!(x, channel.next().await.unwrap());
-                log::trace!(target: "citadel", "[C] Send {:?}", x)
+                log::trace!(target: "citadel", "[C] Send {x:?}")
             }
         });
 

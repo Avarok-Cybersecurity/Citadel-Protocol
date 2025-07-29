@@ -402,8 +402,7 @@ impl TryFrom<u8> for SecrecyMode {
             0 => Ok(Self::Perfect),
             1 => Ok(Self::BestEffort),
             _ => Err(Self::Error::Other(format!(
-                "Cannot cast `{}` into SecrecyMode",
-                value
+                "Cannot cast `{value}` into SecrecyMode"
             ))),
         }
     }

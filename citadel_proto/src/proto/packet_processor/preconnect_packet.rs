@@ -131,7 +131,7 @@ pub async fn process_preconnect<R: Ratchet>(
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level();
 
-                            log::trace!(target: "citadel", "Synchronizing toolsets. UDP mode: {:?}. Session security level: {:?}", udp_mode, new_session_sec_lvl);
+                            log::trace!(target: "citadel", "Synchronizing toolsets. UDP mode: {udp_mode:?}. Session security level: {new_session_sec_lvl:?}");
                             // TODO: Rate limiting to prevent SYN flooding
                             let timestamp = session.time_tracker.get_global_time_ns();
 
@@ -684,7 +684,7 @@ pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
     let delta = delta as i64;
     // we send this timestamp, allowing the other end to begin the hole-punching process once this moment is reached
     let sync_time_ns = current + delta;
-    log::trace!(target: "citadel", "Sync time: {}", sync_time_ns);
+    log::trace!(target: "citadel", "Sync time: {sync_time_ns}");
     let sync_time_instant = Instant::now() + Duration::from_nanos(delta as u64);
     (sync_time_instant, sync_time_ns)
 }

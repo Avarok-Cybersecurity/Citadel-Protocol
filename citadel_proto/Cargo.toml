@@ -18,7 +18,11 @@ multi-threaded = []
 sql = ["citadel_user/sql"]
 redis = ["citadel_user/redis"]
 webrtc = ["webrtc-util"]
-localhost-testing = ["citadel_wire/localhost-testing", "citadel_user/localhost-testing", "tracing"]
+localhost-testing = [
+    "citadel_wire/localhost-testing",
+    "citadel_user/localhost-testing",
+    "tracing",
+]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 google-services = ["citadel_user/google-services"]
 vendored = ["citadel_user/vendored", "citadel_wire/vendored"]
@@ -30,7 +34,7 @@ std = [
     "citadel_wire/std",
     "citadel_io/std",
     "netbeam/std",
-    "atomic/std"
+    "atomic/std",
 ]
 
 wasm = [
@@ -56,7 +60,7 @@ zerocopy = { workspace = true, features = ["byteorder", "derive"] }
 bytes = { workspace = true, features = ["serde"] }
 byteorder = { workspace = true }
 atomic = { workspace = true, features = ["fallback"] }
-serde = { workspace = true, features=["derive"] }
+serde = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
 either = { workspace = true }
 async-stream = { workspace = true }

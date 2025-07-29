@@ -31,9 +31,7 @@ categories = ["cryptography", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-exclude = [
-    "./target/*"
-]
+exclude = ["./target/*"]
 
 # Feature flags for different compilation targets and configurations
 [features]
@@ -43,14 +41,14 @@ default = ["std"]
 # Standard library support with all optimizations
 std = [
     "serde/std",              # Serialization support
-    "aes-gcm/std",           # AES-GCM encryption
-    "aes-gcm/alloc",         # Heap allocation for AES
+    "aes-gcm/std",            # AES-GCM encryption
+    "aes-gcm/alloc",          # Heap allocation for AES
     "chacha20poly1305/alloc", # Heap allocation for ChaCha
-    "chacha20poly1305/std",  # ChaCha20-Poly1305 encryption
-    "bytes/std",             # Byte buffer operations
-    "kyber-pke/std",         # Post-quantum key exchange
-    "rand/std",              # Random number generation
-    "sha3/std"               # Hash functions
+    "chacha20poly1305/std",   # ChaCha20-Poly1305 encryption
+    "bytes/std",              # Byte buffer operations
+    "kyber-pke/std",          # Post-quantum key exchange
+    "rand/std",               # Random number generation
+    "sha3/std",               # Hash functions
 ]
 
 # WebAssembly target support
@@ -59,25 +57,38 @@ wasm = []
 # Dependencies with specific version requirements and features
 [dependencies]
 # Core functionality
-citadel_io = { workspace = true }                 # I/O operations
-generic-array = { workspace = true, features = ["serde"] }  # Fixed-size arrays
+citadel_io = { workspace = true }                          # I/O operations
+generic-array = { workspace = true, features = ["serde"] } # Fixed-size arrays
 serde = { workspace = true, features = ["derive", "rc"] }  # Serialization
-bincode = { workspace = true }                    # Binary encoding
+bincode = { workspace = true }                             # Binary encoding
 
 # Cryptographic algorithms
-aes-gcm = { workspace = true, features = ["heapless", "aes", "alloc"]}  # AES-GCM encryption
-chacha20poly1305 = { workspace = true, features = ["heapless", "alloc"] }  # ChaCha20-Poly1305
-kyber-pke = { workspace = true, features=["90s"] }  # Post-quantum key exchange
-ascon-aead = { workspace = true }                 # Lightweight AEAD
+aes-gcm = { workspace = true, features = [
+    "heapless",
+    "aes",
+    "alloc",
+] } # AES-GCM encryption
+chacha20poly1305 = { workspace = true, features = [
+    "heapless",
+    "alloc",
+] } # ChaCha20-Poly1305
+kyber-pke = { workspace = true, features = ["90s"] } # Post-quantum key exchange
+ascon-aead = { workspace = true } # Lightweight AEAD
 
 # Utility libraries
-bytes = { workspace = true }                      # Byte buffer operations
-parking_lot = { workspace = true, features = ["serde"] }  # Synchronization primitives
-log = { workspace = true }                        # Logging support
-sha3 = { workspace = true }                       # Hash functions
-rand = { workspace = true }                       # Random number generation
-serde-big-array = { workspace = true }            # Large array serialization
-zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }  # Secure memory wiping
+bytes = { workspace = true } # Byte buffer operations
+parking_lot = { workspace = true, features = [
+    "serde",
+] } # Synchronization primitives
+log = { workspace = true } # Logging support
+sha3 = { workspace = true } # Hash functions
+rand = { workspace = true } # Random number generation
+serde-big-array = { workspace = true } # Large array serialization
+zeroize = { workspace = true, features = [
+    "zeroize_derive",
+    "alloc",
+    "serde",
+] } # Secure memory wiping
 citadel_types = { workspace = true }
 
 falcon-rust = { version = "0.1.2" }

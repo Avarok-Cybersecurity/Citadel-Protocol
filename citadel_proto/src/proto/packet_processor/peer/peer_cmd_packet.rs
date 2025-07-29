@@ -176,7 +176,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                         PeerSignal::DeregistrationSuccess { peer_conn_type } => {
                             let peer_cid = peer_conn_type.get_original_target_cid();
-                            log::trace!(target: "citadel", "[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, session_cid);
+                            log::trace!(target: "citadel", "[Deregistration] about to remove peer {peer_cid} from {session_cid} at the endpoint");
                             let acc_mgr = &session.account_manager;
                             let kernel_tx = &session.kernel_tx;
 
@@ -186,7 +186,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                 .await?)
                                 .is_none()
                             {
-                                log::warn!(target: "citadel", "Unable to remove local group peer {}", peer_cid);
+                                log::warn!(target: "citadel", "Unable to remove local group peer {peer_cid}");
                             }
 
                             kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerEvent {
@@ -559,7 +559,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         kem_state.local_is_initiator = true;
                                         state_container.peer_kem_states.insert(peer_cid, kem_state);
-                                        log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
+                                        log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
 
                                         let header_time = header.timestamp.get();
                                         let (sync_instant, sync_time_ns) =
@@ -640,7 +640,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: init_ticket,
-                                            channel,
+                                            channel: channel.into(),
                                             udp_rx_opt,
                                         });
 
@@ -750,7 +750,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                                 && *peer_file_transfer_compat,
                                         );
 
-                                        log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
+                                        log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
                                         // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                         // however, STUN-like traversal will proceed in the background
                                         //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
@@ -795,7 +795,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: init_ticket,
-                                            channel,
+                                            channel: channel.into(),
                                             udp_rx_opt,
                                         });
 
@@ -1039,7 +1039,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_register(session_cid, target_cid)
                         {
-                            log::info!(target: "citadel", "Simultaneous register detected! Simulating session_cid={} sent an accept_register to target={}", session_cid, target_cid);
+                            log::info!(target: "citadel", "Simultaneous register detected! Simulating session_cid={session_cid} sent an accept_register to target={target_cid}");
                             peer_layer.insert_mapped_ticket(session_cid, ticket_new, ticket);
                             drop(peer_layer);
                             // route signal to peer
@@ -1178,7 +1178,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 timestamp,
                                 security_level,
                             ) {
-                                log::warn!(target: "citadel", "Unable to send packet to {} (maybe not connected)", target_cid);
+                                log::warn!(target: "citadel", "Unable to send packet to {target_cid} (maybe not connected)");
                             }
 
                             // now, send a success packet to the client
@@ -1265,8 +1265,8 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_connect(session_cid, target_cid)
                         {
-                            log::trace!(target: "citadel", "Simultaneous connect detected! Simulating session_cid={} sent an accept_connect to target={}", session_cid, target_cid);
-                            log::trace!(target: "citadel", "Simultaneous connect: first_ticket: {} | sender expected ticket: {}", ticket_new, ticket);
+                            log::trace!(target: "citadel", "Simultaneous connect detected! Simulating session_cid={session_cid} sent an accept_connect to target={target_cid}");
+                            log::trace!(target: "citadel", "Simultaneous connect: first_ticket: {ticket_new} | sender expected ticket: {ticket}");
                             peer_layer.insert_mapped_ticket(session_cid, ticket_new, ticket);
                             // NOTE: Packet will rebound to sender, then, sender will locally send
                             // packet to the peer who first attempted a connect request
@@ -1674,7 +1674,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
     }, timeout, move |stale_signal| {
         // on timeout, run this
         // TODO: Use latest ratchet, otherwise, may expire
-        log::warn!(target: "citadel", "Running timeout closure. Sending error message to {}", session_cid);
+        log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
         let error_packet = packet_crafter::peer_cmd::craft_peer_signal(&sess_ratchet_2, stale_signal, ticket, timestamp, security_level);
         let _ = to_primary_stream.unbounded_send(error_packet);
     }).await;
@@ -1714,7 +1714,7 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
     on_route_finished: impl FnOnce(&CitadelSession<R>, &CitadelSession<R>, PeerSignal),
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    trace!(target: "citadel", "Routing signal {:?} | impl: {} | target: {}", signal, session_cid, target_cid);
+    trace!(target: "citadel", "Routing signal {signal:?} | impl: {session_cid} | target: {target_cid}");
     let sess_ref = &session;
 
     let res = session
@@ -1755,7 +1755,7 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
         Ok(ret) => ret,
 
         Err(err) => {
-            log::warn!(target: "citadel", "Unable to route signal! {:?}", err);
+            log::warn!(target: "citadel", "Unable to route signal! {err:?}");
             reply_to_sender_err(
                 err,
                 sess_ratchet,

@@ -92,7 +92,7 @@ impl AntiReplayAttackContainer {
         let mut queue = self.history.lock();
         //log::trace!(target: "citadel", "Circular queue: {:?}", &queue.1);
         if queue.1.contains(&pid_received) {
-            log::error!(target: "citadel", "[ARA] packet {} already arrived!", pid_received);
+            log::error!(target: "citadel", "[ARA] packet {pid_received} already arrived!");
             false
         } else {
             // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
@@ -120,7 +120,7 @@ impl AntiReplayAttackContainer {
 
                 true
             } else {
-                log::error!(target: "citadel", "[ARA] out of range! Recv: {}. Expected >= {}", pid_received, min);
+                log::error!(target: "citadel", "[ARA] out of range! Recv: {pid_received}. Expected >= {min}");
                 false
             }
         }

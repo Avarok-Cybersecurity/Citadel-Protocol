@@ -25,10 +25,7 @@ std = [
     "rustls-pemfile/std",
 ]
 localhost-testing = ["tracing"]
-wasm = [
-    "citadel_io/wasm",
-    "netbeam/wasm"
-]
+wasm = ["citadel_io/wasm", "netbeam/wasm"]
 vendored = ["openssl/vendored"]
 
 [dependencies]
@@ -43,7 +40,7 @@ bincode = { workspace = true }
 async_ip = { workspace = true }
 itertools = { workspace = true, features = ["use_alloc", "use_std"] }
 either = { workspace = true }
-netbeam = { workspace = true  }
+netbeam = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 tracing = { workspace = true, optional = true, features = ["attributes"] }
 rustls = { workspace = true }

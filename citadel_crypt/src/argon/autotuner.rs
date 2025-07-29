@@ -100,7 +100,7 @@ pub async fn calculate_optimal_argon_params(
             time_cost,
             secret.clone().unwrap_or_default(),
         );
-        log::trace!(target: "citadel", "Settings current: {:?}", settings_this_round);
+        log::trace!(target: "citadel", "Settings current: {settings_this_round:?}");
 
         match AsyncArgon::hash(fake_password.clone(), settings_this_round)
             .await
@@ -108,7 +108,7 @@ pub async fn calculate_optimal_argon_params(
         {
             ArgonStatus::HashSuccess(_) => {
                 let elapsed = init_time.elapsed().as_millis();
-                log::trace!(target: "citadel", "Iteration {}: {}ms (Mem cost (KB): {} | time cost: {})", iters, elapsed, mem_cost, time_cost);
+                log::trace!(target: "citadel", "Iteration {iters}: {elapsed}ms (Mem cost (KB): {mem_cost} | time cost: {time_cost})");
                 iters += 1;
 
                 if mem_cost_tuned {
@@ -133,7 +133,7 @@ pub async fn calculate_optimal_argon_params(
                         time_cost += 1;
                     } else {
                         let times_over = (elapsed as f32 / millis_minimum as f32).ceil();
-                        log::trace!(target: "citadel", "Times over: {}", times_over);
+                        log::trace!(target: "citadel", "Times over: {times_over}");
 
                         let diff = if times_over > 2f32 {
                             mem_cost - (mem_cost as f32 / times_over).floor() as u64
@@ -141,7 +141,7 @@ pub async fn calculate_optimal_argon_params(
                             (0.20f32 * (mem_cost as f32)) as u64
                         };
 
-                        log::trace!(target: "citadel", "DIFF: {}", diff);
+                        log::trace!(target: "citadel", "DIFF: {diff}");
                         mem_cost -= diff;
                     }
                 }

@@ -150,7 +150,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         citadel_io::tokio::task::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
-                    log::trace!(target: "citadel", "Unable to forward packet: {:?}", err);
+                    log::trace!(target: "citadel", "Unable to forward packet: {err:?}");
                 }
             }
         });
@@ -325,7 +325,7 @@ async fn preaction_sync<
                 .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
 
             if recvd_id != next_id {
-                log::error!(target: "citadel", "Invalid sync ID received. {:?} != {:?}", recvd_id, next_id);
+                log::error!(target: "citadel", "Invalid sync ID received. {recvd_id:?} != {next_id:?}");
             }
 
             Ok(subscription)

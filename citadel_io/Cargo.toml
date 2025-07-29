@@ -24,15 +24,37 @@ net = ["tokio/net", "tokio-util/net"]
 rand = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-tokio = { workspace = true, features = ["rt", "macros", "io-util", "time", "fs", "sync", "parking_lot"] }
-tokio-util = { workspace = true, features = ["codec",  "time", "io"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "io-util",
+    "time",
+    "fs",
+    "sync",
+    "parking_lot",
+] }
+tokio-util = { workspace = true, features = ["codec", "time", "io"] }
 tokio-stream = { workspace = true }
 parking_lot = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio_wasm = { package = "tokio", version = "=1.36.0", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = ["macros", "sync", "rt", "time", "io-util"] }
+tokio_wasm = { package = "tokio", version = "=1.36.0", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [
+    "macros",
+    "sync",
+    "rt",
+    "time",
+    "io-util",
+] }
 socket2_wasm = { package = "socket2", optional = true, version = "=0.5.7", git = "https://github.com/second-state/socket2.git", branch = "v0.5.x" }
-tokio-util-wasm = { package = "tokio-util", version = "0.7.3", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = ["codec", "time", "io"]}
-tokio-stream-wasm = { package = "tokio-stream", version = "0.1.4", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x"}
+tokio-util-wasm = { package = "tokio-util", version = "0.7.3", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [
+    "codec",
+    "time",
+    "io",
+] }
+tokio-stream-wasm = { package = "tokio-stream", version = "0.1.4", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x" }
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
-serde = { workspace = true, default-features = false, features = ["derive", "std"] }
+serde = { workspace = true, default-features = false, features = [
+    "derive",
+    "std",
+] }

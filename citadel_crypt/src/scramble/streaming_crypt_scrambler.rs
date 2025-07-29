@@ -215,7 +215,7 @@ pub fn scramble_encrypt_source<
     let object_len = source
         .length()
         .map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
-    log::trace!(target: "citadel", "Object length: {} | Path: {:?}", object_len, path);
+    log::trace!(target: "citadel", "Object length: {object_len} | Path: {path:?}");
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
@@ -409,7 +409,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
                 *poll_amt = poll_len;
                 Self::poll_task(groups_rendered, read_cursor, *poll_amt, cur_task, cx)
             } else {
-                log::error!(target: "citadel", "Error polling exact amt {}", poll_len);
+                log::error!(target: "citadel", "Error polling exact amt {poll_len}");
                 Poll::Ready(None)
             }
         } else {

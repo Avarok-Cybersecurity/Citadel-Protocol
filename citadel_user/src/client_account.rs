@@ -181,7 +181,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             ));
         }
 
-        log::trace!(target: "citadel", "Creating CNAC w/valid cid: {:?}", valid_cid);
+        log::trace!(target: "citadel", "Creating CNAC w/valid cid: {valid_cid:?}");
         let creation_date = get_present_formatted_timestamp();
 
         let peer_state = AccountState {

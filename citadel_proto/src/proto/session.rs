@@ -780,7 +780,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 let is_server = sess.is_server;
                 std::mem::drop(sess);
                 if let Some(tcp_conn_awaiter) = tcp_conn_awaiter {
-                    log::trace!(target: "citadel", "Awaiting tcp conn to finish before creating UDP subsystem ... is_server={}", is_server);
+                    log::trace!(target: "citadel", "Awaiting tcp conn to finish before creating UDP subsystem ... is_server={is_server}");
                     tcp_conn_awaiter
                         .await
                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -793,7 +793,7 @@ impl<R: Ratchet> CitadelSession<R> {
                     VirtualConnectionType::LocalGroupServer { session_cid: _ } => {
                         let mut state_container = inner_mut_state!(sess.state_container);
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
-                        log::trace!(target: "citadel", "C2S UDP subroutine inserting UDP channel ... (is_server={})", is_server);
+                        log::trace!(target: "citadel", "C2S UDP subroutine inserting UDP channel ... (is_server={is_server})");
                         if let Some(channel) = state_container.insert_udp_channel(
                             C2S_IDENTITY_CID,
                             v_target,
@@ -801,7 +801,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             udp_sender,
                             stopper_tx,
                         ) {
-                            log::trace!(target: "citadel", "C2S UDP subroutine created udp channel ... (is_server={})", is_server);
+                            log::trace!(target: "citadel", "C2S UDP subroutine created udp channel ... (is_server={is_server})");
                             if let Some(sender) = state_container
                                 .pre_connect_state
                                 .udp_channel_oneshot_tx
@@ -809,7 +809,7 @@ impl<R: Ratchet> CitadelSession<R> {
                                 .take()
                             {
                                 //TODO: await before sending Channel to c2s or p2p
-                                log::trace!(target: "citadel", "C2S UDP subroutine sending channel to local user ... (is_server={})", is_server);
+                                log::trace!(target: "citadel", "C2S UDP subroutine sending channel to local user ... (is_server={is_server})");
                                 sender.send(channel).map_err(|_| {
                                     NetworkError::InternalError("Unable to send UdpChannel through")
                                 })?;
@@ -880,7 +880,7 @@ impl<R: Ratchet> CitadelSession<R> {
                     accessor.clone(),
                 );
 
-                log::trace!(target: "citadel", "Server established UDP Port {}", local_bind_addr);
+                log::trace!(target: "citadel", "Server established UDP Port {local_bind_addr}");
 
                 //futures.push();
                 let udp_sender_future =
@@ -1026,10 +1026,10 @@ impl<R: Ratchet> CitadelSession<R> {
                         cid_opt,
                     )
                     .map_err(|err| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Unable to ReplyToSender: {:?}", err.into_string()),
-                        )
+                        std::io::Error::other(format!(
+                            "Unable to ReplyToSender: {:?}",
+                            err.into_string()
+                        ))
                     })?;
                 }
 
@@ -1048,7 +1048,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
             if let Some(err) = session_closing_error {
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
-                Err(std::io::Error::new(std::io::ErrorKind::Other, err))
+                Err(std::io::Error::other(err))
             } else {
                 Ok(())
             }
@@ -1123,9 +1123,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 );
                 if !header_obfuscator
                     .on_packet_received(&mut packet)
-                    .map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::Other, err.into_string())
-                    })?
+                    .map_err(|err| std::io::Error::other(err.into_string()))?
                 {
                     return Ok(());
                 }
@@ -1244,7 +1242,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
                                 if let Err(err) = state_container.initiate_rekey(vconn, None) {
-                                    log::warn!(target: "citadel", "Unable to initiate entropy_bank update for {:?}: {:?}", vconn, err);
+                                    log::warn!(target: "citadel", "Unable to initiate entropy_bank update for {vconn:?}: {err:?}");
                                 }
                             }
 
@@ -1603,7 +1601,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 session_cid,
                 peer_cid: target_cid,
             } => {
-                log::trace!(target: "citadel", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", session_cid, target_cid);
+                log::trace!(target: "citadel", "Sending HyperLAN peer ({session_cid}) <-> HyperLAN Peer ({target_cid})");
                 // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
                 // of the file
                 let ratchet_manager_c2s = &state_container
@@ -1760,7 +1758,7 @@ impl<R: Ratchet> CitadelSession<R> {
                     return;
                 }
                 Err(err) => {
-                    log::error!(target: "citadel", "start_rx error occurred: {:?}", err);
+                    log::error!(target: "citadel", "start_rx error occurred: {err:?}");
                     return;
                 }
 
@@ -1821,7 +1819,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             let group_id = transmitter.group_id;
 
                             // We manually send the header. The tails get sent automatically
-                            log::trace!(target: "citadel", "Sending GROUP HEADER through primary stream for group {}", group_id);
+                            log::trace!(target: "citadel", "Sending GROUP HEADER through primary stream for group {group_id}");
                             if let Err(err) = sess.try_action(Some(ticket), || {
                                 transmitter.transmit_group_header(virtual_target)
                             }) {
@@ -1864,7 +1862,7 @@ impl<R: Ratchet> CitadelSession<R> {
                                     let transmitter = transmitter.burst_transmitter.group_transmitter.as_ref().expect("transmitter should exist");
                                     if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
                                         if state_container.meta_expiry_state.expired() {
-                                            log::error!(target: "citadel", "Outbound group {} has expired; dropping entire transfer", group_id);
+                                            log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
                                             //std::mem::drop(transmitter);
                                             if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
                                                 if let Some(stop) = outbound_container.stop_tx.take() {
@@ -1887,7 +1885,7 @@ impl<R: Ratchet> CitadelSession<R> {
                                                 QueueWorkerResult::Complete
                                             }
                                         } else {
-                                            log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                            log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {group_id}");
                                             QueueWorkerResult::Incomplete
                                         }
                                     } else {
@@ -2209,7 +2207,7 @@ impl<R: Ratchet> CitadelSession<R> {
                 }
 
                 Err(err) => {
-                    log::warn!(target: "citadel", "UDP Stream error: {:#?}", err);
+                    log::warn!(target: "citadel", "UDP Stream error: {err:#?}");
                     break;
                 }
             }
@@ -2289,13 +2287,13 @@ impl<R: Ratchet> CitadelSession<R> {
 
                         Ok(PrimaryProcessorResult::EndSession(err)) => {
                             // stop the UDP stream
-                            log::warn!(target: "citadel", "UDP session ending: {:?}", err);
+                            log::warn!(target: "citadel", "UDP session ending: {err:?}");
                             Err(NetworkError::Generic(err.to_string()))
                         }
 
                         Err(err) => {
                             // stop the UDP stream
-                            log::warn!(target: "citadel", "UDP session ending: {:?}", err);
+                            log::warn!(target: "citadel", "UDP session ending: {err:?}");
                             Err(err)
                         }
 
@@ -2383,6 +2381,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     /// This will panic if cannot be sent
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn send_to_kernel(&self, msg: NodeResult<R>) -> Result<(), SendError<NodeResult<R>>> {
         self.kernel_tx.unbounded_send(msg)
     }

@@ -75,10 +75,9 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements
     clean_framed_shutdown(framed)
 }
 
-#[allow(variant_size_differences)]
 pub enum GenericNetworkStream {
     Tcp(TcpStream),
-    Tls(citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>),
+    Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>>),
     // local addr is first addr, remote addr is final addr
     Quic(
         SendStream,
@@ -144,7 +143,7 @@ impl AsyncRead for GenericNetworkStream {
     ) -> Poll<std::io::Result<()>> {
         match self.deref_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
-            Self::Tls(stream) => Pin::new(stream).poll_read(cx, buf),
+            Self::Tls(stream) => Pin::new(&mut *stream).poll_read(cx, buf),
             Self::Quic(_, recv, ..) => Pin::new(recv).poll_read(cx, buf),
         }
     }
@@ -158,7 +157,7 @@ impl AsyncWrite for GenericNetworkStream {
     ) -> Poll<Result<usize, Error>> {
         match self.deref_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Tls(stream) => Pin::new(stream).poll_write(cx, buf),
+            Self::Tls(stream) => Pin::new(&mut *stream).poll_write(cx, buf),
             Self::Quic(sink, ..) => Pin::new(sink).poll_write(cx, buf).map_err(|err| err.into()),
         }
     }
@@ -166,7 +165,7 @@ impl AsyncWrite for GenericNetworkStream {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.deref_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
-            Self::Tls(stream) => Pin::new(stream).poll_flush(cx),
+            Self::Tls(stream) => Pin::new(&mut *stream).poll_flush(cx),
             Self::Quic(sink, ..) => Pin::new(sink).poll_flush(cx),
         }
     }
@@ -174,7 +173,7 @@ impl AsyncWrite for GenericNetworkStream {
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.deref_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
-            Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tls(stream) => Pin::new(&mut *stream).poll_shutdown(cx),
             Self::Quic(sink, ..) => Pin::new(sink).poll_shutdown(cx),
         }
     }
@@ -210,7 +209,7 @@ impl GenericNetworkListener {
                     )
                 });
 
-                log::trace!(target: "citadel", "RECV raw QUIC stream from {:?}", res);
+                log::trace!(target: "citadel", "RECV raw QUIC stream from {res:?}");
                 send.send(res)
                     .await
                     .map_err(|err| generic_error(err.to_string()))?;
@@ -241,7 +240,7 @@ impl GenericNetworkListener {
             let redirect_to_quic = &redirect_to_quic;
             loop {
                 let (stream, addr) = listener.accept().await?;
-                log::trace!(target: "citadel", "Received raw TCP stream from {:?}: {:?}", addr, stream);
+                log::trace!(target: "citadel", "Received raw TCP stream from {addr:?}: {stream:?}");
 
                 // ensures that any errors do not terminate the listener as a whole
                 async fn handle_stream_non_terminating(
@@ -314,9 +313,12 @@ impl GenericNetworkListener {
 
                 match next_connection {
                     Ok((stream, addr)) => {
-                        log::trace!(target: "citadel", "Received raw TLS stream from {:?}: {:?}", addr, stream);
+                        log::trace!(target: "citadel", "Received raw TLS stream from {addr:?}: {stream:?}");
                         if let Err(err) = send
-                            .send(Ok((GenericNetworkStream::Tls(stream.into()), addr)))
+                            .send(Ok((
+                                GenericNetworkStream::Tls(Box::new(stream.into())),
+                                addr,
+                            )))
                             .await
                         {
                             log::error!(target: "citadel", "Failed to send TLS handshake packet: {err:?}");
@@ -366,7 +368,7 @@ impl Stream for GenericNetworkListener {
             Poll::Pending => {}
             Poll::Ready(res) => {
                 // assert err
-                log::warn!(target: "citadel", "ERR: {:?}", res);
+                log::warn!(target: "citadel", "ERR: {res:?}");
                 return Poll::Ready(Some(Err(res.unwrap_err())));
             }
         }
@@ -408,7 +410,7 @@ impl TlsListener {
             };
 
             acceptor_stream.try_for_each_concurrent(None, |(stream, addr)| async move {
-                log::trace!(target: "citadel", "TLs-listener RECV Raw TCP stream from {:?} : {:?}",addr, stream);
+                log::trace!(target: "citadel", "TLs-listener RECV Raw TCP stream from {addr:?} : {stream:?}");
                 let domain = domain.clone();
 
                 async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, domain: TlsDomain, is_self_signed: bool, tls_acceptor: &TlsAcceptor) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
@@ -454,7 +456,7 @@ impl Stream for TlsListener {
             Poll::Pending => {}
             Poll::Ready(res) => {
                 // assert err
-                log::warn!(target: "citadel", "ERR: {:?}", res);
+                log::warn!(target: "citadel", "ERR: {res:?}");
                 return Poll::Ready(Some(Err(res.unwrap_err())));
             }
         }
@@ -521,7 +523,7 @@ impl Stream for QuicListener {
             Poll::Pending => {}
             Poll::Ready(res) => {
                 // assert err
-                log::warn!(target: "citadel", "ERR: {:?}", res);
+                log::warn!(target: "citadel", "ERR: {res:?}");
                 return Poll::Ready(Some(Err(res.unwrap_err())));
             }
         }
@@ -619,7 +621,7 @@ impl Stream for DualListener {
             Poll::Pending => {}
             Poll::Ready(res) => {
                 // assert err
-                log::warn!(target: "citadel", "ERR: {:?}", res);
+                log::warn!(target: "citadel", "ERR: {res:?}");
                 return Poll::Ready(Some(Err(res.unwrap_err())));
             }
         }

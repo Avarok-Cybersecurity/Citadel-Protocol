@@ -171,7 +171,7 @@ impl<P> Debug for RatchetMessage<P> {
         match self {
             RatchetMessage::AliceToBob { .. } => write!(f, "AliceToBob"),
             RatchetMessage::BobToAlice(_, role, _) => {
-                write!(f, "BobToAlice(sender_role: {:?})", role)
+                write!(f, "BobToAlice(sender_role: {role:?})")
             }
             RatchetMessage::Truncate(_) => write!(f, "Truncate"),
             RatchetMessage::LeaderCanFinish { .. } => write!(f, "LeaderCanFinish"),
@@ -504,11 +504,7 @@ where
                             // Request resynchronization
                             return Err(CryptError::RekeyUpdateError(
                                 format!(
-                                    "Rekey barrier mismatch (earliest/latest). Peer: ({}-{}) != Local: ({}-{})",
-                                    earliest_ratchet_version,
-                                    latest_ratchet_version,
-                                    local_earliest_ratchet_version,
-                                    local_latest_ratchet_version
+                                    "Rekey barrier mismatch (earliest/latest). Peer: ({earliest_ratchet_version}-{latest_ratchet_version}) != Local: ({local_earliest_ratchet_version}-{local_latest_ratchet_version})"
                                 ),
                             ));
                         }
@@ -616,10 +612,9 @@ where
                                 log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
                             }
                             RoleTransition::Invalid => {
-                                log::warn!(target: "citadel", "Invalid role transition from {:?} to Leader", initial_role);
+                                log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
                                 return Err(CryptError::RekeyUpdateError(format!(
-                                    "Invalid role transition from {:?} to Leader",
-                                    initial_role
+                                    "Invalid role transition from {initial_role:?} to Leader"
                                 )));
                             }
                             _ => {}
@@ -700,8 +695,7 @@ where
                     log::debug!(target: "citadel", "Client {} received Truncate", self.cid);
                     if role != RekeyRole::Loser {
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Unexpected Truncate message since our role is not Loser, but {:?}",
-                            role
+                            "Unexpected Truncate message since our role is not Loser, but {role:?}"
                         )));
                     }
 
@@ -738,7 +732,7 @@ where
                     let role = self.role();
                     if role != RekeyRole::Loser {
                         return Err(CryptError::RekeyUpdateError(
-                            format!("Unexpected LoserCanFinish message since our role is not Loser, but {:?}", role)
+                            format!("Unexpected LoserCanFinish message since our role is not Loser, but {role:?}")
                         ));
                     }
 
@@ -788,10 +782,9 @@ where
                                 log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
                             }
                             RoleTransition::Invalid => {
-                                log::warn!(target: "citadel", "Invalid role transition from {:?} to Leader", initial_role);
+                                log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
                                 return Err(CryptError::RekeyUpdateError(format!(
-                                    "Invalid role transition from {:?} to Leader",
-                                    initial_role
+                                    "Invalid role transition from {initial_role:?} to Leader"
                                 )));
                             }
                             _ => {}
@@ -802,8 +795,7 @@ where
                     let role = self.role();
                     if role != RekeyRole::Leader {
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Unexpected LeaderCanFinish message since our role is not Leader, but {:?}",
-                            role
+                            "Unexpected LeaderCanFinish message since our role is not Leader, but {role:?}"
                         )));
                     }
 
@@ -821,8 +813,7 @@ where
                         log::warn!(target: "citadel", "Client {} version mismatch after LeaderCanFinish. Local: {}, Peer: {}", 
                             self.cid, latest_declared_version, version);
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Version mismatch after LeaderCanFinish update. Local: {}, Peer: {}",
-                            latest_declared_version, version
+                            "Version mismatch after LeaderCanFinish update. Local: {latest_declared_version}, Peer: {version}"
                         )));
                     }
 
@@ -1095,21 +1086,21 @@ pub(crate) mod tests {
                         let latest_0 = container_0.session_crypto_state.latest_usable_version();
                         let latest_1 = container_1.session_crypto_state.latest_usable_version();
 
-                        assert_eq!(latest_0, latest_1, "Version mismatch after rekey. Container 0: {}, Container 1: {}", latest_0, latest_1);
-                        assert!(latest_0 > start_version, "Version did not increase. Start: {}, Current: {}", start_version, latest_0);
+                        assert_eq!(latest_0, latest_1, "Version mismatch after rekey. Container 0: {latest_0}, Container 1: {latest_1}");
+                        assert!(latest_0 > start_version, "Version did not increase. Start: {start_version}, Current: {latest_0}");
 
                         // Reset roles to idle
                         container_0.set_role(super::RekeyRole::Idle);
                         container_1.set_role(super::RekeyRole::Idle);
                     }
                     (Err(e1), Err(e2)) => {
-                        panic!("Both containers failed. Error 1: {:?}, Error 2: {:?}", e1, e2);
+                        panic!("Both containers failed. Error 1: {e1:?}, Error 2: {e2:?}");
                     }
                     (Err(e), Ok(_)) => {
-                        panic!("Container 0 failed: {:?}", e);
+                        panic!("Container 0 failed: {e:?}");
                     }
                     (Ok(_), Err(e)) => {
-                        panic!("Container 1 failed: {:?}", e);
+                        panic!("Container 1 failed: {e:?}");
                     }
                 }
             }

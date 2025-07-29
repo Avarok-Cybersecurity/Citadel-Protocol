@@ -13,28 +13,18 @@ license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-exclude = [
-    "./target/*"
-]
+exclude = ["./target/*"]
 
 [features]
 default = ["filesystem", "std"]
 filesystem = []
-std = [
-    "citadel_pqcrypto/std",
-    "byteorder/std",
-    "rand/std",
-    "citadel_io/std",
-]
-wasm = [
-    "citadel_pqcrypto/wasm",
-    "citadel_io/wasm",
-]
+std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std"]
+wasm = ["citadel_pqcrypto/wasm", "citadel_io/wasm"]
 
 [dependencies]
 async-trait = { workspace = true }
 bincode = { workspace = true }
-serde = { workspace = true, features=["rc", "derive"] }
+serde = { workspace = true, features = ["rc", "derive"] }
 serde-big-array = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
