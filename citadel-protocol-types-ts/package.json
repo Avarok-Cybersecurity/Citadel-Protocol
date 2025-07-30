@@ -1,0 +1,45 @@
+{
+  "name": "@avarok/citadel-protocol-types",
+  "version": "0.13.0",
+  "description": "TypeScript type definitions for the Citadel Protocol, automatically generated from Rust types",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "src/**/*.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Avarok-Cybersecurity/Citadel-Protocol.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Avarok-Cybersecurity/Citadel-Protocol/issues"
+  },
+  "homepage": "https://avarok.net/",
+  "keywords": [
+    "typescript",
+    "citadel",
+    "protocol",
+    "cryptography",
+    "network",
+    "security",
+    "rust",
+    "bindings",
+    "types"
+  ],
+  "author": "Thomas Braun <thomas.braun@avarok.net>",
+  "license": "MIT OR Apache-2.0",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
+

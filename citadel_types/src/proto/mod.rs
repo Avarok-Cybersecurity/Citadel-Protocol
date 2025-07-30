@@ -6,9 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
 use strum::VariantNames;
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 use uuid::Uuid;
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 /// If force_login is true, the protocol will disconnect any previously existent sessions in the session manager attributed to the account logging-in (so long as login succeeds)
 /// The default is a Standard login that will with force_login set to false
 pub enum ConnectMode {
@@ -23,6 +27,8 @@ impl Default for ConnectMode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub struct VirtualObjectMetadata {
     pub name: String,
     pub date_created: String,
@@ -35,6 +41,8 @@ pub struct VirtualObjectMetadata {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[repr(transparent)]
 pub struct ObjectId(pub u128);
 
@@ -86,12 +94,16 @@ impl VirtualObjectMetadata {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum ObjectTransferOrientation {
     Receiver { is_revfs_pull: bool },
     Sender,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[allow(variant_size_differences)]
 pub enum ObjectTransferStatus {
     TransferBeginning,
@@ -159,6 +171,8 @@ impl std::fmt::Display for ObjectTransferStatus {
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub struct SessionSecuritySettings {
     pub security_level: SecurityLevel,
     pub secrecy_mode: SecrecyMode,
@@ -181,6 +195,8 @@ pub struct SessionSecuritySettings {
     strum::EnumCount,
     strum_macros::VariantNames,
 )]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum UdpMode {
     #[default]
     Disabled,
@@ -194,18 +210,24 @@ impl UdpMode {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum MemberState {
     EnteredGroup { cids: Vec<u64> },
     LeftGroup { cids: Vec<u64> },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum GroupMemberAlterMode {
     Leave,
     Kick,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 /// Options for creating message groups
 pub struct MessageGroupOptions {
     pub group_type: GroupType,
@@ -222,6 +244,8 @@ impl Default for MessageGroupOptions {
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum GroupType {
     /// A public group is a group where any user registered to the owner can join
     Public,
@@ -231,6 +255,8 @@ pub enum GroupType {
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub struct MessageGroupKey {
     pub cid: u64,
     pub mgid: u128,
@@ -255,6 +281,8 @@ impl std::fmt::Display for MessageGroupKey {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum TransferType {
     FileTransfer,
     RemoteEncryptedVirtualFilesystem {

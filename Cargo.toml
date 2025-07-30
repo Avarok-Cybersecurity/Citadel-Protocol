@@ -123,3 +123,4 @@ sha256 = { version = "1.5.0" }
 tokio-openssl = { version = "0.6.3" }
 openssl-sys = { version = "0.9.104" }
 ml-dsa = { version = "0.0.4" }
+ts-rs = { version = "11", features = ["bytes"] }

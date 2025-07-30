@@ -1,0 +1,16 @@
+# Source TypeScript files are included via "files" in package.json
+# This file ensures other unnecessary files are excluded
+
+# Development files
+tsconfig.json
+.gitignore
+
+# OS files
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

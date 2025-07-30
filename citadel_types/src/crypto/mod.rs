@@ -68,6 +68,8 @@ use sha3::Digest;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, Deref, DerefMut};
 use strum::{EnumCount, IntoEnumIterator, ParseError, VariantNames};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 use uuid::Uuid;
 
 pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
@@ -305,6 +307,8 @@ impl<'de> Deserialize<'de> for SecBuffer {
 }
 
 #[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[packed_struct(bit_numbering = "msb0")]
 pub struct CryptoParameters {
     #[packed_field(bits = "0..=3", ty = "enum")]
@@ -351,6 +355,8 @@ impl TryFrom<u8> for CryptoParameters {
     strum::EnumCount,
     strum_macros::VariantNames,
 )]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum EncryptionAlgorithm {
     #[default]
     AES_GCM_256 = 0,
@@ -380,6 +386,8 @@ impl EncryptionAlgorithm {
     strum::EnumCount,
     strum_macros::VariantNames,
 )]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum SecrecyMode {
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
     #[default]
@@ -423,6 +431,8 @@ impl TryFrom<u8> for SecrecyMode {
     strum::EnumCount,
     strum_macros::VariantNames,
 )]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum KemAlgorithm {
     #[strum(ascii_case_insensitive)]
     #[default]
@@ -450,6 +460,8 @@ impl KemAlgorithm {
     strum::EnumCount,
     strum_macros::VariantNames,
 )]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum SigAlgorithm {
     #[default]
     None = 0,
@@ -474,6 +486,8 @@ impl SigAlgorithm {
     strum::EnumIter,
     strum::EnumCount,
 )]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum SecurityLevel {
     #[default]
     Standard,
@@ -521,6 +535,8 @@ impl From<u8> for SecurityLevel {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum HeaderObfuscatorSettings {
     #[default]
     /// Disables header obfuscation (default)
@@ -646,6 +662,8 @@ mod test {
 }
 
 #[derive(Default, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub struct PreSharedKey {
     passwords: Vec<Vec<u8>>,
 }
