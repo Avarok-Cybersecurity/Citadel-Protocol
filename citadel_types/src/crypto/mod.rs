@@ -384,10 +384,12 @@ impl EncryptionAlgorithm {
     strum::EnumString,
     strum::EnumIter,
     strum::EnumCount,
+    strum::FromRepr,
     strum_macros::VariantNames,
 )]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
+#[repr(u8)]
 pub enum SecrecyMode {
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
     #[default]
@@ -406,12 +408,12 @@ impl TryFrom<u8> for SecrecyMode {
     type Error = crate::errors::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Perfect),
-            1 => Ok(Self::BestEffort),
-            _ => Err(Self::Error::Other(format!(
+        if let Some(ret) = Self::from_repr(value) {
+            Ok(ret)
+        } else {
+            Err(Self::Error::Other(format!(
                 "Cannot cast `{value}` into SecrecyMode"
-            ))),
+            )))
         }
     }
 }
@@ -429,10 +431,12 @@ impl TryFrom<u8> for SecrecyMode {
     strum::EnumString,
     strum::EnumIter,
     strum::EnumCount,
+    strum::FromRepr,
     strum_macros::VariantNames,
 )]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
+#[repr(u8)]
 pub enum KemAlgorithm {
     #[strum(ascii_case_insensitive)]
     #[default]
@@ -442,6 +446,20 @@ pub enum KemAlgorithm {
 impl KemAlgorithm {
     pub fn variants() -> Vec<String> {
         Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl TryFrom<u8> for KemAlgorithm {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if let Some(ret) = Self::from_repr(value) {
+            Ok(ret)
+        } else {
+            Err(Self::Error::Other(format!(
+                "Cannot cast `{value}` into KemAlgorithm"
+            )))
+        }
     }
 }
 
@@ -458,10 +476,12 @@ impl KemAlgorithm {
     strum::EnumString,
     strum::EnumIter,
     strum::EnumCount,
+    strum::FromRepr,
     strum_macros::VariantNames,
 )]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
+#[repr(u8)]
 pub enum SigAlgorithm {
     #[default]
     None = 0,
@@ -471,6 +491,20 @@ pub enum SigAlgorithm {
 impl SigAlgorithm {
     pub fn variants() -> Vec<String> {
         Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl TryFrom<u8> for SigAlgorithm {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if let Some(ret) = Self::from_repr(value) {
+            Ok(ret)
+        } else {
+            Err(Self::Error::Other(format!(
+                "Cannot cast `{value}` into Sigalgorithm"
+            )))
+        }
     }
 }
 

@@ -99,7 +99,7 @@ multimap = { default-features = false, version = "0.9.0" }
 parking_lot = { version = "0.12.1" }
 twox-hash = { default-features = false, version = "1.6.3" }
 serde_json = { default-features = false, version = "1.0.91" }
-base64 = { version = "0.21.2", default-features = false }
+base64 = { version = "0.22", default-features = false }
 bstr = { default-features = false, version = "1.1.0" }
 sqlx = { version = "0.7.2" }
 redis-base = { package = "redis", version = "0.23.0" }
@@ -116,7 +116,7 @@ atomic = { default-features = false, version = "0.6.0" }
 bytemuck = { default-features = false, version = "1.13.1" }
 either = { default-features = false, version = "1.8.0" }
 once_cell = { default-features = false, version = "1.17.0" }
-webrtc-util = { version = "0.8.0" }
+webrtc-util = { version = "0.11.0" }
 embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
 sha256 = { version = "1.5.0" }

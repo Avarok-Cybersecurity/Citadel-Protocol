@@ -430,5 +430,9 @@ mod rtc_impl {
             // the conn will automatically get closed on drop of recv half
             Ok(())
         }
+
+        fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+            self
+        }
     }
 }
