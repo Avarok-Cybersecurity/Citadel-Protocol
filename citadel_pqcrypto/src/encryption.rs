@@ -167,23 +167,9 @@ pub mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), Error> {
-            // sign the header only, append, then encrypt
-            // signing the header ensures header does not change
-            // encrypting the input ciphertext + the signature ensures ciphertext works
+            // New flow: encrypt first, then sign the entire encrypted packet
 
             log::trace!(target: "citadel", "KyberModule::encrypt_in_place: nonce len = {}, ad len = {}, input len = {}", nonce.len(), ad.len(), input.len());
-
-            //let aes_nonce = &nonce[..AES_GCM_NONCE_LENGTH_BYTES];
-            let hash = sha3_256_with_ad(ad, input.as_ref());
-            let signature =
-                crate::functions::signature_sign(&hash[..], self.sig.sig_private_key.as_slice())?;
-            // append the signature of the header onto the plaintext
-            input
-                .extend_from_slice(signature.as_slice())
-                .map_err(|err| Error::Other(err.to_string()))?;
-            encode_length_be_bytes(signature.as_slice().len(), input)?;
-
-            log::trace!(target: "citadel", "KyberModule::encrypt_in_place: after signature, input len = {}", input.len());
 
             // encrypt the data using the remote's public key
             let remote_public_key = self.kex.remote_public_key.as_deref().unwrap();
@@ -195,7 +181,22 @@ pub mod kyber_module {
                 nonce,
                 ad,
                 input,
-            )
+            )?;
+
+            // Now sign the entire encrypted packet (including the encrypted scramble dict and checksum)
+            let hash = sha3_256_with_ad(ad, input.as_ref());
+            let signature =
+                crate::functions::signature_sign(&hash[..], self.sig.sig_private_key.as_slice())?;
+            
+            // Append the signature and its length at the very end
+            input
+                .extend_from_slice(signature.as_slice())
+                .map_err(|err| Error::Other(err.to_string()))?;
+            encode_length_be_bytes(signature.as_slice().len(), input)?;
+
+            log::trace!(target: "citadel", "KyberModule::encrypt_in_place: after signature, final len = {}", input.len());
+
+            Ok(())
         }
 
         fn decrypt_in_place(
@@ -207,16 +208,9 @@ pub mod kyber_module {
             let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
             let secret_key = self.kex.secret_key.as_deref().unwrap();
 
-            core_kyber_otp_decrypt(
-                &*self.symmetric_key_remote,
-                secret_key,
-                self.kem_alg,
-                nonce,
-                ad,
-                input,
-            )?;
-
-            // get the signature
+            // New flow: verify signature first, then decrypt
+            
+            // Get the signature from the end
             let signature_len = decode_length(input)?;
 
             if signature_len > input.len() {
@@ -228,15 +222,28 @@ pub mod kyber_module {
             }
 
             let split_pt = input.len().saturating_sub(signature_len);
-            let (_, signature_bytes) = input.as_ref().split_at(split_pt);
-            let sig_verify_input = sha3_256_with_ad(ad, &input.as_ref()[..split_pt]);
+            let (encrypted_data, signature_bytes) = input.as_ref().split_at(split_pt);
+            
+            // Verify signature of the encrypted packet
+            let sig_verify_input = sha3_256_with_ad(ad, encrypted_data);
             crate::functions::signature_verify(
                 &sig_verify_input[..],
                 signature_bytes,
                 sig_remote_pk.as_slice(),
             )?;
-            // remove the signature from the buffer
+            
+            // Remove the signature from the buffer
             input.truncate(split_pt);
+
+            // Now decrypt the data
+            core_kyber_otp_decrypt(
+                &*self.symmetric_key_remote,
+                secret_key,
+                self.kem_alg,
+                nonce,
+                ad,
+                input,
+            )?;
 
             Ok(())
         }
