@@ -187,7 +187,7 @@ pub mod kyber_module {
             let hash = sha3_256_with_ad(ad, input.as_ref());
             let signature =
                 crate::functions::signature_sign(&hash[..], self.sig.sig_private_key.as_slice())?;
-            
+
             // Append the signature and its length at the very end
             input
                 .extend_from_slice(signature.as_slice())
@@ -209,7 +209,7 @@ pub mod kyber_module {
             let secret_key = self.kex.secret_key.as_deref().unwrap();
 
             // New flow: verify signature first, then decrypt
-            
+
             // Get the signature from the end
             let signature_len = decode_length(input)?;
 
@@ -223,7 +223,7 @@ pub mod kyber_module {
 
             let split_pt = input.len().saturating_sub(signature_len);
             let (encrypted_data, signature_bytes) = input.as_ref().split_at(split_pt);
-            
+
             // Verify signature of the encrypted packet
             let sig_verify_input = sha3_256_with_ad(ad, encrypted_data);
             crate::functions::signature_verify(
@@ -231,7 +231,7 @@ pub mod kyber_module {
                 signature_bytes,
                 sig_remote_pk.as_slice(),
             )?;
-            
+
             // Remove the signature from the buffer
             input.truncate(split_pt);
 

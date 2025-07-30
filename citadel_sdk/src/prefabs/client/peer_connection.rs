@@ -202,7 +202,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
                         log::warn!(target: "citadel", "Error forwarding file transfer handle: {:?}", err.to_string());
                     }
                 } else {
-                    log::warn!(target: "citadel", "Unable to find key for inbound file transfer handle: {:?}\n Active Peers: {:?} \n handle_source = {}, handle_receiver = {}", v_conn, active_peers.keys(), handle.source, handle.receiver);
+                    log::warn!(target: "citadel", "Unable to find key for inbound file transfer handle: {:?}\n Active Peers: {:?} \n handle_source = {}, handle_receiver = {}", v_conn, active_peers.keys().cloned().collect::<Vec<_>>(), handle.source, handle.receiver);
                 }
 
                 Ok(())
@@ -473,6 +473,14 @@ where
                 let inner_task = async move {
                     let (file_transfer_tx, file_transfer_rx) =
                         citadel_io::tokio::sync::mpsc::unbounded_channel();
+
+                    // Get the actual peer CID from the mutual registration info if available
+                    let peer_cid = if let Some(mutual_peer) = &mutually_registered {
+                        mutual_peer.cid
+                    } else {
+                        id.get_cid()
+                    };
+
                     let handle = if let Some(_already_registered) = mutually_registered {
                         remote.find_target(session_cid, id).await?
                     } else {
@@ -499,6 +507,22 @@ where
                         handle
                     };
 
+                    // Register the peer connection early before attempting to connect
+                    // This prevents race conditions where file transfers arrive before connection completes
+                    let peer_conn = PeerConnectionType::LocalGroupPeer {
+                        session_cid,
+                        peer_cid,
+                    };
+                    let peer_context = PeerContext {
+                        conn_type: peer_conn,
+                        send_file_transfer_tx: file_transfer_tx.clone(),
+                    };
+                    log::debug!(target: "citadel", "Early registering peer connection: {peer_conn:?}");
+                    let _ = shared
+                        .active_peer_conns
+                        .lock()
+                        .insert(peer_conn, peer_context);
+
                     handle
                         .connect_to_peer_custom(
                             session_security_settings,
@@ -507,21 +531,27 @@ where
                         )
                         .await
                         .map(|mut success| {
-                            let peer_conn = success.channel.get_peer_conn_type().unwrap();
-                            let peer_context = PeerContext {
-                                conn_type: success.channel.get_peer_conn_type().unwrap(),
-                                send_file_transfer_tx: file_transfer_tx,
-                            };
-                            // add an incoming file transfer receiver
+                            let actual_peer_conn = success.channel.get_peer_conn_type().unwrap();
+
+                            // If the actual peer connection type differs from our early registration,
+                            // update it
+                            if actual_peer_conn != peer_conn {
+                                log::debug!(target: "citadel", "Updating peer connection registration from {peer_conn:?} to {actual_peer_conn:?}");
+                                let mut active_peers = shared.active_peer_conns.lock();
+                                if let Some(peer_ctx) = active_peers.remove(&peer_conn) {
+                                    let _ = active_peers.insert(actual_peer_conn, peer_ctx);
+                                }
+                            }
+                            // Update the existing entry with the file transfer receiver
                             success.incoming_object_transfer_handles = Some(FileTransferHandleRx {
                                 inner: file_transfer_rx,
-                                conn_type: peer_conn.as_virtual_connection(),
+                                conn_type: actual_peer_conn.as_virtual_connection(),
                             });
-                            let _ = shared
-                                .active_peer_conns
-                                .lock()
-                                .insert(peer_conn, peer_context);
                             success
+                        })
+                        .inspect_err(|_err| {
+                            // Clean up the early registration on connection failure
+                            let _ = shared.active_peer_conns.lock().remove(&peer_conn);
                         })
                 };
 

@@ -615,10 +615,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .filter_map(|row| try_get_cid_from_row(&row, "peer_cid"))
             .collect::<Vec<u64>>();
 
-        Ok(peers
-            .iter()
-            .map(|cid| results.contains(cid))
-            .collect())
+        Ok(peers.iter().map(|cid| results.contains(cid)).collect())
     }
 
     async fn get_hyperlan_peers(
