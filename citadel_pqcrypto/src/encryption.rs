@@ -206,6 +206,7 @@ pub mod kyber_module {
         ) -> Result<(), Error> {
             let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
             let secret_key = self.kex.secret_key.as_deref().unwrap();
+
             core_kyber_otp_decrypt(
                 &*self.symmetric_key_remote,
                 secret_key,
@@ -214,8 +215,18 @@ pub mod kyber_module {
                 ad,
                 input,
             )?;
+
             // get the signature
             let signature_len = decode_length(input)?;
+
+            if signature_len > input.len() {
+                return Err(Error::Other(format!(
+                    "Invalid signature length: {} > buffer length {}",
+                    signature_len,
+                    input.len()
+                )));
+            }
+
             let split_pt = input.len().saturating_sub(signature_len);
             let (_, signature_bytes) = input.as_ref().split_at(split_pt);
             let sig_verify_input = sha3_256_with_ad(ad, &input.as_ref()[..split_pt]);

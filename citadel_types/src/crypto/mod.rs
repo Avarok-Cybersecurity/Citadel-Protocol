@@ -453,7 +453,7 @@ impl KemAlgorithm {
 pub enum SigAlgorithm {
     #[default]
     None = 0,
-    Falcon1024 = 1,
+    Dilithium65 = 1,
 }
 
 impl SigAlgorithm {

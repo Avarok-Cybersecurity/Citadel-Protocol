@@ -342,7 +342,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
-            .with_crypto_params(kem + enx + SigAlgorithm::Falcon1024)
+            .with_crypto_params(kem + enx + SigAlgorithm::Dilithium65)
             .build()
             .unwrap();
 

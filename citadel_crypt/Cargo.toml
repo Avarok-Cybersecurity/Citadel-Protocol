@@ -20,6 +20,7 @@ default = ["filesystem", "std"]
 filesystem = []
 std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std"]
 wasm = ["citadel_pqcrypto/wasm", "citadel_io/wasm"]
+skip-argon-tests = []
 
 [dependencies]
 async-trait = { workspace = true }

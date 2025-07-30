@@ -214,7 +214,7 @@ mod tests {
 
         let kem_algorithm = KemAlgorithm::Kyber;
         let encryption_algorithm = EncryptionAlgorithm::KyberHybrid;
-        let signature_algorithm = SigAlgorithm::Falcon1024;
+        let signature_algorithm = SigAlgorithm::Dilithium65;
 
         let (alice_container, bob_container) = gen(
             kem_algorithm,
@@ -419,7 +419,7 @@ mod tests {
                 run::<Vec<u8>>(
                     algorithm.as_u8(),
                     EncryptionAlgorithm::KyberHybrid,
-                    SigAlgorithm::Falcon1024,
+                    SigAlgorithm::Dilithium65,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 )
@@ -434,7 +434,7 @@ mod tests {
         run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
             EncryptionAlgorithm::KyberHybrid,
-            SigAlgorithm::Falcon1024,
+            SigAlgorithm::Dilithium65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         )
@@ -448,7 +448,7 @@ mod tests {
         run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
             EncryptionAlgorithm::AES_GCM_256,
-            SigAlgorithm::Falcon1024,
+            SigAlgorithm::Dilithium65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS2,
         )

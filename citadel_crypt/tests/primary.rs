@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use bytes::{BufMut, BytesMut};
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(not(target_family = "wasm"), not(feature = "skip-argon-tests")))]
     use citadel_crypt::argon::argon_container::{
         ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
     };
@@ -31,7 +31,7 @@ mod tests {
         pub static ref PRE_SHARED_KEYS2: Vec<Vec<u8>> = vec!["World".into(), "Hello".into()];
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(not(target_family = "wasm"), not(feature = "skip-argon-tests")))]
     #[tokio::test]
     async fn argon_autotuner() {
         use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
@@ -44,7 +44,7 @@ mod tests {
         log::trace!(target: "citadel", "{final_cfg:?}")
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(not(target_family = "wasm"), not(feature = "skip-argon-tests")))]
     #[tokio::test]
     async fn argon() {
         citadel_logging::setup_log();
@@ -264,6 +264,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "[CryptError] Out of bounds exception")]
     fn mono_ratchets_fail() {
+        citadel_logging::should_panic_test();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 1..SecurityLevel::Extreme.value() {
                 let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
@@ -382,7 +383,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     fn toolsets(
         #[case] enx: EncryptionAlgorithm,
@@ -526,7 +527,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     fn toolset_wrapping_vers_all(
         #[case] enx: EncryptionAlgorithm,
@@ -620,7 +621,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[timeout(std::time::Duration::from_secs(80))]
     fn scrambler_transmission_length_spectrum(
@@ -671,7 +672,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[timeout(std::time::Duration::from_secs(80))]
     fn scrambler_transmission_length_spectrum_remote(
@@ -822,7 +823,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer(
@@ -864,7 +865,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer_remote(
@@ -1012,7 +1013,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     fn test_entropy_bank_encrypt_decrypt_basic(
         #[case] enx: EncryptionAlgorithm,
@@ -1071,7 +1072,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     fn test_entropy_bank_local_encrypt_decrypt(
         #[case] enx: EncryptionAlgorithm,

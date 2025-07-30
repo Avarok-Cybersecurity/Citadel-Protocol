@@ -91,7 +91,7 @@ zeroize = { workspace = true, features = [
 ] } # Secure memory wiping
 citadel_types = { workspace = true }
 
-falcon-rust = { version = "0.1.2" }
+ml-dsa = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

@@ -159,7 +159,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[timeout(Duration::from_secs(90))]
     #[citadel_io::tokio::test]

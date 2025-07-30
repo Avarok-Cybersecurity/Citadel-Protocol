@@ -1445,7 +1445,7 @@ mod tests {
     #[case(
         EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]

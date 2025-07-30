@@ -227,6 +227,8 @@ impl EntropyBank {
         payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         self.wrap_with_unique_nonce_enx_vec(payload, move |payload, nonce| {
+            // For local_encrypt, always pass the full 32-byte nonce
+            // The PostQuantumContainer implementation will handle any necessary slicing
             quantum_container
                 .local_encrypt(payload, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))
@@ -239,6 +241,8 @@ impl EntropyBank {
         payload: T,
     ) -> Result<Vec<u8>, CryptError<String>> {
         self.wrap_with_unique_nonce_dex_vec(payload, move |payload, nonce| {
+            // For local_decrypt, always pass the full 32-byte nonce
+            // The PostQuantumContainer implementation will handle any necessary slicing
             quantum_container
                 .local_decrypt(payload, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))
