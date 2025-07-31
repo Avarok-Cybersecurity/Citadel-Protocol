@@ -89,7 +89,7 @@ impl SecurePacket {
     }
 
     /// Returns a mutable reference to the header section.
-    pub fn header(&mut self) -> std::io::Result<SliceHandle> {
+    pub fn header(&mut self) -> std::io::Result<SliceHandle<'_>> {
         self.inner.partition_window(HEADER_PART)
     }
 
@@ -99,7 +99,7 @@ impl SecurePacket {
     }
 
     /// Returns a mutable reference to the payload section.
-    pub fn payload(&mut self) -> std::io::Result<SliceHandle> {
+    pub fn payload(&mut self) -> std::io::Result<SliceHandle<'_>> {
         self.inner.partition_window(PAYLOAD_PART)
     }
 
@@ -109,7 +109,7 @@ impl SecurePacket {
     }
 
     /// Returns a mutable reference to the extended payload section.
-    pub fn extended_payload(&mut self) -> std::io::Result<SliceHandle> {
+    pub fn extended_payload(&mut self) -> std::io::Result<SliceHandle<'_>> {
         self.inner.partition_window(PAYLOAD_EXT)
     }
 

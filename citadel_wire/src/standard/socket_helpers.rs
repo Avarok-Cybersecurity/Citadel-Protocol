@@ -269,7 +269,7 @@ mod tests {
         let addr = server.local_addr().unwrap();
 
         let server = citadel_io::tokio::task::spawn(async move {
-            log::trace!(target: "citadel", "Starting server @ {:?}", addr);
+            log::trace!(target: "citadel", "Starting server @ {addr:?}");
             let (mut conn, addr) = server.accept().await.unwrap();
             log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
             let buf = &mut [0u8; 3];
@@ -302,7 +302,7 @@ mod tests {
         let (ready_tx, ready_rx) = citadel_io::tokio::sync::oneshot::channel();
 
         let server = citadel_io::tokio::task::spawn(async move {
-            log::trace!(target: "citadel", "Starting server @ {:?}", addr);
+            log::trace!(target: "citadel", "Starting server @ {addr:?}");
             let buf = &mut [0u8; 3];
             ready_tx.send(()).unwrap();
             server.recv(buf as &mut [u8]).await?;
@@ -324,7 +324,7 @@ mod tests {
         });
 
         let (r0, r1) = citadel_io::tokio::try_join!(server, client)?;
-        log::trace!(target: "citadel", "Done with UDP test {:?}", addr);
+        log::trace!(target: "citadel", "Done with UDP test {addr:?}");
         r0.and(r1)
     }
 }

@@ -28,7 +28,7 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_addr = env::var("CITADEL_SERVER_ADDR").expect("CITADEL_SERVER_ADDR not set");
-    println!("Starting server on {}", server_addr);
+    println!("Starting server on {server_addr}");
 
     // This is a basic server. It will only help facilitate p2p and group connections.
     // Clients will not be able to communicate directly with this server through channels.

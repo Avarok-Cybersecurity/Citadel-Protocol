@@ -1,9 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hasher;
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 use uuid::Uuid;
 
 /// This is to replace a tuple for greater organization
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub struct MutualPeer {
     /// The interserver cid to which `cid` belongs to
     pub parent_icid: u64,
@@ -15,6 +19,8 @@ pub struct MutualPeer {
 
 /// Contains info about a peer, used for giving the user access to usernames and names of peers
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub struct PeerInfo {
     /// the client to which belongs within `parent_icid`
     pub cid: u64,
@@ -41,6 +47,8 @@ pub fn username_to_cid(username: &str) -> u64 {
 
 /// A convenience wrapper for passing arguments to functions that require searches for a user
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum UserIdentifier {
     /// Raw user ID
     ID(u64),

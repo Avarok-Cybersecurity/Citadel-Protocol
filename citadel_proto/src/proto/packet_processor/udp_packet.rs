@@ -78,7 +78,7 @@ pub fn process_udp_packet<R: Ratchet>(
     match res {
         Ok(res) => Ok(res),
         Err(err) => {
-            log::warn!(target: "citadel", "Unable to borrow HR: {:?}", err);
+            log::warn!(target: "citadel", "Unable to borrow HR: {err:?}");
             Ok(PrimaryProcessorResult::Void)
         }
     }

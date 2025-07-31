@@ -68,7 +68,7 @@ pub struct ConnectSuccess<R: Ratchet> {
     pub v_conn_type: VirtualConnectionType,
     pub services: citadel_user::external_services::ServicesObject,
     pub welcome_message: String,
-    pub channel: PeerChannel<R>,
+    pub channel: Box<PeerChannel<R>>,
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
     pub session_security_settings: SessionSecuritySettings,
 }
@@ -154,7 +154,7 @@ pub struct InternalServerError {
 #[derive(Debug)]
 pub struct PeerChannelCreated<R: Ratchet> {
     pub ticket: Ticket,
-    pub channel: PeerChannel<R>,
+    pub channel: Box<PeerChannel<R>>,
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
 }
 

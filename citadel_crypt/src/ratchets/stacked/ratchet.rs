@@ -227,7 +227,7 @@ pub mod constructor {
 
         fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
             let security_level = opts.implied_security_level();
-            log::trace!(target: "citadel", "[ALICE] Client {cid} creating container with {:?} security level", security_level);
+            log::trace!(target: "citadel", "[ALICE] Client {cid} creating container with {security_level:?} security level");
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
             let params = opts[0].cryptography.unwrap_or_default();

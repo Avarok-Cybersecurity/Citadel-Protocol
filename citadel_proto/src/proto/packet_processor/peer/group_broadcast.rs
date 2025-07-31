@@ -285,7 +285,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 match result {
                     None => {
                         // group does not exist. Send error packet
-                        log::warn!(target: "citadel", "Group {:?} does not exist", key);
+                        log::warn!(target: "citadel", "Group {key:?} does not exist");
                         let error = GroupBroadcast::GroupNonExists { key };
                         let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
                             sess_ratchet,
@@ -434,7 +434,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
             message,
         } => {
             if session.is_server {
-                log::trace!(target: "citadel", "[Group/Server] Received message {:?}", message);
+                log::trace!(target: "citadel", "[Group/Server] Received message {message:?}");
                 // The message will need to be broadcasted to every member in the group
                 let success = session
                     .session_manager
@@ -490,7 +490,7 @@ pub async fn process_group_broadcast<R: Ratchet>(
                 .upgrade_peer_in_group(key, target)
                 .await;
             if !success {
-                log::warn!(target: "citadel", "Unable to upgrade peer {} for {:?}", target, key);
+                log::warn!(target: "citadel", "Unable to upgrade peer {target} for {key:?}");
             } else {
                 // send broadcast to all group members
                 let entered = vec![target];
@@ -510,9 +510,9 @@ pub async fn process_group_broadcast<R: Ratchet>(
                     .await
                     .unwrap_or(false)
                 {
-                    log::warn!(target: "citadel", "Unable to broadcast member acceptance to group {}", key);
+                    log::warn!(target: "citadel", "Unable to broadcast member acceptance to group {key}");
                 }
-                log::trace!(target: "citadel", "Successfully upgraded {} for {:?}", target, key);
+                log::trace!(target: "citadel", "Successfully upgraded {target} for {key:?}");
             }
 
             // tell the user who accepted the membership
@@ -853,7 +853,7 @@ fn forward_signal<R: Ratchet>(
             .get(&key)
         {
             if let Err(err) = tx.unbounded_send(broadcast.into()) {
-                log::error!(target: "citadel", "Unable to forward group broadcast signal. Reason: {:?}", err);
+                log::error!(target: "citadel", "Unable to forward group broadcast signal. Reason: {err:?}");
             }
 
             return Ok(PrimaryProcessorResult::Void);

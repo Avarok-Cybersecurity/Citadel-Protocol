@@ -34,6 +34,7 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::prelude::Ticket;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
@@ -90,7 +91,7 @@ pub async fn process_connect<R: Ratchet>(
     );
     let header = header.clone();
     let security_level = header.security_level.into();
-
+    let ticket = Ticket::from(header.context_info.get());
     let time_tracker = session.time_tracker;
 
     let task = async move {
@@ -115,6 +116,11 @@ pub async fn process_connect<R: Ratchet>(
                             let addr = session.remote_peer;
                             let is_personal = !session.is_server;
                             let kernel_ticket = session.kernel_ticket.get();
+
+                            if kernel_ticket != ticket {
+                                const REASON: &str = "Ticket mismatch";
+                                return Ok(PrimaryProcessorResult::EndSession(REASON));
+                            }
 
                             state_container.connect_state.last_stage =
                                 packet_flags::cmd::aux::do_connect::SUCCESS;
@@ -177,6 +183,7 @@ pub async fn process_connect<R: Ratchet>(
                                         success_time,
                                         security_level,
                                         session.account_manager.get_backend_type(),
+                                        kernel_ticket,
                                     );
 
                                 session.session_cid.set(Some(cid));
@@ -192,7 +199,7 @@ pub async fn process_connect<R: Ratchet>(
                                     v_conn_type: cxn_type,
                                     services: post_login_object,
                                     welcome_message: format!("Client {cid} successfully established a connection to the local HyperNode"),
-                                    channel,
+                                    channel: channel.into(),
                                     udp_rx_opt: udp_channel_rx,
                                     session_security_settings,
                                 });
@@ -210,7 +217,6 @@ pub async fn process_connect<R: Ratchet>(
                             log::error!(target: "citadel", "Error validating stage2 packet. Reason: {err}");
                             let fail_time = time_tracker.get_global_time_ns();
 
-                            //session.state = SessionState::NeedsConnect;
                             let packet = packet_crafter::do_connect::craft_final_status_packet(
                                 &ratchet,
                                 false,
@@ -221,6 +227,7 @@ pub async fn process_connect<R: Ratchet>(
                                 fail_time,
                                 security_level,
                                 session.account_manager.get_backend_type(),
+                                ticket,
                             );
                             return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                         }
@@ -346,6 +353,7 @@ pub async fn process_connect<R: Ratchet>(
                                 &ratchet,
                                 timestamp,
                                 security_level,
+                                ticket,
                             );
                             session.send_to_primary_stream(None, success_ack)?;
 
@@ -357,7 +365,7 @@ pub async fn process_connect<R: Ratchet>(
                                 v_conn_type: cxn_type,
                                 services: payload.post_login_object,
                                 welcome_message: message,
-                                channel,
+                                channel: channel.into(),
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
                             }))?;
@@ -463,7 +471,7 @@ pub async fn process_connect<R: Ratchet>(
             }
 
             n => {
-                log::error!(target: "citadel", "Invalid auxiliary command: {}", n);
+                log::error!(target: "citadel", "Invalid auxiliary command: {n}");
                 Ok(PrimaryProcessorResult::Void)
             }
         }

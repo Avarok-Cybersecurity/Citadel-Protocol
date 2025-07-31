@@ -90,6 +90,6 @@ pub(crate) fn get_preferred_primary_stream<R: Ratchet>(
 
 pub(crate) fn send_with_error_logging(stream: &OutboundPrimaryStreamSender, packet: BytesMut) {
     if let Err(err) = stream.unbounded_send(packet) {
-        log::error!(target: "citadel", "Error while sending packet outbound: {:?}", err)
+        log::error!(target: "citadel", "Error while sending packet outbound: {err:?}")
     }
 }

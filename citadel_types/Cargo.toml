@@ -12,16 +12,27 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { workspace = true, features = ["derive"]}
+serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }
+strum_macros = { workspace = true }
 bytes = { workspace = true, features = ["serde"] }
 twox-hash = { workspace = true }
 packed_struct = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4"] }
-bincode = { workspace = true}
+bincode = { workspace = true }
+sha3 = { workspace = true }
+ts-rs = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "unix")'.dependencies]
 libc = { workspace = true }
 
 [target.'cfg(target_family = "windows")'.dependencies]
 kernel32-sys = { workspace = true }
+
+[features]
+typescript = ["ts-rs"]
+
+[[bin]]
+name = "export_ts"
+path = "src/bin/export_ts.rs"
+required-features = ["typescript"]

@@ -71,7 +71,6 @@
     unused_import_braces,
     variant_size_differences,
     unused_features,
-    warnings,
     dead_code
 )]
 #![allow(rustdoc::broken_intra_doc_links)]

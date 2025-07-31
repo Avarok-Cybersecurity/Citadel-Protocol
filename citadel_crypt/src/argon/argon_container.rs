@@ -216,7 +216,7 @@ pub struct ArgonSettingsInner {
 
 impl ArgonSettings {
     /// Converts to an acceptable struct for argon2
-    pub fn as_argon_config(&self) -> Config {
+    pub fn as_argon_config(&self) -> Config<'_> {
         Config {
             ad: self.inner.ad.as_slice(),
             hash_length: self.inner.hash_length,

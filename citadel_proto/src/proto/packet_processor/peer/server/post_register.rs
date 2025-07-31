@@ -74,7 +74,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet>(
                                   let task = async move {
                                       if let Err(err) = account_manager.register_hyperlan_p2p_as_server(session_cid, target_cid).await {
                                           // TODO: route error
-                                          log::error!(target: "citadel", "Unable to register hyperlan p2p at server: {:?}", err);
+                                          log::error!(target: "citadel", "Unable to register hyperlan p2p at server: {err:?}");
                                       }
                                   };
 

@@ -153,7 +153,7 @@ impl NatType {
         match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
             Ok(nat_type) => Ok(nat_type),
             Err(err) => {
-                log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {:?}", err);
+                log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {err:?}");
                 Ok(NatType::offline())
             }
         }
@@ -533,7 +533,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 udp_sck.connect(server).await?;
                 let (handler_tx, mut handler_rx) =
                     citadel_io::tokio::sync::mpsc::unbounded_channel();
-                log::trace!(target: "citadel", "Connected to STUN server {:?}", server);
+                log::trace!(target: "citadel", "Connected to STUN server {server:?}");
                 let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
 
                 client.send(msg, Some(Arc::new(handler_tx))).await?;
@@ -545,11 +545,11 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                             xor_addr.get_from(&msg)?;
                             let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
 
-                            log::trace!(target: "citadel", "External ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
+                            log::trace!(target: "citadel", "External ADDR: {natted_addr:?} | internal: {new_bind_addr:?}");
 
                             return Ok(Some((natted_addr, new_bind_addr)));
                         }
-                        Err(err) => log::trace!(target: "citadel", "{:?}", err),
+                        Err(err) => log::trace!(target: "citadel", "{err:?}"),
                     };
                 }
 
@@ -593,7 +593,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
                 };
 
                 let nat_type = NatType::new(pair0, pair1, pair2);
-                log::trace!(target: "citadel", "NAT type: {:?}", nat_type);
+                log::trace!(target: "citadel", "NAT type: {nat_type:?}");
 
                 Ok(nat_type)
             }
@@ -605,7 +605,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
     let ip_info_future = async move {
         match citadel_io::tokio::time::timeout(
             Duration::from_millis(2000),
-            async_ip::get_all_multi_concurrent::<()>(None),
+            async_ip::get_all_multi_concurrent(None),
         )
         .await
         {
@@ -652,7 +652,7 @@ mod tests {
         citadel_logging::setup_log();
         let nat_type = NatType::identify(None).await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
-        log::trace!(target: "citadel", "NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario", nat_type, traversal_type);
+        log::trace!(target: "citadel", "NAT Type: {nat_type:?} | Reaching this node will require: {traversal_type:?} NAT traversal | Hypothetical connect scenario");
     }
 
     #[test]

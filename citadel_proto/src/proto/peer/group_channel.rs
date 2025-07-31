@@ -257,7 +257,7 @@ impl Drop for GroupChannelRecvHalf {
 
         // TODO: remove group channel locally on the inner process in state container
         if let Err(err) = self.tx.try_send(request) {
-            log::warn!(target: "citadel", "Group channel drop warning: {:?}", err)
+            log::warn!(target: "citadel", "Group channel drop warning: {err:?}")
         }
     }
 }

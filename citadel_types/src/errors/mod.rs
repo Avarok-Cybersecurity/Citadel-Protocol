@@ -1,7 +1,11 @@
 use std::fmt::{Debug, Display, Formatter};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 
 /// The default error type for this crate
 #[derive(Debug)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum Error {
     /// The shared secret is not loaded
     SharedSecretNotLoaded,

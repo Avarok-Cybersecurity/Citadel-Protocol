@@ -155,7 +155,7 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
 
 impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
     /// Creates a new channel.
-    pub fn create(conn: &S) -> ChannelLoader<T, S> {
+    pub fn create(conn: &S) -> ChannelLoader<'_, T, S> {
         ChannelLoader {
             inner: Box::pin(
                 conn.initiate_subscription()
@@ -310,12 +310,12 @@ mod tests {
 
             for x in 0..1000 {
                 channel.send_item(x).await.unwrap();
-                log::trace!(target: "citadel", "[S] Send {:?}", x)
+                log::trace!(target: "citadel", "[S] Send {x:?}")
             }
 
             for x in 0..1000 {
                 assert_eq!(x, channel.next().await.unwrap());
-                log::trace!(target: "citadel", "[S] Recv {:?}", x)
+                log::trace!(target: "citadel", "[S] Recv {x:?}")
             }
         });
 
@@ -324,12 +324,12 @@ mod tests {
 
             for x in 0..1000 {
                 channel.send_item(x).await.unwrap();
-                log::trace!(target: "citadel", "[C] Send {:?}", x)
+                log::trace!(target: "citadel", "[C] Send {x:?}")
             }
 
             for x in 0..1000 {
                 assert_eq!(x, channel.next().await.unwrap());
-                log::trace!(target: "citadel", "[C] Send {:?}", x)
+                log::trace!(target: "citadel", "[C] Send {x:?}")
             }
         });
 

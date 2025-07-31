@@ -46,6 +46,7 @@
 //! - Encryption
 //!   - ChaCha20-Poly1305
 //!   - AES-GCM
+//!   - Kyber Hybrid Encryption
 //!   - Ascon
 //! - Signatures
 //!   - Falcon
@@ -63,9 +64,12 @@ use bytes::{Bytes, BytesMut};
 use packed_struct::derive::{PackedStruct, PrimitiveEnum_u8};
 use packed_struct::{PackedStruct, PrimitiveEnum};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha3::Digest;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, Deref, DerefMut};
-use strum::{EnumCount, ParseError};
+use strum::{EnumCount, IntoEnumIterator, ParseError, VariantNames};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 use uuid::Uuid;
 
 pub const LARGEST_NONCE_LEN: usize = KYBER_NONCE_LENGTH_BYTES;
@@ -119,30 +123,6 @@ pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoPa
     ret
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
-pub enum SecrecyMode {
-    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
-    Perfect,
-    /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
-    #[default]
-    BestEffort,
-}
-
-impl TryFrom<u8> for SecrecyMode {
-    type Error = crate::errors::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Perfect),
-            1 => Ok(Self::BestEffort),
-            _ => Err(Self::Error::Other(format!(
-                "Cannot cast `{}` into SecrecyMode",
-                value
-            ))),
-        }
-    }
-}
-
 /// A memory-secure wrapper for shipping around Bytes
 pub struct SecBuffer {
     pub inner: BytesMut,
@@ -165,7 +145,7 @@ impl SecBuffer {
     }
 
     /// For accessing the inner element
-    pub fn handle(&mut self) -> SecureBufMutHandle {
+    pub fn handle(&mut self) -> SecureBufMutHandle<'_> {
         SecureBufMutHandle::new(self)
     }
 
@@ -326,7 +306,237 @@ impl<'de> Deserialize<'de> for SecBuffer {
     }
 }
 
+#[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+#[packed_struct(bit_numbering = "msb0")]
+pub struct CryptoParameters {
+    #[packed_field(bits = "0..=3", ty = "enum")]
+    pub encryption_algorithm: EncryptionAlgorithm,
+    #[packed_field(bits = "4..=5", ty = "enum")]
+    pub kem_algorithm: KemAlgorithm,
+    #[packed_field(bits = "6..=7", ty = "enum")]
+    pub sig_algorithm: SigAlgorithm,
+}
+
+const _: () = _compile_time_check();
+#[allow(clippy::assertions_on_constants)]
+const fn _compile_time_check() {
+    assert!(
+        EncryptionAlgorithm::COUNT + KemAlgorithm::COUNT + SigAlgorithm::COUNT <= 8,
+        "Too many algorithms to fit inside 8 bits"
+    );
+}
+
+impl TryFrom<u8> for CryptoParameters {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let value: [u8; 1] = [value];
+        let this: CryptoParameters = CryptoParameters::unpack(&value)
+            .map_err(|err| crate::errors::Error::Other(err.to_string()))?;
+        validate_crypto_params(&this)?;
+        Ok(this)
+    }
+}
+
+#[derive(
+    Default,
+    Copy,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    PrimitiveEnum_u8,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::EnumCount,
+    strum_macros::VariantNames,
+)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+pub enum EncryptionAlgorithm {
+    #[default]
+    AES_GCM_256 = 0,
+    ChaCha20Poly_1305 = 1,
+    KyberHybrid = 2,
+    Ascon80pq = 3,
+}
+
+impl EncryptionAlgorithm {
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    Eq,
+    PartialEq,
+    Default,
+    PrimitiveEnum_u8,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::EnumCount,
+    strum::FromRepr,
+    strum_macros::VariantNames,
+)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+#[repr(u8)]
+pub enum SecrecyMode {
+    /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
+    #[default]
+    BestEffort,
+    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
+    Perfect,
+}
+
+impl SecrecyMode {
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl TryFrom<u8> for SecrecyMode {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if let Some(ret) = Self::from_repr(value) {
+            Ok(ret)
+        } else {
+            Err(Self::Error::Other(format!(
+                "Cannot cast `{value}` into SecrecyMode"
+            )))
+        }
+    }
+}
+
+#[derive(
+    Default,
+    Copy,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    PrimitiveEnum_u8,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::EnumCount,
+    strum::FromRepr,
+    strum_macros::VariantNames,
+)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+#[repr(u8)]
+pub enum KemAlgorithm {
+    #[strum(ascii_case_insensitive)]
+    #[default]
+    Kyber = 0,
+}
+
+impl KemAlgorithm {
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl TryFrom<u8> for KemAlgorithm {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if let Some(ret) = Self::from_repr(value) {
+            Ok(ret)
+        } else {
+            Err(Self::Error::Other(format!(
+                "Cannot cast `{value}` into KemAlgorithm"
+            )))
+        }
+    }
+}
+
+#[derive(
+    Default,
+    Serialize,
+    Deserialize,
+    Copy,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    PrimitiveEnum_u8,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::EnumCount,
+    strum::FromRepr,
+    strum_macros::VariantNames,
+)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+#[repr(u8)]
+pub enum SigAlgorithm {
+    #[default]
+    None = 0,
+    Dilithium65 = 1,
+}
+
+impl SigAlgorithm {
+    pub fn variants() -> Vec<String> {
+        Self::VARIANTS.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl TryFrom<u8> for SigAlgorithm {
+    type Error = crate::errors::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if let Some(ret) = Self::from_repr(value) {
+            Ok(ret)
+        } else {
+            Err(Self::Error::Other(format!(
+                "Cannot cast `{value}` into Sigalgorithm"
+            )))
+        }
+    }
+}
+
+/// Provides the enumeration for all security levels
+#[derive(
+    Serialize,
+    Deserialize,
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    strum::EnumString,
+    strum::EnumIter,
+    strum::EnumCount,
+)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+pub enum SecurityLevel {
+    #[default]
+    Standard,
+    Reinforced,
+    High,
+    Ultra,
+    Extreme,
+    Custom(u8),
+}
+
 impl SecurityLevel {
+    pub fn variants() -> Vec<Self> {
+        Self::iter().collect()
+    }
+
     /// Returns byte representation of self
     pub fn value(self) -> u8 {
         match self {
@@ -345,87 +555,52 @@ impl SecurityLevel {
     }
 }
 
-#[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
-#[packed_struct(bit_numbering = "msb0")]
-pub struct CryptoParameters {
-    #[packed_field(bits = "0..=2", ty = "enum")]
-    pub encryption_algorithm: EncryptionAlgorithm,
-    #[packed_field(bits = "3..=5", ty = "enum")]
-    pub kem_algorithm: KemAlgorithm,
-    #[packed_field(bits = "6..=7", ty = "enum")]
-    pub sig_algorithm: SigAlgorithm,
-}
-
-impl TryFrom<u8> for CryptoParameters {
-    type Error = crate::errors::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        let value: [u8; 1] = [value];
-        let this: CryptoParameters = CryptoParameters::unpack(&value)
-            .map_err(|err| crate::errors::Error::Other(err.to_string()))?;
-        validate_crypto_params(&this)?;
-        Ok(this)
+impl From<u8> for SecurityLevel {
+    fn from(val: u8) -> Self {
+        match val {
+            0 => SecurityLevel::Standard,
+            1 => SecurityLevel::Reinforced,
+            2 => SecurityLevel::High,
+            3 => SecurityLevel::Ultra,
+            4 => SecurityLevel::Extreme,
+            n => SecurityLevel::Custom(n),
+        }
     }
 }
 
-#[derive(
-    PrimitiveEnum_u8,
-    Default,
-    Copy,
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    strum::EnumString,
-    strum::EnumIter,
-)]
-pub enum EncryptionAlgorithm {
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+pub enum HeaderObfuscatorSettings {
     #[default]
-    AES_GCM_256 = 0,
-    ChaCha20Poly_1305 = 1,
-    Kyber = 2,
-    Ascon80pq = 3,
+    /// Disables header obfuscation (default)
+    Disabled,
+    /// Enables header obfuscation to help mitigate some deep packet inspection techniques using a pseudorandom key
+    Enabled,
+    /// Enables header obfuscation with a specific key. This value must be symmetric between both endpoints, otherwise the obfuscation will fail
+    EnabledWithKey(u128),
 }
 
-#[derive(
-    PrimitiveEnum_u8,
-    Default,
-    Copy,
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    strum::EnumString,
-    strum::EnumIter,
-    strum::EnumCount,
-)]
-pub enum KemAlgorithm {
-    #[strum(ascii_case_insensitive)]
-    #[default]
-    Kyber = 0,
+impl From<u128> for HeaderObfuscatorSettings {
+    fn from(val: u128) -> Self {
+        HeaderObfuscatorSettings::EnabledWithKey(val)
+    }
 }
 
-#[derive(
-    PrimitiveEnum_u8,
-    strum::EnumString,
-    strum::EnumIter,
-    Default,
-    Serialize,
-    Deserialize,
-    Copy,
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-)]
-pub enum SigAlgorithm {
-    #[default]
-    None = 0,
-    Falcon1024 = 1,
+impl From<bool> for HeaderObfuscatorSettings {
+    fn from(value: bool) -> Self {
+        if value {
+            HeaderObfuscatorSettings::Enabled
+        } else {
+            HeaderObfuscatorSettings::Disabled
+        }
+    }
+}
+
+impl From<Uuid> for HeaderObfuscatorSettings {
+    fn from(value: Uuid) -> Self {
+        HeaderObfuscatorSettings::EnabledWithKey(value.as_u128())
+    }
 }
 
 impl AlgorithmsExt for KemAlgorithm {
@@ -487,64 +662,6 @@ impl<T: AlgorithmsExt> From<T> for CryptoParameters {
     }
 }
 
-/// Provides the enumeration for all security levels
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
-pub enum SecurityLevel {
-    #[default]
-    Standard,
-    Reinforced,
-    High,
-    Ultra,
-    Extreme,
-    Custom(u8),
-}
-
-impl From<u8> for SecurityLevel {
-    fn from(val: u8) -> Self {
-        match val {
-            0 => SecurityLevel::Standard,
-            1 => SecurityLevel::Reinforced,
-            2 => SecurityLevel::High,
-            3 => SecurityLevel::Ultra,
-            4 => SecurityLevel::Extreme,
-            n => SecurityLevel::Custom(n),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
-pub enum HeaderObfuscatorSettings {
-    /// Enables header obfuscation to help mitigate some deep packet inspection techniques using a pseudorandom key
-    Enabled,
-    #[default]
-    /// Disables header obfuscation (default)
-    Disabled,
-    /// Enables header obfuscation with a specific key. This value must be symmetric between both endpoints, otherwise the obfuscation will fail
-    EnabledWithKey(u128),
-}
-
-impl From<u128> for HeaderObfuscatorSettings {
-    fn from(val: u128) -> Self {
-        HeaderObfuscatorSettings::EnabledWithKey(val)
-    }
-}
-
-impl From<bool> for HeaderObfuscatorSettings {
-    fn from(value: bool) -> Self {
-        if value {
-            HeaderObfuscatorSettings::Enabled
-        } else {
-            HeaderObfuscatorSettings::Disabled
-        }
-    }
-}
-
-impl From<Uuid> for HeaderObfuscatorSettings {
-    fn from(value: Uuid) -> Self {
-        HeaderObfuscatorSettings::EnabledWithKey(value.as_u128())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::crypto::SecBuffer;
@@ -575,5 +692,36 @@ mod test {
         let a = SecBuffer::from("Hello................");
         let b = SecBuffer::from("World");
         assert_ne!(a, b);
+    }
+}
+
+#[derive(Default, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+pub struct PreSharedKey {
+    passwords: Vec<Vec<u8>>,
+}
+
+impl PreSharedKey {
+    /// Adds a password to the session password list. Both connecting nodes
+    /// must have matching passwords in order to establish a connection.
+    /// Note: The password is hashed using SHA-256 before being added to the list to increase security.
+    pub fn add_password<T: AsRef<[u8]>>(mut self, password: T) -> Self {
+        let mut hasher = sha3::Sha3_256::default();
+        hasher.update(password.as_ref());
+        self.passwords.push(hasher.finalize().to_vec());
+        self
+    }
+}
+
+impl AsRef<[Vec<u8>]> for PreSharedKey {
+    fn as_ref(&self) -> &[Vec<u8>] {
+        &self.passwords
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
+    fn from(password: T) -> Self {
+        PreSharedKey::default().add_password(password)
     }
 }

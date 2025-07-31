@@ -65,9 +65,6 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-#[cfg(target_family = "wasm")]
-use crate::functions::AsSlice;
-
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
@@ -98,27 +95,43 @@ pub const fn get_approx_bytes_per_container() -> usize {
     2000
 }
 
-#[cfg(not(target_family = "wasm"))]
 pub(crate) mod functions {
     use citadel_types::errors::Error;
-    use oqs::sig::Sig;
+    use ml_dsa::signature::{Signer, Verifier};
+    use ml_dsa::{
+        EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa65, Signature,
+        SigningKey, VerifyingKey,
+    };
     use zeroize::Zeroizing;
 
     pub type SecretKeyType = Zeroizing<Vec<u8>>;
     pub type PublicKeyType = Zeroizing<Vec<u8>>;
-    const ALG: oqs::sig::Algorithm = oqs::sig::Algorithm::Falcon1024;
 
     pub fn signature_sign(
         message: impl AsRef<[u8]>,
         secret_key: impl AsRef<[u8]>,
     ) -> Result<Vec<u8>, Error> {
-        let sig = get_sig()?;
-        let secret_key = sig
-            .secret_key_from_bytes(secret_key.as_ref())
-            .ok_or(Error::Generic("Bad secret key length"))?;
-        sig.sign(message.as_ref(), secret_key)
-            .map(|r| r.into_vec())
-            .map_err(|err| Error::Other(err.to_string()))
+        log::trace!(target: "citadel", "signature_sign: message len = {}, secret_key len = {}", message.as_ref().len(), secret_key.as_ref().len());
+
+        // For ml-dsa, we need to deserialize the key from bytes
+        let sk_bytes = secret_key.as_ref();
+
+        // Create encoded signing key from bytes
+        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes).map_err(|_| {
+            log::error!(target: "citadel", "Failed to deserialize secret key");
+            Error::Generic("Failed to deserialize secret key")
+        })?;
+
+        // Decode to actual signing key
+        let sk = SigningKey::decode(&encoded_sk);
+
+        // Sign the message
+        let sig: Signature<MlDsa65> = sk.sign(message.as_ref());
+
+        // Encode signature and convert to bytes
+        let sig_bytes: Vec<u8> = sig.encode().as_slice().to_vec();
+        log::trace!(target: "citadel", "signature_sign: signature len = {}", sig_bytes.len());
+        Ok(sig_bytes)
     }
 
     pub fn signature_verify(
@@ -126,101 +139,40 @@ pub(crate) mod functions {
         signature: impl AsRef<[u8]>,
         public_key: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
-        let sig = get_sig()?;
-        let signature = sig
-            .signature_from_bytes(signature.as_ref())
-            .ok_or(Error::Generic("Bad signature length"))?;
-        let public_key = sig
-            .public_key_from_bytes(public_key.as_ref())
-            .ok_or(Error::Generic("Bad public key length"))?;
+        // Deserialize the public key from bytes
+        let encoded_pk = EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref())
+            .map_err(|_| Error::Generic("Failed to deserialize public key"))?;
+        let pk = VerifyingKey::<MlDsa65>::decode(&encoded_pk);
 
-        sig.verify(message.as_ref(), signature, public_key)
-            .map_err(|err| Error::Other(err.to_string()))
+        // Deserialize the signature from bytes
+        let encoded_sig = EncodedSignature::<MlDsa65>::try_from(signature.as_ref())
+            .map_err(|_| Error::Generic("Failed to deserialize signature"))?;
+        let sig =
+            Signature::decode(&encoded_sig).ok_or(Error::Generic("Failed to decode signature"))?;
+
+        // Verify the signature
+        pk.verify(message.as_ref(), &sig)
+            .map_err(|_| Error::Generic("Signature verification failed"))
     }
 
     pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
-        get_sig()?
-            .keypair()
-            .map_err(|err| Error::Other(err.to_string()))
-            .map(|(l, r)| (l.into_vec().into(), r.into_vec().into()))
+        // Generate random seed
+        let mut rng = citadel_io::ThreadRng::default();
+
+        // Generate keypair
+        let kp = MlDsa65::key_gen(&mut rng);
+
+        // Convert keys to bytes via encoding methods
+        let pk_bytes = kp.verifying_key().encode().as_slice().to_vec();
+        let sk_bytes = kp.signing_key().encode().as_slice().to_vec();
+        log::trace!(target: "citadel", "signature_keypair: pk len = {}, sk len = {}", pk_bytes.len(), sk_bytes.len());
+
+        Ok((Zeroizing::new(pk_bytes), Zeroizing::new(sk_bytes)))
     }
 
     pub fn signature_bytes() -> usize {
-        get_sig().unwrap().length_signature()
-    }
-
-    fn get_sig() -> Result<Sig, Error> {
-        oqs::sig::Sig::new(ALG).map_err(|err| Error::Other(err.to_string()))
-    }
-}
-
-#[cfg(target_family = "wasm")]
-pub(crate) mod functions {
-    use citadel_types::errors::Error;
-    use pqcrypto_falcon_wasi::falcon1024;
-    use pqcrypto_falcon_wasi::falcon1024::DetachedSignature;
-    use pqcrypto_traits_wasi::sign::PublicKey as PublicKeyTrait;
-    use pqcrypto_traits_wasi::sign::{DetachedSignature as DetachedSignatureTrait, SecretKey};
-
-    pub trait AsSlice {
-        fn as_slice(&self) -> &[u8];
-    }
-
-    pub type SecretKeyType = falcon1024::SecretKey;
-    pub type PublicKeyType = falcon1024::PublicKey;
-
-    impl AsSlice for SecretKeyType {
-        fn as_slice(&self) -> &[u8] {
-            self.as_bytes()
-        }
-    }
-
-    impl AsSlice for DetachedSignature {
-        fn as_slice(&self) -> &[u8] {
-            self.as_bytes()
-        }
-    }
-
-    impl AsSlice for PublicKeyType {
-        fn as_slice(&self) -> &[u8] {
-            use pqcrypto_traits_wasi::sign::PublicKey;
-            self.as_bytes()
-        }
-    }
-
-    pub fn signature_sign(
-        message: impl AsRef<[u8]>,
-        secret_key: impl AsRef<[u8]>,
-    ) -> Result<Vec<u8>, Error> {
-        let secret_key = falcon1024::SecretKey::from_bytes(secret_key.as_ref())
-            .map_err(|err| Error::Other(err.to_string()))?;
-        Ok(falcon1024::detached_sign(message.as_ref(), &secret_key)
-            .as_bytes()
-            .to_vec())
-    }
-
-    pub fn signature_verify(
-        message: impl AsRef<[u8]>,
-        signature: impl AsRef<[u8]>,
-        public_key: impl AsRef<[u8]>,
-    ) -> Result<(), Error> {
-        let signature = deserialize::<falcon1024::DetachedSignature>(signature.as_ref())?;
-        let public_key = falcon1024::PublicKey::from_bytes(public_key.as_ref())
-            .map_err(|err| Error::Other(err.to_string()))?;
-        falcon1024::verify_detached_signature(&signature, message.as_ref(), &public_key)
-            .map_err(|err| Error::Other(err.to_string()))
-    }
-
-    pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
-        Ok(falcon1024::keypair())
-    }
-
-    pub fn signature_bytes() -> usize {
-        pqcrypto_falcon_wasi::falcon1024::signature_bytes()
-    }
-
-    fn deserialize<T: DetachedSignatureTrait>(bytes: &[u8]) -> Result<T, Error> {
-        T::from_bytes(bytes).map_err(|err| Error::Other(err.to_string()))
+        // Dilithium65 signature size
+        3293
     }
 }
 
@@ -472,7 +424,7 @@ impl PostQuantumContainer {
     }
 
     fn get_decryption_key(&self) -> Option<&dyn AeadModule> {
-        if let EncryptionAlgorithm::Kyber = self.params.encryption_algorithm {
+        if let EncryptionAlgorithm::KyberHybrid = self.params.encryption_algorithm {
             // use multi-modal asymmetric + symmetric ratcheted encryption
             // alice's key is in alice, bob's key is in bob. Thus, use encryption key
             self.get_encryption_key()
@@ -791,7 +743,7 @@ pub enum PostQuantumMeta {
 
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
-        log::trace!(target: "citadel", "About to generate keypair for {:?}", kem_alg);
+        log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
         let (public_key, secret_key) = match kem_alg {
             KemAlgorithm::Kyber => {
                 let pk_alice =
@@ -815,7 +767,7 @@ impl PostQuantumMeta {
         };
 
         match sig_alg {
-            SigAlgorithm::Falcon1024 => {
+            SigAlgorithm::Dilithium65 => {
                 let (sig_public_key, sig_private_key) = crate::functions::signature_keypair()?;
                 let sig = PostQuantumMetaSig {
                     sig_public_key: Arc::new(sig_public_key),
@@ -1145,7 +1097,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
         match self {
             Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
             Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
-            Self::Kyber => KYBER_NONCE_LENGTH_BYTES,
+            Self::KyberHybrid => KYBER_NONCE_LENGTH_BYTES,
             Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
         }
     }
@@ -1159,7 +1111,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             // Add 32 for internal apendees
-            Self::Kyber => {
+            Self::KyberHybrid => {
                 const LENGTH_FIELD: usize = 8;
                 let signature_len = functions::signature_bytes();
 
@@ -1183,7 +1135,78 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::AES_GCM_256 => Some(ciphertext.len() - 16),
             Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
             Self::Ascon80pq => Some(ciphertext.len() - 16),
-            Self::Kyber => kyber_pke::plaintext_len(ciphertext),
+            Self::KyberHybrid => kyber_pke::plaintext_len(ciphertext),
         }
     }
+}
+
+#[macro_export]
+macro_rules! impl_basic_aead_module {
+    ($val:ty, $nonce_len:expr) => {
+        impl AeadModule for $val {
+            fn encrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                // Take only the required nonce length, handling cases where provided nonce is longer
+                let nonce_slice = if nonce.len() >= $nonce_len {
+                    &nonce[..$nonce_len]
+                } else {
+                    return Err(Error::Generic("Nonce too short"));
+                };
+
+                self.aead
+                    .encrypt_in_place(GenericArray::from_slice(nonce_slice), ad, input)
+                    .map_err(|err| {
+                        log::error!(target: "citadel", "AEAD encrypt_in_place failed: {:?}", err);
+                        Error::EncryptionFailure
+                    })
+            }
+
+            fn decrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                // Take only the required nonce length, handling cases where provided nonce is longer
+                let nonce_slice = if nonce.len() >= $nonce_len {
+                    &nonce[..$nonce_len]
+                } else {
+                    return Err(Error::Generic("Nonce too short."));
+                };
+
+                self.aead
+                    .decrypt_in_place(GenericArray::from_slice(nonce_slice), ad, input)
+                    .map_err(|err| {
+                        log::error!(target: "citadel", "AEAD decrypt_in_place failed: {:?}", err);
+                        Error::EncryptionFailure
+                    })
+            }
+
+            fn local_user_encrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                // For non-Kyber algorithms, local encryption is just regular encryption
+                // Only KyberModule should use the special PKE-based local encryption
+                self.encrypt_in_place(nonce, ad, input)
+            }
+
+            fn local_user_decrypt_in_place(
+                &self,
+                nonce: &[u8],
+                ad: &[u8],
+                input: &mut dyn Buffer,
+            ) -> Result<(), Error> {
+                // For non-Kyber algorithms, local decryption is just regular decryption
+                // Only KyberModule should use the special PKE-based local decryption
+                self.decrypt_in_place(nonce, ad, input)
+            }
+        }
+    };
 }

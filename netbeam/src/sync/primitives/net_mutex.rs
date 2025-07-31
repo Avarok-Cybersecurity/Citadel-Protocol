@@ -148,7 +148,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
     }
 
     /// Returns a future which resolves once the lock can be established with the network
-    pub fn lock(&self) -> NetMutexGuardAcquirer<T, S> {
+    pub fn lock(&self) -> NetMutexGuardAcquirer<'_, T, S> {
         NetMutexGuardAcquirer::new(self)
     }
 
@@ -600,7 +600,7 @@ mod tests {
             std::mem::drop(guard);
 
             for idx in 1..count {
-                log::trace!(target: "citadel", "Server obtaining lock {}", idx);
+                log::trace!(target: "citadel", "Server obtaining lock {idx}");
                 let mut lock = mutex.lock().await.unwrap();
                 log::trace!(target: "citadel", "****Server obtained lock {} w/val {:?}", idx, &*lock);
                 assert_eq!(idx + init_value, *lock);

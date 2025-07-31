@@ -302,7 +302,7 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
             };
 
             if let Err(err) = self.node_remote.try_send(command) {
-                log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
+                log::warn!(target: "citadel", "[PeerChannelRecvHalf] unable to send stop signal to session: {err:?}");
             }
         }
     }
@@ -429,6 +429,10 @@ mod rtc_impl {
         async fn close(&self) -> Result<(), webrtc_util::Error> {
             // the conn will automatically get closed on drop of recv half
             Ok(())
+        }
+
+        fn as_any(&self) -> &(dyn std::any::Any + Send + Sync + 'static) {
+            self
         }
     }
 }

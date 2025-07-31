@@ -30,9 +30,9 @@ This module manages the state of peer-to-peer key exchange processes in the Cita
 
 */
 
-use crate::prelude::PreSharedKey;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_types::crypto::PreSharedKey;
 use citadel_types::proto::SessionSecuritySettings;
 
 pub struct PeerKemStateContainer<R: Ratchet> {

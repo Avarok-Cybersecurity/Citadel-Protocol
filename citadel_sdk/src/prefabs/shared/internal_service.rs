@@ -128,10 +128,7 @@ impl AsyncWrite for InternalServerCommunicator {
         let len = buf.len();
         match self.tx_to_kernel.send(buf.into()) {
             Ok(_) => Poll::Ready(Ok(len)),
-            Err(err) => Poll::Ready(Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                err.to_string(),
-            ))),
+            Err(err) => Poll::Ready(Err(std::io::Error::other(err.to_string()))),
         }
     }
 

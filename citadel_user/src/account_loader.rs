@@ -118,7 +118,7 @@ pub fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(
             }
 
             Err(err) => {
-                log::error!(target: "citadel", "Error loading: {:?}", err);
+                log::error!(target: "citadel", "Error loading: {err:?}");
             }
         }
     }

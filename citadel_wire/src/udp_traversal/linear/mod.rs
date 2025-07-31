@@ -81,7 +81,7 @@ impl SingleUDPHolePuncher {
     ) -> Result<Self, anyhow::Error> {
         let local_bind_addr = local_socket.local_addr()?;
         let unique_id = HolePunchID::new();
-        log::trace!(target: "citadel", "Setting up single-udp hole-puncher. Local bind addr: {:?} | Peer Addrs to ping: {:?} | [id = {:?}]", local_bind_addr, peer_addrs_to_ping, unique_id);
+        log::trace!(target: "citadel", "Setting up single-udp hole-puncher. Local bind addr: {local_bind_addr:?} | Peer Addrs to ping: {peer_addrs_to_ping:?} | [id = {unique_id:?}]");
 
         let method3 = Method3::new(relative_node_type, encrypted_config_container, unique_id);
 
@@ -136,7 +136,7 @@ impl SingleUDPHolePuncher {
                 let peer_external_addr = self.peer_external_addr(); // the external addr is in slot 0
                                                                     // The return address will appear as the natted socket below because the adjacent endpoint must send through the reserve port
                 let natted_socket = SocketAddr::new(peer_external_addr.ip(), reserved_port);
-                log::trace!(target: "citadel", "[UPnP]: Opened port {}", reserved_port);
+                log::trace!(target: "citadel", "[UPnP]: Opened port {reserved_port}");
                 let unique_id = self.unique_id;
                 let hole_punched_addr =
                     TargettedSocketAddr::new(peer_external_addr, natted_socket, unique_id);
@@ -170,7 +170,7 @@ impl SingleUDPHolePuncher {
 
                 let kill_listener = async move {
                     if let Ok((local_id, peer_id)) = kill_switch.recv().await {
-                        log::trace!(target: "citadel", "[Kill Listener] Received signal. {:?} must == {:?}", local_id, this_local_id);
+                        log::trace!(target: "citadel", "[Kill Listener] Received signal. {local_id:?} must == {this_local_id:?}");
                         if local_id == this_local_id {
                             return Some((local_id, peer_id));
                         }

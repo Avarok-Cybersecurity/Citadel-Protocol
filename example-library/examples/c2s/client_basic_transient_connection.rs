@@ -42,7 +42,7 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_addr = env::var("CITADEL_SERVER_ADDR").expect("CITADEL_SERVER_ADDR not set");
-    println!("Connecting to server at {}", server_addr);
+    println!("Connecting to server at {server_addr}");
 
     // Set up session security
     let session_security = SessionSecuritySettingsBuilder::default()

@@ -15,15 +15,8 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["std"]
-std = [
-    "rand/std",
-    "rand/std_rng",
-    "citadel_io/std",
-    "anyhow/std"
-]
-wasm = [
-    "citadel_io/wasm"
-]
+std = ["rand/std", "rand/std_rng", "citadel_io/std", "anyhow/std"]
+wasm = ["citadel_io/wasm"]
 
 [dependencies]
 citadel_io = { workspace = true }
@@ -35,7 +28,7 @@ serde = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
 rand = { workspace = true }
 async-stream = { workspace = true }
-sync_wrapper = { workspace = true}
+sync_wrapper = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]

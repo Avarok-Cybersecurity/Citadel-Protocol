@@ -168,7 +168,7 @@ mod tests {
             match msg {
                 GroupBroadcastPayload::Message { payload, sender } => {
                     let cur_idx = counter.entry(sender).or_insert(0usize);
-                    log::trace!(target: "citadel", "**~ Received message {} for {}~**", cur_idx, sender);
+                    log::trace!(target: "citadel", "**~ Received message {cur_idx} for {sender}~**");
                     let msg = MessageTransfer::receive(payload);
                     // order is not guaranteed in group broadcasts. Do not use idx
                     //assert_eq!(msg.idx, *cur_idx as u64);
@@ -307,7 +307,7 @@ mod tests {
         #[case] secrecy_mode: SecrecyMode,
         #[case] server_password: Option<&'static str>,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
-        #[values(EncryptionAlgorithm::Kyber)] enx: EncryptionAlgorithm,
+        #[values(EncryptionAlgorithm::KyberHybrid)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
@@ -342,7 +342,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
-            .with_crypto_params(kem + enx + SigAlgorithm::Falcon1024)
+            .with_crypto_params(kem + enx + SigAlgorithm::Dilithium65)
             .build()
             .unwrap();
 
@@ -581,7 +581,7 @@ mod tests {
                 server_connection_settings,
                 request,
                 move |channel, remote| async move {
-                    log::trace!(target: "citadel", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                    log::trace!(target: "citadel", "***GROUP PEER {idx}={uuid} CONNECT SUCCESS***");
                     wait_for_peers().await;
                     // wait for every group member to connect to ensure all receive all messages
                     handle_send_receive_group(get_barrier(), channel, message_count, peer_count)

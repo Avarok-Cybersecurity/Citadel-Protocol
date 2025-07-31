@@ -174,7 +174,7 @@ mod tests {
             Ok(addr) => {
                 if !addr.is_empty() {
                     for addr in addr.split(',') {
-                        log::trace!(target: "citadel", "Adding testing addr: {}", addr);
+                        log::trace!(target: "citadel", "Adding testing addr: {addr}");
                         let backend = BackendType::new(addr).unwrap();
                         backends.push(backend);
                     }
@@ -182,13 +182,13 @@ mod tests {
             }
             _ => {
                 if std::env::var("SKIP_EXT_BACKENDS").is_err() {
-                    log::error!(target: "citadel", "Make sure {} is set in the environment", env);
+                    log::error!(target: "citadel", "Make sure {env} is set in the environment");
                     std::process::exit(1)
                 }
             }
         }
 
-        log::info!(target: "citadel", "Backends generated for {}: {:?}", ty, backends);
+        log::info!(target: "citadel", "Backends generated for {ty}: {backends:?}");
 
         backends
     }
@@ -225,7 +225,7 @@ mod tests {
             T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
             F: Future<Output = Result<(), AccountError>> + Send + 'static,
         {
-            log::info!(target: "citadel", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
+            log::info!(target: "citadel", "Trying combination: client={client_backend:?} w/ server={server_backend:?}");
             let container =
                 TestContainer::new(server_backend.clone(), client_backend.clone()).await;
             let (pers_cl, pers_se) = (
@@ -236,7 +236,7 @@ mod tests {
             let res = (t)(container.clone(), pers_cl, pers_se).await;
             log::info!(target: "citadel", "About to clear test container ...");
             if res.is_err() {
-                log::error!(target: "citadel", "Task failed! {:?}", res);
+                log::error!(target: "citadel", "Task failed! {res:?}");
             }
 
             container.purge().await;
@@ -574,6 +574,51 @@ mod tests {
             );
             assert!(pers_se
                 .remove_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key")
+                .await
+                .unwrap()
+                .is_none());
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_byte_map_local() -> Result<(), AccountError> {
+        test_harness(|_container, pers_cl, _pers_se| async move {
+            let dummy = Vec::from("Hello, world!");
+
+            assert!(pers_cl
+                .store_byte_map_value(0, 0, "thekey", "sub_key", dummy.clone())
+                .await
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                pers_cl
+                    .get_byte_map_value(0, 0, "thekey", "sub_key")
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                dummy.clone()
+            );
+            assert_eq!(
+                pers_cl
+                    .get_byte_map_values_by_key(0, 0, "thekey")
+                    .await
+                    .unwrap()
+                    .remove("sub_key")
+                    .unwrap(),
+                dummy.clone()
+            );
+            assert_eq!(
+                pers_cl
+                    .remove_byte_map_value(0, 0, "thekey", "sub_key")
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                dummy.clone()
+            );
+            assert!(pers_cl
+                .remove_byte_map_value(0, 0, "thekey", "sub_key")
                 .await
                 .unwrap()
                 .is_none());

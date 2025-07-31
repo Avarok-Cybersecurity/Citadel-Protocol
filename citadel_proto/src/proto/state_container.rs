@@ -60,7 +60,7 @@ use crate::constants::{
 };
 use crate::error::NetworkError;
 use crate::functional::IfEqConditional;
-use crate::prelude::{InternalServerError, PreSharedKey, ReKeyResult, ReKeyReturnType};
+use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
@@ -98,8 +98,8 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::unbounded_channel;
 use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
 use citadel_io::{tokio, Mutex};
-use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::crypto::{PreSharedKey, SecBuffer};
 use citadel_types::prelude::ObjectId;
 use citadel_types::proto::{
     MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
@@ -1130,7 +1130,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         group_receiver_config: GroupReceiverConfig,
         virtual_target: VirtualTargetType,
     ) -> Option<RangeInclusive<u32>> {
-        log::trace!(target: "citadel", "GRC config: {:?}", group_receiver_config);
+        log::trace!(target: "citadel", "GRC config: {group_receiver_config:?}");
         let object_id = group_receiver_config.object_id;
         let group_id = header.group.get();
         let ticket = header.context_info.get();
@@ -1184,7 +1184,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             e.insert(receiver_container);
             Some(wave_window)
         } else {
-            log::error!(target: "citadel", "Duplicate group HEADER detected ({})", group_id);
+            log::error!(target: "citadel", "Duplicate group HEADER detected ({group_id})");
             None
         }
     }
@@ -1271,14 +1271,14 @@ impl<R: Ratchet> StateContainerInner<R> {
             let is_server = self.is_server;
 
             let task = async move {
-                log::info!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
+                log::debug!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
                 let res = if let Some(start_rx) = start_recv_rx {
                     start_rx.await
                 } else {
                     Ok(true)
                 };
 
-                log::info!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
+                log::debug!(target: "citadel", "File transfer initiated! | revfs_pull: {is_revfs_pull}");
 
                 let accepted = res.as_ref().map(|r| *r).unwrap_or(false);
                 // first, send a rebound signal immediately to the sender
@@ -1296,7 +1296,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 );
 
                 if let Err(err) = preferred_primary_stream.unbounded_send(file_header_ack) {
-                    log::error!(target: "citadel", "Unable to send file_header_ack rebound signal; aborting: {:?}", err);
+                    log::error!(target: "citadel", "Unable to send file_header_ack rebound signal; aborting: {err:?}");
                     return;
                 }
 
@@ -1350,7 +1350,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                                     }
                                 }
                                 Err(err) => {
-                                    log::error!(target: "citadel", "Unable to sync file to backend: {:?}", err);
+                                    log::error!(target: "citadel", "Unable to sync file to backend: {err:?}");
                                 }
                             }
                         } else {
@@ -1368,7 +1368,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     }
 
                     Err(err) => {
-                        log::error!(target: "citadel", "Start_recv_rx failed: {:?}", err);
+                        log::error!(target: "citadel", "Start_recv_rx failed: {err:?}");
                         let err_packet = packet_crafter::file::craft_file_header_ack_packet(
                             &ratchet,
                             false,
@@ -1448,7 +1448,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     }))
                     .ok()?;
             } else {
-                log::error!(target: "citadel", "Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
+                log::error!(target: "citadel", "Attempted to obtain OutboundFileTransfer for {key:?}, but it didn't exist");
             }
         } else {
             // remove the inbound file transfer, send the signals to end async loops, and tell the kernel
@@ -1466,7 +1466,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         cid_opt: Some(session_cid),
                     }));
             } else {
-                log::error!(target: "citadel", "Attempted to remove OutboundFileTransfer for {:?}, but it didn't exist", key);
+                log::error!(target: "citadel", "Attempted to remove OutboundFileTransfer for {key:?}, but it didn't exist");
             }
         }
 
@@ -1689,12 +1689,12 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
 
             res => {
-                log::error!(target: "citadel", "INVALID GroupReceiverStatus obtained: {:?}", res)
+                log::error!(target: "citadel", "INVALID GroupReceiverStatus obtained: {res:?}")
             }
         }
 
         if complete {
-            log::trace!(target: "citadel", "Finished receiving file {:?}", file_key);
+            log::trace!(target: "citadel", "Finished receiving file {file_key:?}");
             let _ = self.inbound_files.remove(&file_key);
             let _ = self.file_transfer_handles.remove(&file_key);
         }
@@ -1781,11 +1781,11 @@ impl<R: Ratchet> StateContainerInner<R> {
                         ObjectTransferStatus::TransferComplete
                     };
 
-                    log::trace!(target: "citadel", "Transmitter {session_cid}: {file_key:?} received final wave ack. Sending status to local node: {:?}", status);
+                    log::trace!(target: "citadel", "Transmitter {session_cid}: {file_key:?} received final wave ack. Sending status to local node: {status:?}");
                     if let Err(err) = tx.unbounded_send(status.clone()) {
                         // if the server is using an accept-only policy with no further responses, this branch
                         // will be reached
-                        log::warn!(target: "citadel", "FileTransfer receiver handle cannot be reached {:?}", err);
+                        log::warn!(target: "citadel", "FileTransfer receiver handle cannot be reached {err:?}");
                         // drop local async sending subroutines
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
@@ -1813,7 +1813,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 }
             }
         } else {
-            log::error!(target: "citadel", "File-transfer for object {} does not map to a transmitter container", object_id);
+            log::error!(target: "citadel", "File-transfer for object {object_id} does not map to a transmitter container");
         }
 
         if delete_group {

@@ -18,12 +18,7 @@ default = ["filesystem", "std"]
 redis = ["redis-base", "mobc"]
 sql = ["sqlx", "itertools"]
 filesystem = ["citadel_crypt/filesystem"]
-std = [
-    "citadel_crypt/std",
-    "rand/std",
-    "sha3/std",
-    "bstr/std"
-]
+std = ["citadel_crypt/std", "rand/std", "sha3/std", "bstr/std"]
 wasm = ["citadel_crypt/wasm", "citadel_io/wasm"]
 google-services = ["openssl", "jwt", "firebase-rtdb"]
 vendored = ["openssl/vendored"]
@@ -34,7 +29,7 @@ jwt-testing = []
 [dependencies]
 citadel_io = { workspace = true }
 itertools = { workspace = true, features = ["use_alloc"], optional = true }
-serde = { workspace = true, features=["rc", "derive"] }
+serde = { workspace = true, features = ["rc", "derive"] }
 async-trait = { workspace = true }
 futures = { workspace = true, features = ["alloc", "executor"] }
 rand = { workspace = true }
@@ -46,8 +41,14 @@ citadel_crypt = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"] }
 bytes = { workspace = true }
 bstr = { workspace = true, features = ["alloc", "unicode"] }
-sqlx = { workspace = true, features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
-redis-base = { workspace = true, features = ["tokio-comp", "tokio-native-tls-comp"], optional=true }
+sqlx = { workspace = true, features = [
+    "all-databases",
+    "runtime-tokio-native-tls",
+], optional = true }
+redis-base = { workspace = true, features = [
+    "tokio-comp",
+    "tokio-native-tls-comp",
+], optional = true }
 mobc = { workspace = true, optional = true, features = ["tokio"] }
 firebase-rtdb = { workspace = true, optional = true }
 jwt = { workspace = true, features = ["openssl"], optional = true }

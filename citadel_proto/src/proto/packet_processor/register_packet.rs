@@ -30,6 +30,7 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::prelude::Ticket;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
 use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
@@ -70,6 +71,7 @@ pub async fn process_register<R: Ratchet>(
             as Ref<&[u8], HdpHeader>;
         debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
         let security_level = header.security_level.into();
+        let ticket = Ticket::from(header.context_info.get());
 
         match header.cmd_aux {
             packet_flags::cmd::aux::do_register::STAGE0 => {
@@ -83,20 +85,31 @@ pub async fn process_register<R: Ratchet>(
                         let algorithm = header.algorithm;
 
                         match validation::do_register::validate_stage0::<R>(&payload) {
-                            Some((transfer, passwordless)) => {
+                            Some((transfer, transient_mode_requested)) => {
                                 // Now, create a stage 1 packet
                                 let timestamp = session.time_tracker.get_global_time_ns();
-                                state_container.register_state.passwordless = Some(passwordless);
+                                state_container.register_state.transient_mode =
+                                    Some(transient_mode_requested);
 
-                                if passwordless
+                                if transient_mode_requested
                                     && !session
                                         .account_manager
                                         .get_misc_settings()
-                                        .allow_passwordless
+                                        .allow_transient_connections
                                 {
-                                    // passwordless is not allowed on this node
-                                    let err = packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
-                                    return Ok(PrimaryProcessorResult::ReplyToSender(err));
+                                    // Transient connections are not allowed on this node
+                                    const REASON: &str =
+                                        "Transient connections are not allowed on this node";
+                                    let err = packet_crafter::do_register::craft_failure(
+                                        algorithm,
+                                        timestamp,
+                                        REASON,
+                                        header.session_cid.get(),
+                                        ticket,
+                                    );
+                                    return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                        err, REASON,
+                                    ));
                                 }
 
                                 std::mem::drop(state_container);
@@ -126,6 +139,7 @@ pub async fn process_register<R: Ratchet>(
                                             timestamp,
                                             transfer,
                                             header.session_cid.get(),
+                                            ticket,
                                         );
 
                                     let mut state_container =
@@ -203,6 +217,7 @@ pub async fn process_register<R: Ratchet>(
                             timestamp,
                             proposed_credentials,
                             security_level,
+                            ticket,
                         );
                         //let mut state_container = inner_mut!(session.state_container);
 
@@ -274,6 +289,7 @@ pub async fn process_register<R: Ratchet>(
                                             timestamp,
                                             success_message,
                                             security_level,
+                                            ticket,
                                         );
                                         // Do not shutdown the session here. It is up to the client to decide
                                         // how to shutdown, or continue (in the case of passwordless mode), the session
@@ -282,12 +298,14 @@ pub async fn process_register<R: Ratchet>(
 
                                     Err(err) => {
                                         let err = err.into_string();
-                                        log::error!(target: "citadel", "Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
+                                        const REASON: &str = "Server unable to create client account during the DO_REGISTER process";
+                                        log::error!(target: "citadel", "{REASON}: {err}");
                                         let packet = packet_crafter::do_register::craft_failure(
                                             algorithm,
                                             timestamp,
                                             err,
                                             header.session_cid.get(),
+                                            ticket,
                                         );
 
                                         session.session_manager.clear_provisional_session(
@@ -342,7 +360,7 @@ pub async fn process_register<R: Ratchet>(
                             );
 
                             let passwordless = return_if_none!(
-                                state_container.register_state.passwordless,
+                                state_container.register_state.transient_mode,
                                 "Passwordless unset (reg)"
                             );
 

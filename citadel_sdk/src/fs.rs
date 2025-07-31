@@ -157,9 +157,9 @@ mod tests {
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::Kyber,
+        EncryptionAlgorithm::KyberHybrid,
         KemAlgorithm::Kyber,
-        SigAlgorithm::Falcon1024
+        SigAlgorithm::Dilithium65
     )]
     #[timeout(Duration::from_secs(90))]
     #[citadel_io::tokio::test]
@@ -438,7 +438,7 @@ mod tests {
                 log::info!(target: "citadel", "***CLIENT A {cid} LOGIN SUCCESS :: File transfer next ***");
                 let remote = connection.remote.clone();
                 let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
-                accept_all(handle_orig);
+                let _file_transfer_task = accept_all(handle_orig);
 
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write the file to the RE-VFS
@@ -490,7 +490,7 @@ mod tests {
                 wait_for_peers().await;
                 let remote = connection.remote.clone();
                 let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
-                accept_all(handle_orig);
+                let _file_transfer_task = accept_all(handle_orig);
                 log::info!(target: "citadel", "***CLIENT B {cid} LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write the file to the RE-VFS
@@ -503,7 +503,6 @@ mod tests {
                 .await?;
                 log::info!(target: "citadel", "***CLIENT B {cid} FILE TRANSFER SUCCESS***");
                 // Wait some time for the file to synchronize
-                tokio::time::sleep(Duration::from_secs(1)).await;
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 wait_for_peers().await;
                 // now, pull it
@@ -539,35 +538,31 @@ mod tests {
         assert!(client1_success.load(Ordering::Relaxed));
     }
 
-    fn accept_all(mut rx: FileTransferHandleRx) {
-        let handle = citadel_io::tokio::task::spawn(async move {
+    fn accept_all(mut rx: FileTransferHandleRx) -> citadel_io::tokio::task::JoinHandle<()> {
+        citadel_io::tokio::task::spawn(async move {
             while let Some(mut handle) = rx.recv().await {
                 if let Err(err) = handle.accept() {
                     log::error!(target: "citadel", "Failed to accept file transfer: {err:?}");
+                    continue;
                 }
 
-                exhaust_file_transfer(handle);
+                // Wait for this transfer to complete before accepting the next one
+                exhaust_file_transfer_async(handle).await;
             }
-        });
-
-        drop(handle);
+        })
     }
 
-    pub fn exhaust_file_transfer(mut handle: ObjectTransferHandler) {
-        // Exhaust the stream
-        let handle = citadel_io::tokio::task::spawn(async move {
-            while let Some(evt) = handle.next().await {
-                log::info!(target: "citadel", "File Transfer Event: {evt:?}");
-                if let ObjectTransferStatus::Fail(err) = &evt {
-                    log::error!(target: "citadel", "File Transfer Failed: {err:?}");
-                } else if let ObjectTransferStatus::TransferComplete = &evt {
-                    break;
-                } else if let ObjectTransferStatus::ReceptionComplete = &evt {
-                    break;
-                }
+    async fn exhaust_file_transfer_async(mut handle: ObjectTransferHandler) {
+        while let Some(evt) = handle.next().await {
+            log::info!(target: "citadel", "File Transfer Event: {evt:?}");
+            if let ObjectTransferStatus::Fail(err) = &evt {
+                log::error!(target: "citadel", "File Transfer Failed: {err:?}");
+                break;
+            } else if let ObjectTransferStatus::TransferComplete = &evt {
+                break;
+            } else if let ObjectTransferStatus::ReceptionComplete = &evt {
+                break;
             }
-        });
-
-        drop(handle);
+        }
     }
 }

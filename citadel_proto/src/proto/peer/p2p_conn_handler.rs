@@ -176,7 +176,7 @@ async fn p2p_conn_handler<R: Ratchet>(
         Some(Err(err)) => {
             // on android/ios, when the program is backgrounded for days then turned on, this error will loop endlessly. As such, drop this future and end the session to give the program the chance to create a session anew
             //const ERR_INVALID_ARGUMENT: i32 = 22;
-            log::error!(target: "citadel", "[P2P-stream] ERR: {:?}", err);
+            log::error!(target: "citadel", "[P2P-stream] ERR: {err:?}");
             Err(NetworkError::Generic(err.to_string()))
         }
 
@@ -371,7 +371,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
         let remote_connect_addr = hole_punched_socket.addr.send_address;
         let addr = hole_punched_socket.addr;
         let local_addr = hole_punched_socket.local_addr()?;
-        log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
+        log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {is_initiator}");
 
         app.sync().await.map_err(generic_error)?;
         // if local is NOT initiator, we setup a listener at the socket
@@ -418,7 +418,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     };
 
     if let Err(err) = process.await {
-        log::warn!(target: "citadel", "[Hole-punch/Err] {:?}", err);
+        log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
     }
 
     log::trace!(target: "citadel", "Sending channel to kernel");
@@ -434,5 +434,5 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
 pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
     err: E,
 ) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, err)
+    std::io::Error::other(err)
 }

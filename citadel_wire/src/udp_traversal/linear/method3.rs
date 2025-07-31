@@ -143,7 +143,7 @@ impl Method3 {
         endpoints: &[SocketAddr],
     ) -> Result<TargettedSocketAddr, FirewallError> {
         let default_ttl = socket.ttl().ok();
-        log::trace!(target: "citadel", "Default TTL: {:?}", default_ttl);
+        log::trace!(target: "citadel", "Default TTL: {default_ttl:?}");
         let unique_id = &self.unique_id.clone();
         let this_node_type = self.this_node_type;
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
@@ -198,7 +198,7 @@ impl Method3 {
 
         let (res0, res1) = citadel_io::tokio::join!(receiver_task, sender_task);
 
-        log::trace!(target: "citadel", "Hole-punch join result: recv={:?} and send={:?}", res0, res1);
+        log::trace!(target: "citadel", "Hole-punch join result: recv={res0:?} and send={res1:?}");
 
         if let Some(default_ttl) = default_ttl {
             let _ = socket
@@ -342,7 +342,7 @@ impl Method3 {
                                 continue;
                             }
 
-                            log::trace!(target: "citadel", "RECV SYN from {:?}", peer_unique_id);
+                            log::trace!(target: "citadel", "RECV SYN from {peer_unique_id:?}");
                             let hole_punched_addr = TargettedSocketAddr::new(
                                 peer_external_addr,
                                 peer_external_addr,
@@ -352,7 +352,7 @@ impl Method3 {
                             observed_addrs_on_syn
                                 .lock()
                                 .insert(peer_unique_id, hole_punched_addr);
-                            log::trace!(target: "citadel", "Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
+                            log::trace!(target: "citadel", "Received TTL={ttl} packet from {peer_external_addr:?}. Awaiting mutual recognition... ");
 
                             has_received_syn = true;
 
@@ -402,9 +402,9 @@ impl Method3 {
                                     .await
                                     .is_ok()
                                 {
-                                    log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, address_we_sent_to);
+                                    log::warn!(target: "citadel", "[will allow] RECV SYN_ACK that comes from the wrong addr. RECV: {peer_external_addr:?}, Expected: {address_we_sent_to:?}");
                                 } else {
-                                    log::warn!(target: "citadel", "[will NOT allow] RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, address_we_sent_to);
+                                    log::warn!(target: "citadel", "[will NOT allow] RECV SYN_ACK that comes from the wrong addr. RECV: {peer_external_addr:?}, Expected: {address_we_sent_to:?}");
                                     continue;
                                 }
                             }

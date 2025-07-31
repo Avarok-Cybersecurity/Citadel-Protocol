@@ -515,7 +515,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         limit: Option<i32>,
     ) -> Result<Vec<CNACMetadata>, AccountError> {
         let conn = &(self.get_conn().await?);
-        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL,  username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid))
         let query = if let Some(limit) = limit {
             format!(
                 "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {limit}",
@@ -530,6 +529,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .into_iter()
             .filter_map(|row| {
                 let cid = try_get_cid_from_row(&row, "cid")?;
+
+                if cid == 0 {
+                    return None;
+                }
+
                 let is_personal = self.get_bool(&row, "is_personal").ok()?;
                 let username = try_get_blob_as_utf8("username", &row).ok()?;
                 let full_name = try_get_blob_as_utf8("full_name", &row).ok()?;
@@ -611,10 +615,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .filter_map(|row| try_get_cid_from_row(&row, "peer_cid"))
             .collect::<Vec<u64>>();
 
-        Ok(peers
-            .iter()
-            .map(|cid| results.iter().any(|peer_cid| *cid == *peer_cid))
-            .collect())
+        Ok(peers.iter().map(|cid| results.contains(cid)).collect())
     }
 
     async fn get_hyperlan_peers(

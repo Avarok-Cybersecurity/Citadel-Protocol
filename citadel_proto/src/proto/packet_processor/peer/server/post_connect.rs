@@ -95,7 +95,7 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet>(
                                       };
                                       this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
                                       peer_sess_state_container.insert_new_virtual_connection_as_server(session_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
-                                      log::trace!(target: "citadel", "Virtual connection between {} <-> {} forged", session_cid, target_cid);
+                                      log::trace!(target: "citadel", "Virtual connection between {session_cid} <-> {target_cid} forged");
                                       // TODO: Ensure that, upon disconnect, the corresponding entry gets dropped in the connection table of not the dropped peer
                                   }
                               }

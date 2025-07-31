@@ -283,7 +283,7 @@ where
 
     debug_assert_ne!(cfg.last_plaintext_wave_length, 0);
 
-    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::Kyber
+    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::KyberHybrid
         && matches!(&transfer_type, TransferType::FileTransfer)
     {
         debug_assert_eq!(cfg.packets_needed, packets.len() as _);
@@ -430,6 +430,7 @@ pub struct GroupReceiver {
     packets_received_order: BitVec,
     waves_received: BitVec,
     packets_needed: usize,
+    packets_received: usize,
     last_packet_recv_time: Instant,
     max_payload_size: usize,
     /// All packets will necessarily be the same size, except for the last packet (although, it is possible for it to be the same size)
@@ -623,6 +624,7 @@ impl GroupReceiver {
             unified_plaintext_slab,
             temp_wave_store,
             packets_received_order,
+            packets_received: 0,
             packets_needed: cfg.packets_needed as usize,
             last_packet_recv_time,
             max_payload_size: cfg.max_payload_size as usize,
@@ -658,11 +660,13 @@ impl GroupReceiver {
             };
 
         if !is_received {
+            self.packets_received += 1;
+            log::trace!(target: "citadel", "[FILE TRANSFER] Packet {}/{} received", self.packets_received, self.packets_needed);
             // Now, take the ciphertext and place it into the buffer
             let wave_store = self.temp_wave_store.get_mut(&wave_id);
 
             if wave_store.is_none() {
-                log::trace!(target: "citadel", "Packet {} (Parent wave: {}) does not have a wave store", true_sequence, wave_id);
+                log::trace!(target: "citadel", "Packet {true_sequence} (Parent wave: {wave_id}) does not have a wave store");
                 return GroupReceiverStatus::INVALID_PACKET;
             }
 
@@ -765,7 +769,7 @@ impl GroupReceiver {
                 GroupReceiverStatus::INSERT_SUCCESS
             }
         } else {
-            log::trace!(target: "citadel", "Packet {} (Parent Wave: {}) already received", true_sequence, wave_id);
+            log::trace!(target: "citadel", "Packet {true_sequence} (Parent Wave: {wave_id}) already received");
             GroupReceiverStatus::ALREADY_RECEIVED
         }
     }
@@ -847,7 +851,6 @@ impl GroupReceiver {
         plaintext: &[u8],
         max_plaintext_wave_length: usize,
     ) -> Range<usize> {
-        // TODO!!!!! remove unwrap
         let plaintext_length = plaintext.len();
         let start_idx = wave_id as usize * max_plaintext_wave_length;
         let end_idx = start_idx + plaintext_length;
@@ -952,7 +955,7 @@ impl<const N: usize> GroupSenderDevice<N> {
 
         let end = offset + packets_in_this_wave as u32;
 
-        log::trace!(target: "citadel", "Wave tail received for wave {}. Removing entries from {} to {}", wave_id, offset, end);
+        log::trace!(target: "citadel", "Wave tail received for wave {wave_id}. Removing entries from {offset} to {end}");
 
         for idx in offset..end {
             self.packets_in_ram.remove(&(idx as usize));

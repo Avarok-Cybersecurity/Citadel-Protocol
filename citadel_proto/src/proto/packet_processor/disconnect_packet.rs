@@ -92,7 +92,7 @@ pub async fn process_disconnect<R: Ratchet>(
         }
 
         packet_flags::cmd::aux::do_disconnect::FINAL => {
-            trace!(target: "citadel", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
+            trace!(target: "citadel", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {ticket})");
             session.kernel_ticket.set(ticket);
             session.state.set(SessionState::Disconnected);
             session.send_session_dc_signal(Some(ticket), true, SUCCESS_DISCONNECT);

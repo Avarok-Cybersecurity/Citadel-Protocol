@@ -171,7 +171,7 @@ impl<P> Debug for RatchetMessage<P> {
         match self {
             RatchetMessage::AliceToBob { .. } => write!(f, "AliceToBob"),
             RatchetMessage::BobToAlice(_, role, _) => {
-                write!(f, "BobToAlice(sender_role: {:?})", role)
+                write!(f, "BobToAlice(sender_role: {role:?})")
             }
             RatchetMessage::Truncate(_) => write!(f, "Truncate"),
             RatchetMessage::LeaderCanFinish { .. } => write!(f, "LeaderCanFinish"),
@@ -504,11 +504,7 @@ where
                             // Request resynchronization
                             return Err(CryptError::RekeyUpdateError(
                                 format!(
-                                    "Rekey barrier mismatch (earliest/latest). Peer: ({}-{}) != Local: ({}-{})",
-                                    earliest_ratchet_version,
-                                    latest_ratchet_version,
-                                    local_earliest_ratchet_version,
-                                    local_latest_ratchet_version
+                                    "Rekey barrier mismatch (earliest/latest). Peer: ({earliest_ratchet_version}-{latest_ratchet_version}) != Local: ({local_earliest_ratchet_version}-{local_latest_ratchet_version})"
                                 ),
                             ));
                         }
@@ -616,10 +612,9 @@ where
                                 log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
                             }
                             RoleTransition::Invalid => {
-                                log::warn!(target: "citadel", "Invalid role transition from {:?} to Leader", initial_role);
+                                log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
                                 return Err(CryptError::RekeyUpdateError(format!(
-                                    "Invalid role transition from {:?} to Leader",
-                                    initial_role
+                                    "Invalid role transition from {initial_role:?} to Leader"
                                 )));
                             }
                             _ => {}
@@ -700,14 +695,15 @@ where
                     log::debug!(target: "citadel", "Client {} received Truncate", self.cid);
                     if role != RekeyRole::Loser {
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Unexpected Truncate message since our role is not Loser, but {:?}",
-                            role
+                            "Unexpected Truncate message since our role is not Loser, but {role:?}"
                         )));
                     }
 
                     let latest_version = {
                         let container = &self.session_crypto_state;
                         container.deregister_oldest_ratchet(version_to_truncate)?;
+                        // Ensure update_in_progress is toggled on before calling post_alice_stage1_or_post_stage1_bob
+                        let _ = container.update_in_progress.toggle_on_if_untoggled();
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
@@ -738,7 +734,7 @@ where
                     let role = self.role();
                     if role != RekeyRole::Loser {
                         return Err(CryptError::RekeyUpdateError(
-                            format!("Unexpected LoserCanFinish message since our role is not Loser, but {:?}", role)
+                            format!("Unexpected LoserCanFinish message since our role is not Loser, but {role:?}")
                         ));
                     }
 
@@ -746,6 +742,8 @@ where
 
                     let latest_version = {
                         let container = &self.session_crypto_state;
+                        // Ensure update_in_progress is toggled on before calling post_alice_stage1_or_post_stage1_bob
+                        let _ = container.update_in_progress.toggle_on_if_untoggled();
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
@@ -788,10 +786,9 @@ where
                                 log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
                             }
                             RoleTransition::Invalid => {
-                                log::warn!(target: "citadel", "Invalid role transition from {:?} to Leader", initial_role);
+                                log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
                                 return Err(CryptError::RekeyUpdateError(format!(
-                                    "Invalid role transition from {:?} to Leader",
-                                    initial_role
+                                    "Invalid role transition from {initial_role:?} to Leader"
                                 )));
                             }
                             _ => {}
@@ -802,13 +799,14 @@ where
                     let role = self.role();
                     if role != RekeyRole::Leader {
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Unexpected LeaderCanFinish message since our role is not Leader, but {:?}",
-                            role
+                            "Unexpected LeaderCanFinish message since our role is not Leader, but {role:?}"
                         )));
                     }
 
                     // Apply the update
                     let container = &self.session_crypto_state;
+                    // Ensure update_in_progress is toggled on before calling post_alice_stage1_or_post_stage1_bob
+                    let _ = container.update_in_progress.toggle_on_if_untoggled();
                     container.post_alice_stage1_or_post_stage1_bob();
                     let latest_actual_ratchet_version = container
                         .maybe_unlock()
@@ -821,8 +819,7 @@ where
                         log::warn!(target: "citadel", "Client {} version mismatch after LeaderCanFinish. Local: {}, Peer: {}", 
                             self.cid, latest_declared_version, version);
                         return Err(CryptError::RekeyUpdateError(format!(
-                            "Version mismatch after LeaderCanFinish update. Local: {}, Peer: {}",
-                            latest_declared_version, version
+                            "Version mismatch after LeaderCanFinish update. Local: {latest_declared_version}, Peer: {version}"
                         )));
                     }
 
@@ -1095,21 +1092,21 @@ pub(crate) mod tests {
                         let latest_0 = container_0.session_crypto_state.latest_usable_version();
                         let latest_1 = container_1.session_crypto_state.latest_usable_version();
 
-                        assert_eq!(latest_0, latest_1, "Version mismatch after rekey. Container 0: {}, Container 1: {}", latest_0, latest_1);
-                        assert!(latest_0 > start_version, "Version did not increase. Start: {}, Current: {}", start_version, latest_0);
+                        assert_eq!(latest_0, latest_1, "Version mismatch after rekey. Container 0: {latest_0}, Container 1: {latest_1}");
+                        assert!(latest_0 > start_version, "Version did not increase. Start: {start_version}, Current: {latest_0}");
 
                         // Reset roles to idle
                         container_0.set_role(super::RekeyRole::Idle);
                         container_1.set_role(super::RekeyRole::Idle);
                     }
                     (Err(e1), Err(e2)) => {
-                        panic!("Both containers failed. Error 1: {:?}, Error 2: {:?}", e1, e2);
+                        panic!("Both containers failed. Error 1: {e1:?}, Error 2: {e2:?}");
                     }
                     (Err(e), Ok(_)) => {
-                        panic!("Container 0 failed: {:?}", e);
+                        panic!("Container 0 failed: {e:?}");
                     }
                     (Ok(_), Err(e)) => {
-                        panic!("Container 1 failed: {:?}", e);
+                        panic!("Container 1 failed: {e:?}");
                     }
                 }
             }
@@ -1222,7 +1219,8 @@ pub(crate) mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_contentious() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
@@ -1243,7 +1241,8 @@ pub(crate) mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(360))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_with_random_start_lag(
         #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
@@ -1259,7 +1258,8 @@ pub(crate) mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(60))]
-    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_one_at_a_time() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();

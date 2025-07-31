@@ -150,7 +150,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         citadel_io::tokio::task::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
-                    log::trace!(target: "citadel", "Unable to forward packet: {:?}", err);
+                    log::trace!(target: "citadel", "Unable to forward packet: {err:?}");
                 }
             }
         });
@@ -221,7 +221,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     /// returns at about the same time as the adjacent node
-    pub fn sync(&self) -> NetSyncStart<()> {
+    pub fn sync(&self) -> NetSyncStart<'_, ()> {
         NetSyncStart::<()>::new_sync_only(self, self.node_type())
     }
 
@@ -250,17 +250,17 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     /// Creates a Mutex with an adjacent node on the network. One node must set the initial value, the other must set None
-    pub fn mutex<R: NetObject + 'static>(&self, value: Option<R>) -> NetMutexLoader<R, Self> {
+    pub fn mutex<R: NetObject + 'static>(&self, value: Option<R>) -> NetMutexLoader<'_, R, Self> {
         NetMutex::create(self, value)
     }
 
     /// Creates a RwLock with an adjacent node on the network. One node must set the initial value, the other must set None
-    pub fn rwlock<R: NetObject + 'static>(&self, value: Option<R>) -> NetRwLockLoader<R, Self> {
+    pub fn rwlock<R: NetObject + 'static>(&self, value: Option<R>) -> NetRwLockLoader<'_, R, Self> {
         NetRwLock::create(self, value)
     }
 
     /// Creates a bidirectional channel between two endpoints
-    pub fn bi_channel<R: NetObject>(&self) -> bi_channel::ChannelLoader<R, Self> {
+    pub fn bi_channel<R: NetObject>(&self) -> bi_channel::ChannelLoader<'_, R, Self> {
         bi_channel::Channel::create(self)
     }
 }
@@ -325,7 +325,7 @@ async fn preaction_sync<
                 .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
 
             if recvd_id != next_id {
-                log::error!(target: "citadel", "Invalid sync ID received. {:?} != {:?}", recvd_id, next_id);
+                log::error!(target: "citadel", "Invalid sync ID received. {recvd_id:?} != {next_id:?}");
             }
 
             Ok(subscription)

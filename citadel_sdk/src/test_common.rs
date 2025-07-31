@@ -220,7 +220,7 @@ lazy_static::lazy_static! {
     feature = "localhost-testing",
     tracing::instrument(level = "trace", target = "citadel")
 )]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::cognitive_complexity)]
 pub async fn udp_mode_assertions<R: Ratchet>(
     udp_mode: UdpMode,
     udp_channel_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,

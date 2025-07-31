@@ -109,7 +109,7 @@ where
                 );
                 (self.on_channel_received)(CitadelClientServerConnection {
                     remote: client_server_remote.clone(),
-                    channel: Some(channel),
+                    channel: Some(*channel),
                     udp_channel_rx,
                     services,
                     cid,
@@ -119,7 +119,7 @@ where
             }
 
             other => {
-                log::trace!(target: "citadel", "Unhandled server signal: {:?}", other);
+                log::trace!(target: "citadel", "Unhandled server signal: {other:?}");
                 Ok(())
             }
         }

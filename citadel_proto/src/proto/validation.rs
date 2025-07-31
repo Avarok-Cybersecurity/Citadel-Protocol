@@ -214,12 +214,12 @@ pub(crate) mod pre_connect {
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::error::NetworkError;
-    use crate::prelude::PreSharedKey;
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use crate::proto::session_manager::CitadelSessionManager;
     use citadel_crypt::ratchets::Ratchet;
+    use citadel_types::crypto::PreSharedKey;
     use citadel_types::proto::ConnectMode;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;
@@ -338,10 +338,10 @@ pub(crate) mod pre_connect {
         let packet = SynAckPacket::<R>::deserialize_from_vector(&payload).ok()?;
 
         let lvl = packet.transfer.security_level();
-        log::trace!(target: "citadel", "Session security level based-on returned transfer: {:?}", lvl);
+        log::trace!(target: "citadel", "Session security level based-on returned transfer: {lvl:?}");
         if let Err(err) = alice_constructor.stage1_alice(packet.transfer, session_password.as_ref())
         {
-            log::error!(target: "citadel", "Error on stage1_alice: {:?}", err);
+            log::error!(target: "citadel", "Error on stage1_alice: {err:?}");
             return None;
         }
 

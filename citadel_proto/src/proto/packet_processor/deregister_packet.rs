@@ -107,7 +107,7 @@ pub async fn process_deregister<R: Ratchet>(
                         ticket_opt: ticket,
                         success: false,
                     }))?;
-                log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
+                log::error!(target: "citadel", "Unable to locally purge account {cid}. Please report this to the HyperLAN Server admin");
                 Ok(PrimaryProcessorResult::EndSession(
                     "Deregistration failure. Closing connection anyways",
                 ))
@@ -142,7 +142,7 @@ async fn deregister_client_from_self<R: Ratchet>(
 
     let (ret, success) = match acc_mgr.delete_client_by_cid(session_cid).await {
         Ok(_) => {
-            log::trace!(target: "citadel", "Successfully purged account {} locally!", session_cid);
+            log::trace!(target: "citadel", "Successfully purged account {session_cid} locally!");
             let stage_success_packet = packet_crafter::do_deregister::craft_final(
                 ratchet,
                 true,
@@ -157,7 +157,7 @@ async fn deregister_client_from_self<R: Ratchet>(
         }
 
         Err(err) => {
-            log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin ({:?})", session_cid, err);
+            log::error!(target: "citadel", "Unable to locally purge account {session_cid}. Please report this to the HyperLAN Server admin ({err:?})");
             let stage_failure_packet = packet_crafter::do_deregister::craft_final(
                 ratchet,
                 false,
@@ -206,12 +206,12 @@ async fn deregister_from_hyperlan_server_as_client<R: Ratchet>(
 
     let success = match acc_manager.delete_client_by_cid(session_cid).await {
         Ok(_) => {
-            log::trace!(target: "citadel", "Successfully purged account {} locally!", session_cid);
+            log::trace!(target: "citadel", "Successfully purged account {session_cid} locally!");
             true
         }
 
         Err(err) => {
-            log::error!(target: "citadel", "Unable to locally purge account {}. Please report this to the HyperLAN Server admin. Reason: {:?}", session_cid, err);
+            log::error!(target: "citadel", "Unable to locally purge account {session_cid}. Please report this to the HyperLAN Server admin. Reason: {err:?}");
             false
         }
     };

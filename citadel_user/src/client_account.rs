@@ -157,7 +157,7 @@ struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = Mon
     pub creation_date: String,
     pub adjacent_nac: ConnectionInfo,
     #[serde(bound = "")]
-    pub crypto_session_state: PeerSessionCrypto<R>,
+    pub crypto_session_state: Option<PeerSessionCrypto<R>>,
     /// For storing critical ID information for this CNAC
     pub auth_store: DeclaredAuthenticationMode,
     peer_state: RwLock<AccountState>,
@@ -173,9 +173,15 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         is_personal: bool,
         adjacent_nac: ConnectionInfo,
         auth_store: DeclaredAuthenticationMode,
-        session_crypto_state: PeerSessionCrypto<R>,
+        crypto_session_state: Option<PeerSessionCrypto<R>>,
     ) -> Result<Self, AccountError> {
-        log::trace!(target: "citadel", "Creating CNAC w/valid cid: {:?}", valid_cid);
+        if valid_cid == 0 && crypto_session_state.is_some() {
+            return Err(AccountError::Generic(
+                "Cannot create a cryptographically secure CNAC with a CID of 0".to_string(),
+            ));
+        }
+
+        log::trace!(target: "citadel", "Creating CNAC w/valid cid: {valid_cid:?}");
         let creation_date = get_present_formatted_timestamp();
 
         let peer_state = AccountState {
@@ -194,7 +200,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                 adjacent_nac,
                 is_personal,
                 is_transient,
-                crypto_session_state: session_crypto_state,
+                crypto_session_state,
                 peer_state: RwLock::new(peer_state),
                 _phantom: PhantomData,
             }),
@@ -202,7 +208,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     pub fn get_session_crypto(&self) -> &PeerSessionCrypto<R> {
-        &self.inner.crypto_session_state
+        self.inner.crypto_session_state.as_ref().expect("Unauthorized access to the zero CID. Raising to panic. Access to the zero CID is prohibited.")
     }
 
     /// Resets the toolset, if necessary. If the CNAC was freshly serialized, the hyper ratchet
@@ -234,7 +240,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Towards the end of the registration phase, the [`AccountState`] gets transmitted to Alice.
     pub async fn new_from_network_personal(
         valid_cid: u64,
-        session_crypto_state: PeerSessionCrypto<R>,
+        session_crypto_state: Option<PeerSessionCrypto<R>>,
         auth_store: DeclaredAuthenticationMode,
         conn_info: ConnectionInfo,
     ) -> Result<Self, AccountError> {

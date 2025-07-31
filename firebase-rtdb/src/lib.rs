@@ -238,7 +238,7 @@ impl FirebaseRTDB {
             .await?
             .json()
             .await?;
-        log::trace!(target: "citadel", "RESP AUTH: {:?}", resp);
+        log::trace!(target: "citadel", "RESP AUTH: {resp:?}");
 
         let expire_time =
             Instant::now() + Duration::from_secs(u64::from_str(resp.expiresIn.as_str())?);

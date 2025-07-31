@@ -125,7 +125,7 @@ impl<R: Ratchet> CitadelNode<R> {
         };
 
         if let Some(local_bind_addr) = bind_addr {
-            log::info!(target: "citadel", "Citadel server established on {}", local_bind_addr);
+            log::info!(target: "citadel", "Citadel server established on {local_bind_addr}");
         } else {
             log::info!(target: "citadel", "Citadel client established")
         }
@@ -375,8 +375,7 @@ impl<R: Ratchet> CitadelNode<R> {
         match underlying_proto {
             ServerUnderlyingProtocol::Tcp(Some(listener)) => {
                 let listener = listener.lock().take().ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    std::io::Error::other(
                         "TCP listener already taken",
                     )
                 })?;
@@ -408,7 +407,7 @@ impl<R: Ratchet> CitadelNode<R> {
             }
 
             ServerUnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
-                log::trace!(target: "citadel", "Setting up QUIC listener socket on {:?} | Self-signed? {}", bind, is_self_signed);
+                log::trace!(target: "citadel", "Setting up QUIC listener socket on {bind:?} | Self-signed? {is_self_signed}");
 
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
@@ -474,7 +473,7 @@ impl<R: Ratchet> CitadelNode<R> {
         remote: SocketAddr,
         secure_client_config: Arc<ClientConfig>,
     ) -> io::Result<GenericNetworkStream> {
-        log::trace!(target: "citadel", "Connecting to QUIC node {:?}", remote);
+        log::trace!(target: "citadel", "Connecting to QUIC node {remote:?}");
         // when using p2p quic, if domain is some, then we will use the default cfg
         let cfg = if domain.is_some() {
             citadel_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)?
@@ -484,7 +483,7 @@ impl<R: Ratchet> CitadelNode<R> {
             citadel_wire::quic::insecure::configure_client()
         };
 
-        log::trace!(target: "citadel", "Using cfg={:?} to connect to {:?}", cfg, remote);
+        log::trace!(target: "citadel", "Using cfg={cfg:?} to connect to {remote:?}");
 
         // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
         let (conn, sink, stream) = citadel_io::tokio::time::timeout(
@@ -524,7 +523,7 @@ impl<R: Ratchet> CitadelNode<R> {
         remote: SocketAddr,
         default_client_config: &Arc<ClientConfig>,
     ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
-        log::trace!(target: "citadel", "C2S connect defaults to {:?}", remote);
+        log::trace!(target: "citadel", "C2S connect defaults to {remote:?}");
         let mut stream = citadel_wire::socket_helpers::get_tcp_stream(
             remote,
             timeout.unwrap_or(TCP_CONN_TIMEOUT),
@@ -532,12 +531,12 @@ impl<R: Ratchet> CitadelNode<R> {
         .await
         .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         let bind_addr = stream.local_addr()?;
-        log::trace!(target: "citadel", "C2S Bind addr: {:?}", bind_addr);
+        log::trace!(target: "citadel", "C2S Bind addr: {bind_addr:?}");
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
 
         match first_packet {
             FirstPacket::Tcp { external_addr } => {
-                log::trace!(target: "citadel", "Host claims TCP DEFAULT CONNECTION. External ADDR: {:?}", external_addr);
+                log::trace!(target: "citadel", "Host claims TCP DEFAULT CONNECTION. External ADDR: {external_addr:?}");
                 Ok((GenericNetworkStream::Tcp(stream), None))
             }
 
@@ -566,7 +565,7 @@ impl<R: Ratchet> CitadelNode<R> {
                     )
                     .await
                     .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
-                Ok((GenericNetworkStream::Tls(stream.into()), None))
+                Ok((GenericNetworkStream::Tls(Box::new(stream.into())), None))
             }
             FirstPacket::Quic {
                 domain,
@@ -656,7 +655,7 @@ impl<R: Ratchet> CitadelNode<R> {
         loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
-                    log::trace!(target: "citadel", "Received stream from {:?}", peer_addr);
+                    log::trace!(target: "citadel", "Received stream from {peer_addr:?}");
                     let local_bind_addr = stream.local_addr().unwrap();
 
                     log::trace!(target: "citadel", "[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
@@ -746,7 +745,7 @@ impl<R: Ratchet> CitadelNode<R> {
                 }))
                 .is_err()
             {
-                log::error!(target: "citadel", "TO_KERNEL_TX Error: {:?}", err);
+                log::error!(target: "citadel", "TO_KERNEL_TX Error: {err:?}");
                 Err(NetworkError::InternalError(
                     "kernel disconnected from hypernode instance",
                 ))

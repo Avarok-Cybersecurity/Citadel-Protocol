@@ -164,7 +164,7 @@ impl<R: Ratchet> Toolset<R> {
         self.map.push_front(ratchet);
         if self.map.len() >= MAX_RATCHETS_IN_MEMORY {
             let oldest_version = self.get_oldest_ratchet_version();
-            log::trace!(target: "citadel", "[Toolset Update] Needs Truncation. Oldest version: {}", oldest_version);
+            log::trace!(target: "citadel", "[Toolset Update] Needs Truncation. Oldest version: {oldest_version}");
             ToolsetUpdateStatus::CommittedNeedsSynchronization {
                 new_version,
                 oldest_version,

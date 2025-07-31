@@ -29,7 +29,7 @@ mod tests {
         bob_psks: &[T],
         alice_psks: &[R],
     ) -> (PostQuantumContainer, PostQuantumContainer) {
-        log::trace!(target: "citadel", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
+        log::trace!(target: "citadel", "Test algorithm {kem_algorithm:?} w/ {encryption_algorithm:?}");
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
             kem_algorithm + encryption_algorithm + sig_alg,
         )))
@@ -86,7 +86,7 @@ mod tests {
         alice_psk: &[T],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
-        log::trace!(target: "citadel", "Test: {:?} w/ {:?} w/ {:?}", kem_algorithm, encryption_algorithm, signature_algorithm);
+        log::trace!(target: "citadel", "Test: {kem_algorithm:?} w/ {encryption_algorithm:?} w/ {signature_algorithm:?}");
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
             kem_algorithm + encryption_algorithm + signature_algorithm,
@@ -135,7 +135,8 @@ mod tests {
                 plaintext.push((x % 256) as u8)
             }
 
-            let nonce = &Vec::from_iter(0..citadel_types::crypto::LARGEST_NONCE_LEN as u8);
+            let nonce_len = encryption_algorithm.nonce_len();
+            let nonce = &Vec::from_iter(0..nonce_len as u8);
 
             let mut ciphertext = alice_container
                 .encrypt(plaintext.as_slice(), nonce)
@@ -153,7 +154,9 @@ mod tests {
 
             assert_eq!(plaintext.as_slice(), decrypted);
 
-            if kem_algorithm == KemAlgorithm::Kyber {
+            if kem_algorithm == KemAlgorithm::Kyber
+                && encryption_algorithm == EncryptionAlgorithm::KyberHybrid
+            {
                 // test local encryption
                 local_encryption(&alice_container, &bob_container, &plaintext, nonce);
             }
@@ -210,8 +213,8 @@ mod tests {
         const HEADER_LEN: usize = 50;
 
         let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::Kyber;
-        let signature_algorithm = SigAlgorithm::Falcon1024;
+        let encryption_algorithm = EncryptionAlgorithm::KyberHybrid;
+        let signature_algorithm = SigAlgorithm::Dilithium65;
 
         let (alice_container, bob_container) = gen(
             kem_algorithm,
@@ -387,7 +390,7 @@ mod tests {
     fn test_all_kems() {
         citadel_logging::setup_log();
         for algorithm in KemAlgorithm::list() {
-            log::trace!(target: "citadel", "About to test {:?}", algorithm);
+            log::trace!(target: "citadel", "About to test {algorithm:?}");
             run::<Vec<u8>>(
                 algorithm.as_u8(),
                 EncryptionAlgorithm::AES_GCM_256,
@@ -415,8 +418,8 @@ mod tests {
             if algorithm == KemAlgorithm::Kyber {
                 run::<Vec<u8>>(
                     algorithm.as_u8(),
-                    EncryptionAlgorithm::Kyber,
-                    SigAlgorithm::Falcon1024,
+                    EncryptionAlgorithm::KyberHybrid,
+                    SigAlgorithm::Dilithium65,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 )
@@ -430,8 +433,8 @@ mod tests {
         citadel_logging::setup_log();
         run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
-            EncryptionAlgorithm::Kyber,
-            SigAlgorithm::Falcon1024,
+            EncryptionAlgorithm::KyberHybrid,
+            SigAlgorithm::Dilithium65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         )
@@ -445,7 +448,7 @@ mod tests {
         run::<Vec<u8>>(
             KemAlgorithm::Kyber.as_u8(),
             EncryptionAlgorithm::AES_GCM_256,
-            SigAlgorithm::Falcon1024,
+            SigAlgorithm::Dilithium65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS2,
         )
@@ -572,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_bad_crypto_params() {
-        let bad_params = EncryptionAlgorithm::Kyber + KemAlgorithm::Kyber;
+        let bad_params = EncryptionAlgorithm::KyberHybrid + KemAlgorithm::Kyber;
         assert!(validate_crypto_params(&bad_params).is_err());
     }
 }

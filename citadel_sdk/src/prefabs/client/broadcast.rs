@@ -247,8 +247,7 @@ where
                         retries += 1;
                         if retries > 4 {
                             return Err(NetworkError::Generic(format!(
-                                "Owner {:?} has not created group {:?}",
-                                owner, group_id
+                                "Owner {owner:?} has not created group {group_id:?}"
                             )));
                         }
                     }
@@ -295,7 +294,7 @@ where
                         }
                     };
 
-                    log::trace!(target: "citadel", "ACCEPTOR {session_cid} RECV reg_request: {:?}", post_register);
+                    log::trace!(target: "citadel", "ACCEPTOR {session_cid} RECV reg_request: {post_register:?}");
                     if let PeerSignal::PostRegister {
                         peer_conn_type: peer_conn,
                         inviter_username: _,
@@ -582,7 +581,7 @@ mod tests {
 
                     wait_for_peers().await;
                     let conn = results.recv().await.unwrap()?;
-                    log::trace!(target: "citadel", "User {} received {:?}", uuid, conn);
+                    log::trace!(target: "citadel", "User {uuid} received {conn:?}");
 
                     // one user will create the group, the other will respond
                     if idx == 0 {
@@ -597,7 +596,7 @@ mod tests {
                     } else {
                         // wait until the group host finishes setting up the group
                         while let Some(evt) = signals.recv().await {
-                            log::info!(target: "citadel", "Received unprocessed signal: {:?}", evt);
+                            log::info!(target: "citadel", "Received unprocessed signal: {evt:?}");
                             match evt {
                                 NodeResult::GroupEvent(GroupEvent {
                                     session_cid: _,
@@ -619,13 +618,13 @@ mod tests {
                                     session_cid: _,
                                 }) => {
                                     receiver_success.store(true, Ordering::Relaxed);
-                                    log::trace!(target: "citadel", "***PEER {} CONNECT***", uuid);
+                                    log::trace!(target: "citadel", "***PEER {uuid} CONNECT***");
                                     wait_for_peers().await;
                                     return remote.shutdown_kernel().await;
                                 }
 
                                 val => {
-                                    log::warn!(target: "citadel", "Unhandled response: {:?}", val)
+                                    log::warn!(target: "citadel", "Unhandled response: {val:?}")
                                 }
                             }
                         }

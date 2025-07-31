@@ -26,8 +26,14 @@ google-services = ["citadel_proto/google-services"]
 vendored = ["citadel_proto/vendored"]
 
 # for testing only
-localhost-testing = ["citadel_proto/localhost-testing", "tracing", "citadel_io/deadlock-detection"]
-localhost-testing-assert-no-proxy = ["citadel_proto/localhost-testing-assert-no-proxy"]
+localhost-testing = [
+    "citadel_proto/localhost-testing",
+    "tracing",
+    "citadel_io/deadlock-detection",
+]
+localhost-testing-assert-no-proxy = [
+    "citadel_proto/localhost-testing-assert-no-proxy",
+]
 
 doc-images = ["embed-doc-image"]
 
@@ -58,8 +64,14 @@ hyper = { workspace = true, features = ["client", "server"] }
 
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them
-skip_feature_sets = [
-    ["std", "wasm"],
-]
+skip_feature_sets = [["std", "wasm"]]
 
-allowlist = ["std", "filesystem", "google-services", "multi-threaded", "sql", "redis", "webrtc"]
+allowlist = [
+    "std",
+    "filesystem",
+    "google-services",
+    "multi-threaded",
+    "sql",
+    "redis",
+    "webrtc",
+]

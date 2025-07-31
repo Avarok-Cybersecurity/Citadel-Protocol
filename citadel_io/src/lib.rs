@@ -73,6 +73,8 @@ pub use rand::prelude::*;
 #[cfg(target_family = "wasm")]
 pub use wasm::rng::{WasmRng as ThreadRng, *};
 
+pub use rand::Rng;
+
 /// Represents errors that can occur during I/O operations
 #[derive(Debug)]
 pub enum Error {
