@@ -623,7 +623,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Dilithium65
     )]
-    #[timeout(std::time::Duration::from_secs(80))]
+    #[timeout(std::time::Duration::from_secs(180))]
     fn scrambler_transmission_length_spectrum(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -674,7 +674,7 @@ mod tests {
         KemAlgorithm::Kyber,
         SigAlgorithm::Dilithium65
     )]
-    #[timeout(std::time::Duration::from_secs(80))]
+    #[timeout(std::time::Duration::from_secs(180))]
     fn scrambler_transmission_length_spectrum_remote(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,

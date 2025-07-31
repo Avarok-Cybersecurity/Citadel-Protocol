@@ -46,7 +46,7 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_addr = env::var("CITADEL_SERVER_ADDR").expect("CITADEL_SERVER_ADDR not set");
-    println!("Starting server on {}", server_addr);
+    println!("Starting server on {server_addr}");
 
     // Set up the server kernel. The provided closure will be called every time a new client connects
     let kernel = ClientConnectListenerKernel::new(move |conn| async move {
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Echo the message back
             if let Err(e) = tx.send(msg).await {
-                println!("Error sending response: {}", e);
+                println!("Error sending response: {e}");
             }
         }
 

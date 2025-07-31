@@ -24,7 +24,7 @@
 //! async fn main() -> Result<(), async_ip::IpRetrieveError> {
 //!     // Get both internal and external IP addresses
 //!     use reqwest::Client;
-//! let ip_info = get_all::<Client>(None).await?;
+//! let ip_info = get_all(None).await?;
 //!     println!("External IPv6: {:?}", ip_info.external_ipv6);
 //!     println!("Internal IPv4: {:?}", ip_info.internal_ip);
 //!     Ok(())

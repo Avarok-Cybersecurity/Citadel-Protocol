@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // to local attacks resultant from rogue processes or users that scan the env for secrets.
     let connect_password =
         env::var("CITADEL_SERVER_PASSWORD").expect("CITADEL_SERVER_PASSWORD not set");
-    println!("Connecting to server at {}", server_addr);
+    println!("Connecting to server at {server_addr}");
 
     // Set up session security
     let session_security = SessionSecuritySettingsBuilder::default()

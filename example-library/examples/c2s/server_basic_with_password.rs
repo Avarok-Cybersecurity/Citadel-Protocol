@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // to local attacks resultant from rogue processes or users that scan the env for secrets.
     let connect_password =
         env::var("CITADEL_SERVER_PASSWORD").expect("CITADEL_SERVER_PASSWORD not set");
-    println!("Starting server on {}", server_addr);
+    println!("Starting server on {server_addr}");
 
     // This is a basic server. It will only help facilitate p2p and group connections.
     // Clients will not be able to communicate directly with this server through channels.
