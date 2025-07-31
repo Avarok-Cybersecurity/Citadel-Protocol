@@ -702,6 +702,8 @@ where
                     let latest_version = {
                         let container = &self.session_crypto_state;
                         container.deregister_oldest_ratchet(version_to_truncate)?;
+                        // Ensure update_in_progress is toggled on before calling post_alice_stage1_or_post_stage1_bob
+                        let _ = container.update_in_progress.toggle_on_if_untoggled();
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
@@ -740,6 +742,8 @@ where
 
                     let latest_version = {
                         let container = &self.session_crypto_state;
+                        // Ensure update_in_progress is toggled on before calling post_alice_stage1_or_post_stage1_bob
+                        let _ = container.update_in_progress.toggle_on_if_untoggled();
                         container.post_alice_stage1_or_post_stage1_bob();
                         let latest_actual_ratchet_version = container
                             .maybe_unlock()
@@ -801,6 +805,8 @@ where
 
                     // Apply the update
                     let container = &self.session_crypto_state;
+                    // Ensure update_in_progress is toggled on before calling post_alice_stage1_or_post_stage1_bob
+                    let _ = container.update_in_progress.toggle_on_if_untoggled();
                     container.post_alice_stage1_or_post_stage1_bob();
                     let latest_actual_ratchet_version = container
                         .maybe_unlock()
