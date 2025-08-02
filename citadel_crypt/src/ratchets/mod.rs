@@ -169,15 +169,24 @@ pub trait Ratchet:
     /// Verifies the target security level, returning the corresponding idx
     fn verify_level(
         &self,
-        security_level: Option<SecurityLevel>,
+        security_level_init: Option<SecurityLevel>,
     ) -> Result<usize, CryptError<String>> {
-        let security_level = security_level.unwrap_or(SecurityLevel::Standard);
         let message_ratchet_count = self.message_ratchet_count();
-        if security_level.value() as usize >= message_ratchet_count {
-            log::warn!(target: "citadel", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, message_ratchet_count- 1, self.get_default_security_level(), self.version());
-            Err(CryptError::OutOfBoundsError)
+        let security_level = security_level_init.unwrap_or(SecurityLevel::Standard);
+
+        if message_ratchet_count == 0 {
+            return Err(CryptError::RatchetError(
+                "No message ratchets available".to_string(),
+            ));
+        }
+
+        let max_level = (message_ratchet_count - 1) as u8;
+        let validated_level = security_level.value();
+
+        if security_level.value() > max_level {
+            Err(CryptError::RatchetError(format!("Requested security level: {security_level_init:?}. Resolved: {security_level:?}. Only have max {max_level} security levels")))
         } else {
-            Ok(security_level.value() as usize)
+            Ok(validated_level as usize)
         }
     }
 

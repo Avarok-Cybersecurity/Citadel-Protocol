@@ -107,11 +107,11 @@ struct RedisConnectionManager {
 
 #[async_trait]
 impl Manager for RedisConnectionManager {
-    type Connection = redis_base::aio::Connection;
+    type Connection = redis_base::aio::MultiplexedConnection;
     type Error = redis_base::RedisError;
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let c = self.client.get_async_connection().await?;
+        let c = self.client.get_multiplexed_async_connection().await?;
         Ok(c)
     }
 
@@ -745,7 +745,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
     async fn get_with<K: ToRedisArgs + Send + Sync, RV: FromRedisValue>(
         &self,
         key: K,
-        client: &mut redis_base::aio::Connection,
+        client: &mut redis_base::aio::MultiplexedConnection,
     ) -> Result<Option<RV>, AccountError> {
         client
             .get(key)
@@ -777,7 +777,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
         ClientNetworkAccount::<R, Fcm>::deserialize_from_vector(bytes.as_ref())
     }
 
-    async fn get_conn(&self) -> Result<redis_base::aio::Connection, AccountError> {
+    async fn get_conn(&self) -> Result<redis_base::aio::MultiplexedConnection, AccountError> {
         Ok(self
             .conn
             .as_ref()

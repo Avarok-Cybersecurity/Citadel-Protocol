@@ -16,7 +16,7 @@ serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }
 strum_macros = { workspace = true }
 bytes = { workspace = true, features = ["serde"] }
-twox-hash = { workspace = true }
+twox-hash = { workspace = true, features = ["xxhash64"] }
 packed_struct = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4"] }
 bincode = { workspace = true }
