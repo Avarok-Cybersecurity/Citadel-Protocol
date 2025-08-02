@@ -50,7 +50,7 @@ strum_macros = { version = "0.27.1", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 kyber-pke = { version = "0.5.0", default-features = false }
 packed_struct = { version = "0.10.1" }
-getrandom = { version = "0.2.8", default-features = false }
+getrandom = { version = "0.3.3", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
 tracing-subscriber = { version = "0.3.16" }
@@ -72,7 +72,7 @@ byteorder = { version = "1.4.3", default-features = false }
 num-integer = { default-features = false, version = "0.1.45" }
 arrayvec = { version = "0.7.2", default-features = false }
 bitvec = { default-features = false, version = "1.0.1" }
-rust-argon2 = { version = "2.0", default-features = false }
+rust-argon2 = { version = "3.0", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.17" }
 zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
@@ -81,15 +81,15 @@ rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.29.8" }
 num_cpus = { default-features = false, version = "1.15.0" }
 async-trait-with-sync = { default-features = false, version = "0.1.36" }
-uuid = { version = "1.2.2", default-features = false }
+uuid = { version = "1.17.0", default-features = false }
 tracing = { version = "0.1.37", default-features = false }
 lazy_static = { default-features = false, version = "1.4.0" }
-socket2 = { version = "0.5.7", default-features = false }
+socket2 = { version = "0.6.0", default-features = false }
 rustls-native-certs = { version = "0.8.0", default-features = false }
 igd = { version = "^0.12.0", default-features = false }
 quinn = { version = "0.11.5", default-features = false }
 stun = { default-features = false, version = "0.5.0" }
-rcgen = { default-features = false, version = "0.13.1" }
+rcgen = { default-features = false, version = "0.14.3" }
 rustls = { version = "0.23.13", default-features = false }
 rustls-pemfile = { default-features = false, version = "2.1.3" }
 tokio-rustls = { default-features = false, version = "0.26.0" }
@@ -113,7 +113,7 @@ embedded-semver = { version = "0.3.0", default-features = false }
 auto_impl = { default-features = false, version = "1.0.1" }
 zerocopy = { default-features = false, version = "0.7.7" }
 atomic = { default-features = false, version = "0.6.0" }
-bytemuck = { default-features = false, version = "1.13.1" }
+bytemuck = { default-features = false, version = "1.23.1" }
 either = { default-features = false, version = "1.8.0" }
 once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.11.0" }
@@ -121,6 +121,5 @@ embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
 sha256 = { version = "1.5.0" }
 tokio-openssl = { version = "0.6.3" }
-openssl-sys = { version = "0.9.104" }
 ml-dsa = { version = "0.0.4" }
 ts-rs = { version = "11", features = ["bytes"] }

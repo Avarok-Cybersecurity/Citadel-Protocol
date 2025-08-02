@@ -97,6 +97,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     ///
     /// This should only be called by the RatchetConstructor
     pub fn new(toolset: Toolset<R>, local_is_initiator: bool) -> Self {
+        let current_version = toolset.get_most_recent_ratchet_version();
         Self {
             cid: toolset.cid,
             toolset: Arc::new(RwLock::new(toolset)),
@@ -104,7 +105,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             local_is_initiator,
             incrementing_group_id_messaging: Arc::new(AtomicU64::new(0)),
             incrementing_group_id_file_transfer: Arc::new(AtomicU64::new(0)),
-            latest_usable_version: Arc::new(AtomicU32::new(0)),
+            latest_usable_version: Arc::new(AtomicU32::new(current_version)),
         }
     }
 
@@ -132,7 +133,9 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
                 let latest_ideal_ratchet = self.latest_usable_version.load(ORDERING);
                 if toolset.get_ratchet(latest_ideal_ratchet).is_none() {
                     // Sync bug issue. Get the version - 1.
-                    latest_ideal_ratchet.saturating_sub(1)
+                    let adjusted_version = latest_ideal_ratchet.saturating_sub(1);
+                    log::error!(target: "citadel", "Sync bug issue. Cannot get v{latest_ideal_ratchet}. Adjusted version: {adjusted_version}");
+                    adjusted_version
                 } else {
                     latest_ideal_ratchet
                 }
@@ -271,7 +274,9 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// For alice: this should be called ONLY if the update occurred locally. This updates the latest usable version at the endpoint
     /// For bob: this should be called AFTER receiving the TRUNCATE_STATUS/ACK packet
     pub fn post_alice_stage1_or_post_stage1_bob(&self) {
-        log::trace!(target: "citadel", "post_alice_stage1_or_post_stage1_bob for {}: Upgrading from {} to {}", self.cid, self.latest_usable_version(), self.latest_usable_version().wrapping_add(1));
+        let from = self.latest_usable_version();
+        let to = from.wrapping_add(1);
+        log::trace!(target: "citadel", "post_alice_stage1_or_post_stage1_bob for {}: Upgrading from {} to {}", self.cid, from, to);
         let _ = self.latest_usable_version.fetch_add(1, ORDERING);
     }
 

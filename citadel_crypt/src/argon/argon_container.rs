@@ -214,6 +214,12 @@ pub struct ArgonSettingsInner {
     pub secret: Vec<u8>,
 }
 
+#[cfg(feature = "std")]
+const THREAD_MODE: argon2::ThreadMode = argon2::ThreadMode::Parallel;
+
+#[cfg(not(feature = "std"))]
+const THREAD_MODE: argon2::ThreadMode = argon2::ThreadMode::Sequential;
+
 impl ArgonSettings {
     /// Converts to an acceptable struct for argon2
     pub fn as_argon_config(&self) -> Config<'_> {
@@ -226,6 +232,7 @@ impl ArgonSettings {
             time_cost: self.inner.time_cost,
             variant: argon2::Variant::Argon2id,
             version: argon2::Version::Version13,
+            thread_mode: THREAD_MODE,
         }
     }
 }
