@@ -298,6 +298,12 @@ where
             return Ok(attached_payload);
         }
 
+        // Check if we already have a constructor (double-check for race conditions)
+        if self.constructor.lock().is_some() {
+            log::debug!(target: "citadel", "Client {} already has a constructor, not triggering new rekey", self.cid);
+            return Ok(attached_payload);
+        }
+
         let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
             let constructor = self.session_crypto_state.get_next_constructor();
             let earliest_ratchet_version = self
@@ -337,8 +343,10 @@ where
                 .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
             log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
 
+            // Store constructor atomically
             if self.constructor.lock().replace(constructor).is_some() {
-                log::error!(target: "citadel", "Replaced constructor; this should not happen");
+                log::warn!(target: "citadel", "Replaced constructor; concurrent rekey attempt detected");
+                // This can happen in race conditions - the rekey is already in progress
             }
 
             if !wait_for_completion {
