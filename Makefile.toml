@@ -104,6 +104,72 @@ env = { "SKIP_EXT_BACKENDS" = "true" }
 args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs\"", "${@}"]
 dependencies = ["install-nextest", "install-llvm-cov"]
 
+[tasks.ratchet-stability-test]
+script_runner = "@duckscript"
+description = "Run messenger tests multiple times to check for stability"
+script = '''
+# Number of iterations  
+iterations = set 10
+
+# Initialize variables
+global_error_count = set 0
+test_failures = map
+
+echo Running ratchet stability test for ${iterations} iterations...
+echo
+
+# Run tests multiple times
+range_vals = range 0 ${iterations}
+for i in ${range_vals}
+    iteration_num = calc ${i} + 1
+    echo Iteration ${iteration_num}/${iterations}...
+    
+    # Run the tests with nextest - focus on the most racy tests
+    cmd_output = exec --get-exit-code cargo nextest run --release --package citadel_crypt --retries 0 "test_messenger_racy"
+    
+    if not equals ${cmd_output} 0
+        global_error_count = calc ${global_error_count} + 1
+        echo "  FAILED (exit code: ${cmd_output})"
+        
+        # Simple tracking - just note which iteration failed
+        map_put ${test_failures} "iteration_${iteration_num}" "failed"
+    else
+        echo "  All tests passed"
+    end
+    
+    echo
+end
+
+echo ----------------------------------------
+echo STABILITY TEST SUMMARY
+echo ----------------------------------------  
+echo Total iterations: ${iterations}
+echo Total failures: ${global_error_count}
+echo
+
+if greater_than ${global_error_count} 0
+    echo STABILITY TEST FAILED
+    
+    # List which iterations failed
+    echo
+    echo Failed iterations:
+    keys = map_keys ${test_failures}
+    keys_len = array_length ${keys}
+    range_keys = range 0 ${keys_len}
+    
+    for k in ${range_keys}
+        iteration = array_get ${keys} ${k}
+        echo "  ${iteration}"
+    end
+    
+    exit ${global_error_count}
+else
+    echo All tests passed in all iterations!
+    echo STABILITY TEST PASSED
+    exit 0
+end
+'''
+
 [tasks.bump-proto-inner]
 script_runner = "@rust"
 description = "Bumps the version of the inner protocol. Should not be syned with the crate versions"

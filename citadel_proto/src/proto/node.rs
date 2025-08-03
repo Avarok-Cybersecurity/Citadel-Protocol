@@ -441,30 +441,6 @@ impl<R: Ratchet> CitadelNode<R> {
         Ok(stream)
     }
 
-    /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
-    /// This takes the local socket AND QuicNode instance
-    #[allow(dead_code)]
-    pub async fn create_p2p_quic_connect_socket<T: ToSocketAddrs>(
-        quic_endpoint: Endpoint,
-        remote: T,
-        tls_domain: TlsDomain,
-        timeout: Option<Duration>,
-        secure_client_config: Arc<ClientConfig>,
-    ) -> io::Result<GenericNetworkStream> {
-        let remote: SocketAddr = remote
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::quic_p2p_connect_defaults(
-            quic_endpoint,
-            timeout,
-            tls_domain,
-            remote,
-            secure_client_config,
-        )
-        .await
-    }
-
     /// - force_use_default_config: if true, this will unconditionally use the default client config already present inside the quic_endpoint parameter
     pub async fn quic_p2p_connect_defaults(
         quic_endpoint: Endpoint,
