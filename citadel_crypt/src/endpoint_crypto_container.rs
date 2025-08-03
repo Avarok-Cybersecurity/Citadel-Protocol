@@ -118,29 +118,58 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             .cloned()
     }*/
 
-    // When SecrecyMode::Perfect is used, especially on single-threaded mode when two nodes spam messages
-    // at the same time, there's an unsolved bug:
-    // A synchonization bug (race condition). the Self::get_ratchet function sometimes would
-    // attempt via self.latest_usable_version to get the latest version, obtain 1, yet the toolset only
-    // has version 0. So, somewhere, there is a bug where self.latest_usable_version is being incremented
-    // before the toolset is actually updated. As such, as a temporary measure, since the error arose from
-    // a panic inside citadel_proto's session.rs file near the get_ratchet call around line 2000 when trying to
-    // send a message, we should call the below function
+    /// Get ratchet with improved synchronization to handle race conditions
+    /// When the requested version isn't available yet, we retry with exponential backoff
     pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
-        let toolset = self.toolset.read();
-        toolset
-            .get_ratchet(version.unwrap_or_else(|| {
-                let latest_ideal_ratchet = self.latest_usable_version.load(ORDERING);
-                if toolset.get_ratchet(latest_ideal_ratchet).is_none() {
-                    // Sync bug issue. Get the version - 1.
-                    let adjusted_version = latest_ideal_ratchet.saturating_sub(1);
-                    log::error!(target: "citadel", "Sync bug issue. Cannot get v{latest_ideal_ratchet}. Adjusted version: {adjusted_version}");
-                    adjusted_version
-                } else {
-                    latest_ideal_ratchet
+        const MAX_RETRIES: u32 = 5;
+        const INITIAL_DELAY_US: u64 = 100;
+
+        let target_version = version.unwrap_or_else(|| {
+            // Use Acquire ordering to ensure we see the latest version
+            self.latest_usable_version.load(Ordering::Acquire)
+        });
+
+        // Try to get the ratchet with retries
+        for retry in 0..MAX_RETRIES {
+            let toolset = self.toolset.read();
+
+            if let Some(ratchet) = toolset.get_ratchet(target_version) {
+                return Some(ratchet.clone());
+            }
+
+            // Release the lock before retrying
+            drop(toolset);
+
+            if retry < MAX_RETRIES - 1 {
+                // Only log on first retry to avoid spam
+                if retry == 0 {
+                    log::debug!(target: "citadel", "Ratchet v{} not ready yet, retrying... (cid: {})", 
+                        target_version, self.cid);
                 }
-            }))
-            .cloned()
+
+                // Exponential backoff with thread yield
+                let delay = INITIAL_DELAY_US * (1 << retry);
+                // Use spin loop for short delays to avoid blocking async runtime
+                let start = std::time::Instant::now();
+                while start.elapsed().as_micros() < delay as u128 {
+                    std::hint::spin_loop();
+                }
+            }
+        }
+
+        // If we still can't get it, try fallback to previous version
+        let toolset = self.toolset.read();
+        let fallback_version = target_version.saturating_sub(1);
+
+        if let Some(ratchet) = toolset.get_ratchet(fallback_version) {
+            log::warn!(target: "citadel", "Failed to get ratchet v{} after {} retries, falling back to v{} (cid: {})", 
+                target_version, MAX_RETRIES, fallback_version, self.cid);
+            Some(ratchet.clone())
+        } else {
+            log::error!(target: "citadel", "Failed to get ratchet v{} or fallback v{} (cid: {})", 
+                target_version, fallback_version, self.cid);
+            None
+        }
     }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
@@ -276,8 +305,18 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     pub fn post_alice_stage1_or_post_stage1_bob(&self) {
         let from = self.latest_usable_version();
         let to = from.wrapping_add(1);
-        log::trace!(target: "citadel", "post_alice_stage1_or_post_stage1_bob for {}: Upgrading from {} to {}", self.cid, from, to);
-        let _ = self.latest_usable_version.fetch_add(1, ORDERING);
+
+        // Verify the new ratchet is actually available before incrementing version
+        let toolset = self.toolset.read();
+        if toolset.get_ratchet(to).is_none() {
+            log::error!(target: "citadel", "post_alice_stage1_or_post_stage1_bob for {}: Attempted to upgrade from {} to {} but ratchet {} not found in toolset!", 
+                self.cid, from, to, to);
+            // Don't increment if the ratchet isn't ready
+            return;
+        }
+
+        log::trace!(target: "citadel", "post_alice_stage1_or_post_stage1_bob for {}: Upgrading from {} to {} (ratchet verified)", self.cid, from, to);
+        let _ = self.latest_usable_version.fetch_add(1, Ordering::Release);
     }
 
     pub fn get_and_increment_group_id(&self) -> u64 {
