@@ -115,7 +115,7 @@ async fn setup_listener_non_initiator<R: Ratchet>(
     session_security_settings: SessionSecuritySettings,
 ) -> Result<(), NetworkError> {
     // TODO: allow custom certs for p2p conns
-    let (listener, _) = CitadelNode::<R>::create_listen_socket(
+    let (listener, _) = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::create_listen_socket(
         ServerUnderlyingProtocol::new_quic_self_signed(),
         None,
         None,
@@ -386,7 +386,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
                 client_config.clone(),
             )
             .map_err(generic_error)?;
-            let p2p_stream = CitadelNode::<R>::quic_p2p_connect_defaults(
+            let p2p_stream = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::quic_p2p_connect_defaults(
                 quic_endpoint.endpoint,
                 None,
                 peer_nat_info.tls_domain,

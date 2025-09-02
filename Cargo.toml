@@ -14,6 +14,7 @@ members = [
     "citadel_logging",
     "citadel_io",
     "citadel_types",
+    "citadel_nexus",
     "example-library",
 ]
 
@@ -32,6 +33,7 @@ citadel_proto = { path = "./citadel_proto", default-features = false, version = 
 citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.13.0" }
 citadel_io = { path = "./citadel_io", default-features = false, version = "0.13.0" }
 citadel_types = { path = "./citadel_types", default-features = false, version = "0.13.0" }
+citadel_nexus = { path = "./citadel_nexus", default-features = false, version = "0.13.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.13.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.13.0" }
 async_ip = { path = "./async_ip", default-features = false, version = "0.13.0" }
@@ -50,7 +52,7 @@ strum_macros = { version = "0.27.1", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 kyber-pke = { version = "0.5.0", default-features = false }
 packed_struct = { version = "0.10.1" }
-getrandom = { version = "0.2.8", default-features = false }
+getrandom = { version = "0.2.8", default-features = false, features = ["js"] }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
 tracing-subscriber = { version = "0.3.16" }

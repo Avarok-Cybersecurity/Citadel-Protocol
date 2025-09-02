@@ -43,6 +43,7 @@ use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
 use citadel_wire::exports::Endpoint;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
+use citadel_nexus::traits::NetworkListener;
 use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
 use citadel_wire::tls::client_config_to_tls_connector;
 use futures::StreamExt;
@@ -72,15 +73,59 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{HdpSessionInitMode, ServerOnlySessionInitSettings};
 use crate::proto::session_manager::CitadelSessionManager;
+use citadel_nexus::traits::CitadelIOInterface;
+
+#[cfg(feature = "std")]
+use citadel_nexus::std::StdIOProvider;
 
 pub type TlsDomain = Option<String>;
 
+// Temporary type aliases for the transition
+#[cfg(feature = "std")]
+pub type DefaultCitadelNode<R> = CitadelNode<R, StdIOProvider>;
+#[cfg(feature = "std")]
+pub type DefaultNodeRemote<R> = NodeRemote<R>;
+
+// Create a helper function to create CitadelNode with default IO provider
+#[cfg(feature = "std")]
+impl<R: Ratchet> CitadelNode<R, StdIOProvider> {
+    /// Creates a new CitadelNode with the default StdIOProvider
+    pub async fn init_with_defaults(
+        local_node_type: NodeType,
+        to_kernel: UnboundedSender<NodeResult<R>>,
+        account_manager: AccountManager<R, R>,
+        shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
+        underlying_proto: ServerUnderlyingProtocol,
+        client_config: Option<Arc<ClientConfig>>,
+        stun_servers: Option<Vec<String>>,
+        server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+    ) -> io::Result<(
+        NodeRemote<R>,
+        Pin<Box<dyn RuntimeFuture>>,
+        Option<LocalSet>,
+        KernelAsyncCallbackHandler<R>,
+    )> {
+        let io_provider = StdIOProvider::new().await?;
+        Self::init(
+            local_node_type,
+            to_kernel,
+            account_manager,
+            shutdown,
+            underlying_proto,
+            client_config,
+            stun_servers,
+            server_only_session_init_settings,
+            io_provider,
+        ).await
+    }
+}
+
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet>, <R>);
+define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, I: CitadelIOInterface>, <R, I>);
 
 /// Inner device for the [`CitadelNode`]
-pub struct CitadelNodeInner<R: Ratchet> {
+pub struct CitadelNodeInner<R: Ratchet, I: CitadelIOInterface> {
     primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: CitadelSessionManager<R>,
@@ -94,9 +139,12 @@ pub struct CitadelNodeInner<R: Ratchet> {
     // All connecting/registering clients must present this pre-shared password in order to register and connect
     // to the server. This is an additional security measure to prevent unauthorized connections.
     server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+    // The IO provider abstraction
+    #[allow(dead_code)]
+    io_provider: I,
 }
 
-impl<R: Ratchet> CitadelNode<R> {
+impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
     /// Creates a new [`CitadelNode`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
@@ -108,6 +156,7 @@ impl<R: Ratchet> CitadelNode<R> {
         client_config: Option<Arc<ClientConfig>>,
         stun_servers: Option<Vec<String>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+        io_provider: I,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -161,6 +210,7 @@ impl<R: Ratchet> CitadelNode<R> {
             nat_type,
             client_config,
             server_only_session_init_settings,
+            io_provider,
         };
 
         let this = Self::from(inner);
@@ -174,7 +224,7 @@ impl<R: Ratchet> CitadelNode<R> {
     #[allow(clippy::type_complexity)]
     #[allow(unused_results, unused_must_use)]
     fn load(
-        this: CitadelNode<R>,
+        this: CitadelNode<R, I>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> (
@@ -348,6 +398,11 @@ impl<R: Ratchet> CitadelNode<R> {
                     bind_addr,
                 ))
             }
+
+            ServerUnderlyingProtocol::Unified(..) => {
+                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
+                    .map(|r| (DualListener::new(r.0, None), r.1))
+            }
         }
     }
 
@@ -421,6 +476,11 @@ impl<R: Ratchet> CitadelNode<R> {
                 quic.tls_domain_opt = domain;
 
                 Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed)?, bind))
+            }
+
+            ServerUnderlyingProtocol::Unified(listener) => {
+                let bind = listener.local_addr().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                Ok((GenericNetworkListener::new_unified(listener)?, bind))
             }
         }
     }
@@ -622,7 +682,7 @@ impl<R: Ratchet> CitadelNode<R> {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
-        server: CitadelNode<R>,
+        server: CitadelNode<R, I>,
         _tt: TimeTracker,
         to_kernel: UnboundedSender<NodeResult<R>>,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
@@ -701,7 +761,7 @@ impl<R: Ratchet> CitadelNode<R> {
     }
 
     async fn outbound_kernel_request_handler(
-        this: CitadelNode<R>,
+        this: CitadelNode<R, I>,
         to_kernel_tx: UnboundedSender<NodeResult<R>>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
     ) -> Result<(), NetworkError> {

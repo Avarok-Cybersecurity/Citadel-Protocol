@@ -284,7 +284,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
 
                 // create conn to peer
-                let primary_stream = CitadelNode::<R>::create_session_transport_init(
+                let primary_stream = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::create_session_transport_init(
                     peer_addr,
                     default_client_config,
                 )

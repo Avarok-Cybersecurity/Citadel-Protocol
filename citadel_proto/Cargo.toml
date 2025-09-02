@@ -33,6 +33,7 @@ std = [
     "citadel_pqcrypto/std",
     "citadel_wire/std",
     "citadel_io/std",
+    "citadel_nexus/std",
     "netbeam/std",
     "atomic/std",
 ]
@@ -43,6 +44,7 @@ wasm = [
     "citadel_pqcrypto/wasm",
     "citadel_wire/wasm",
     "citadel_io/wasm",
+    "citadel_nexus/wasm",
     "netbeam/wasm",
 ]
 
@@ -68,6 +70,7 @@ citadel_crypt = { workspace = true }
 citadel_user = { workspace = true }
 citadel_wire = { workspace = true }
 citadel_io = { workspace = true }
+citadel_nexus = { workspace = true }
 citadel_pqcrypto = { workspace = true }
 netbeam = { workspace = true }
 once_cell = { workspace = true }

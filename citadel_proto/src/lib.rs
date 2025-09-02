@@ -538,6 +538,8 @@ pub mod prelude {
     pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
     pub use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
     pub use crate::proto::node::CitadelNode;
+    #[cfg(feature = "std")]
+    pub use crate::proto::node::{DefaultCitadelNode, DefaultNodeRemote};
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
     pub use crate::proto::peer::channel::*;

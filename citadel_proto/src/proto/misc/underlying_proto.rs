@@ -33,6 +33,8 @@ use citadel_io::Mutex;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
+use citadel_nexus::traits::interface::CitadelIOInterface;
+use citadel_nexus::unified::listener::UnifiedNetworkListener;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
@@ -47,6 +49,7 @@ pub enum ServerUnderlyingProtocol {
         TlsDomain,
         bool,
     ),
+    Unified(UnifiedNetworkListener),
 }
 
 impl Clone for ServerUnderlyingProtocol {
@@ -62,6 +65,7 @@ impl Clone for ServerUnderlyingProtocol {
                 domain.clone(),
                 *self_signed,
             ),
+            Self::Unified(listener) => Self::Unified(listener.clone()),
         }
     }
 }
@@ -75,6 +79,11 @@ impl ServerUnderlyingProtocol {
     pub fn new_tcp<T: ToSocketAddrs>(bind_addr: T) -> Result<Self, NetworkError> {
         let listener = citadel_wire::socket_helpers::get_tcp_listener(bind_addr)?;
         Self::from_tokio_tcp_listener(listener)
+    }
+
+    pub fn new_unified<T: ToSocketAddrs>(bind_addr: T) -> Result<Self, NetworkError> {
+        let listener = citadel_wire::socket_helpers::get_tcp_listener(bind_addr)?;
+        Ok(Self::Unified(UnifiedNetworkListener::Tcp(listener)))
     }
 
     /// Creates a new [`ServerUnderlyingProtocol`] with a preset [`std::net::TcpListener`]
@@ -157,6 +166,7 @@ impl ServerUnderlyingProtocol {
             Self::Quic(_, domain, ..) => domain.clone(),
             Self::Tcp(..) => None,
             Self::Tls(_, d, ..) => d.clone(),
+            Self::Unified(..) => None,
         }
     }
 }
@@ -167,6 +177,7 @@ impl Debug for ServerUnderlyingProtocol {
             ServerUnderlyingProtocol::Tcp(..) => "TCP",
             ServerUnderlyingProtocol::Tls(..) => "TLS",
             ServerUnderlyingProtocol::Quic(..) => "QUIC",
+            ServerUnderlyingProtocol::Unified(..) => "UNIFIED",
         };
 
         write!(f, "{label}")

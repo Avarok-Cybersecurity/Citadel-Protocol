@@ -37,6 +37,8 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
+use citadel_nexus::unified::{UnifiedNetworkStream, UnifiedNetworkListener};
+use citadel_nexus::traits::{NetworkStream, NetworkListener};
 use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use citadel_user::re_exports::__private::Formatter;
@@ -76,8 +78,8 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements
 }
 
 pub enum GenericNetworkStream {
-    Tcp(TcpStream),
-    Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>>),
+    Tcp(citadel_io::tokio::net::TcpStream),
+    Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<citadel_io::tokio::net::TcpStream>>),
     // local addr is first addr, remote addr is final addr
     Quic(
         SendStream,
@@ -86,6 +88,8 @@ pub enum GenericNetworkStream {
         Option<Connection>,
         SocketAddr,
     ),
+    // Unified type from nexus - this is the future
+    Unified(UnifiedNetworkStream),
 }
 
 impl Unpin for GenericNetworkStream {}
@@ -96,6 +100,7 @@ impl Debug for GenericNetworkStream {
             Self::Tcp(..) => "TCP",
             Self::Tls(..) => "TLS",
             Self::Quic(..) => "QUIC",
+            Self::Unified(..) => "UNIFIED",
         };
 
         write!(f, "{tag}")
@@ -106,16 +111,18 @@ impl GenericNetworkStream {
     pub(crate) fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
             Self::Tcp(stream) => stream.peer_addr(),
-            Self::Tls(stream) => TcpStream::peer_addr(stream.get_ref().0),
+            Self::Tls(stream) => stream.get_ref().0.peer_addr(),
             Self::Quic(_, _, _, _, remote_addr) => Ok(*remote_addr),
+            Self::Unified(stream) => stream.peer_addr().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
         }
     }
 
     pub(crate) fn local_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
             Self::Tcp(stream) => stream.local_addr(),
-            Self::Tls(stream) => TcpStream::local_addr(stream.get_ref().0),
+            Self::Tls(stream) => stream.get_ref().0.local_addr(),
             Self::Quic(_, _, endpoint, _, _) => endpoint.local_addr(),
+            Self::Unified(stream) => stream.local_addr().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
         }
     }
 
@@ -123,6 +130,7 @@ impl GenericNetworkStream {
     pub(crate) fn quic_endpoint(&self) -> Option<Endpoint> {
         match self {
             Self::Quic(_, _, endpoint, _, _) => Some(endpoint.clone()),
+            Self::Unified(stream) => stream.quic_endpoint(),
             _ => None,
         }
     }
@@ -130,6 +138,20 @@ impl GenericNetworkStream {
     pub fn take_quic_connection(&mut self) -> Option<Connection> {
         match self {
             Self::Quic(_, _, _, conn, ..) => conn.take(),
+            Self::Unified(stream) => stream.take_quic_connection(),
+            _ => None,
+        }
+    }
+    
+    /// Convert from a UnifiedNetworkStream to GenericNetworkStream
+    pub fn from_unified(stream: UnifiedNetworkStream) -> Self {
+        Self::Unified(stream)
+    }
+    
+    /// Try to extract the UnifiedNetworkStream if this is the Unified variant
+    pub fn as_unified(&self) -> Option<&UnifiedNetworkStream> {
+        match self {
+            Self::Unified(stream) => Some(stream),
             _ => None,
         }
     }
@@ -141,10 +163,11 @@ impl AsyncRead for GenericNetworkStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        match self.deref_mut() {
+        match self.as_mut().get_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_read(cx, buf),
+            Self::Tls(stream) => Pin::new(&mut **stream).poll_read(cx, buf),
             Self::Quic(_, recv, ..) => Pin::new(recv).poll_read(cx, buf),
+            Self::Unified(stream) => Pin::new(stream).poll_read(cx, buf),
         }
     }
 }
@@ -155,26 +178,29 @@ impl AsyncWrite for GenericNetworkStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, Error>> {
-        match self.deref_mut() {
+        match self.as_mut().get_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_write(cx, buf),
+            Self::Tls(stream) => Pin::new(&mut **stream).poll_write(cx, buf),
             Self::Quic(sink, ..) => Pin::new(sink).poll_write(cx, buf).map_err(|err| err.into()),
+            Self::Unified(stream) => Pin::new(stream).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        match self.deref_mut() {
+        match self.as_mut().get_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_flush(cx),
+            Self::Tls(stream) => Pin::new(&mut **stream).poll_flush(cx),
             Self::Quic(sink, ..) => Pin::new(sink).poll_flush(cx),
+            Self::Unified(stream) => Pin::new(stream).poll_flush(cx),
         }
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        match self.deref_mut() {
+        match self.as_mut().get_mut() {
             Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_shutdown(cx),
+            Self::Tls(stream) => Pin::new(&mut **stream).poll_shutdown(cx),
             Self::Quic(sink, ..) => Pin::new(sink).poll_shutdown(cx),
+            Self::Unified(stream) => Pin::new(stream).poll_shutdown(cx),
         }
     }
 }
@@ -338,6 +364,46 @@ impl GenericNetworkListener {
             quic_endpoint: None,
             redirect_to_quic: None,
             tls_domain,
+        })
+    }
+
+    pub fn new_unified(mut listener: UnifiedNetworkListener) -> std::io::Result<Self> {
+        use citadel_nexus::traits::NetworkListener;
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
+        let local_addr = listener.local_addr().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        let future = async move {
+            loop {
+                match listener.accept().await {
+                    Ok((stream, addr)) => {
+                        log::trace!(target: "citadel", "Received unified stream from {addr:?}");
+                        if let Err(err) = send
+                            .send(Ok((
+                                GenericNetworkStream::Unified(stream),
+                                addr,
+                            )))
+                            .await
+                        {
+                            log::error!(target: "citadel", "Error sending unified stream to channel: {err}");
+                        }
+                    }
+                    Err(err) => {
+                        log::error!(target: "citadel", "Error accepting unified connection: {err}");
+                        if let Err(err) = send.send(Err(std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))).await {
+                            log::error!(target: "citadel", "Error sending error to channel: {err}");
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Self {
+            future: Box::pin(future),
+            recv,
+            local_addr,
+            quic_endpoint: None,
+            redirect_to_quic: None,
+            tls_domain: None,
         })
     }
 

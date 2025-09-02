@@ -93,7 +93,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             citadel_io::tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R>::init(
+        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::init_with_defaults(
             hypernode_type,
             server_to_kernel_tx,
             account_manager.clone(),
