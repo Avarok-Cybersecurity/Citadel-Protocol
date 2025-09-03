@@ -83,7 +83,7 @@ rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.29.8" }
 num_cpus = { default-features = false, version = "1.15.0" }
 async-trait-with-sync = { default-features = false, version = "0.1.36" }
-uuid = { version = "1.2.2", default-features = false }
+uuid = { version = "1.2.2", default-features = false, features = ["js"] }
 tracing = { version = "0.1.37", default-features = false }
 lazy_static = { default-features = false, version = "1.4.0" }
 socket2 = { version = "0.5.7", default-features = false }

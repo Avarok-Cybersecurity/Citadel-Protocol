@@ -11,13 +11,17 @@ use crate::traits::{
 
 /// WASM implementation of NAT traversal using browser APIs
 pub struct WasmNatTraversal {
-    // TODO: Store WebRTC configuration, STUN/TURN servers
+    stun_servers: Vec<String>,
 }
 
 impl WasmNatTraversal {
     pub async fn new() -> NexusResult<Self> {
         Ok(Self {
-            // TODO: Initialize with default STUN servers
+            stun_servers: vec![
+                "stun:stun.l.google.com:19302".to_string(),
+                "stun:stun1.l.google.com:19302".to_string(),
+                "stun:stun2.l.google.com:19302".to_string(),
+            ],
         })
     }
 }

@@ -16,7 +16,9 @@ default = ["std"]
 
 # Platform targets
 std = [
-    "citadel_io/std",
+    "citadel_io",
+    "citadel_io/std", 
+    "citadel_wire",
     "citadel_wire/std",
     "tokio/net",
     "quinn",
@@ -24,9 +26,8 @@ std = [
 ]
 
 wasm = [
-    "citadel_io/wasm", 
     "web-sys",
-    "wasm-bindgen",
+    "wasm-bindgen", 
     "wasm-bindgen-futures",
     "js-sys",
 ]
@@ -38,8 +39,8 @@ multi-threaded = []
 localhost-testing = ["citadel_wire/localhost-testing", "tracing"]
 
 [dependencies]
-# Workspace dependencies
-citadel_io = { workspace = true, default-features = false }
+# Workspace dependencies  
+citadel_io = { workspace = true, default-features = false, optional = true }
 citadel_types = { workspace = true, default-features = false }
 citadel_wire = { workspace = true, default-features = false, optional = true }
 
@@ -48,14 +49,12 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 bytes = { workspace = true }
 tracing = { workspace = true, optional = true }
-async_ip = { workspace = true }
-socket2 = { workspace = true }
-stun = { workspace = true }
-serde_json = { workspace = true, features = ["std"] }
+serde_json = { workspace = true }
 getrandom = { workspace = true }
+uuid = { workspace = true }
 
 # Standard target dependencies
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -63,9 +62,13 @@ citadel_wire = { workspace = true, default-features = false }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["net", "rt"] }
+async_ip = { workspace = true }
+socket2 = { workspace = true }
+stun = { workspace = true }
 
 # WebAssembly target dependencies
 [target.'cfg(target_family = "wasm")'.dependencies]
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 web-sys = { version = "0.3", features = [
     "RtcPeerConnection",
     "RtcDataChannel", 
