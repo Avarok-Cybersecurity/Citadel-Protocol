@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
-use crate::error::{NexusResult, NexusError};
+use crate::error::NexusResult;
 use crate::traits::{
     NatTraversal, NatType, HolePunchConfig, HolePunchedSocket, DatagramSocket, 
     TraversalStrategy, ConnectivityResult, HolePunchStats, DEFAULT_STUN_SERVERS
@@ -45,7 +45,7 @@ impl NatTraversal for StdNatTraversal {
             }
         }
 
-        let servers = if stun_servers.is_empty() {
+        let _servers = if stun_servers.is_empty() {
             DEFAULT_STUN_SERVERS.iter().map(|s| s.to_string()).collect()
         } else {
             stun_servers
@@ -69,7 +69,7 @@ impl NatTraversal for StdNatTraversal {
 
     async fn punch_hole(
         &self,
-        local_socket: &dyn DatagramSocket,
+        _local_socket: &dyn DatagramSocket,
         config: HolePunchConfig,
     ) -> NexusResult<HolePunchedSocket> {
         let start_time = std::time::Instant::now();

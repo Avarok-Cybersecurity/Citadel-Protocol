@@ -87,7 +87,7 @@ pub mod tests {
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
+            let res = CitadelNode::<StackedRatchet, citadel_nexus::std::StdIOProvider>::server_create_primary_listen_socket(
                 proto.clone(),
                 addr,
             );
@@ -108,7 +108,7 @@ pub mod tests {
 
             let client = async move {
                 let (stream, _) =
-                    CitadelNode::<StackedRatchet>::c2s_connect_defaults(None, addr, client_config)
+                    CitadelNode::<StackedRatchet, citadel_nexus::std::StdIOProvider>::c2s_connect_defaults(None, addr, client_config)
                         .await
                         .unwrap();
                 on_client_received_stream(stream).await
@@ -159,7 +159,7 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
+            let res = CitadelNode::<StackedRatchet, citadel_nexus::std::StdIOProvider>::server_create_primary_listen_socket(
                 proto.clone(),
                 addr,
             );
@@ -190,13 +190,12 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let (stream, _) = CitadelNode::<StackedRatchet>::c2s_connect_defaults(
-                        None,
+                    let conn_fut = CitadelNode::<StackedRatchet, citadel_nexus::std::StdIOProvider>::create_c2s_connect_socket(
                         addr,
-                        client_config,
-                    )
-                    .await?;
-                    on_client_received_stream(stream).await?;
+                        None,
+                        &client_config,
+                    );
+                    let _ = conn_fut.await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 });

@@ -1,18 +1,20 @@
 //! Network stream abstractions
 
 use async_trait::async_trait;
+#[cfg(not(target_family = "wasm"))]
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(target_family = "wasm")]
+use futures::io::{AsyncRead, AsyncWrite};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::io::ReadBuf;
 use crate::error::NexusResult;
 
-/// Trait for bidirectional network streams (TCP-like behavior)
-/// 
-/// This trait abstracts over different types of reliable, ordered streams
-/// such as TCP connections, WebRTC DataChannels, or WebSocket connections.
-#[async_trait]
-pub trait NetworkStream: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {
+/// Trait for network streams providing bidirectional communication
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+pub trait NetworkStream: AsyncRead + AsyncWrite + Unpin + 'static {
     /// Get the local address of this stream
     fn local_addr(&self) -> NexusResult<SocketAddr>;
     
@@ -90,9 +92,13 @@ impl<S: NetworkStream> AsyncRead for UnifiedStream<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut citadel_io::tokio::io::ReadBuf<'_>,
+        buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        match Pin::new(&mut self.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -109,12 +115,11 @@ impl<S: NetworkStream> AsyncWrite for UnifiedStream<S> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
     
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
+    
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl<S: NetworkStream> NetworkStream for UnifiedStream<S> {
     fn local_addr(&self) -> NexusResult<SocketAddr> {
         self.inner.local_addr()

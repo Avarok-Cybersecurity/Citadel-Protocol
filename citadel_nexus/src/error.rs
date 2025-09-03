@@ -23,8 +23,14 @@ pub enum NexusError {
     /// Timeout error
     Timeout,
     
+    /// Operation would block (non-blocking I/O)
+    WouldBlock,
+    
     /// Not supported on this platform
     NotSupported(String),
+    
+    /// Serialization/deserialization error
+    Serialization(String),
     
     /// WebRTC-specific error (WASM only)
     #[cfg(target_family = "wasm")]
@@ -43,7 +49,9 @@ impl fmt::Display for NexusError {
             Self::Platform(msg) => write!(f, "Platform error: {}", msg),
             Self::Configuration(msg) => write!(f, "Configuration error: {}", msg),
             Self::Timeout => write!(f, "Operation timed out"),
+            Self::WouldBlock => write!(f, "Operation would block"),
             Self::NotSupported(op) => write!(f, "Operation '{}' not supported on this platform", op),
+            Self::Serialization(msg) => write!(f, "Serialization error: {}", msg),
             #[cfg(target_family = "wasm")]
             Self::WebRTC(msg) => write!(f, "WebRTC error: {}", msg),
             Self::Other(msg) => write!(f, "Error: {}", msg),

@@ -33,7 +33,6 @@ use citadel_io::Mutex;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
-use citadel_nexus::traits::interface::CitadelIOInterface;
 use citadel_nexus::unified::listener::UnifiedNetworkListener;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};

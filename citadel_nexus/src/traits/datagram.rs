@@ -4,13 +4,17 @@ use async_trait::async_trait;
 //use bytes::{Bytes, BytesMut};
 use std::net::SocketAddr;
 use crate::error::NexusResult;
+use std::task::{Context, Poll};
+use futures::io::{AsyncRead, AsyncWrite};
+use serde::Serialize;
 
-/// Trait for datagram sockets (UDP-like behavior)
+/// Trait for UDP-like datagram sockets
 /// 
 /// This trait abstracts over different types of unreliable datagram transports
 /// such as UDP sockets, WebRTC unreliable DataChannels, or other packet-based protocols.
-#[async_trait]
-pub trait DatagramSocket: Send + Sync + 'static {
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+pub trait DatagramSocket: 'static {
     /// Send a datagram to the specified address
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> NexusResult<usize>;
     
@@ -67,8 +71,9 @@ pub struct DatagramStats {
     pub max_datagram_size: usize,
 }
 
-/// High-level datagram operations for common patterns
-#[async_trait]
+/// Extension trait providing convenience methods for datagram operations
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait DatagramExt: DatagramSocket {
     /// Send a message with automatic serialization
     async fn send_message<T>(&self, msg: &T, target: SocketAddr) -> NexusResult<()>
@@ -77,6 +82,17 @@ pub trait DatagramExt: DatagramSocket {
     {
         let data = serde_json::to_vec(msg).map_err(|e| crate::error::NexusError::Other(e.to_string()))?;
         self.send_to(&data, target).await.map(|_| ())
+    }
+    
+    /// Send structured data as JSON
+    async fn send_json<T: Serialize>(
+        &self,
+        data: &T,
+        target: SocketAddr,
+    ) -> NexusResult<usize>
+    {
+        let data = serde_json::to_vec(data).map_err(|e| crate::error::NexusError::Serialization(e.to_string()))?;
+        self.send_to(&data, target).await
     }
     
     /// Receive and deserialize a message
@@ -108,7 +124,16 @@ pub trait DatagramExt: DatagramSocket {
                         return Err(e);
                     }
                     // Brief delay before retry
+                    #[cfg(not(target_family = "wasm"))]
                     citadel_io::tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    #[cfg(target_family = "wasm")]
+                    wasm_bindgen_futures::JsFuture::from(
+                        js_sys::Promise::new(&mut |resolve, _| {
+                            web_sys::window().unwrap()
+                                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 10)
+                                .unwrap();
+                        })
+                    ).await.unwrap();
                 }
             }
         }

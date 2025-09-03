@@ -10,6 +10,7 @@ use crate::traits::{
 };
 
 /// WASM implementation of NAT traversal using browser APIs
+#[derive(Clone)]
 pub struct WasmNatTraversal {
     stun_servers: Vec<String>,
 }

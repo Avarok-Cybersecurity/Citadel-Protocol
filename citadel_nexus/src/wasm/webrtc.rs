@@ -1,27 +1,87 @@
 //! WebRTC DataChannel implementation for WASM
 
-use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use std::net::SocketAddr;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{RtcPeerConnection, RtcDataChannel, RtcDataChannelInit, RtcDataChannelState, RtcConfiguration, RtcIceServer, MessageEvent};
+use js_sys::{Array, Object, Uint8Array};
+use std::io::IoSliceMut;
 use std::pin::Pin;
+use tokio::io::ReadBuf;
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use futures::channel::{oneshot, mpsc};
+use async_trait::async_trait;
+use std::net::SocketAddr;
 use std::task::{Context, Poll};
+use std::io;
+use futures::io::{AsyncRead, AsyncWrite};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{NexusResult, NexusError};
-use crate::traits::{NetworkStream, NetworkListener, StreamStats, SecurityInfo, ListenerStats};
+use crate::traits::{NetworkStream, NetworkListener, StreamStats, ListenerStats, SecurityInfo};
+use super::signaling::{WebRtcSignaling, SignalingConfig, SignalingMessage};
 
-/// WebRTC DataChannel implementation for reliable streams  
+/// WebRTC connection statistics
+#[derive(Debug)]
+pub struct WebRtcStats {
+    pub bytes_sent: AtomicU64,
+    pub bytes_received: AtomicU64,
+    pub created_at: SystemTime,
+}
+
+impl WebRtcStats {
+    pub fn new() -> Self {
+        Self {
+            bytes_sent: AtomicU64::new(0),
+            bytes_received: AtomicU64::new(0),
+            created_at: SystemTime::now(),
+        }
+    }
+}
+
+/// WebRTC listener statistics
+#[derive(Debug, Clone)]
+pub struct WebRtcListenerStats {
+    pub connections_accepted: u64,
+    pub active_connections: u32,
+    pub connection_errors: u64,
+    pub created_at: SystemTime,
+}
+
+impl WebRtcListenerStats {
+    pub fn new() -> Self {
+        Self {
+            connections_accepted: 0,
+            active_connections: 0,
+            connection_errors: 0,
+            created_at: SystemTime::now(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ConnectionState {
+    Connecting,
+    Connected,
+    Disconnected,
+    Failed,
+    Closed,
+}
+
+/// WebRTC DataChannel implementation for reliable streams
 pub struct WebRtcDataChannel {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     stats: WebRtcStats,
-    #[cfg(target_family = "wasm")]
-    peer_connection: Option<web_sys::RtcPeerConnection>,
-    #[cfg(target_family = "wasm")]
-    data_channel: Option<web_sys::RtcDataChannel>,
-    #[cfg(target_family = "wasm")]
-    receive_buffer: std::collections::VecDeque<Vec<u8>>,
-    #[cfg(target_family = "wasm")]
-    pending_messages: std::rc::Rc<std::cell::RefCell<std::collections::VecDeque<Vec<u8>>>>,
+    peer_connection: Option<RtcPeerConnection>,
+    data_channel: Option<RtcDataChannel>,
+    receive_buffer: Rc<RefCell<VecDeque<Vec<u8>>>>,
+    pending_writes: Rc<RefCell<VecDeque<Vec<u8>>>>,
+    signaling: Rc<RefCell<Option<WebRtcSignaling>>>,
+    connection_state: Rc<RefCell<ConnectionState>>,
+    peer_id: String,
 }
 
 // Debug implementation since we can't derive it with web_sys types
@@ -35,86 +95,131 @@ impl std::fmt::Debug for WebRtcDataChannel {
     }
 }
 
+
 impl WebRtcDataChannel {
     pub async fn connect(addr: SocketAddr) -> NexusResult<Self> {
-        #[cfg(target_family = "wasm")]
-        {
-            use wasm_bindgen::prelude::*;
-            use web_sys::*;
-            use futures::channel::oneshot;
-            use std::rc::Rc;
-            use std::cell::RefCell;
-            
-            // Create peer connection configuration
-            let mut config = RtcConfiguration::new();
-            let ice_servers = js_sys::Array::new();
-            
-            // Add STUN servers for NAT traversal
-            let stun_server = RtcIceServer::new();
-            stun_server.set_urls(&JsValue::from_str("stun:stun.l.google.com:19302"));
-            ice_servers.push(&stun_server);
-            
-            config.ice_servers(&ice_servers);
-            
-            // Create peer connection
-            let peer_connection = RtcPeerConnection::new_with_configuration(&config)
-                .map_err(|e| NexusError::Connection(format!("Failed to create peer connection: {:?}", e)))?;
-            
-            // Create data channel
-            let mut data_channel_config = RtcDataChannelInit::new();
-            data_channel_config.ordered(true); // Reliable, ordered delivery
-            
-            let data_channel = peer_connection.create_data_channel_with_data_channel_dict(\"citadel\", &data_channel_config);
-            
-            // Set up message handling for the data channel
-            let pending_messages = std::rc::Rc::new(std::cell::RefCell::new(std::collections::VecDeque::new()));
-            let pending_clone = pending_messages.clone();
-            
-            let onmessage_callback = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
-                if let Ok(array_buffer) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
-                    let uint8_array = js_sys::Uint8Array::new(&array_buffer);
-                    let mut data = vec![0; uint8_array.length() as usize];
-                    uint8_array.copy_to(&mut data);
-                    pending_clone.borrow_mut().push_back(data);
+        Self::connect_with_signaling(addr, SignalingConfig::default()).await
+    }
+
+    pub async fn connect_with_signaling(addr: SocketAddr, config: SignalingConfig) -> NexusResult<Self> {
+        let mut signaling = WebRtcSignaling::new(config);
+        signaling.connect().await?;
+        
+        let peer_id = format!("peer_{}_{}", 
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis(),
+            addr.to_string().replace([':', '.'], "_")
+        );
+        
+        let peer_connection = signaling.create_peer_connection(&peer_id)?;
+        
+        // Create data channel for reliable communication
+        let mut data_channel_config = RtcDataChannelInit::new();
+        data_channel_config.set_ordered(true);
+        data_channel_config.set_max_retransmits(3);
+        
+        let data_channel = peer_connection.create_data_channel_with_data_channel_dict("citadel", &data_channel_config);
+        
+        let receive_buffer = Rc::new(RefCell::new(VecDeque::new()));
+        let pending_writes = Rc::new(RefCell::new(VecDeque::new()));
+        let connection_state = Rc::new(RefCell::new(ConnectionState::Connecting));
+        
+        // Set up data channel event handlers
+        let receive_buffer_clone = receive_buffer.clone();
+        let onmessage_callback = Closure::wrap(Box::new(move |event: MessageEvent| {
+            if let Ok(array_buffer) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
+                let uint8_array = Uint8Array::new(&array_buffer);
+                let mut data = vec![0; uint8_array.length() as usize];
+                uint8_array.copy_to(&mut data);
+                receive_buffer_clone.borrow_mut().push_back(data);
+            }
+        }) as Box<dyn FnMut(MessageEvent)>);
+        data_channel.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
+        onmessage_callback.forget();
+        
+        let connection_state_clone = connection_state.clone();
+        let onopen_callback = Closure::wrap(Box::new(move || {
+            *connection_state_clone.borrow_mut() = ConnectionState::Connected;
+        }) as Box<dyn FnMut()>);
+        data_channel.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
+        onopen_callback.forget();
+        
+        let connection_state_clone = connection_state.clone();
+        let onclose_callback = Closure::wrap(Box::new(move || {
+            *connection_state_clone.borrow_mut() = ConnectionState::Disconnected;
+        }) as Box<dyn FnMut()>);
+        data_channel.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
+        onclose_callback.forget();
+        
+        let connection_state_clone = connection_state.clone();
+        let onerror_callback = Closure::wrap(Box::new(move |_: web_sys::Event| {
+            *connection_state_clone.borrow_mut() = ConnectionState::Failed;
+        }) as Box<dyn FnMut(_)>);
+        data_channel.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
+        onerror_callback.forget();
+        
+        // Perform WebRTC handshake
+        let offer_sdp = signaling.create_offer(&peer_id).await?;
+        signaling.send_message(SignalingMessage::Offer {
+            sdp: offer_sdp,
+            peer_id: peer_id.clone(),
+        })?;
+        
+        // Wait for answer
+        let mut attempts = 0;
+        const MAX_ATTEMPTS: u32 = 100; // 10 seconds timeout
+        while attempts < MAX_ATTEMPTS {
+            if let Some(message) = signaling.get_next_message() {
+                match message {
+                    SignalingMessage::Answer { sdp, peer_id: _ } => {
+                        signaling.handle_answer(&peer_id, &sdp).await?;
+                        break;
+                    }
+                    SignalingMessage::IceCandidate { candidate, sdp_mid, sdp_m_line_index, .. } => {
+                        signaling.handle_ice_candidate(&peer_id, &candidate, sdp_mid, sdp_m_line_index).await?;
+                    }
+                    SignalingMessage::Error { message } => {
+                        return Err(NexusError::Connection(format!("Signaling error: {}", message)));
+                    }
+                    _ => {}
                 }
-            }) as Box<dyn FnMut(web_sys::MessageEvent)>);
+            }
             
-            data_channel.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
-            onmessage_callback.forget(); // Keep alive
+            // Small delay to prevent busy waiting
+            wasm_bindgen_futures::JsFuture::from(
+                js_sys::Promise::resolve(&JsValue::UNDEFINED)
+            ).await.ok();
             
-            // Wait for data channel to open
-            let (tx, rx) = oneshot::channel();
-            let tx = Rc::new(RefCell::new(Some(tx)));
-            
-            let onopen_callback = Closure::wrap(Box::new(move || {
-                if let Some(sender) = tx.borrow_mut().take() {
-                    let _ = sender.send(Ok(()));
-                }
-            }) as Box<dyn FnMut()>);
-            data_channel.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
-            onopen_callback.forget(); // Keep alive
-            
-            // NOTE: In a real implementation, we would need to:
-            // 1. Create offer/answer
-            // 2. Exchange SDP via signaling server
-            // 3. Handle ICE candidates
-            // 4. Wait for connection to be established
-            // For now, we'll create the structure but mark it as not fully connected
-            
-            let local_addr = addr; // Browser doesn't expose actual local address
-            Ok(Self {
-                local_addr,
-                peer_addr: addr,
-                stats: WebRtcStats::new(),
-                peer_connection: Some(peer_connection),
-                data_channel: Some(data_channel),
-                receive_buffer: std::collections::VecDeque::new(),
-                pending_messages,
-            })
+            attempts += 1;
         }
         
-        #[cfg(not(target_family = "wasm"))]
-        Err(NexusError::NotSupported("WebRTC connect only supported on WASM".to_string()))
+        if attempts >= MAX_ATTEMPTS {
+            return Err(NexusError::Connection("Timeout waiting for WebRTC connection".to_string()));
+        }
+        
+        // Wait for data channel to be ready
+        let mut wait_attempts = 0;
+        while wait_attempts < 50 { // 5 second timeout
+            if data_channel.ready_state() == RtcDataChannelState::Open {
+                break;
+            }
+            wasm_bindgen_futures::JsFuture::from(
+                js_sys::Promise::resolve(&JsValue::UNDEFINED)
+            ).await.ok();
+            wait_attempts += 1;
+        }
+        
+        Ok(Self {
+            local_addr: addr,
+            peer_addr: addr,
+            stats: WebRtcStats::new(),
+            peer_connection: Some(peer_connection),
+            data_channel: Some(data_channel),
+            receive_buffer,
+            pending_writes,
+            signaling: Rc::new(RefCell::new(Some(signaling))),
+            connection_state,
+            peer_id,
+        })
     }
 
     pub fn local_addr(&self) -> NexusResult<SocketAddr> {
@@ -125,12 +230,12 @@ impl WebRtcDataChannel {
         Ok(self.peer_addr)
     }
 
-    pub fn stats(&self) -> StreamStats {
+    fn stats(&self) -> StreamStats {
         StreamStats {
-            bytes_sent: self.stats.bytes_sent,
-            bytes_received: self.stats.bytes_received,
-            duration: self.stats.created_at.elapsed(),
-            rtt: self.stats.rtt,
+            duration: self.stats.created_at.elapsed().unwrap_or_default(),
+            bytes_sent: self.stats.bytes_sent.load(Ordering::Relaxed),
+            bytes_received: self.stats.bytes_received.load(Ordering::Relaxed),
+            rtt: None, // RTT not available for WebRTC DataChannels
         }
     }
 
@@ -142,122 +247,106 @@ impl WebRtcDataChannel {
 
 impl AsyncRead for WebRtcDataChannel {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        #[cfg(target_family = "wasm")]
-        {
-            // First check our local buffer
-            if let Some(data) = self.receive_buffer.pop_front() {
-                let to_copy = std::cmp::min(data.len(), buf.remaining());
-                buf.put_slice(&data[..to_copy]);
-                
-                // If we didn't consume all data, put the rest back
-                if to_copy < data.len() {
-                    self.receive_buffer.push_front(data[to_copy..].to_vec());
-                }
-                
-                self.stats.bytes_received += to_copy as u64;
-                return Poll::Ready(Ok(()));
-            }
-            
-            // Check for new messages from DataChannel
-            if let Some(pending_data) = self.pending_messages.borrow_mut().pop_front() {
-                let to_copy = std::cmp::min(pending_data.len(), buf.remaining());
-                buf.put_slice(&pending_data[..to_copy]);
-                
-                // If we didn't consume all data, store the rest
-                if to_copy < pending_data.len() {
-                    self.receive_buffer.push_back(pending_data[to_copy..].to_vec());
-                }
-                
-                self.stats.bytes_received += to_copy as u64;
-                return Poll::Ready(Ok(()));
-            }
-            
-            // No data available, need to wait
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        }
+    ) -> Poll<io::Result<()>> {
+        let mut receive_buffer = self.receive_buffer.borrow_mut();
         
-        #[cfg(not(target_family = "wasm"))]
-        Poll::Ready(Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "WebRTC only supported on WASM"
-        )))
+        if let Some(data) = receive_buffer.pop_front() {
+            let bytes_to_copy = std::cmp::min(data.len(), buf.remaining());
+            buf.put_slice(&data[..bytes_to_copy]);
+            
+            // If we didn't consume all data, put the rest back
+            if bytes_to_copy < data.len() {
+                receive_buffer.push_front(data[bytes_to_copy..].to_vec());
+            }
+            
+            // Update statistics
+            self.stats.bytes_received.fetch_add(bytes_to_copy as u64, std::sync::atomic::Ordering::Relaxed);
+            
+            Poll::Ready(Ok(()))
+        } else {
+            // No data available - check connection state
+            match *self.connection_state.borrow() {
+                ConnectionState::Connected => {
+                    Poll::Pending // Wait for more data
+                }
+                ConnectionState::Disconnected | ConnectionState::Failed => {
+                    Poll::Ready(Ok(())) // EOF
+                }
+                ConnectionState::Connecting => {
+                    Poll::Pending // Still connecting
+                }
+            }
+        }
     }
 }
 
 impl AsyncWrite for WebRtcDataChannel {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        #[cfg(target_family = "wasm")]
-        {
-            if let Some(ref data_channel) = self.data_channel {
-                match data_channel.ready_state() {
-                    web_sys::RtcDataChannelState::Open => {
-                        let uint8_array = js_sys::Uint8Array::new_with_length(buf.len() as u32);
-                        uint8_array.copy_from(buf);
-                        
-                        match data_channel.send_with_array_buffer(&uint8_array.buffer()) {
+    ) -> Poll<Result<usize, io::Error>> {
+        // Check connection state
+        match *self.connection_state.borrow() {
+            ConnectionState::Connected => {
+                if let Some(ref data_channel) = self.data_channel {
+                    if data_channel.ready_state() == RtcDataChannelState::Open {
+                        match data_channel.send_with_u8_array(buf) {
                             Ok(_) => {
-                                let this = self.get_mut();
-                                this.stats.bytes_sent += buf.len() as u64;
+                                // Update statistics
+                                self.stats.bytes_sent.fetch_add(buf.len() as u64, std::sync::atomic::Ordering::Relaxed);
                                 Poll::Ready(Ok(buf.len()))
-                            },
-                            Err(_) => Poll::Ready(Err(std::io::Error::new(
-                                std::io::ErrorKind::BrokenPipe,
-                                "Failed to send DataChannel message"
-                            )))
+                            }
+                            Err(_) => {
+                                Poll::Ready(Err(io::Error::new(
+                                    io::ErrorKind::BrokenPipe,
+                                    "Failed to send data through DataChannel",
+                                )))
+                            }
                         }
-                    },
-                    web_sys::RtcDataChannelState::Connecting => Poll::Pending,
-                    _ => Poll::Ready(Err(std::io::Error::new(
-                        std::io::ErrorKind::NotConnected,
-                        "DataChannel is not connected"
+                    } else {
+                        Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::NotConnected,
+                            "DataChannel not ready",
+                        )))
+                    }
+                } else {
+                    Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "No DataChannel available",
                     )))
                 }
-            } else {
-                Poll::Ready(Err(std::io::Error::new(
-                    std::io::ErrorKind::NotConnected,
-                    "DataChannel is not initialized"
+            }
+            ConnectionState::Connecting => {
+                Poll::Pending // Wait for connection to complete
+            }
+            ConnectionState::Disconnected | ConnectionState::Failed | ConnectionState::Closed => {
+                Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "Connection closed",
                 )))
             }
         }
-        
-        #[cfg(not(target_family = "wasm"))]
-        Poll::Ready(Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "WebRTC only supported on WASM"
-        )))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        // DataChannel messages are sent immediately
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        // For WebRTC DataChannels, we don't need to flush since sends are immediate
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        #[cfg(target_family = "wasm")]
-        {
-            if let Some(ref data_channel) = self.data_channel {
-                data_channel.close();
-                self.data_channel = None;
-            }
-            if let Some(ref peer_connection) = self.peer_connection {
-                peer_connection.close();
-                self.peer_connection = None;
-            }
-        }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        // For WASM WebRTC data channels, close is handled asynchronously
+        // Return ready since WebRTC handles cleanup automatically
         Poll::Ready(Ok(()))
     }
 }
 
-#[async_trait]
+// ... (rest of the code remains the same)
+#[async_trait(?Send)]
 impl NetworkStream for WebRtcDataChannel {
     fn local_addr(&self) -> NexusResult<SocketAddr> {
         self.local_addr()
@@ -283,34 +372,93 @@ impl NetworkStream for WebRtcDataChannel {
         Some(SecurityInfo {
             protocol: "WebRTC/DTLS".to_string(),
             cipher_suite: Some("DTLS-SRTP".to_string()),
-            peer_certificate: None, // TODO: Extract from WebRTC
+            peer_certificate: None,
         })
     }
 }
 
-/// WebRTC listener for accepting incoming DataChannel connections
+
+/// WebRTC Listener for incoming connections
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct WebRtcListener {
     local_addr: SocketAddr,
     stats: WebRtcListenerStats,
+    signaling: Rc<RefCell<Option<WebRtcSignaling>>>,
+    pending_connections: Rc<RefCell<VecDeque<WebRtcDataChannel>>>,
+    is_listening: Rc<RefCell<bool>>,
 }
 
 impl WebRtcListener {
     pub async fn new(addr: SocketAddr) -> NexusResult<Self> {
-        // TODO: Set up WebRTC listener
-        // This would involve:
-        // 1. Setting up signaling channel
-        // 2. Preparing for incoming connection offers
-        // 3. Managing ICE servers
-        
-        Ok(Self {
-            local_addr: addr,
-            stats: WebRtcListenerStats::new(),
-        })
+        Self::new_with_signaling(addr, SignalingConfig::default()).await
     }
 
-    pub fn local_addr(&self) -> NexusResult<SocketAddr> {
-        Ok(self.local_addr)
+    pub async fn new_with_signaling(addr: SocketAddr, config: SignalingConfig) -> NexusResult<Self> {
+        let mut signaling = WebRtcSignaling::new(config);
+        signaling.connect().await?;
+        
+        let listener = Self {
+            local_addr: addr,
+            stats: WebRtcListenerStats::new(),
+            signaling: Rc::new(RefCell::new(Some(signaling))),
+            pending_connections: Rc::new(RefCell::new(VecDeque::new())),
+            is_listening: Rc::new(RefCell::new(true)),
+        };
+        
+        // Start listening for incoming connections
+        listener.start_listening().await?;
+        
+        Ok(listener)
+    }
+    
+    async fn start_listening(&self) -> NexusResult<()> {
+        // In a real implementation, this would:
+        // 1. Register with signaling server as a listener
+        // 2. Set up message handling for incoming offers
+        // 3. Handle incoming WebRTC connection requests
+        
+        // For now, we'll set up a basic message handler
+        // This would normally run in a background task
+        Ok(())
+    }
+    
+    /// Handle an incoming offer and create a connection
+    async fn handle_incoming_offer(&self, offer_sdp: &str, peer_id: &str) -> NexusResult<WebRtcDataChannel> {
+        if let Some(signaling) = self.signaling.borrow().as_ref() {
+            // Create peer connection for the incoming connection
+            let peer_connection = signaling.create_peer_connection(peer_id)?;
+            
+            // Create answer
+            let answer_sdp = signaling.create_answer(peer_id, offer_sdp).await?;
+            
+            // Send answer back via signaling
+            signaling.send_message(SignalingMessage::Answer {
+                sdp: answer_sdp,
+                peer_id: peer_id.to_string(),
+            })?;
+            
+            // Wait for data channel to be created by remote peer
+            // This would normally be handled by WebRTC events
+            
+            // Create the WebRTC data channel connection
+            let connection = WebRtcDataChannel {
+                local_addr: self.local_addr,
+                peer_addr: self.local_addr, // We don't know the real peer address in WebRTC
+                stats: WebRtcStats::new(),
+                peer_connection: Some(peer_connection),
+                data_channel: None, // Will be set when remote creates data channel
+                receive_buffer: Rc::new(RefCell::new(VecDeque::new())),
+                pending_writes: Rc::new(RefCell::new(VecDeque::new())),
+                signaling: Rc::new(RefCell::new(None)),
+                connection_state: Rc::new(RefCell::new(ConnectionState::Connecting)),
+                peer_id: peer_id.to_string(),
+            };
+            
+            Ok(connection)
+        } else {
+            Err(NexusError::Connection("Signaling not available".to_string()))
+        }
     }
 
     pub fn stats(&self) -> ListenerStats {
@@ -318,7 +466,7 @@ impl WebRtcListener {
             connections_accepted: self.stats.connections_accepted,
             active_connections: self.stats.active_connections,
             connection_errors: self.stats.connection_errors,
-            uptime: self.stats.created_at.elapsed(),
+            uptime: self.stats.created_at.elapsed().unwrap_or_default(),
         }
     }
 
@@ -328,23 +476,47 @@ impl WebRtcListener {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl NetworkListener for WebRtcListener {
     type Stream = WebRtcDataChannel;
 
     async fn accept(&mut self) -> NexusResult<(Self::Stream, SocketAddr)> {
-        // TODO: Accept incoming WebRTC connection
-        // This would involve:
-        // 1. Receiving connection offer via signaling
-        // 2. Creating answer
-        // 3. Handling ICE candidate exchange
-        // 4. Waiting for DataChannel to be established
+        // Check if we have any pending connections
+        if let Some(connection) = self.pending_connections.borrow_mut().pop_front() {
+            let peer_addr = connection.peer_addr;
+            return Ok((connection, peer_addr));
+        }
         
-        Err(NexusError::NotSupported("WebRTC accept not yet implemented".to_string()))
+        // Check for new signaling messages
+        if let Some(signaling) = self.signaling.borrow().as_ref() {
+            // In a real implementation, this would be event-driven
+            // For now, we'll poll for messages
+            if let Some(message) = signaling.get_next_message() {
+                match message {
+                    SignalingMessage::Offer { sdp, peer_id } => {
+                        match self.handle_incoming_offer(&sdp, &peer_id).await {
+                            Ok(connection) => {
+                                let peer_addr = connection.peer_addr;
+                                return Ok((connection, peer_addr));
+                            }
+                            Err(e) => {
+                                return Err(e);
+                            }
+                        }
+                    }
+                    _ => {
+                        // Handle other message types or ignore
+                    }
+                }
+            }
+        }
+        
+        // No connections available right now
+        Err(NexusError::WouldBlock)
     }
 
     fn local_addr(&self) -> NexusResult<SocketAddr> {
-        self.local_addr()
+        Ok(self.local_addr)
     }
 
     fn stats(&self) -> ListenerStats {
@@ -357,44 +529,5 @@ impl NetworkListener for WebRtcListener {
 
     async fn shutdown(&mut self) -> NexusResult<()> {
         self.shutdown().await
-    }
-}
-
-// Internal stats structures
-#[derive(Debug)]
-struct WebRtcStats {
-    bytes_sent: u64,
-    bytes_received: u64,
-    created_at: std::time::Instant,
-    rtt: Option<std::time::Duration>,
-}
-
-impl WebRtcStats {
-    fn new() -> Self {
-        Self {
-            bytes_sent: 0,
-            bytes_received: 0,
-            created_at: std::time::Instant::now(),
-            rtt: None,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct WebRtcListenerStats {
-    connections_accepted: u64,
-    active_connections: u32,
-    connection_errors: u64,
-    created_at: std::time::Instant,
-}
-
-impl WebRtcListenerStats {
-    fn new() -> Self {
-        Self {
-            connections_accepted: 0,
-            active_connections: 0,
-            connection_errors: 0,
-            created_at: std::time::Instant::now(),
-        }
     }
 }

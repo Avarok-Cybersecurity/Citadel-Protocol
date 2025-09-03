@@ -9,8 +9,9 @@ use super::NetworkStream;
 /// 
 /// This trait abstracts over different types of listeners such as TCP listeners,
 /// QUIC endpoints, or WebRTC peer connection managers.
-#[async_trait]
-pub trait NetworkListener: Send + Sync + 'static {
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+pub trait NetworkListener: 'static {
     /// The type of stream this listener produces
     type Stream: NetworkStream;
     

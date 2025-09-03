@@ -1,7 +1,9 @@
 //! WebSocket implementation for WASM
 
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use futures::io::{AsyncRead, AsyncWrite};
+use tokio::io::ReadBuf;
+use std::io::IoSliceMut;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -40,8 +42,11 @@ impl WebSocketStream {
         #[cfg(target_family = "wasm")]
         {
             use wasm_bindgen::prelude::*;
-            use wasm_bindgen_futures::JsFuture;
-            use web_sys::*;
+            use wasm_bindgen::JsCast;
+            use web_sys::{WebSocket, MessageEvent, ErrorEvent, CloseEvent, BinaryType};
+            use std::io::{self, Error, ErrorKind};
+            use std::io::IoSliceMut;
+            use tokio::io::ReadBuf;
             use std::rc::Rc;
             use std::cell::RefCell;
             use futures::channel::oneshot;
@@ -57,7 +62,7 @@ impl WebSocketStream {
             
             ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
             
-            let (tx, rx) = oneshot::channel();
+            let (tx, mut rx) = oneshot::channel();
             let tx = Rc::new(RefCell::new(Some(tx)));
             
             // Set up connection handler
@@ -69,7 +74,7 @@ impl WebSocketStream {
             ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
             onopen_callback.forget(); // Keep alive
             
-            let (err_tx, err_rx) = oneshot::channel();
+            let (err_tx, mut err_rx) = oneshot::channel::<NexusResult<()>>();
             let err_tx = Rc::new(RefCell::new(Some(err_tx)));
             
             // Set up error handler  
@@ -266,24 +271,22 @@ impl AsyncWrite for WebSocketStream {
         )))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        // WebSocket messages are sent immediately
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        // WebSocket messages are sent immediately, no flushing needed
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        #[cfg(target_family = "wasm")]
-        {
-            if let Some(ref ws) = self.websocket {
-                let _ = ws.close();
-                self.websocket = None;
-            }
-        }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        // For WASM WebSocket streams, close is handled asynchronously
+        // Return ready since WebSocket handles cleanup automatically
         Poll::Ready(Ok(()))
     }
 }
 
-#[async_trait]
+
+
+#[async_trait(?Send)]
 impl NetworkStream for WebSocketStream {
     fn local_addr(&self) -> NexusResult<SocketAddr> {
         self.local_addr()
@@ -312,6 +315,7 @@ impl NetworkStream for WebSocketStream {
 
 /// WebSocket listener (server-side functionality is limited in browsers)
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct WebSocketListener {
     local_addr: SocketAddr,
     stats: WebSocketListenerStats,
@@ -346,7 +350,7 @@ impl WebSocketListener {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl NetworkListener for WebSocketListener {
     type Stream = WebSocketStream;
 
@@ -390,6 +394,7 @@ impl WebSocketStats {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 struct WebSocketListenerStats {
     connections_accepted: u64,
     active_connections: u32,

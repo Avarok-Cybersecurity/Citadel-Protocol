@@ -4,9 +4,10 @@
 //! WebAssembly targets using WebRTC DataChannels, WebSockets, and browser APIs.
 
 pub mod provider;
-pub mod webrtc;
-pub mod websocket; 
 pub mod nat;
+pub mod webrtc;
+pub mod websocket;
+pub mod signaling;
 
 pub use provider::WasmIOProvider;
 pub use webrtc::{WebRtcDataChannel, WebRtcListener};

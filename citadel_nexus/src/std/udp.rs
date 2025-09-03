@@ -4,7 +4,7 @@ use async_trait::async_trait;
 //use bytes::BytesMut;
 use std::net::SocketAddr;
 use std::time::Instant;
-use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{NexusResult, NexusError};
 use crate::traits::{DatagramSocket, DatagramStats};

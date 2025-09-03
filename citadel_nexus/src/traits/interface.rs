@@ -26,15 +26,9 @@ use super::{NetworkListener, NetworkStream, DatagramSocket, NatTraversal};
 ///     
 ///     // Bind a TCP listener
 ///     let addr: SocketAddr = "127.0.0.1:0".parse()?;
-///     let listener = provider.bind_tcp(addr).await?;
 ///     
-///     // Connect to a remote address
-///     let stream = provider.connect_tcp(addr).await?;
-///     
-///     Ok(())
-/// }
-/// ```
-#[async_trait]
+/// Main interface trait for cross-platform I/O operations
+#[cfg(not(target_family = "wasm"))]
 pub trait CitadelIOInterface: Send + Sync + Clone + 'static {
     /// TCP listener type for this platform
     type TcpListener: NetworkListener + Send + Sync + 'static;
@@ -47,6 +41,40 @@ pub trait CitadelIOInterface: Send + Sync + Clone + 'static {
     
     /// NAT traversal implementation for this platform
     type NatTraversal: NatTraversal + Send + Sync + 'static;
+
+    /// Create a new I/O provider instance
+    async fn new() -> NexusResult<Self> where Self: Sized;
+
+    /// Bind a TCP listener to the specified address
+    async fn bind_tcp(&self, addr: SocketAddr) -> NexusResult<Self::TcpListener>;
+
+    /// Connect to a TCP address
+    async fn connect_tcp(&self, addr: SocketAddr) -> NexusResult<Self::TcpStream>;
+
+    /// Bind a UDP socket to the specified address  
+    async fn bind_udp(&self, addr: SocketAddr) -> NexusResult<Self::UdpSocket>;
+
+    /// Get NAT traversal capabilities
+    fn nat_traversal(&self) -> &Self::NatTraversal;
+
+    /// Get local IP address information for this platform
+    async fn get_local_ip_addrs(&self) -> NexusResult<Vec<std::net::IpAddr>>;
+}
+
+/// Main interface trait for cross-platform I/O operations (WASM version)
+#[cfg(target_family = "wasm")]
+pub trait CitadelIOInterface: Clone + 'static {
+    /// TCP listener type for this platform
+    type TcpListener: NetworkListener + 'static;
+    
+    /// TCP stream type for this platform  
+    type TcpStream: NetworkStream + 'static;
+    
+    /// UDP socket type for this platform
+    type UdpSocket: DatagramSocket + 'static;
+    
+    /// NAT traversal implementation for this platform
+    type NatTraversal: NatTraversal + 'static;
 
     /// Create a new I/O provider instance
     async fn new() -> NexusResult<Self> where Self: Sized;

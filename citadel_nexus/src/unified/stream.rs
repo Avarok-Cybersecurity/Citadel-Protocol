@@ -1,7 +1,12 @@
 //! Unified stream implementations that work across platforms
 
 use async_trait::async_trait;
+#[cfg(not(target_family = "wasm"))]
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+#[cfg(target_family = "wasm")]
+use futures_util::{AsyncRead, AsyncWrite};
+#[cfg(target_family = "wasm")]
+use tokio::io::ReadBuf;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -64,9 +69,21 @@ impl AsyncRead for UnifiedNetworkStream {
             #[cfg(not(target_family = "wasm"))]
             Self::Quic { recv_stream, .. } => Pin::new(recv_stream).poll_read(cx, buf),
             #[cfg(target_family = "wasm")]
-            Self::WebRtc(channel) => Pin::new(channel).poll_read(cx, buf),
+            Self::WebRtc(channel) => {
+                match Pin::new(channel).poll_read(cx, buf) {
+                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                    Poll::Pending => Poll::Pending,
+                }
+            },
             #[cfg(target_family = "wasm")]
-            Self::WebSocket(stream) => Pin::new(stream).poll_read(cx, buf),
+            Self::WebSocket(stream) => {
+                match Pin::new(stream).poll_read(cx, buf) {
+                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                    Poll::Pending => Poll::Pending,
+                }
+            },
         }
     }
 }
@@ -92,13 +109,13 @@ impl AsyncWrite for UnifiedNetworkStream {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        match self.as_mut().get_mut() {
+        match &mut *self {
             #[cfg(not(target_family = "wasm"))]
             Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
             #[cfg(not(target_family = "wasm"))]
-            Self::Tls(stream) => Pin::new(&mut **stream).poll_flush(cx),
+            Self::Tls(stream) => Pin::new(stream).poll_flush(cx),
             #[cfg(not(target_family = "wasm"))]
-            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_flush(cx),
+            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_flush(cx).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
             #[cfg(target_family = "wasm")]
             Self::WebRtc(channel) => Pin::new(channel).poll_flush(cx),
             #[cfg(target_family = "wasm")]
@@ -106,23 +123,11 @@ impl AsyncWrite for UnifiedNetworkStream {
         }
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        match self.as_mut().get_mut() {
-            #[cfg(not(target_family = "wasm"))]
-            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
-            #[cfg(not(target_family = "wasm"))]
-            Self::Tls(stream) => Pin::new(&mut **stream).poll_shutdown(cx),
-            #[cfg(not(target_family = "wasm"))]
-            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_shutdown(cx),
-            #[cfg(target_family = "wasm")]
-            Self::WebRtc(channel) => Pin::new(channel).poll_shutdown(cx),
-            #[cfg(target_family = "wasm")]
-            Self::WebSocket(stream) => Pin::new(stream).poll_shutdown(cx),
-        }
-    }
+
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl NetworkStream for UnifiedNetworkStream {
     fn local_addr(&self) -> NexusResult<SocketAddr> {
         match self {
@@ -155,7 +160,7 @@ impl NetworkStream for UnifiedNetworkStream {
     }
 
     async fn shutdown(&mut self) -> NexusResult<()> {
-        use citadel_io::tokio::io::AsyncWriteExt;
+        use futures::AsyncWriteExt;
         
         match self {
             #[cfg(not(target_family = "wasm"))]
@@ -233,20 +238,32 @@ impl NetworkStream for UnifiedNetworkStream {
 
 impl UnifiedNetworkStream {
     /// Get QUIC endpoint if this stream is a QUIC connection
-    pub fn quic_endpoint(&self) -> Option<citadel_wire::exports::Endpoint> {
+    #[cfg(not(target_family = "wasm"))]
+    pub fn quic_endpoint(&self) -> Option<quinn::Endpoint> {
         match self {
-            #[cfg(not(target_family = "wasm"))]
             Self::Quic { endpoint, .. } => Some(endpoint.clone()),
             _ => None,
         }
     }
     
+    /// Get QUIC endpoint if this stream is a QUIC connection (WASM stub)
+    #[cfg(target_family = "wasm")]
+    pub fn quic_endpoint(&self) -> Option<()> {
+        None
+    }
+    
     /// Take the QUIC connection if this stream is a QUIC connection
-    pub fn take_quic_connection(&mut self) -> Option<citadel_wire::exports::Connection> {
+    #[cfg(not(target_family = "wasm"))]
+    pub fn take_quic_connection(&mut self) -> Option<quinn::Connection> {
         match self {
-            #[cfg(not(target_family = "wasm"))]
             Self::Quic { connection, .. } => connection.take(),
             _ => None,
         }
+    }
+    
+    /// Take the QUIC connection if this stream is a QUIC connection (WASM stub)
+    #[cfg(target_family = "wasm")]
+    pub fn take_quic_connection(&mut self) -> Option<()> {
+        None
     }
 }
