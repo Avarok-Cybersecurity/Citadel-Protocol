@@ -28,6 +28,7 @@ use super::{NetworkListener, NetworkStream, DatagramSocket, NatTraversal};
 ///     let addr: SocketAddr = "127.0.0.1:0".parse()?;
 ///     
 /// Main interface trait for cross-platform I/O operations
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg(not(target_family = "wasm"))]
 pub trait CitadelIOInterface: Send + Sync + Clone + 'static {
     /// TCP listener type for this platform
@@ -62,6 +63,7 @@ pub trait CitadelIOInterface: Send + Sync + Clone + 'static {
 }
 
 /// Main interface trait for cross-platform I/O operations (WASM version)
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg(target_family = "wasm")]
 pub trait CitadelIOInterface: Clone + 'static {
     /// TCP listener type for this platform
@@ -91,20 +93,8 @@ pub trait CitadelIOInterface: Clone + 'static {
     /// Get NAT traversal capabilities
     fn nat_traversal(&self) -> &Self::NatTraversal;
 
-    /// Get local IP address information
-    async fn get_local_ip_info(&self) -> NexusResult<IpInfo>;
-
-    /// Check if IPv6 is available on this platform
-    fn supports_ipv6(&self) -> bool;
-
-    /// Check if this platform supports QUIC
-    fn supports_quic(&self) -> bool;
-
-    /// Check if this platform supports TLS
-    fn supports_tls(&self) -> bool;
-
-    /// Get platform-specific information
-    fn platform_info(&self) -> PlatformInfo;
+    /// Get local IP address information for this platform
+    async fn get_local_ip_addrs(&self) -> NexusResult<Vec<std::net::IpAddr>>;
 }
 
 /// Information about the current platform

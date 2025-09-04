@@ -57,60 +57,23 @@ impl CitadelIOInterface for StdIOProvider {
     }
 
     async fn bind_udp(&self, addr: SocketAddr) -> NexusResult<Self::UdpSocket> {
-        let socket = citadel_io::tokio::net::UdpSocket::bind(addr).await
-            .map_err(NexusError::from)?;
-        
+        let socket = citadel_io::tokio::net::UdpSocket::bind(addr).await?;
         Ok(StdUdpSocket::new(socket))
+    }
+
+    async fn get_local_ip_addrs(&self) -> NexusResult<Vec<std::net::IpAddr>> {
+        use std::net::{IpAddr, Ipv4Addr};
+        
+        // Return localhost for basic implementation
+        // In a production implementation, this would enumerate all network interfaces
+        Ok(vec![
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+        ])
     }
 
     fn nat_traversal(&self) -> &Self::NatTraversal {
         &self.nat_traversal
-    }
-
-    async fn get_local_ip_info(&self) -> NexusResult<IpInfo> {
-        // Use the async_ip crate to get local IP information
-        let ip_info = async_ip::IpAddressInfo::localhost();
-
-        let ipv4 = match ip_info.internal_ip {
-            std::net::IpAddr::V4(v4) => Some(v4),
-            _ => None,
-        };
-        let ipv6 = match ip_info.external_ipv6 {
-            Some(std::net::IpAddr::V6(v6)) => Some(v6),
-            _ => None,
-        };
-        
-        Ok(IpInfo {
-            ipv4,
-            ipv6,
-            behind_nat: None, // Will be determined by NAT traversal
-        })
-    }
-
-    fn supports_ipv6(&self) -> bool {
-        // TODO: Implement IPv6 detection
-        false
-    }
-
-    fn supports_quic(&self) -> bool {
-        cfg!(feature = "std")
-    }
-
-    fn supports_tls(&self) -> bool {
-        cfg!(feature = "std")
-    }
-
-    fn platform_info(&self) -> PlatformInfo {
-        PlatformInfo {
-            name: "std",
-            features: vec![
-                "tcp", "udp", "ipv6", 
-                if self.supports_tls() { "tls" } else { "" },
-                if self.supports_quic() { "quic" } else { "" },
-                "nat-traversal"
-            ].into_iter().filter(|s| !s.is_empty()).collect(),
-            max_connections: None, // No artificial limit
-        }
     }
 }
 

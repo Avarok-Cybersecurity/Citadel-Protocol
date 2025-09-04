@@ -1,10 +1,10 @@
-//! Unified stream implementations that work across platforms
+//! Unified stream implementation for different platform backends
 
 use async_trait::async_trait;
 #[cfg(not(target_family = "wasm"))]
-use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncWriteExt};
 #[cfg(target_family = "wasm")]
-use futures_util::{AsyncRead, AsyncWrite};
+use futures::io::{AsyncRead, AsyncWrite};
 #[cfg(target_family = "wasm")]
 use tokio::io::ReadBuf;
 use std::net::SocketAddr;
@@ -123,7 +123,14 @@ impl AsyncWrite for UnifiedNetworkStream {
         }
     }
 
-
+    #[cfg(not(target_family = "wasm"))]
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_flush(cx).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+        }
+    }
 }
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]

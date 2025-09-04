@@ -85,14 +85,15 @@ pub trait DatagramExt: DatagramSocket {
     }
     
     /// Send structured data as JSON
-    async fn send_json<T: Serialize>(
+    async fn send_json<T: Serialize + Sync>(
         &self,
         data: &T,
         target: SocketAddr,
-    ) -> NexusResult<usize>
+    ) -> NexusResult<()> 
     {
-        let data = serde_json::to_vec(data).map_err(|e| crate::error::NexusError::Serialization(e.to_string()))?;
-        self.send_to(&data, target).await
+        let data = serde_json::to_vec(data).map_err(|e| crate::error::NexusError::Other(format!("JSON serialization failed: {}", e)))?;
+        self.send_to(&data, target).await?;
+        Ok(())
     }
     
     /// Receive and deserialize a message

@@ -22,13 +22,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     println!("UDP Socket bound to: {}", udp_local_addr);
     
-    // Get platform info
-    let platform_info = io_provider.platform_info();
-    println!("Platform: {} with features: {:?}", platform_info.name, platform_info.features);
-    
-    // Test IP info
-    let ip_info = io_provider.get_local_ip_info().await?;
-    println!("Local IP info: {:?}", ip_info);
+    // Test IP address discovery
+    let ip_addrs = io_provider.get_local_ip_addrs().await?;
+    println!("Local IP addresses: {:?}", ip_addrs);
     
     println!("✓ Citadel Nexus integration working successfully!");
     
