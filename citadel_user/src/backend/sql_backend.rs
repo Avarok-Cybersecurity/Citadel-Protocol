@@ -44,8 +44,7 @@ use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use itertools::Itertools;
-use sqlx::any::{AnyArguments, AnyPoolOptions, AnyQueryResult, AnyRow};
-use sqlx::postgres::any::AnyTypeInfoKind;
+use sqlx::any::{AnyArguments, AnyPoolOptions, AnyQueryResult, AnyRow, AnyTypeInfoKind};
 use sqlx::{AnyPool, Arguments, Column, Executor, Row};
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
@@ -266,16 +265,23 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let mut args = AnyArguments::default();
 
         if self.variant == SqlVariant::Sqlite {
-            args.add(metadata.cid.to_string());
+            args.add(metadata.cid.to_string())
+                .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
         } else {
-            args.add(u64_into_i64(metadata.cid));
+            args.add(u64_into_i64(metadata.cid))
+                .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
         };
 
-        args.add(metadata.is_personal as i32);
-        args.add(metadata.username);
-        args.add(metadata.full_name);
-        args.add(metadata.creation_date);
-        args.add(bytes);
+        args.add(metadata.is_personal as i32)
+            .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
+        args.add(metadata.username)
+            .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
+        args.add(metadata.full_name)
+            .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
+        args.add(metadata.creation_date)
+            .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
+        args.add(bytes)
+            .map_err(|err| AccountError::Generic(format!("{err:?}")))?;
 
         let _query = sqlx::query_with(query.as_str(), args)
             .execute(conn)

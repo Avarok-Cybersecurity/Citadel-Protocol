@@ -315,7 +315,7 @@ pub const SELF_SIGNED_DOMAIN: &str = "localhost";
 pub fn generate_self_signed_cert() -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
     let cert = rcgen::generate_simple_self_signed(vec![SELF_SIGNED_DOMAIN.into()])?;
     let cert_der = cert.cert.der().as_ref().to_vec();
-    let priv_key_der = cert.key_pair.serialize_der();
+    let priv_key_der = cert.signing_key.serialize_der();
     Ok((cert_der, priv_key_der))
 }
 

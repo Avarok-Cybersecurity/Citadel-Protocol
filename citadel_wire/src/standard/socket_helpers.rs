@@ -188,25 +188,6 @@ async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
     setup_connect(addr, socket, timeout, true).await
 }
 
-pub fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(
-    addr: T,
-) -> Result<UdpSocket, anyhow::Error> {
-    get_udp_socket_inner(addr, true)
-}
-
-pub fn get_reuse_tcp_listener<T: std::net::ToSocketAddrs>(
-    addr: T,
-) -> Result<TcpListener, anyhow::Error> {
-    get_tcp_listener_inner(addr, true)
-}
-
-pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
-    addr: T,
-    timeout: Duration,
-) -> Result<TcpStream, anyhow::Error> {
-    get_tcp_stream_inner(addr, timeout, true).await
-}
-
 pub fn get_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
     get_udp_socket_inner(addr, false)
 }

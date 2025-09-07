@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 /// A messenger intended for use by the citadel_proto package for two nodes to use
@@ -70,7 +71,9 @@ where
         let manager_clone = manager.clone();
         let is_active_bg = is_active.clone();
         let cid = manager.session_crypto_state.cid();
-        let enqueued_messages = Arc::new(tokio::sync::Mutex::new(VecDeque::new()));
+        let enqueued_messages = Arc::new(tokio::sync::Mutex::new(VecDeque::<
+            MessengerLayerOrderedMessage<P>,
+        >::new()));
         let enqueued_messages_clone = enqueued_messages.clone();
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -78,6 +81,7 @@ where
         let background_task = async move {
             // Each time a rekey finishes, we should check the local queue for any enqueued messages
             // to poll and send
+            let enqueued_messages_rekey = enqueued_messages_clone.clone();
             let rekey_task = async move {
                 while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
                     if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
@@ -86,28 +90,48 @@ where
                         }
                     }
 
-                    // Check the latest item in the queue. Hold the lock to prevent race conditions locally
-                    let mut lock = enqueued_messages_clone.lock().await;
-                    log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", lock.len());
-                    if let Some(last_item) = lock.pop_front() {
-                        match manager_clone
-                            .trigger_rekey_with_payload(Some(last_item), false)
-                            .await
-                        {
-                            Ok(Some(message_not_sent)) => {
-                                log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): NOT READY. Queue size: {}", lock.len());
-                                lock.push_front(message_not_sent);
-                            }
+                    // Process all queued messages, not just one
+                    loop {
+                        let mut lock = enqueued_messages_rekey.lock().await;
+                        log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", lock.len());
 
-                            Ok(None) => {
-                                // Successfully sent
-                            }
+                        if let Some(last_item) = lock.pop_front() {
+                            // Release lock before async operation
+                            drop(lock);
 
-                            Err(err) => {
-                                log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
-                                break;
+                            match manager_clone
+                                .trigger_rekey_with_payload(Some(last_item), false)
+                                .await
+                            {
+                                Ok(Some(message_not_sent)) => {
+                                    log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): NOT READY. Re-enqueueing message");
+                                    let mut lock = enqueued_messages_rekey.lock().await;
+                                    lock.push_front(message_not_sent);
+                                    break; // Wait for next rekey
+                                }
+
+                                Ok(None) => {
+                                    // Successfully sent, continue with next message
+                                    log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): Message sent successfully");
+                                }
+
+                                Err(err) => {
+                                    log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
+                                    // Cannot re-enqueue since we moved the item
+                                    break; // Wait for next rekey
+                                }
                             }
+                        } else {
+                            break; // No more messages in queue
                         }
+                    }
+                }
+
+                // Process any remaining messages before exiting
+                if secrecy_mode == SecrecyMode::Perfect {
+                    let queue_size = enqueued_messages_rekey.lock().await.len();
+                    if queue_size > 0 {
+                        log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey task ending with {queue_size} messages still queued");
                     }
                 }
             };
@@ -119,14 +143,32 @@ where
                     let id = message.id;
                     if let Err(err) = ordered_channel.on_packet_received(id, message.message) {
                         log::error!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): Failed to send message: {err:?}");
-                        break;
+                        // Don't break - continue processing other messages
                     }
                 }
             };
 
             tokio::select! {
-                _ = rekey_task => {}
-                _ = ordered_receiver => {}
+                _ = rekey_task => {
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey task ended");
+                }
+                _ = ordered_receiver => {
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): ordered receiver ended");
+                }
+            }
+
+            // Before shutting down, ensure all queued messages are processed
+            if secrecy_mode == SecrecyMode::Perfect {
+                let mut retries = 0;
+                while retries < 10 {
+                    let queue_size = enqueued_messages_clone.lock().await.len();
+                    if queue_size == 0 {
+                        break;
+                    }
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): waiting for {queue_size} queued messages before shutdown");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    retries += 1;
+                }
             }
 
             log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): background task ending");

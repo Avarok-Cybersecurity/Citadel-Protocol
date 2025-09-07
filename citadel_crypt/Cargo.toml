@@ -37,7 +37,7 @@ arrayvec = { workspace = true, features = ["serde"] }
 citadel_pqcrypto = { workspace = true }
 citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
-rust-argon2 = { workspace = true, features = ["serde"] }
+rust-argon2 = { workspace = true, features = ["serde", "crossbeam-utils"] }
 sha3 = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
