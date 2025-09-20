@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use citadel_io::tokio;
     use citadel_io::tokio::sync::Barrier;

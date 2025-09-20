@@ -386,8 +386,9 @@ mod tests {
     #[rstest]
     #[case(SecrecyMode::BestEffort)]
     #[timeout(Duration::from_secs(60))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn test_p2p_file_transfer_revfs(
+#[cfg(feature = "localhost-testing")]
+#[citadel_io::tokio::test(flavor = "multi_thread")]
+async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,

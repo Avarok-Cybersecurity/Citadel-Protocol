@@ -297,7 +297,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;

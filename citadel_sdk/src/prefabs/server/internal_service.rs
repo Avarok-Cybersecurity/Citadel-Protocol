@@ -119,7 +119,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for InternalServiceKernel<'_, F, Fut, R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod test {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;

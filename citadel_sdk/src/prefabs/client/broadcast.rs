@@ -435,7 +435,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;

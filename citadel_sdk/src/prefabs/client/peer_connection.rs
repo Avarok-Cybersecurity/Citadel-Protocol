@@ -580,7 +580,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
