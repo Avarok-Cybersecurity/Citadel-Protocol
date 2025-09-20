@@ -76,102 +76,93 @@ pub async fn process_register<R: Ratchet>(
         match header.cmd_aux {
             packet_flags::cmd::aux::do_register::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 0 REGISTER PACKET");
-                let task = {
-                    let mut state_container = inner_mut_state!(session.state_container);
-                    // This node is Bob (receives a stage 0 packet from Alice). The payload should have Alice's public key
-                    if state_container.register_state.last_stage
-                        == packet_flags::cmd::aux::do_register::STAGE0
-                    {
-                        let algorithm = header.algorithm;
-
-                        match validation::do_register::validate_stage0::<R>(&payload) {
-                            Some((transfer, transient_mode_requested)) => {
-                                // Now, create a stage 1 packet
-                                let timestamp = session.time_tracker.get_global_time_ns();
-                                state_container.register_state.transient_mode =
-                                    Some(transient_mode_requested);
-
-                                if transient_mode_requested
-                                    && !session
-                                        .account_manager
-                                        .get_misc_settings()
-                                        .allow_transient_connections
-                                {
-                                    // Transient connections are not allowed on this node
-                                    const REASON: &str =
-                                        "Transient connections are not allowed on this node";
-                                    let err = packet_crafter::do_register::craft_failure(
-                                        algorithm,
-                                        timestamp,
-                                        REASON,
-                                        header.session_cid.get(),
-                                        ticket,
-                                    );
-                                    return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
-                                        err, REASON,
-                                    ));
-                                }
-
-                                std::mem::drop(state_container);
-                                let session_password = session.session_password.clone();
-
-                                async move {
-                                    let cid = header.session_cid.get();
-                                    // Offload new_bob + stage0_bob + finish
-                                    let (transfer_out, finished_ratchet) = citadel_io::tokio::task::spawn_blocking(move || {
-                                        let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
-                                            cid,
-                                            ConstructorOpts::new_vec_init(
-                                                Some(transfer.crypto_params()),
-                                                transfer.security_level(),
-                                            ),
-                                            transfer,
-                                            session_password.as_ref(),
-                                        ).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
-                                        let transfer_out = bob_constructor.stage0_bob().ok_or(NetworkError::InvalidRequest("Unable to advance past stage0-bob"))?;
-                                        let finished_ratchet = bob_constructor.finish().ok_or(NetworkError::InvalidRequest("Unable to finish bob constructor"))?;
-                                        Ok::<_, NetworkError>((transfer_out, finished_ratchet))
-                                    })
-                                    .await
-                                    .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
-
-                                    let stage1_packet = packet_crafter::do_register::craft_stage1::<R>(
-                                        algorithm,
-                                        timestamp,
-                                        transfer_out,
-                                        header.session_cid.get(),
-                                        ticket,
-                                    );
-
-                                    let mut state_container = inner_mut_state!(session.state_container);
-                                    state_container.register_state.created_ratchet = Some(finished_ratchet);
-                                    state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
-                                    state_container.register_state.on_register_packet_received();
-
-                                    Ok(PrimaryProcessorResult::ReplyToSender(stage1_packet))
-                                }
-                            }
-
-                            _ => {
-                                log::error!(target: "citadel", "Unable to validate STAGE0_REGISTER packet");
-                                state_container.register_state.on_fail();
-                                state_container.register_state.on_register_packet_received();
-                                std::mem::drop(state_container);
-
-                                session.state.set(SessionState::NeedsRegister);
-
-                                return Ok(PrimaryProcessorResult::EndSession(
-                                    "Unable to validate STAGE0_REGISTER packet",
-                                ));
-                            }
+                let algorithm = header.algorithm;
+                // Validate incoming transfer first (no state lock required)
+                match validation::do_register::validate_stage0::<R>(&payload) {
+                    Some((transfer, transient_mode_requested)) => {
+                        let timestamp = session.time_tracker.get_global_time_ns();
+                        // Check server config for transient mode
+                        if transient_mode_requested
+                            && !session
+                                .account_manager
+                                .get_misc_settings()
+                                .allow_transient_connections
+                        {
+                            const REASON: &str = "Transient connections are not allowed on this node";
+                            let err = packet_crafter::do_register::craft_failure(
+                                algorithm,
+                                timestamp,
+                                REASON,
+                                header.session_cid.get(),
+                                ticket,
+                            );
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(err, REASON));
                         }
-                    } else {
-                        warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
-                        return Ok(PrimaryProcessorResult::Void);
-                    }
-                };
 
-                task.await
+                        let session_password = session.session_password.clone();
+                        let cid = header.session_cid.get();
+
+                        // Heavy: new_bob + stage0_bob + finish (off-thread)
+                        let (transfer_out, finished_ratchet) = citadel_io::tokio::task::spawn_blocking(move || {
+                            let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                                cid,
+                                ConstructorOpts::new_vec_init(
+                                    Some(transfer.crypto_params()),
+                                    transfer.security_level(),
+                                ),
+                                transfer,
+                                session_password.as_ref(),
+                            ).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                            let transfer_out = bob_constructor.stage0_bob().ok_or(NetworkError::InvalidRequest("Unable to advance past stage0-bob"))?;
+                            let finished_ratchet = bob_constructor.finish().ok_or(NetworkError::InvalidRequest("Unable to finish bob constructor"))?;
+                            Ok::<_, NetworkError>((transfer_out, finished_ratchet))
+                        })
+                        .await
+                        .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
+
+                        // Build response packet before touching state
+                        let stage1_packet = packet_crafter::do_register::craft_stage1::<R>(
+                            algorithm,
+                            timestamp,
+                            transfer_out,
+                            header.session_cid.get(),
+                            ticket,
+                        );
+
+                        // Single lock for commit and state-machine validation
+                        let ok = {
+                            let mut state_container = inner_mut_state!(session.state_container);
+                            if state_container.register_state.last_stage
+                                == packet_flags::cmd::aux::do_register::STAGE0
+                            {
+                                state_container.register_state.transient_mode = Some(transient_mode_requested);
+                                state_container.register_state.created_ratchet = Some(finished_ratchet);
+                                state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
+                                state_container.register_state.on_register_packet_received();
+                                true
+                            } else {
+                                false
+                            }
+                        };
+
+                        if !ok {
+                            warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
+                            return Ok(PrimaryProcessorResult::Void);
+                        }
+
+                        Ok(PrimaryProcessorResult::ReplyToSender(stage1_packet))
+                    }
+
+                    _ => {
+                        log::error!(target: "citadel", "Unable to validate STAGE0_REGISTER packet");
+                        let mut state_container = inner_mut_state!(session.state_container);
+                        state_container.register_state.on_fail();
+                        state_container.register_state.on_register_packet_received();
+                        drop(state_container);
+                        session.state.set(SessionState::NeedsRegister);
+                        Ok(PrimaryProcessorResult::EndSession("Unable to validate STAGE0_REGISTER packet"))
+                    }
+                }
             }
 
             packet_flags::cmd::aux::do_register::STAGE1 => {
@@ -193,10 +184,11 @@ pub async fn process_register<R: Ratchet>(
                     );
                     let security_level = transfer.security_level();
 
-                    // Offload stage1_alice + finish
+                    // Offload stage1_alice + finish (avoid capturing session in closure)
+                    let psk = session.session_password.clone();
                     let new_ratchet = citadel_io::tokio::task::spawn_blocking(move || {
                         alice_constructor
-                            .stage1_alice(transfer, session.session_password.as_ref())
+                            .stage1_alice(transfer, psk.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
                         alice_constructor
                             .finish()
