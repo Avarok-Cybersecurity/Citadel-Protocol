@@ -868,6 +868,11 @@ where
 
         // Ensure update_in_progress is reset
         self.session_crypto_state.update_in_progress.toggle_off();
+        
+        // Add a small delay to ensure remote side has time to process the final messages
+        // This helps prevent race conditions where messages are encrypted with new ratchets
+        // before the remote side has fully updated
+        tokio::time::sleep(Duration::from_millis(10)).await;
 
         Ok(latest_ratchet)
     }

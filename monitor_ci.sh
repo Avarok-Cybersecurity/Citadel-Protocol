@@ -3,8 +3,12 @@
 echo "Starting continuous monitoring of CI pipelines..."
 echo "================================================"
 
-RATCHET_RUN_ID=17885164751
-PIPELINE_RUN_ID=17885164762
+# Get the latest run IDs dynamically
+RATCHET_RUN_ID=$(gh run list --repo Avarok-Cybersecurity/Citadel-Protocol --branch stability-improvements --workflow "Ratchet Stability Test" --limit 1 --json databaseId --jq '.[0].databaseId')
+PIPELINE_RUN_ID=$(gh run list --repo Avarok-Cybersecurity/Citadel-Protocol --branch stability-improvements --workflow "Execute Pipeline" --limit 1 --json databaseId --jq '.[0].databaseId')
+
+echo "Monitoring Ratchet Stability Test: $RATCHET_RUN_ID"
+echo "Monitoring Execute Pipeline: $PIPELINE_RUN_ID"
 
 while true; do
     # Get status of both runs
@@ -24,7 +28,28 @@ while true; do
     echo "Ratchet Stability Test: status=$ratchet_status, conclusion=$ratchet_conclusion"
     echo "Execute Pipeline:       status=$pipeline_status, conclusion=$pipeline_conclusion"
     
-    # Check if both completed
+    # Check if either pipeline failed (even before both complete)
+    if [ "$ratchet_status" = "completed" ] && [ "$ratchet_conclusion" = "failure" ]; then
+        echo ""
+        echo "================================================"
+        echo "❌ Ratchet Stability Test FAILED"
+        echo ""
+        echo "Getting failed job details..."
+        gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}'
+        exit 1
+    fi
+    
+    if [ "$pipeline_status" = "completed" ] && [ "$pipeline_conclusion" = "failure" ]; then
+        echo ""
+        echo "================================================"
+        echo "❌ Execute Pipeline FAILED"
+        echo ""
+        echo "Getting failed jobs..."
+        gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}'
+        exit 1
+    fi
+    
+    # Check if both completed successfully
     if [ "$ratchet_status" = "completed" ] && [ "$pipeline_status" = "completed" ]; then
         echo ""
         echo "================================================"
@@ -40,20 +65,7 @@ while true; do
             exit 0
         else
             echo ""
-            echo "❌ One or more pipelines failed"
-            
-            # Get failed job details if any failed
-            if [ "$ratchet_conclusion" = "failure" ]; then
-                echo ""
-                echo "Ratchet test failed. Getting job details..."
-                gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}'
-            fi
-            
-            if [ "$pipeline_conclusion" = "failure" ]; then
-                echo ""
-                echo "Execute pipeline failed. Getting failed jobs..."
-                gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}'
-            fi
+            echo "❌ One or more pipelines did not succeed"
             exit 1
         fi
     fi

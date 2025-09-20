@@ -150,6 +150,37 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         read.get_ratchet(target_version).cloned()
     }
+    
+    /// Retrieves a ratchet for encryption, using a more conservative approach
+    /// to avoid using unconfirmed versions that might not be available on the remote side yet
+    pub fn get_ratchet_for_encryption(&self) -> Option<R> {
+        let read = self.toolset.read();
+        
+        // For encryption, be more conservative - use the previous version if we're in
+        // an active update to avoid race conditions
+        let is_updating = self.update_in_progress.state() == CurrentToggleState::AlreadyToggled;
+        let latest_version = self.latest_usable_version.load(ORDERING);
+        
+        let target_version = if is_updating && latest_version > 0 {
+            // During updates, use the previous confirmed version for encryption
+            let prev_version = latest_version.saturating_sub(1);
+            log::trace!(target: "citadel", "get_ratchet_for_encryption for {}: Using conservative version {} (latest: {}, updating: true)", 
+                self.cid, prev_version, latest_version);
+            prev_version
+        } else {
+            latest_version
+        };
+        
+        // Ensure the target version exists
+        if read.get_ratchet(target_version).is_none() && target_version > 0 {
+            let fallback = target_version.saturating_sub(1);
+            log::debug!(target: "citadel", "get_ratchet_for_encryption for {}: Version {} not available, using {}", 
+                self.cid, target_version, fallback);
+            read.get_ratchet(fallback).cloned()
+        } else {
+            read.get_ratchet(target_version).cloned()
+        }
+    }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
     /// that the endpoint updated the ratchet (no transfer received, since none needed)
