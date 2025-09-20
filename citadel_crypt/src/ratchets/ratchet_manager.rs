@@ -441,8 +441,9 @@ where
             // Do not immediately stop, since some packets may still be in transit
             loop {
                 let now = UNIX_EPOCH.elapsed().unwrap_or_default().as_secs();
-                if time_since_last_packet.load(Ordering::Relaxed) < now.saturating_sub(2000) {
-                    log::trace!(target: "citadel", "Shutting down since last packet has not been received in 2000ms");
+                // Break once we've observed at least 2 seconds without any inbound packets
+                if time_since_last_packet.load(Ordering::Relaxed) < now.saturating_sub(2) {
+                    log::trace!(target: "citadel", "Shutting down since last packet has not been received in 2s");
                     break;
                 }
 
@@ -508,23 +509,22 @@ where
                             self.session_crypto_state.latest_usable_version();
                         let (local_earliest_ratchet_version, next_opts) = {
                             let read = self.session_crypto_state.toolset().read();
-                            let target_version = if read
-                                .get_ratchet(local_latest_ratchet_version)
-                                .is_none()
-                            {
-                                local_latest_ratchet_version.saturating_sub(1)
-                            } else {
-                                local_latest_ratchet_version
-                            };
-                            let ratchet = read
-                                .get_ratchet(target_version)
-                                .cloned()
-                                .ok_or_else(|| {
+                            let target_version =
+                                if read.get_ratchet(local_latest_ratchet_version).is_none() {
+                                    local_latest_ratchet_version.saturating_sub(1)
+                                } else {
+                                    local_latest_ratchet_version
+                                };
+                            let ratchet =
+                                read.get_ratchet(target_version).cloned().ok_or_else(|| {
                                     CryptError::RekeyUpdateError(
                                         "Failed to get stacked ratchet".to_string(),
                                     )
                                 })?;
-                            (read.get_oldest_ratchet_version(), ratchet.get_next_constructor_opts())
+                            (
+                                read.get_oldest_ratchet_version(),
+                                ratchet.get_next_constructor_opts(),
+                            )
                         };
 
                         // Validate against our barrier. We only care about the latest version, since the
@@ -562,7 +562,9 @@ where
                             move || session_crypto_state.update_sync_safe(bob_constructor, false)
                         })
                         .await
-                        .map_err(|_| CryptError::RekeyUpdateError("Join error on update_sync_safe".into()))??
+                        .map_err(|_| {
+                            CryptError::RekeyUpdateError("Join error on update_sync_safe".into())
+                        })??
                     };
 
                     match status {
@@ -668,7 +670,9 @@ where
                             move || session_crypto_state.update_sync_safe(alice_constructor, true)
                         })
                         .await
-                        .map_err(|_| CryptError::RekeyUpdateError("Join error on update_sync_safe".into()))??;
+                        .map_err(|_| {
+                            CryptError::RekeyUpdateError("Join error on update_sync_safe".into())
+                        })??;
 
                         let truncation_required = status.requires_truncation();
 
