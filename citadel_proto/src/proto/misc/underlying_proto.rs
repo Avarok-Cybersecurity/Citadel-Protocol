@@ -173,6 +173,7 @@ impl Debug for ServerUnderlyingProtocol {
     }
 }
 
+#[allow(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct P2PListenerConnectInfo {
     pub addr: SocketAddr,
