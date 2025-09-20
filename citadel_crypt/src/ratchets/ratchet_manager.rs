@@ -320,12 +320,17 @@ where
         };
 
         if let Some(constructor) = constructor {
-            let transfer = constructor.stage0_alice().ok_or_else(|| {
-                CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
-            })?;
-
-            let payload = bincode::serialize(&transfer)
-                .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+            // Offload stage0_alice + serialize
+            let (constructor, payload) = citadel_io::tokio::task::spawn_blocking(move || {
+                let transfer = constructor.stage0_alice().ok_or_else(|| {
+                    CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
+                })?;
+                let payload = bincode::serialize(&transfer)
+                    .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                Ok::<_, CryptError>((constructor, payload))
+            })
+            .await
+            .map_err(|_| CryptError::RekeyUpdateError("Join error on stage0_alice".into()))??;
 
             let metadata = self.get_rekey_metadata();
 
@@ -498,13 +503,29 @@ where
                             .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
 
                         let _cid = self.session_crypto_state.cid();
-                        let local_earliest_ratchet_version = self
-                            .session_crypto_state
-                            .toolset()
-                            .read()
-                            .get_oldest_ratchet_version();
+                        // Single toolset read for this phase
                         let local_latest_ratchet_version =
                             self.session_crypto_state.latest_usable_version();
+                        let (local_earliest_ratchet_version, next_opts) = {
+                            let read = self.session_crypto_state.toolset().read();
+                            let target_version = if read
+                                .get_ratchet(local_latest_ratchet_version)
+                                .is_none()
+                            {
+                                local_latest_ratchet_version.saturating_sub(1)
+                            } else {
+                                local_latest_ratchet_version
+                            };
+                            let ratchet = read
+                                .get_ratchet(target_version)
+                                .cloned()
+                                .ok_or_else(|| {
+                                    CryptError::RekeyUpdateError(
+                                        "Failed to get stacked ratchet".to_string(),
+                                    )
+                                })?;
+                            (read.get_oldest_ratchet_version(), ratchet.get_next_constructor_opts())
+                        };
 
                         // Validate against our barrier. We only care about the latest version, since the
                         // earliest version may still be syncing
@@ -524,17 +545,6 @@ where
                             ));
                         }
 
-                        // Get next_opts from the container
-                        let next_opts = self
-                            .session_crypto_state
-                            .get_ratchet(None)
-                            .ok_or_else(|| {
-                                CryptError::RekeyUpdateError(
-                                    "Failed to get stacked ratchet".to_string(),
-                                )
-                            })?
-                            .get_next_constructor_opts();
-
                         // Create Bob constructor
                         let bob_constructor =
                             <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
@@ -546,14 +556,27 @@ where
                                 )
                             })?;
 
-                        self.session_crypto_state
-                            .update_sync_safe(bob_constructor, false)?
+                        // Offload update_sync_safe
+                        citadel_io::tokio::task::spawn_blocking({
+                            let session_crypto_state = self.session_crypto_state.clone();
+                            move || session_crypto_state.update_sync_safe(bob_constructor, false)
+                        })
+                        .await
+                        .map_err(|_| CryptError::RekeyUpdateError("Join error on update_sync_safe".into()))??
                     };
 
                     match status {
                         KemTransferStatus::Some(transfer, _) => {
                             let serialized = bincode::serialize(&transfer)
                                 .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+
+                            // Remove the local constructor, if existent, since it won't be used
+                            let _ = self.constructor.lock().take();
+                            let _ = self
+                                .session_crypto_state
+                                .update_in_progress
+                                .toggle_on_if_untoggled();
+                            self.set_role(RekeyRole::Loser);
 
                             log::trace!(target: "citadel", "Client {} must send BobToAlice", self.cid);
 
@@ -569,14 +592,6 @@ where
                                 .map_err(|_err| {
                                     CryptError::RekeyUpdateError("Sink send error".into())
                                 })?;
-
-                            // Remove the local constructor, if existent, since it won't be used
-                            let _ = self.constructor.lock().take();
-                            let _ = self
-                                .session_crypto_state
-                                .update_in_progress
-                                .toggle_on_if_untoggled();
-                            self.set_role(RekeyRole::Loser);
 
                             log::debug!(
                                 target: "citadel",
@@ -647,10 +662,13 @@ where
                         })?;
 
                         alice_constructor.stage1_alice(transfer, &self.psks)?;
-                        let status = {
-                            self.session_crypto_state
-                                .update_sync_safe(alice_constructor, true)?
-                        };
+                        // Offload update_sync_safe
+                        let status = citadel_io::tokio::task::spawn_blocking({
+                            let session_crypto_state = self.session_crypto_state.clone();
+                            move || session_crypto_state.update_sync_safe(alice_constructor, true)
+                        })
+                        .await
+                        .map_err(|_| CryptError::RekeyUpdateError("Join error on update_sync_safe".into()))??;
 
                         let truncation_required = status.requires_truncation();
 

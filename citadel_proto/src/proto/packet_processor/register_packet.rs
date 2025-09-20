@@ -117,8 +117,9 @@ pub async fn process_register<R: Ratchet>(
 
                                 async move {
                                     let cid = header.session_cid.get();
-                                    let mut bob_constructor =
-                                        <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                                    // Offload new_bob + stage0_bob + finish
+                                    let (transfer_out, finished_ratchet) = citadel_io::tokio::task::spawn_blocking(move || {
+                                        let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                             cid,
                                             ConstructorOpts::new_vec_init(
                                                 Some(transfer.crypto_params()),
@@ -126,31 +127,25 @@ pub async fn process_register<R: Ratchet>(
                                             ),
                                             transfer,
                                             session_password.as_ref(),
-                                        )
-                                        .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
-                                    let transfer = return_if_none!(
-                                        bob_constructor.stage0_bob(),
-                                        "Unable to advance past stage0-bob"
+                                        ).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                                        let transfer_out = bob_constructor.stage0_bob().ok_or(NetworkError::InvalidRequest("Unable to advance past stage0-bob"))?;
+                                        let finished_ratchet = bob_constructor.finish().ok_or(NetworkError::InvalidRequest("Unable to finish bob constructor"))?;
+                                        Ok::<_, NetworkError>((transfer_out, finished_ratchet))
+                                    })
+                                    .await
+                                    .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
+
+                                    let stage1_packet = packet_crafter::do_register::craft_stage1::<R>(
+                                        algorithm,
+                                        timestamp,
+                                        transfer_out,
+                                        header.session_cid.get(),
+                                        ticket,
                                     );
 
-                                    let stage1_packet =
-                                        packet_crafter::do_register::craft_stage1::<R>(
-                                            algorithm,
-                                            timestamp,
-                                            transfer,
-                                            header.session_cid.get(),
-                                            ticket,
-                                        );
-
-                                    let mut state_container =
-                                        inner_mut_state!(session.state_container);
-                                    state_container.register_state.created_ratchet =
-                                        Some(return_if_none!(
-                                            bob_constructor.finish(),
-                                            "Unable to finish bob constructor"
-                                        ));
-                                    state_container.register_state.last_stage =
-                                        packet_flags::cmd::aux::do_register::STAGE1;
+                                    let mut state_container = inner_mut_state!(session.state_container);
+                                    state_container.register_state.created_ratchet = Some(finished_ratchet);
+                                    state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
                                     state_container.register_state.on_register_packet_received();
 
                                     Ok(PrimaryProcessorResult::ReplyToSender(stage1_packet))
@@ -182,57 +177,54 @@ pub async fn process_register<R: Ratchet>(
             packet_flags::cmd::aux::do_register::STAGE1 => {
                 log::trace!(target: "citadel", "STAGE 1 REGISTER PACKET");
                 // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
-                let mut state_container = inner_mut_state!(session.state_container);
-                if state_container.register_state.last_stage
-                    == packet_flags::cmd::aux::do_register::STAGE0
-                {
+                // Release state_container before heavy crypto
+                let (algorithm, alice_constructor_opt, proposed_credentials_opt) = {
                     let algorithm = header.algorithm;
+                    let mut state_container = inner_mut_state!(session.state_container);
+                    let alice_constructor = state_container.register_state.constructor.take();
+                    let proposed_credentials = state_container.connect_state.proposed_credentials.clone();
+                    (algorithm, alice_constructor, proposed_credentials)
+                };
 
-                    // pqc is stored in the register state container for now
-                    if let Some(mut alice_constructor) =
-                        state_container.register_state.constructor.take()
-                    {
-                        let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = return_if_none!(
-                            SyncIO::deserialize_from_vector(&payload[..]).ok(),
-                            "Unable to deserialize BobToAliceTransfer"
-                        );
-                        let security_level = transfer.security_level();
+                if let Some(mut alice_constructor) = alice_constructor_opt {
+                    let transfer: <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer = return_if_none!(
+                        SyncIO::deserialize_from_vector(&payload[..]).ok(),
+                        "Unable to deserialize BobToAliceTransfer"
+                    );
+                    let security_level = transfer.security_level();
+
+                    // Offload stage1_alice + finish
+                    let new_ratchet = citadel_io::tokio::task::spawn_blocking(move || {
                         alice_constructor
                             .stage1_alice(transfer, session.session_password.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                        let new_ratchet = return_if_none!(
-                            alice_constructor.finish(),
-                            "Unable to finish alice constructor"
-                        );
-                        let timestamp = session.time_tracker.get_global_time_ns();
+                        alice_constructor
+                            .finish()
+                            .ok_or(NetworkError::InternalError("Unable to finish alice constructor"))
+                    })
+                    .await
+                    .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
 
-                        let proposed_credentials = return_if_none!(
-                            state_container.connect_state.proposed_credentials.as_ref(),
-                            "Unable to load proposed credentials"
-                        );
+                    let timestamp = session.time_tracker.get_global_time_ns();
+                    let proposed_credentials = return_if_none!(proposed_credentials_opt.as_ref(), "Unable to load proposed credentials");
 
-                        let stage2_packet = packet_crafter::do_register::craft_stage2(
-                            &new_ratchet,
-                            algorithm,
-                            timestamp,
-                            proposed_credentials,
-                            security_level,
-                            ticket,
-                        );
-                        //let mut state_container = inner_mut!(session.state_container);
+                    let stage2_packet = packet_crafter::do_register::craft_stage2(
+                        &new_ratchet,
+                        algorithm,
+                        timestamp,
+                        proposed_credentials,
+                        security_level,
+                        ticket,
+                    );
 
-                        state_container.register_state.created_ratchet = Some(new_ratchet);
-                        state_container.register_state.last_stage =
-                            packet_flags::cmd::aux::do_register::STAGE2;
-                        state_container.register_state.on_register_packet_received();
+                    let mut state_container = inner_mut_state!(session.state_container);
+                    state_container.register_state.created_ratchet = Some(new_ratchet);
+                    state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE2;
+                    state_container.register_state.on_register_packet_received();
 
-                        Ok(PrimaryProcessorResult::ReplyToSender(stage2_packet))
-                    } else {
-                        log::error!(target: "citadel", "Register stage is one, yet, no PQC is present. Aborting.");
-                        Ok(PrimaryProcessorResult::Void)
-                    }
+                    Ok(PrimaryProcessorResult::ReplyToSender(stage2_packet))
                 } else {
-                    warn!(target: "citadel", "Inconsistency between the session's stage and the packet's state. Dropping");
+                    log::error!(target: "citadel", "Register stage is one, yet, no PQC is present. Aborting.");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }

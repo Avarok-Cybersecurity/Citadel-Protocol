@@ -118,58 +118,21 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             .cloned()
     }*/
 
-    /// Get ratchet with improved synchronization to handle race conditions
-    /// When the requested version isn't available yet, we retry with exponential backoff
+    // Retrieves a ratchet atomically
     pub fn get_ratchet(&self, version: Option<u32>) -> Option<R> {
-        const MAX_RETRIES: u32 = 5;
-        const INITIAL_DELAY_US: u64 = 100;
+        let read = self.toolset.read();
 
         let target_version = version.unwrap_or_else(|| {
             // Use Acquire ordering to ensure we see the latest version
-            self.latest_usable_version.load(Ordering::Acquire)
+            let latest_version = self.latest_usable_version.load(ORDERING);
+            if read.get_ratchet(latest_version).is_none() {
+                latest_version.saturating_sub(1)
+            } else {
+                latest_version
+            }
         });
 
-        // Try to get the ratchet with retries
-        for retry in 0..MAX_RETRIES {
-            let toolset = self.toolset.read();
-
-            if let Some(ratchet) = toolset.get_ratchet(target_version) {
-                return Some(ratchet.clone());
-            }
-
-            // Release the lock before retrying
-            drop(toolset);
-
-            if retry < MAX_RETRIES - 1 {
-                // Only log on first retry to avoid spam
-                if retry == 0 {
-                    log::debug!(target: "citadel", "Ratchet v{} not ready yet, retrying... (cid: {})", 
-                        target_version, self.cid);
-                }
-
-                // Exponential backoff with thread yield
-                let delay = INITIAL_DELAY_US * (1 << retry);
-                // Use spin loop for short delays to avoid blocking async runtime
-                let start = std::time::Instant::now();
-                while start.elapsed().as_micros() < delay as u128 {
-                    std::hint::spin_loop();
-                }
-            }
-        }
-
-        // If we still can't get it, try fallback to previous version
-        let toolset = self.toolset.read();
-        let fallback_version = target_version.saturating_sub(1);
-
-        if let Some(ratchet) = toolset.get_ratchet(fallback_version) {
-            log::warn!(target: "citadel", "Failed to get ratchet v{} after {} retries, falling back to v{} (cid: {})", 
-                target_version, MAX_RETRIES, fallback_version, self.cid);
-            Some(ratchet.clone())
-        } else {
-            log::error!(target: "citadel", "Failed to get ratchet v{} or fallback v{} (cid: {})", 
-                target_version, fallback_version, self.cid);
-            None
-        }
+        read.get_ratchet(target_version).cloned()
     }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
@@ -187,8 +150,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         ),
         CryptError,
     > {
-        let mut toolset = self.toolset.write();
-        let cur_vers = toolset.get_most_recent_ratchet_version();
+        // Minimize lock scope: read current version under read lock, compute outside, then commit under short write lock
+        let cur_vers = self.toolset.read().get_most_recent_ratchet_version();
         let next_vers = cur_vers.wrapping_add(1);
 
         // Update version before any stage operations
@@ -197,27 +160,32 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         })?;
 
         if !generate_next {
+            // Heavy: finish constructor — synchronous compute outside lock; callers should offload if needed
             let latest_ratchet = newest_version
                 .finish_with_custom_cid(local_cid)
-                .ok_or_else(|| {
+                .ok_or_else(||
                     CryptError::RekeyUpdateError(
-                        "Unable to progress past finish_with_custom_cid for bob-to-alice trigger"
-                            .to_string(),
+                        "Unable to progress past finish_with_custom_cid for bob-to-alice trigger".to_string(),
                     )
-                })?;
-            let status = toolset.update_from(latest_ratchet).ok_or_else(|| {
-                CryptError::RekeyUpdateError(
-                    "Unable to progress past update_from for bob-to-alice trigger".to_string(),
-                )
-            })?;
+                )?;
+
+            // Commit with short write lock
+            let status = {
+                let mut toolset = self.toolset.write();
+                toolset.update_from(latest_ratchet).ok_or_else(|| {
+                    CryptError::RekeyUpdateError(
+                        "Unable to progress past update_from for bob-to-alice trigger".to_string(),
+                    )
+                })?
+            };
 
             return Ok((None, status));
         }
 
-        // Generate transfer after version update
-        let transfer = newest_version.stage0_bob().ok_or_else(|| {
-            CryptError::RekeyUpdateError("Unable to progress past stage0_bob".to_string())
-        })?;
+        // Heavy: stage0_bob + finish — synchronous compute outside lock; callers should offload if needed
+        let transfer = newest_version
+            .stage0_bob()
+            .ok_or_else(|| CryptError::RekeyUpdateError("Unable to progress past stage0_bob".to_string()))?;
 
         let next_ratchet = newest_version
             .finish_with_custom_cid(local_cid)
@@ -226,9 +194,14 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
                     "Unable to progress past finish_with_custom_cid".to_string(),
                 )
             })?;
-        let status = toolset.update_from(next_ratchet).ok_or_else(|| {
-            CryptError::RekeyUpdateError("Unable to progress past update_from".to_string())
-        })?;
+
+        // Short commit under write lock
+        let status = {
+            let mut toolset = self.toolset.write();
+            toolset.update_from(next_ratchet).ok_or_else(|| {
+                CryptError::RekeyUpdateError("Unable to progress past update_from".to_string())
+            })?
+        };
         log::trace!(target: "citadel", "[E2E] Client {local_cid} successfully updated Ratchet from v{cur_vers} to v{next_vers}");
 
         Ok((Some(transfer), status))
