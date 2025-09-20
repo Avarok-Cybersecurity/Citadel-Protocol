@@ -1943,126 +1943,180 @@ impl<R: Ratchet> CitadelSession<R> {
             let mut stopper_rx = inner!(this.stopper_tx).subscribe();
             let to_kernel_tx = &this.kernel_tx.clone();
 
-            let stopper = async move {
-                stopper_rx
-                    .recv()
-                    .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
-            };
-
-            let receiver = async move {
-                // The messages the messenger receives will automatically be sent to the user
-                // via the ProtocolMessengerRx handle
-                // However, when the user sends messages through the sink for the provided ProtocolMessengerTx,
-                // that sink sends items here. Thus, we need to receive those messages and process them outbound.
-                // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
-                // to forward these to.
-                fn send_ratchet_message<R: Ratchet>(
-                    state_container: &StateContainerInner<R>,
-                    ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
-                    v_conn: VirtualConnectionType,
-                ) -> Result<(), (NetworkError, Option<Ticket>)> {
-                    let mut attributed_ticket = None;
-
-                    let (ticket, security_level) = match &ratchet_message {
-                        RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
-                            message:
-                                UserMessage {
-                                    ticket,
-                                    security_level,
-                                    ..
-                                },
-                            ..
-                        }) => {
-                            attributed_ticket = Some(*ticket);
-                            (*ticket, *security_level)
-                        }
-                        _other => (Ticket::default(), SecurityLevel::default()),
-                    };
-
-                    let preferred_stream =
-                        state_container.get_preferred_stream(v_conn.get_target_cid());
-                    let endpoint_container = state_container
-                        .get_virtual_connection_crypto(v_conn.get_target_cid())
-                        .ok_or_else(|| {
-                            (
-                                NetworkError::Generic(
-                                    "Unable to get virtual connection crypto".to_string(),
-                                ),
-                                attributed_ticket,
-                            )
-                        })?;
-
-                    let ratchet = endpoint_container
-                        .get_ratchet(None)
-                        .expect("ratchet should exist");
-
-                    let object_id = endpoint_container.get_next_object_id();
-                    let group_id = endpoint_container.get_and_increment_group_id();
-                    let time_tracker = state_container.time_tracker;
-
-                    // TODO: micro-optimize this unnecessary cloning
-                    ObjectTransmitter::transmit_message(
-                        preferred_stream.clone(),
-                        object_id,
-                        ratchet,
-                        ratchet_message,
-                        security_level,
-                        group_id,
-                        ticket,
-                        time_tracker,
-                        v_conn,
-                    )
-                    .map_err(|err| (err, attributed_ticket))?;
-
-                    Ok(())
+            // Helper to extract the ticket and payload from a ratchet message, if present
+            fn extract_ticket_and_payload(
+                ratchet_message: &RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+            ) -> Option<(Ticket, SecBuffer)> {
+                match ratchet_message {
+                    RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
+                        message: UserMessage { ticket, packet, .. },
+                        ..
+                    }) => Some((*ticket, packet.clone())),
+                    _ => None,
                 }
+            }
 
-                while let Some(request) = rx_session_requests.recv().await {
-                    let state_container = inner_state!(this.state_container);
-                    match request {
-                        SessionRequest::SendMessage(other) => {
-                            if let Err((err, ticket_opt)) = send_ratchet_message(
-                                &state_container,
-                                other,
-                                virtual_connection_type,
-                            ) {
-                                to_kernel_tx
-                                    .unbounded_send(NodeResult::InternalServerError(
-                                        InternalServerError {
-                                            ticket_opt,
-                                            cid_opt: this.session_cid.get(),
-                                            message: err.into_string(),
-                                        },
-                                    ))
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?
+            // Send a rejection for any pending user messages
+            fn reject_pending_message<R: Ratchet>(
+                kernel_tx: &crate::proto::outbound_sender::UnboundedSender<NodeResult<R>>,
+                ticket: Ticket,
+                payload: Option<&SecBuffer>,
+            ) {
+                let _ = kernel_tx.unbounded_send(NodeResult::OutboundRequestRejected(
+                    crate::proto::node_result::OutboundRequestRejected {
+                        ticket,
+                        message_opt: payload.map(|p| p.as_ref().to_vec()),
+                    },
+                ));
+            }
+
+            // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
+            // to forward these to.
+            fn send_ratchet_message<R: Ratchet>(
+                session: &CitadelSession<R>,
+                state_container: &StateContainerInner<R>,
+                ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+                v_conn: VirtualConnectionType,
+            ) -> Result<(), (NetworkError, Option<Ticket>, Option<SecBuffer>)> {
+                let mut attributed_ticket = None;
+                let mut original_payload: Option<SecBuffer> = None;
+
+                let (ticket, security_level) = match &ratchet_message {
+                    RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
+                        message:
+                            UserMessage {
+                                ticket,
+                                security_level,
+                                packet,
+                                ..
+                            },
+                        ..
+                    }) => {
+                        attributed_ticket = Some(*ticket);
+                        original_payload = Some(packet.clone());
+                        (*ticket, *security_level)
+                    }
+                    _other => (Ticket::default(), SecurityLevel::default()),
+                };
+
+                let preferred_stream =
+                    state_container.get_preferred_stream(v_conn.get_target_cid());
+                let endpoint_container = if let Some(ep) =
+                    state_container.get_virtual_connection_crypto(v_conn.get_target_cid())
+                {
+                    ep
+                } else {
+                    return Err((
+                        NetworkError::Generic(
+                            "Unable to get virtual connection crypto".to_string(),
+                        ),
+                        attributed_ticket,
+                        original_payload,
+                    ));
+                };
+
+                let ratchet = match endpoint_container.get_ratchet(None) {
+                    Some(r) => r,
+                    None => {
+                        log::error!(target: "citadel", "Ratchet missing for v_conn {:?}. latest_usable_version={} but toolset does not contain that version; dropping send, shutting down session if C2S, and notifying kernel", v_conn, endpoint_container.latest_usable_version());
+                        // If this is a C2S virtual connection, shut down the primary session to prevent further interaction
+                        if matches!(v_conn, VirtualConnectionType::LocalGroupServer { .. }) {
+                            session.shutdown();
+                        }
+                        return Err((
+                            NetworkError::Generic("Ratchet missing for endpoint".to_string()),
+                            attributed_ticket,
+                            original_payload,
+                        ));
+                    }
+                };
+
+                let object_id = endpoint_container.get_next_object_id();
+                let group_id = endpoint_container.get_and_increment_group_id();
+                let time_tracker = state_container.time_tracker;
+
+                // TODO: micro-optimize this unnecessary cloning
+                ObjectTransmitter::transmit_message(
+                    preferred_stream.clone(),
+                    object_id,
+                    ratchet,
+                    ratchet_message,
+                    security_level,
+                    group_id,
+                    ticket,
+                    time_tracker,
+                    v_conn,
+                )
+                .map_err(|err| (err, attributed_ticket, original_payload))?;
+
+                Ok(())
+            }
+
+            // Drive both the stopper and the receiver in a single select loop to ensure
+            // we can drain any pending requests on shutdown.
+            loop {
+                citadel_io::tokio::select! {
+                    // Stopper fired: drain any remaining queued messages and notify kernel of rejections
+                    res = stopper_rx.recv() => {
+                        if res.is_ok() {
+                            // Drain all pending requests without awaiting
+                            while let Ok(request) = rx_session_requests.try_recv() {
+                                if let SessionRequest::SendMessage(rm) = request {
+                                    if let Some((ticket, payload)) = extract_ticket_and_payload(&rm) {
+                                        reject_pending_message(to_kernel_tx, ticket, Some(&payload));
+                                    }
+                                }
                             }
                         }
+                        break Ok::<(), NetworkError>(());
+                    }
 
-                        SessionRequest::Group(Group { ticket, broadcast }) => {
-                            if let Err(err) = state_container
-                                .process_outbound_broadcast_command(ticket, &broadcast)
-                            {
-                                to_kernel_tx
-                                    .unbounded_send(NodeResult::InternalServerError(
-                                        InternalServerError {
-                                            ticket_opt: Some(ticket),
-                                            cid_opt: this.session_cid.get(),
-                                            message: err.into_string(),
-                                        },
-                                    ))
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?
+                    maybe_request = rx_session_requests.recv() => {
+                        match maybe_request {
+                            Some(request) => {
+                                let state_container = inner_state!(this.state_container);
+                                match request {
+                                    SessionRequest::SendMessage(other) => {
+                                        if let Err((err, ticket_opt, payload_opt)) = send_ratchet_message(
+                                            this,
+                                            &state_container,
+                                            other,
+                                            virtual_connection_type,
+                                        ) {
+                                            if let Some(ticket) = ticket_opt {
+                                                reject_pending_message(to_kernel_tx, ticket, payload_opt.as_ref());
+                                            }
+
+                                            to_kernel_tx
+                                                .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                                    ticket_opt,
+                                                    cid_opt: this.session_cid.get(),
+                                                    message: err.into_string(),
+                                                }))
+                                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                        }
+                                    }
+
+                                    SessionRequest::Group(Group { ticket, broadcast }) => {
+                                        if let Err(err) = state_container.process_outbound_broadcast_command(ticket, &broadcast) {
+                                            to_kernel_tx
+                                                .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                                    ticket_opt: Some(ticket),
+                                                    cid_opt: this.session_cid.get(),
+                                                    message: err.into_string(),
+                                                }))
+                                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                        }
+                                    }
+                                }
+                            }
+                            None => {
+                                // Sender dropped; nothing more to process
+                                break Ok(());
                             }
                         }
                     }
                 }
-
-                Ok(())
-            };
-
-            citadel_io::tokio::select! {
-                res0 = stopper => res0,
-                res1 = receiver => res1
             }
         };
 
@@ -2081,7 +2135,8 @@ impl<R: Ratchet> CitadelSession<R> {
         let state = this.state.get();
 
         if state != SessionState::Connected {
-            log::warn!(target: "citadel", "Session is not connected (s={state:?}); will still attempt send peer command {peer_command:?}")
+            log::warn!(target: "citadel", "Session is not connected (s={state:?}); failing fast for peer command {peer_command:?}");
+            return Err(NetworkError::InvalidRequest("Session is not connected"));
         }
 
         let timestamp = this.time_tracker.get_global_time_ns();
@@ -2478,11 +2533,15 @@ impl<R: Ratchet> CitadelSessionInner<R> {
         msg: T,
     ) {
         if let Some(tx) = self.dc_signal_sender.take() {
+            let v_conn_type = self
+                .session_cid
+                .get()
+                .map(|session_cid| VirtualConnectionType::LocalGroupServer { session_cid });
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
                 cid_opt: self.session_cid.get(),
                 success: disconnect_success,
-                v_conn_type: None,
+                v_conn_type,
                 message: msg.into(),
             }));
         }
