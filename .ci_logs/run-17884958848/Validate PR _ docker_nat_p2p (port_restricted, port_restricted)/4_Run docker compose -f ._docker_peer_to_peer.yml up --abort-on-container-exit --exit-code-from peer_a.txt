@@ -1,0 +1,431 @@
+﻿2025-09-20T21:27:19.3996382Z ##[group]Run docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+2025-09-20T21:27:19.3997109Z [36;1mdocker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a[0m
+2025-09-20T21:27:19.4021350Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:27:19.4021661Z env:
+2025-09-20T21:27:19.4021825Z   CARGO_TERM_COLOR: always
+2025-09-20T21:27:19.4022033Z   RUST_BACKTRACE: full
+2025-09-20T21:27:19.4022223Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:27:19.4022418Z   RUST_LOG: citadel=warn
+2025-09-20T21:27:19.4022610Z   IN_CI: true
+2025-09-20T21:27:19.4022804Z   NAT_TYPE_PEER_A: port_restricted
+2025-09-20T21:27:19.4023049Z   NAT_TYPE_PEER_B: port_restricted
+2025-09-20T21:27:19.4023261Z ##[endgroup]
+2025-09-20T21:27:19.7272460Z time="2025-09-20T21:27:19Z" level=warning msg="/home/runner/work/Citadel-Protocol/Citadel-Protocol/docker/peer_to_peer.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+2025-09-20T21:27:19.7337003Z  stun2 Pulling 
+2025-09-20T21:27:19.7337358Z  stun0 Pulling 
+2025-09-20T21:27:19.7337884Z  stun1 Pulling 
+2025-09-20T21:27:22.5366575Z  f1f26f570256 Pulling fs layer 
+2025-09-20T21:27:22.5367223Z  d005b7db85f2 Pulling fs layer 
+2025-09-20T21:27:22.5367584Z  69e015b9fae5 Pulling fs layer 
+2025-09-20T21:27:22.5367850Z  f14cd0fedc6e Pulling fs layer 
+2025-09-20T21:27:22.5368103Z  f14cd0fedc6e Waiting 
+2025-09-20T21:27:22.6157416Z  f1f26f570256 Pulling fs layer 
+2025-09-20T21:27:22.6157733Z  d005b7db85f2 Pulling fs layer 
+2025-09-20T21:27:22.6157961Z  69e015b9fae5 Pulling fs layer 
+2025-09-20T21:27:22.6158208Z  f14cd0fedc6e Pulling fs layer 
+2025-09-20T21:27:22.6158416Z  f14cd0fedc6e Waiting 
+2025-09-20T21:27:22.8225591Z  69e015b9fae5 Downloading [>                                                  ]  17.36kB/1.605MB
+2025-09-20T21:27:22.8226309Z  69e015b9fae5 Downloading [>                                                  ]  17.36kB/1.605MB
+2025-09-20T21:27:22.8300235Z  d005b7db85f2 Downloading [>                                                  ]  213.1kB/21.08MB
+2025-09-20T21:27:22.8302482Z  d005b7db85f2 Downloading [>                                                  ]  213.1kB/21.08MB
+2025-09-20T21:27:22.8309392Z  69e015b9fae5 Download complete 
+2025-09-20T21:27:22.8309919Z  69e015b9fae5 Verifying Checksum 
+2025-09-20T21:27:22.8310304Z  69e015b9fae5 Download complete 
+2025-09-20T21:27:22.8566628Z  f1f26f570256 Downloading [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:27:22.8567844Z  f1f26f570256 Downloading [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:27:22.8783212Z  f1f26f570256 Pulling fs layer 
+2025-09-20T21:27:22.8784930Z  d005b7db85f2 Pulling fs layer 
+2025-09-20T21:27:22.8785338Z  69e015b9fae5 Pulling fs layer 
+2025-09-20T21:27:22.8785722Z  f14cd0fedc6e Pulling fs layer 
+2025-09-20T21:27:22.8786000Z  f14cd0fedc6e Waiting 
+2025-09-20T21:27:22.8786451Z  d005b7db85f2 Downloading [>                                                  ]  213.1kB/21.08MB
+2025-09-20T21:27:22.8787018Z  69e015b9fae5 Download complete 
+2025-09-20T21:27:22.8787342Z  f1f26f570256 Downloading [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:27:22.9365321Z  d005b7db85f2 Downloading [=================================>                 ]  14.27MB/21.08MB
+2025-09-20T21:27:22.9365975Z  d005b7db85f2 Downloading [=================================>                 ]  14.27MB/21.08MB
+2025-09-20T21:27:22.9366485Z  d005b7db85f2 Downloading [=================================>                 ]  14.27MB/21.08MB
+2025-09-20T21:27:22.9584139Z  f1f26f570256 Downloading [====================>                              ]  12.58MB/31.41MB
+2025-09-20T21:27:22.9586086Z  f1f26f570256 Downloading [====================>                              ]  12.58MB/31.41MB
+2025-09-20T21:27:22.9586849Z  f1f26f570256 Downloading [====================>                              ]  12.58MB/31.41MB
+2025-09-20T21:27:23.0406439Z  d005b7db85f2 Verifying Checksum 
+2025-09-20T21:27:23.0406904Z  d005b7db85f2 Download complete 
+2025-09-20T21:27:23.0407161Z  d005b7db85f2 Download complete 
+2025-09-20T21:27:23.0407390Z  d005b7db85f2 Download complete 
+2025-09-20T21:27:23.0610662Z  f1f26f570256 Downloading [==============================>                    ]  19.35MB/31.41MB
+2025-09-20T21:27:23.0611518Z  f1f26f570256 Downloading [==============================>                    ]  19.35MB/31.41MB
+2025-09-20T21:27:23.0612495Z  f1f26f570256 Downloading [==============================>                    ]  19.35MB/31.41MB
+2025-09-20T21:27:23.1448036Z  f14cd0fedc6e Downloading [>                                                  ]   6.41kB/584.8kB
+2025-09-20T21:27:23.1449059Z  f14cd0fedc6e Downloading [>                                                  ]   6.41kB/584.8kB
+2025-09-20T21:27:23.1449817Z  f14cd0fedc6e Downloading [>                                                  ]   6.41kB/584.8kB
+2025-09-20T21:27:23.1500366Z  f14cd0fedc6e Verifying Checksum 
+2025-09-20T21:27:23.1500729Z  f14cd0fedc6e Download complete 
+2025-09-20T21:27:23.1500971Z  f14cd0fedc6e Download complete 
+2025-09-20T21:27:23.1501205Z  f14cd0fedc6e Download complete 
+2025-09-20T21:27:23.1922298Z  f1f26f570256 Downloading [==================================>                ]  21.95MB/31.41MB
+2025-09-20T21:27:23.1923224Z  f1f26f570256 Downloading [==================================>                ]  21.95MB/31.41MB
+2025-09-20T21:27:23.1923779Z  f1f26f570256 Downloading [==================================>                ]  21.95MB/31.41MB
+2025-09-20T21:27:23.3042322Z  f1f26f570256 Downloading [======================================>            ]  24.22MB/31.41MB
+2025-09-20T21:27:23.3043010Z  f1f26f570256 Downloading [======================================>            ]  24.22MB/31.41MB
+2025-09-20T21:27:23.3043531Z  f1f26f570256 Downloading [======================================>            ]  24.22MB/31.41MB
+2025-09-20T21:27:23.4050391Z  f1f26f570256 Downloading [========================================>          ]  25.51MB/31.41MB
+2025-09-20T21:27:23.4051027Z  f1f26f570256 Downloading [========================================>          ]  25.51MB/31.41MB
+2025-09-20T21:27:23.4051580Z  f1f26f570256 Downloading [========================================>          ]  25.51MB/31.41MB
+2025-09-20T21:27:23.5079105Z  f1f26f570256 Downloading [=============================================>     ]  28.44MB/31.41MB
+2025-09-20T21:27:23.5079792Z  f1f26f570256 Downloading [=============================================>     ]  28.44MB/31.41MB
+2025-09-20T21:27:23.5080316Z  f1f26f570256 Downloading [=============================================>     ]  28.44MB/31.41MB
+2025-09-20T21:27:23.5872311Z  f1f26f570256 Verifying Checksum 
+2025-09-20T21:27:23.5872868Z  f1f26f570256 Download complete 
+2025-09-20T21:27:23.5873274Z  f1f26f570256 Verifying Checksum 
+2025-09-20T21:27:23.5873691Z  f1f26f570256 Download complete 
+2025-09-20T21:27:23.5874006Z  f1f26f570256 Verifying Checksum 
+2025-09-20T21:27:23.5874300Z  f1f26f570256 Download complete 
+2025-09-20T21:27:23.5921752Z  f1f26f570256 Extracting [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:27:23.5922519Z  f1f26f570256 Extracting [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:27:23.5923242Z  f1f26f570256 Extracting [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:27:23.6927707Z  f1f26f570256 Extracting [========>                                          ]  5.243MB/31.41MB
+2025-09-20T21:27:23.6928585Z  f1f26f570256 Extracting [========>                                          ]  5.243MB/31.41MB
+2025-09-20T21:27:23.6929769Z  f1f26f570256 Extracting [========>                                          ]  5.243MB/31.41MB
+2025-09-20T21:27:23.7940168Z  f1f26f570256 Extracting [=================>                                 ]  10.81MB/31.41MB
+2025-09-20T21:27:23.7941830Z  f1f26f570256 Extracting [=================>                                 ]  10.81MB/31.41MB
+2025-09-20T21:27:23.7942904Z  f1f26f570256 Extracting [=================>                                 ]  10.81MB/31.41MB
+2025-09-20T21:27:23.9033442Z  f1f26f570256 Extracting [=========================>                         ]  16.06MB/31.41MB
+2025-09-20T21:27:23.9034271Z  f1f26f570256 Extracting [=========================>                         ]  16.06MB/31.41MB
+2025-09-20T21:27:23.9035178Z  f1f26f570256 Extracting [=========================>                         ]  16.06MB/31.41MB
+2025-09-20T21:27:24.0041718Z  f1f26f570256 Extracting [===================================>               ]  22.28MB/31.41MB
+2025-09-20T21:27:24.0042583Z  f1f26f570256 Extracting [===================================>               ]  22.28MB/31.41MB
+2025-09-20T21:27:24.0043283Z  f1f26f570256 Extracting [===================================>               ]  22.28MB/31.41MB
+2025-09-20T21:27:24.2125682Z  f1f26f570256 Extracting [=============================================>     ]  28.84MB/31.41MB
+2025-09-20T21:27:24.2126560Z  f1f26f570256 Extracting [=============================================>     ]  28.84MB/31.41MB
+2025-09-20T21:27:24.2127278Z  f1f26f570256 Extracting [=============================================>     ]  28.84MB/31.41MB
+2025-09-20T21:27:24.3952815Z  f1f26f570256 Extracting [===============================================>   ]  30.15MB/31.41MB
+2025-09-20T21:27:24.3953652Z  f1f26f570256 Extracting [===============================================>   ]  30.15MB/31.41MB
+2025-09-20T21:27:24.3954448Z  f1f26f570256 Extracting [===============================================>   ]  30.15MB/31.41MB
+2025-09-20T21:27:24.6042191Z  f1f26f570256 Extracting [================================================>  ]  30.47MB/31.41MB
+2025-09-20T21:27:24.6043020Z  f1f26f570256 Extracting [================================================>  ]  30.47MB/31.41MB
+2025-09-20T21:27:24.6043782Z  f1f26f570256 Extracting [================================================>  ]  30.47MB/31.41MB
+2025-09-20T21:27:24.7309917Z  f1f26f570256 Extracting [==================================================>]  31.41MB/31.41MB
+2025-09-20T21:27:24.7310966Z  f1f26f570256 Extracting [==================================================>]  31.41MB/31.41MB
+2025-09-20T21:27:24.7312082Z  f1f26f570256 Extracting [==================================================>]  31.41MB/31.41MB
+2025-09-20T21:27:24.7527990Z  f1f26f570256 Pull complete 
+2025-09-20T21:27:24.7528544Z  f1f26f570256 Pull complete 
+2025-09-20T21:27:24.7528902Z  f1f26f570256 Pull complete 
+2025-09-20T21:27:24.7786498Z  d005b7db85f2 Extracting [>                                                  ]  229.4kB/21.08MB
+2025-09-20T21:27:24.7787349Z  d005b7db85f2 Extracting [>                                                  ]  229.4kB/21.08MB
+2025-09-20T21:27:24.7788142Z  d005b7db85f2 Extracting [>                                                  ]  229.4kB/21.08MB
+2025-09-20T21:27:24.8806903Z  d005b7db85f2 Extracting [===================>                               ]  8.028MB/21.08MB
+2025-09-20T21:27:24.8807814Z  d005b7db85f2 Extracting [===================>                               ]  8.028MB/21.08MB
+2025-09-20T21:27:24.8808582Z  d005b7db85f2 Extracting [===================>                               ]  8.028MB/21.08MB
+2025-09-20T21:27:24.9842613Z  d005b7db85f2 Extracting [=========================================>         ]  17.66MB/21.08MB
+2025-09-20T21:27:24.9843770Z  d005b7db85f2 Extracting [=========================================>         ]  17.66MB/21.08MB
+2025-09-20T21:27:24.9845093Z  d005b7db85f2 Extracting [=========================================>         ]  17.66MB/21.08MB
+2025-09-20T21:27:25.1216682Z  d005b7db85f2 Extracting [===============================================>   ]  20.19MB/21.08MB
+2025-09-20T21:27:25.1217488Z  d005b7db85f2 Extracting [===============================================>   ]  20.19MB/21.08MB
+2025-09-20T21:27:25.1217999Z  d005b7db85f2 Extracting [===============================================>   ]  20.19MB/21.08MB
+2025-09-20T21:27:25.3688447Z  d005b7db85f2 Extracting [================================================>  ]  20.41MB/21.08MB
+2025-09-20T21:27:25.3689153Z  d005b7db85f2 Extracting [================================================>  ]  20.41MB/21.08MB
+2025-09-20T21:27:25.3689700Z  d005b7db85f2 Extracting [================================================>  ]  20.41MB/21.08MB
+2025-09-20T21:27:25.5149410Z  d005b7db85f2 Extracting [================================================>  ]  20.64MB/21.08MB
+2025-09-20T21:27:25.5150251Z  d005b7db85f2 Extracting [================================================>  ]  20.64MB/21.08MB
+2025-09-20T21:27:25.5150987Z  d005b7db85f2 Extracting [================================================>  ]  20.64MB/21.08MB
+2025-09-20T21:27:25.5638602Z  d005b7db85f2 Extracting [==================================================>]  21.08MB/21.08MB
+2025-09-20T21:27:25.5639433Z  d005b7db85f2 Extracting [==================================================>]  21.08MB/21.08MB
+2025-09-20T21:27:25.5640155Z  d005b7db85f2 Extracting [==================================================>]  21.08MB/21.08MB
+2025-09-20T21:27:25.6904288Z  d005b7db85f2 Pull complete 
+2025-09-20T21:27:25.6904957Z  d005b7db85f2 Pull complete 
+2025-09-20T21:27:25.6905205Z  d005b7db85f2 Pull complete 
+2025-09-20T21:27:25.6918935Z  69e015b9fae5 Extracting [=>                                                 ]  32.77kB/1.605MB
+2025-09-20T21:27:25.6919943Z  69e015b9fae5 Extracting [=>                                                 ]  32.77kB/1.605MB
+2025-09-20T21:27:25.6920678Z  69e015b9fae5 Extracting [=>                                                 ]  32.77kB/1.605MB
+2025-09-20T21:27:25.7148787Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:27:25.7150281Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:27:25.7150762Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:27:25.7165276Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:27:25.7166081Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:27:25.7166707Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:27:25.7408563Z  69e015b9fae5 Pull complete 
+2025-09-20T21:27:25.7409111Z  69e015b9fae5 Pull complete 
+2025-09-20T21:27:25.7409426Z  69e015b9fae5 Pull complete 
+2025-09-20T21:27:25.7426272Z  f14cd0fedc6e Extracting [==>                                                ]  32.77kB/584.8kB
+2025-09-20T21:27:25.7430615Z  f14cd0fedc6e Extracting [==>                                                ]  32.77kB/584.8kB
+2025-09-20T21:27:25.7431363Z  f14cd0fedc6e Extracting [==>                                                ]  32.77kB/584.8kB
+2025-09-20T21:27:25.7525866Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:27:25.7527061Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:27:25.7527832Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:27:25.7529855Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:27:25.7531419Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:27:25.7532158Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:27:25.7691672Z  f14cd0fedc6e Pull complete 
+2025-09-20T21:27:25.7692243Z  f14cd0fedc6e Pull complete 
+2025-09-20T21:27:25.7692538Z  f14cd0fedc6e Pull complete 
+2025-09-20T21:27:25.7757309Z  stun2 Pulled 
+2025-09-20T21:27:25.7762130Z  stun0 Pulled 
+2025-09-20T21:27:25.7766994Z  stun1 Pulled 
+2025-09-20T21:27:26.0233491Z #1 [internal] load local bake definitions
+2025-09-20T21:27:26.2718565Z #1 reading from stdin 1.08kB done
+2025-09-20T21:27:26.2719020Z #1 DONE 0.0s
+2025-09-20T21:27:26.2719213Z 
+2025-09-20T21:27:26.2719451Z #2 [server internal] load build definition from Dockerfile
+2025-09-20T21:27:26.2719878Z #2 transferring dockerfile: 439B done
+2025-09-20T21:27:26.2720289Z #2 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+2025-09-20T21:27:26.2720680Z #2 DONE 0.0s
+2025-09-20T21:27:26.2720794Z 
+2025-09-20T21:27:26.2720955Z #3 [peer_a internal] load build definition from Dockerfile
+2025-09-20T21:27:26.2721313Z #3 transferring dockerfile: 433B done
+2025-09-20T21:27:26.2721707Z #3 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+2025-09-20T21:27:26.2722225Z #3 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+2025-09-20T21:27:26.2722606Z #3 DONE 0.0s
+2025-09-20T21:27:26.2722718Z 
+2025-09-20T21:27:26.2722912Z #4 [server internal] load metadata for docker.io/library/rust:latest
+2025-09-20T21:27:26.5086828Z #4 ...
+2025-09-20T21:27:26.5087081Z 
+2025-09-20T21:27:26.5087349Z #5 [auth] library/rust:pull token for registry-1.docker.io
+2025-09-20T21:27:26.5087915Z #5 DONE 0.0s
+2025-09-20T21:27:26.6589322Z 
+2025-09-20T21:27:26.6589930Z #4 [server internal] load metadata for docker.io/library/rust:latest
+2025-09-20T21:27:27.1925166Z #4 DONE 1.0s
+2025-09-20T21:27:27.1925472Z 
+2025-09-20T21:27:27.1925636Z #6 [peer_b internal] load .dockerignore
+2025-09-20T21:27:27.1926091Z #6 transferring context: 105B done
+2025-09-20T21:27:27.1926461Z #6 DONE 0.0s
+2025-09-20T21:27:27.1926569Z 
+2025-09-20T21:27:27.1926932Z #7 [peer_a 1/8] FROM docker.io/library/rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5
+2025-09-20T21:27:27.1927715Z #7 resolve docker.io/library/rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5 done
+2025-09-20T21:27:27.3010007Z #7 ...
+2025-09-20T21:27:27.3010662Z 
+2025-09-20T21:27:27.3010931Z #8 [peer_a internal] load build context
+2025-09-20T21:27:27.3011618Z #8 transferring context: 7.89MB 0.1s done
+2025-09-20T21:27:27.3012024Z #8 DONE 0.1s
+2025-09-20T21:27:27.3012185Z 
+2025-09-20T21:27:27.3012747Z #7 [peer_a 1/8] FROM docker.io/library/rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5
+2025-09-20T21:27:27.3013453Z #7 sha256:764b84273d2bcba8e8c9ed3b36caf520e40b0dc1720a2ac14655497778437e6a 4.47kB / 4.47kB done
+2025-09-20T21:27:27.3014066Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 8.39MB / 49.28MB 0.2s
+2025-09-20T21:27:27.3014654Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 0B / 25.61MB 0.2s
+2025-09-20T21:27:27.3015459Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 0B / 67.78MB 0.2s
+2025-09-20T21:27:27.3016049Z #7 sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5 8.99kB / 8.99kB done
+2025-09-20T21:27:27.3016649Z #7 sha256:fa250457cf8a30440cc577c40c9e073d72e54f008f9a11a046e10db5f42c0320 1.93kB / 1.93kB done
+2025-09-20T21:27:27.5004655Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 33.55MB / 49.28MB 0.4s
+2025-09-20T21:27:27.5005757Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 25.61MB / 25.61MB 0.3s done
+2025-09-20T21:27:27.5006551Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 6.29MB / 67.78MB 0.4s
+2025-09-20T21:27:27.5007273Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 0B / 235.91MB 0.4s
+2025-09-20T21:27:27.6004287Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 44.04MB / 49.28MB 0.5s
+2025-09-20T21:27:27.6005505Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 25.61MB / 25.61MB 0.3s done
+2025-09-20T21:27:27.6006123Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 14.68MB / 67.78MB 0.5s
+2025-09-20T21:27:27.7913796Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 49.28MB / 49.28MB 0.5s done
+2025-09-20T21:27:27.7915667Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 18.87MB / 67.78MB 0.6s
+2025-09-20T21:27:27.7917133Z #7 extracting sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 0.1s
+2025-09-20T21:27:27.7918397Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 0B / 211.09MB 0.6s
+2025-09-20T21:27:27.9002942Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 39.85MB / 67.78MB 0.8s
+2025-09-20T21:27:27.9004191Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 31.46MB / 235.91MB 0.8s
+2025-09-20T21:27:27.9005085Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 18.87MB / 211.09MB 0.8s
+2025-09-20T21:27:28.0004597Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 52.43MB / 67.78MB 0.9s
+2025-09-20T21:27:28.0006035Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 44.04MB / 235.91MB 0.9s
+2025-09-20T21:27:28.1008858Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 58.72MB / 67.78MB 1.0s
+2025-09-20T21:27:28.1010596Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 61.99MB / 235.91MB 1.0s
+2025-09-20T21:27:28.1011916Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 30.41MB / 211.09MB 1.0s
+2025-09-20T21:27:28.3003799Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 67.78MB / 67.78MB 1.2s done
+2025-09-20T21:27:28.3005023Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 80.74MB / 235.91MB 1.2s
+2025-09-20T21:27:28.3006156Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 41.00MB / 211.09MB 1.2s
+2025-09-20T21:27:28.4003674Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 67.78MB / 67.78MB 1.2s done
+2025-09-20T21:27:28.5412860Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 54.53MB / 211.09MB 1.4s
+2025-09-20T21:27:28.6432948Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 101.71MB / 235.91MB 1.5s
+2025-09-20T21:27:28.7439402Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 71.30MB / 211.09MB 1.6s
+2025-09-20T21:27:28.8528364Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 114.29MB / 235.91MB 1.7s
+2025-09-20T21:27:28.9818191Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 85.98MB / 211.09MB 1.8s
+2025-09-20T21:27:29.1002703Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 138.41MB / 235.91MB 2.0s
+2025-09-20T21:27:29.1003934Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 99.91MB / 211.09MB 2.0s
+2025-09-20T21:27:29.3449991Z #7 extracting sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 1.6s done
+2025-09-20T21:27:29.3451164Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 111.15MB / 211.09MB 2.2s
+2025-09-20T21:27:29.3452171Z #7 extracting sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b
+2025-09-20T21:27:29.5503849Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 158.33MB / 235.91MB 2.4s
+2025-09-20T21:27:29.5505415Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 126.88MB / 211.09MB 2.4s
+2025-09-20T21:27:29.7752925Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 176.16MB / 235.91MB 2.6s
+2025-09-20T21:27:29.7753945Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 139.46MB / 211.09MB 2.6s
+2025-09-20T21:27:29.9883083Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 198.18MB / 235.91MB 2.8s
+2025-09-20T21:27:29.9884334Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 152.04MB / 211.09MB 2.8s
+2025-09-20T21:27:30.1002221Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 211.81MB / 235.91MB 3.0s
+2025-09-20T21:27:30.1003730Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 163.58MB / 211.09MB 3.0s
+2025-09-20T21:27:30.1005028Z #7 extracting sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 0.7s done
+2025-09-20T21:27:30.3011093Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 226.49MB / 235.91MB 3.2s
+2025-09-20T21:27:30.3011988Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 175.11MB / 211.09MB 3.2s
+2025-09-20T21:27:30.5003233Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 190.84MB / 211.09MB 3.4s
+2025-09-20T21:27:30.7002679Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 205.52MB / 211.09MB 3.6s
+2025-09-20T21:27:31.2006574Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 235.91MB / 235.91MB 4.0s done
+2025-09-20T21:27:31.2007413Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 211.09MB / 211.09MB 4.1s done
+2025-09-20T21:27:31.3509852Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 211.09MB / 211.09MB 4.1s done
+2025-09-20T21:27:31.4831939Z #7 extracting sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97
+2025-09-20T21:27:33.7974310Z #7 extracting sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 2.2s done
+2025-09-20T21:27:33.9798038Z #7 extracting sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f
+2025-09-20T21:27:39.0965533Z #7 extracting sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 5.1s
+2025-09-20T21:27:40.1376633Z #7 extracting sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 6.0s done
+2025-09-20T21:27:41.4751046Z #7 extracting sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573
+2025-09-20T21:27:44.1975497Z #7 extracting sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 2.6s done
+2025-09-20T21:27:45.4524485Z #7 DONE 18.2s
+2025-09-20T21:27:45.4525018Z 
+2025-09-20T21:27:45.6416780Z #9 [peer_a 2/8] WORKDIR /usr/src/peer
+2025-09-20T21:27:45.6417259Z #9 DONE 0.0s
+2025-09-20T21:27:45.6417430Z 
+2025-09-20T21:27:45.6417590Z #10 [server 2/8] WORKDIR /usr/src/server
+2025-09-20T21:27:45.6417968Z #10 DONE 0.0s
+2025-09-20T21:27:45.6418133Z 
+2025-09-20T21:27:45.6418251Z #11 [peer_b 3/8] COPY . .
+2025-09-20T21:27:45.6418671Z #11 DONE 0.1s
+2025-09-20T21:27:45.6418852Z 
+2025-09-20T21:27:45.6418968Z #12 [server 3/8] COPY . .
+2025-09-20T21:27:45.6419281Z #12 DONE 0.1s
+2025-09-20T21:27:45.6419444Z 
+2025-09-20T21:27:45.6419586Z #13 [peer_b 4/8] COPY ./docker/set_nat.sh .
+2025-09-20T21:27:45.6419977Z #13 DONE 0.0s
+2025-09-20T21:27:45.6420124Z 
+2025-09-20T21:27:45.6420255Z #14 [server 4/8] COPY ./docker/set_nat.sh .
+2025-09-20T21:27:45.6420657Z #14 DONE 0.0s
+2025-09-20T21:27:45.6420818Z 
+2025-09-20T21:27:45.6420967Z #15 [peer_b 5/8] COPY ./docker/peer/exec.sh .
+2025-09-20T21:27:45.6421362Z #15 DONE 0.0s
+2025-09-20T21:27:45.6421515Z 
+2025-09-20T21:27:45.6421689Z #16 [server 5/8] COPY ./docker/server/exec.sh .
+2025-09-20T21:27:45.6422065Z #16 DONE 0.0s
+2025-09-20T21:27:45.6422212Z 
+2025-09-20T21:27:45.6423109Z #17 [peer_b 6/8] RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*
+2025-09-20T21:27:45.6985583Z #17 0.211 Hit:1 http://deb.debian.org/debian trixie InRelease
+2025-09-20T21:27:45.8513976Z #17 0.212 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+2025-09-20T21:27:45.8516139Z #17 0.213 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+2025-09-20T21:27:45.8517414Z #17 0.226 Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9669 kB]
+2025-09-20T21:27:45.8518368Z #17 0.270 Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [5412 B]
+2025-09-20T21:27:45.8519288Z #17 0.271 Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [41.1 kB]
+2025-09-20T21:27:46.5587319Z #17 0.927 Fetched 9806 kB in 1s (13.4 MB/s)
+2025-09-20T21:27:47.0176101Z #17 0.927 Reading package lists...
+2025-09-20T21:27:47.4795943Z #17 1.396 Reading package lists...
+2025-09-20T21:27:47.4798048Z #17 1.874 Building dependency tree...
+2025-09-20T21:27:47.6161791Z #17 1.993 Reading state information...
+2025-09-20T21:27:47.6162621Z #17 2.129 openssl is already the newest version (3.5.1-1).
+2025-09-20T21:27:47.6163271Z #17 2.129 openssl set to manually installed.
+2025-09-20T21:27:47.6163875Z #17 2.129 The following additional packages will be installed:
+2025-09-20T21:27:47.7985546Z #17 2.129   cmake-data lib32gcc-s1 lib32stdc++6 libarchive13t64 libbpf1 libc6-i386
+2025-09-20T21:27:47.7986616Z #17 2.129   libcap2-bin libclang-19-dev libclang-common-19-dev libclang-rt-19-dev
+2025-09-20T21:27:47.7987518Z #17 2.130   libclang1-19 libgc1 libip4tc2 libip6tc2 libjsoncpp26 libllvm19 libmnl0
+2025-09-20T21:27:47.7988432Z #17 2.130   libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libobjc-14-dev
+2025-09-20T21:27:47.7989397Z #17 2.130   libobjc4 libpam-cap librhash1 libtirpc-common libtirpc3t64 libuv1t64
+2025-09-20T21:27:47.7990089Z #17 2.130   libxtables12 libz3-4 nftables
+2025-09-20T21:27:47.7990540Z #17 2.131 Suggested packages:
+2025-09-20T21:27:47.7991148Z #17 2.131   cmake-doc cmake-format elpa-cmake-mode ninja-build firewalld kmod lrzip
+2025-09-20T21:27:47.9004415Z #17 2.319 The following NEW packages will be installed:
+2025-09-20T21:27:47.9006115Z #17 2.320   build-essential cmake cmake-data inetutils-ping iproute2 iptables
+2025-09-20T21:27:47.9007014Z #17 2.320   lib32gcc-s1 lib32stdc++6 libarchive13t64 libbpf1 libc6-i386 libcap2-bin
+2025-09-20T21:27:47.9007916Z #17 2.320   libclang-19-dev libclang-common-19-dev libclang-dev libclang-rt-19-dev
+2025-09-20T21:27:47.9008755Z #17 2.320   libclang1-19 libgc1 libip4tc2 libip6tc2 libjsoncpp26 libllvm19 libmnl0
+2025-09-20T21:27:47.9009651Z #17 2.320   libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libobjc-14-dev
+2025-09-20T21:27:47.9010560Z #17 2.320   libobjc4 libpam-cap librhash1 libtirpc-common libtirpc3t64 libuv1t64
+2025-09-20T21:27:47.9011241Z #17 2.321   libxtables12 libz3-4 net-tools nftables
+2025-09-20T21:27:47.9011837Z #17 2.414 0 upgraded, 38 newly installed, 0 to remove and 15 not upgraded.
+2025-09-20T21:27:47.9012448Z #17 2.414 Need to get 96.4 MB of archives.
+2025-09-20T21:27:47.9013049Z #17 2.414 After this operation, 654 MB of additional disk space will be used.
+2025-09-20T21:27:47.9013985Z #17 2.414 Get:1 http://deb.debian.org/debian trixie/main amd64 libbpf1 amd64 1:1.5.0-3 [169 kB]
+2025-09-20T21:27:48.0016788Z #17 2.419 Get:2 http://deb.debian.org/debian trixie/main amd64 libmnl0 amd64 1.0.5-3 [11.9 kB]
+2025-09-20T21:27:48.0017938Z #17 2.420 Get:3 http://deb.debian.org/debian trixie/main amd64 libtirpc-common all 1.3.6+ds-1 [11.0 kB]
+2025-09-20T21:27:48.0018893Z #17 2.423 Get:4 http://deb.debian.org/debian trixie/main amd64 libtirpc3t64 amd64 1.3.6+ds-1 [83.3 kB]
+2025-09-20T21:27:48.0019839Z #17 2.423 Get:5 http://deb.debian.org/debian trixie/main amd64 libxtables12 amd64 1.8.11-2 [31.9 kB]
+2025-09-20T21:27:48.0020761Z #17 2.424 Get:6 http://deb.debian.org/debian trixie/main amd64 libcap2-bin amd64 1:2.75-10+b1 [36.4 kB]
+2025-09-20T21:27:48.0021746Z #17 2.426 Get:7 http://deb.debian.org/debian trixie/main amd64 iproute2 amd64 6.15.0-1 [1089 kB]
+2025-09-20T21:27:48.0022713Z #17 2.431 Get:8 http://deb.debian.org/debian trixie/main amd64 libnftnl11 amd64 1.2.9-1 [65.0 kB]
+2025-09-20T21:27:48.0023623Z #17 2.432 Get:9 http://deb.debian.org/debian trixie/main amd64 libnftables1 amd64 1.1.3-1 [332 kB]
+2025-09-20T21:27:48.0028956Z #17 2.433 Get:10 http://deb.debian.org/debian trixie/main amd64 nftables amd64 1.1.3-1 [75.9 kB]
+2025-09-20T21:27:48.0030263Z #17 2.434 Get:11 http://deb.debian.org/debian trixie/main amd64 build-essential amd64 12.12 [4624 B]
+2025-09-20T21:27:48.0031224Z #17 2.435 Get:12 http://deb.debian.org/debian trixie/main amd64 cmake-data all 3.31.6-2 [2268 kB]
+2025-09-20T21:27:48.0034228Z #17 2.444 Get:13 http://deb.debian.org/debian trixie/main amd64 libarchive13t64 amd64 3.7.4-4 [349 kB]
+2025-09-20T21:27:48.0036490Z #17 2.445 Get:14 http://deb.debian.org/debian trixie/main amd64 libjsoncpp26 amd64 1.9.6-3 [81.7 kB]
+2025-09-20T21:27:48.0037513Z #17 2.446 Get:15 http://deb.debian.org/debian trixie/main amd64 librhash1 amd64 1.4.5-1 [132 kB]
+2025-09-20T21:27:48.0038468Z #17 2.447 Get:16 http://deb.debian.org/debian trixie/main amd64 libuv1t64 amd64 1.50.0-2 [154 kB]
+2025-09-20T21:27:48.0042746Z #17 2.448 Get:17 http://deb.debian.org/debian trixie/main amd64 cmake amd64 3.31.6-2 [12.0 MB]
+2025-09-20T21:27:48.0043723Z #17 2.491 Get:18 http://deb.debian.org/debian trixie/main amd64 inetutils-ping amd64 2:2.6-3 [89.0 kB]
+2025-09-20T21:27:48.0044675Z #17 2.495 Get:19 http://deb.debian.org/debian trixie/main amd64 libip4tc2 amd64 1.8.11-2 [20.0 kB]
+2025-09-20T21:27:48.0045804Z #17 2.497 Get:20 http://deb.debian.org/debian trixie/main amd64 libip6tc2 amd64 1.8.11-2 [20.3 kB]
+2025-09-20T21:27:48.0046690Z #17 2.498 Get:21 http://deb.debian.org/debian trixie/main amd64 libnfnetlink0 amd64 1.0.2-3 [14.4 kB]
+2025-09-20T21:27:48.0047710Z #17 2.499 Get:22 http://deb.debian.org/debian trixie/main amd64 libnetfilter-conntrack3 amd64 1.1.0-1 [42.1 kB]
+2025-09-20T21:27:48.0048682Z #17 2.501 Get:23 http://deb.debian.org/debian trixie/main amd64 iptables amd64 1.8.11-2 [361 kB]
+2025-09-20T21:27:48.0049585Z #17 2.503 Get:24 http://deb.debian.org/debian trixie/main amd64 libc6-i386 amd64 2.41-12 [2540 kB]
+2025-09-20T21:27:48.0050494Z #17 2.511 Get:25 http://deb.debian.org/debian trixie/main amd64 lib32gcc-s1 amd64 14.2.0-19 [88.4 kB]
+2025-09-20T21:27:48.0051369Z #17 2.512 Get:26 http://deb.debian.org/debian trixie/main amd64 lib32stdc++6 amd64 14.2.0-19 [745 kB]
+2025-09-20T21:27:48.1066623Z #17 2.515 Get:27 http://deb.debian.org/debian trixie/main amd64 libgc1 amd64 1:8.2.8-1 [247 kB]
+2025-09-20T21:27:48.1067301Z #17 2.516 Get:28 http://deb.debian.org/debian trixie/main amd64 libobjc4 amd64 14.2.0-19 [43.3 kB]
+2025-09-20T21:27:48.1067893Z #17 2.517 Get:29 http://deb.debian.org/debian trixie/main amd64 libobjc-14-dev amd64 14.2.0-19 [173 kB]
+2025-09-20T21:27:48.1068441Z #17 2.518 Get:30 http://deb.debian.org/debian trixie/main amd64 libz3-4 amd64 4.13.3-1 [8560 kB]
+2025-09-20T21:27:48.1068974Z #17 2.546 Get:31 http://deb.debian.org/debian trixie/main amd64 libllvm19 amd64 1:19.1.7-3+b1 [26.0 MB]
+2025-09-20T21:27:48.2168871Z #17 2.635 Get:32 http://deb.debian.org/debian trixie/main amd64 libclang1-19 amd64 1:19.1.7-3+b1 [7623 kB]
+2025-09-20T21:27:48.2171661Z #17 2.663 Get:33 http://deb.debian.org/debian trixie/main amd64 libclang-common-19-dev amd64 1:19.1.7-3+b1 [740 kB]
+2025-09-20T21:27:48.2172813Z #17 2.666 Get:34 http://deb.debian.org/debian trixie/main amd64 libclang-19-dev amd64 1:19.1.7-3+b1 [28.3 MB]
+2025-09-20T21:27:48.3291783Z #17 2.766 Get:35 http://deb.debian.org/debian trixie/main amd64 libclang-dev amd64 1:19.0-63 [5828 B]
+2025-09-20T21:27:48.3294067Z #17 2.766 Get:36 http://deb.debian.org/debian trixie/main amd64 libclang-rt-19-dev amd64 1:19.1.7-3+b1 [3690 kB]
+2025-09-20T21:27:48.3295554Z #17 2.782 Get:37 http://deb.debian.org/debian trixie/main amd64 libpam-cap amd64 1:2.75-10+b1 [16.5 kB]
+2025-09-20T21:27:48.3296497Z #17 2.782 Get:38 http://deb.debian.org/debian trixie/main amd64 net-tools amd64 2.10-1.3 [245 kB]
+2025-09-20T21:27:48.5881026Z #17 2.984 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:48.5883198Z #17 2.984 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:48.5883901Z #17 2.984 debconf: falling back to frontend: Readline
+2025-09-20T21:27:48.5884490Z #17 2.990 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:48.5885920Z #17 2.990 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:48.5886535Z #17 2.990 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:48.5887133Z #17 2.994 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:48.5887762Z #17 2.994 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:48.5888684Z #17 2.994 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:49.4283756Z #17 3.941 Preconfiguring packages ...
+2025-09-20T21:27:49.5427536Z #17 3.983 Fetched 96.4 MB in 0s (214 MB/s)
+2025-09-20T21:27:49.5428210Z #17 4.004 Selecting previously unselected package libbpf1:amd64.
+2025-09-20T21:27:49.5428763Z #17 4.004 (Reading database ... 
+2025-09-20T21:27:49.5429136Z (Reading database ... 5%
+2025-09-20T21:27:49.5429494Z (Reading database ... 10%
+2025-09-20T21:27:49.5429836Z (Reading database ... 15%
+2025-09-20T21:27:49.5430178Z (Reading database ... 20%
+2025-09-20T21:27:49.5430516Z (Reading database ... 25%
+2025-09-20T21:27:49.5430880Z (Reading database ... 30%
+2025-09-20T21:27:49.5431211Z (Reading database ... 35%
+2025-09-20T21:27:49.5431545Z (Reading database ... 40%
+2025-09-20T21:27:49.5431876Z (Reading database ... 45%
+2025-09-20T21:27:49.5432199Z (Reading database ... 50%
+2025-09-20T21:27:49.5432528Z (Reading database ... 55%
+2025-09-20T21:27:49.5432859Z (Reading database ... 60%
+2025-09-20T21:27:49.5433181Z (Reading database ... 65%
+2025-09-20T21:27:49.5433510Z (Reading database ... 70%
+2025-09-20T21:27:49.5433844Z (Reading database ... 75%
+2025-09-20T21:27:49.5434176Z (Reading database ... 80%
+2025-09-20T21:27:49.5434499Z (Reading database ... 85%
+2025-09-20T21:27:49.5435024Z (Reading database ... 90%
+2025-09-20T21:27:49.5435361Z (Reading database ... 95%
+2025-09-20T21:27:49.5435702Z (Reading database ... 100%
+2025-09-20T21:27:49.5436197Z (Reading database ... 26065 files and directories currently installed.)
+2025-09-20T21:27:49.5436895Z #17 4.023 Preparing to unpack .../00-libbpf1_1%3a1.5.0-3_amd64.deb ...
+2025-09-20T21:27:49.5437473Z #17 4.026 Unpacking libbpf1:amd64 (1:1.5.0-3) ...
+2025-09-20T21:27:49.5438018Z #17 4.056 Selecting previously unselected package libmnl0:amd64.
+2025-09-20T21:27:49.6434108Z #17 4.059 Preparing to unpack .../01-libmnl0_1.0.5-3_amd64.deb ...
+2025-09-20T21:27:49.6434982Z #17 4.060 Unpacking libmnl0:amd64 (1.0.5-3) ...
+2025-09-20T21:27:49.6435628Z #17 4.084 Selecting previously unselected package libtirpc-common.
+2025-09-20T21:27:49.6436329Z #17 4.088 Preparing to unpack .../02-libtirpc-common_1.3.6+ds-1_all.deb ...
+2025-09-20T21:27:49.6437116Z #17 4.089 Unpacking libtirpc-common (1.3.6+ds-1) ...
+2025-09-20T21:27:49.6437740Z #17 4.114 Selecting previously unselected package libtirpc3t64:amd64.
+2025-09-20T21:27:49.6438644Z #17 4.118 Preparing to unpack .../03-libtirpc3t64_1.3.6+ds-1_amd64.deb ...
+2025-09-20T21:27:49.6439682Z #17 4.125 Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3 to /lib/x86_64-linux-gnu/libtirpc.so.3.usr-is-merged by libtirpc3t64'
+2025-09-20T21:27:49.6441078Z #17 4.132 Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3.0.0 to /lib/x86_64-linux-gnu/libtirpc.so.3.0.0.usr-is-merged by libtirpc3t64'
+2025-09-20T21:27:49.6442056Z #17 4.135 Unpacking libtirpc3t64:amd64 (1.3.6+ds-1) ...
+2025-09-20T21:27:49.7438739Z #17 4.161 Selecting previously unselected package libxtables12:amd64.
+2025-09-20T21:27:49.7439591Z #17 4.164 Preparing to unpack .../04-libxtables12_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:49.7440228Z #17 4.165 Unpacking libxtables12:amd64 (1.8.11-2) ...
+2025-09-20T21:27:49.7440808Z #17 4.185 Selecting previously unselected package libcap2-bin.
+2025-09-20T21:27:49.7441491Z #17 4.187 Preparing to unpack .../05-libcap2-bin_1%3a2.75-10+b1_amd64.deb ...
+2025-09-20T21:27:49.7442271Z #17 4.189 Unpacking libcap2-bin (1:2.75-10+b1) ...
+2025-09-20T21:27:49.7442761Z #17 4.219 Selecting previously unselected package iproute2.
+2025-09-20T21:27:49.7443266Z #17 4.222 Preparing to unpack .../06-iproute2_6.15.0-1_amd64.deb ...
+2025-09-20T21:27:49.8458871Z #17 4.258 Unpacking iproute2 (6.15.0-1) ...
+2025-09-20T21:27:49.8459581Z #17 4.356 Selecting previously unselected package libnftnl11:amd64.
+2025-09-20T21:27:49.9459968Z #17 4.359 Preparing to unpack .../07-libnftnl11_1.2.9-1_amd64.deb ...
+2025-09-20T21:27:49.9460663Z #17 4.361 Unpacking libnftnl11:amd64 (1.2.9-1) ...
+2025-09-20T21:27:49.9461271Z #17 4.382 Selecting previously unselected package libnftables1:amd64.
+2025-09-20T21:27:49.9462275Z #17 4.385 Preparing to unpack .../08-libnftables1_1.1.3-1_amd64.deb ...
+2025-09-20T21:27:49.9462869Z #17 4.387 Unpacking libnftables1:amd64 (1.1.3-1) ...
+2025-09-20T21:27:49.9463406Z #17 4.424 Selecting previously unselected package nftables.
+2025-09-20T21:27:49.9464018Z #17 4.427 Preparing to unpack .../09-nftables_1.1.3-1_amd64.deb ...
+2025-09-20T21:27:49.9464551Z #17 4.430 Unpacking nftables (1.1.3-1) ...
+2025-09-20T21:27:49.9465630Z #17 4.454 Selecting previously unselected package build-essential.
+2025-09-20T21:27:49.9466048Z #17 4.457 Preparing to unpack .../10-build-essential_12.12_amd64.deb ...
+2025-09-20T21:27:50.0722932Z #17 4.459 Unpacking build-essential (12.12) ...
+2025-09-20T21:27:50.0724626Z #17 4.482 Selecting previously unselected package cmake-data.
+2025-09-20T21:27:50.0726406Z #17 4.485 Preparing to unpack .../11-cmake-data_3.31.6-2_all.deb ...
+2025-09-20T21:27:50.0727978Z #17 4.491 Unpacking cmake-data (3.31.6-2) ...
+2025-09-20T21:27:50.3747101Z ##[error]The operation was canceled.

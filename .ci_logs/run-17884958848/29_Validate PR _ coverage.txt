@@ -1,0 +1,1197 @@
+﻿2025-09-20T21:18:22.5471130Z Current runner version: '2.328.0'
+2025-09-20T21:18:22.5485070Z ##[group]Runner Image Provisioner
+2025-09-20T21:18:22.5485750Z Hosted Compute Agent
+2025-09-20T21:18:22.5486160Z Version: 20250912.392
+2025-09-20T21:18:22.5486560Z Commit: d921fda672a98b64f4f82364647e2f10b2267d0b
+2025-09-20T21:18:22.5487090Z Build Date: 2025-09-12T15:23:14Z
+2025-09-20T21:18:22.5487460Z ##[endgroup]
+2025-09-20T21:18:22.5487840Z ##[group]Operating System
+2025-09-20T21:18:22.5488290Z macOS
+2025-09-20T21:18:22.5488670Z 15.6.1
+2025-09-20T21:18:22.5489030Z 24G90
+2025-09-20T21:18:22.5489340Z ##[endgroup]
+2025-09-20T21:18:22.5489720Z ##[group]Runner Image
+2025-09-20T21:18:22.5490180Z Image: macos-15-arm64
+2025-09-20T21:18:22.5490520Z Version: 20250916.2338
+2025-09-20T21:18:22.5491710Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20250916.2338/images/macos/macos-15-arm64-Readme.md
+2025-09-20T21:18:22.5493120Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20250916.2338
+2025-09-20T21:18:22.5493880Z ##[endgroup]
+2025-09-20T21:18:22.5495960Z ##[group]GITHUB_TOKEN Permissions
+2025-09-20T21:18:22.5497780Z Actions: write
+2025-09-20T21:18:22.5498220Z Attestations: write
+2025-09-20T21:18:22.5498650Z Checks: write
+2025-09-20T21:18:22.5499050Z Contents: write
+2025-09-20T21:18:22.5499430Z Deployments: write
+2025-09-20T21:18:22.5499870Z Discussions: write
+2025-09-20T21:18:22.5500270Z Issues: write
+2025-09-20T21:18:22.5500660Z Metadata: read
+2025-09-20T21:18:22.5501040Z Models: read
+2025-09-20T21:18:22.5501460Z Packages: write
+2025-09-20T21:18:22.5501780Z Pages: write
+2025-09-20T21:18:22.5502260Z PullRequests: write
+2025-09-20T21:18:22.5502630Z RepositoryProjects: write
+2025-09-20T21:18:22.5502990Z SecurityEvents: write
+2025-09-20T21:18:22.5503480Z Statuses: write
+2025-09-20T21:18:22.5503880Z ##[endgroup]
+2025-09-20T21:18:22.5505740Z Secret source: Actions
+2025-09-20T21:18:22.5506250Z Prepare workflow directory
+2025-09-20T21:18:22.5876700Z Prepare all required actions
+2025-09-20T21:18:22.5915300Z Getting action download info
+2025-09-20T21:18:22.9803300Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-20T21:18:23.1794740Z Download action repository 'taiki-e/install-action@nextest' (SHA:320133d5f45b215a033477e643139da5245dd9fc)
+2025-09-20T21:18:24.2905790Z Download action repository 'taiki-e/install-action@cargo-llvm-cov' (SHA:d15b1de745285bb56934d86629e9970d2b5fa19b)
+2025-09-20T21:18:25.3867110Z Download action repository 'Swatinem/rust-cache@v1' (SHA:81d053bdb0871dcd3f10763c8cc60d0adc41762b)
+2025-09-20T21:18:26.8075510Z Download action repository 'codecov/codecov-action@v3' (SHA:ab904c41d6ece82784817410c45d8b8c02684457)
+2025-09-20T21:18:28.1852630Z Uses: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:18:28.1855590Z Complete job name: Validate PR / coverage
+2025-09-20T21:18:28.2242020Z ##[group]Run actions/checkout@v4
+2025-09-20T21:18:28.2242650Z with:
+2025-09-20T21:18:28.2242840Z   repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:18:28.2243290Z   token: ***
+2025-09-20T21:18:28.2243420Z   ssh-strict: true
+2025-09-20T21:18:28.2243560Z   ssh-user: git
+2025-09-20T21:18:28.2243710Z   persist-credentials: true
+2025-09-20T21:18:28.2243870Z   clean: true
+2025-09-20T21:18:28.2244020Z   sparse-checkout-cone-mode: true
+2025-09-20T21:18:28.2244220Z   fetch-depth: 1
+2025-09-20T21:18:28.2244340Z   fetch-tags: false
+2025-09-20T21:18:28.2244480Z   show-progress: true
+2025-09-20T21:18:28.2244620Z   lfs: false
+2025-09-20T21:18:28.2244740Z   submodules: false
+2025-09-20T21:18:28.2244880Z   set-safe-directory: true
+2025-09-20T21:18:28.2245190Z env:
+2025-09-20T21:18:28.2245310Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:28.2245470Z   RUST_BACKTRACE: full
+2025-09-20T21:18:28.2245640Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:28.2245790Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:28.2245960Z   IN_CI: true
+2025-09-20T21:18:28.2246080Z ##[endgroup]
+2025-09-20T21:18:28.7429160Z Syncing repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:18:28.7431930Z ##[group]Getting Git version info
+2025-09-20T21:18:28.7604820Z Working directory is '/Users/runner/work/Citadel-Protocol/Citadel-Protocol'
+2025-09-20T21:18:28.7961050Z [command]/opt/homebrew/bin/git version
+2025-09-20T21:18:28.8042990Z git version 2.50.1
+2025-09-20T21:18:28.8838320Z ##[endgroup]
+2025-09-20T21:18:28.8928490Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/91a8f875-f9c3-49a7-bafe-c085500c1088/.gitconfig'
+2025-09-20T21:18:28.8930680Z Temporarily overriding HOME='/Users/runner/work/_temp/91a8f875-f9c3-49a7-bafe-c085500c1088' before making global git config changes
+2025-09-20T21:18:28.8931590Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-20T21:18:28.8933520Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:18:28.8939200Z Deleting the contents of '/Users/runner/work/Citadel-Protocol/Citadel-Protocol'
+2025-09-20T21:18:28.8940510Z ##[group]Initializing the repository
+2025-09-20T21:18:28.8941070Z [command]/opt/homebrew/bin/git init /Users/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:18:28.9054060Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-09-20T21:18:28.9159330Z hint: is subject to change. To configure the initial branch name to use in all
+2025-09-20T21:18:28.9184290Z hint: of your new repositories, which will suppress this warning, call:
+2025-09-20T21:18:28.9230450Z hint:
+2025-09-20T21:18:28.9235970Z hint: 	git config --global init.defaultBranch <name>
+2025-09-20T21:18:28.9237120Z hint:
+2025-09-20T21:18:28.9238250Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-09-20T21:18:28.9239800Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-09-20T21:18:28.9341060Z hint:
+2025-09-20T21:18:28.9443990Z hint: 	git branch -m <name>
+2025-09-20T21:18:28.9491530Z hint:
+2025-09-20T21:18:28.9502220Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-09-20T21:18:28.9503160Z Initialized empty Git repository in /Users/runner/work/Citadel-Protocol/Citadel-Protocol/.git/
+2025-09-20T21:18:28.9504170Z [command]/opt/homebrew/bin/git remote add origin https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:18:28.9505740Z ##[endgroup]
+2025-09-20T21:18:28.9506060Z ##[group]Disabling automatic garbage collection
+2025-09-20T21:18:28.9506360Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2025-09-20T21:18:28.9506900Z ##[endgroup]
+2025-09-20T21:18:28.9507120Z ##[group]Setting up auth
+2025-09-20T21:18:28.9507420Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-20T21:18:28.9509010Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-20T21:18:29.0335810Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-20T21:18:29.0397220Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-20T21:18:29.1134950Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-09-20T21:18:29.1395640Z ##[endgroup]
+2025-09-20T21:18:29.1396030Z ##[group]Fetching the repository
+2025-09-20T21:18:29.1403100Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +7edf0bb75f061919add02f6d6a82672c0b2e9654:refs/remotes/pull/236/merge
+2025-09-20T21:18:30.1001760Z From https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:18:30.1103430Z  * [new ref]         7edf0bb75f061919add02f6d6a82672c0b2e9654 -> pull/236/merge
+2025-09-20T21:18:30.1285390Z ##[endgroup]
+2025-09-20T21:18:30.1285830Z ##[group]Determining the checkout info
+2025-09-20T21:18:30.1286340Z ##[endgroup]
+2025-09-20T21:18:30.1286670Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2025-09-20T21:18:30.1465570Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2025-09-20T21:18:30.1506660Z ##[group]Checking out the ref
+2025-09-20T21:18:30.1540890Z [command]/opt/homebrew/bin/git checkout --progress --force refs/remotes/pull/236/merge
+2025-09-20T21:18:30.3752230Z HEAD is now at 7edf0bb Merge 8a89b2152348ab91c1a5bd335ccb554a7eae26c5 into 2b40ca3c28904a155dd62f453494820feec744f0
+2025-09-20T21:18:30.4515460Z ##[endgroup]
+2025-09-20T21:18:30.4596620Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2025-09-20T21:18:30.4655370Z 7edf0bb75f061919add02f6d6a82672c0b2e9654
+2025-09-20T21:18:30.4801590Z ##[group]Run rustup toolchain install stable --component llvm-tools-preview
+2025-09-20T21:18:30.4802130Z [36;1mrustup toolchain install stable --component llvm-tools-preview[0m
+2025-09-20T21:18:30.4846650Z shell: /bin/bash -e {0}
+2025-09-20T21:18:30.4846870Z env:
+2025-09-20T21:18:30.4847070Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:30.4847260Z   RUST_BACKTRACE: full
+2025-09-20T21:18:30.4847460Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:30.4847640Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:30.4847820Z   IN_CI: true
+2025-09-20T21:18:30.4847940Z ##[endgroup]
+2025-09-20T21:18:30.7994870Z info: syncing channel updates for 'stable-aarch64-apple-darwin'
+2025-09-20T21:18:31.0942170Z info: latest update on 2025-09-18, rust version 1.90.0 (1159e78c4 2025-09-14)
+2025-09-20T21:18:31.1261040Z info: downloading component 'llvm-tools'
+2025-09-20T21:18:31.8984700Z info: downloading component 'clippy'
+2025-09-20T21:18:32.0003190Z info: downloading component 'rustfmt'
+2025-09-20T21:18:32.0895660Z info: downloading component 'cargo'
+2025-09-20T21:18:32.2550670Z info: downloading component 'rust-std'
+2025-09-20T21:18:32.6915280Z info: downloading component 'rustc'
+2025-09-20T21:18:33.5311730Z info: removing previous version of component 'clippy'
+2025-09-20T21:18:33.5636400Z info: removing previous version of component 'rustfmt'
+2025-09-20T21:18:33.5651660Z info: removing previous version of component 'cargo'
+2025-09-20T21:18:33.5711680Z info: removing previous version of component 'rust-std'
+2025-09-20T21:18:33.5751820Z info: removing previous version of component 'rustc'
+2025-09-20T21:18:33.5842630Z info: installing component 'llvm-tools'
+2025-09-20T21:18:37.1617030Z info: installing component 'clippy'
+2025-09-20T21:18:37.5894350Z info: installing component 'rustfmt'
+2025-09-20T21:18:37.9628290Z info: installing component 'cargo'
+2025-09-20T21:18:38.5989210Z info: installing component 'rust-std'
+2025-09-20T21:18:40.1960430Z info: installing component 'rustc'
+2025-09-20T21:18:43.7357470Z 
+2025-09-20T21:18:43.8313110Z   stable-aarch64-apple-darwin updated - rustc 1.90.0 (1159e78c4 2025-09-14) (from rustc 1.89.0 (29483883e 2025-08-04))
+2025-09-20T21:18:43.8316700Z 
+2025-09-20T21:18:43.8316890Z info: self-update is disabled for this build of rustup
+2025-09-20T21:18:43.8317890Z info: any updates to rustup will need to be fetched with your system package manager
+2025-09-20T21:18:43.8545520Z ##[group]Run taiki-e/install-action@nextest
+2025-09-20T21:18:43.8545750Z with:
+2025-09-20T21:18:43.8545870Z   tool: nextest
+2025-09-20T21:18:43.8545990Z   checksum: true
+2025-09-20T21:18:43.8546120Z   fallback: cargo-binstall
+2025-09-20T21:18:43.8546260Z env:
+2025-09-20T21:18:43.8546450Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:43.8546670Z   RUST_BACKTRACE: full
+2025-09-20T21:18:43.8546850Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:43.8547060Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:43.8547300Z   IN_CI: true
+2025-09-20T21:18:43.8547420Z ##[endgroup]
+2025-09-20T21:18:43.8660150Z ##[group]Run bash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"
+2025-09-20T21:18:43.8660520Z [36;1mbash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"[0m
+2025-09-20T21:18:43.8703660Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:18:43.8703960Z env:
+2025-09-20T21:18:43.8704160Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:43.8704440Z   RUST_BACKTRACE: full
+2025-09-20T21:18:43.8704770Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:43.8704990Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:43.8705180Z   IN_CI: true
+2025-09-20T21:18:43.8705360Z   INPUT_TOOL: nextest
+2025-09-20T21:18:43.8705590Z   INPUT_CHECKSUM: true
+2025-09-20T21:18:43.8705950Z   INPUT_FALLBACK: cargo-binstall
+2025-09-20T21:18:43.8706500Z   DEFAULT_GITHUB_TOKEN: ***
+2025-09-20T21:18:43.8706810Z   ACTION_USER_AGENT: taiki-e/install-action (nextest)
+2025-09-20T21:18:43.8707110Z ##[endgroup]
+2025-09-20T21:18:43.9353540Z info: host platform: aarch64_macos
+2025-09-20T21:18:44.0299780Z * Host crates.io:443 was resolved.
+2025-09-20T21:18:44.0300090Z * IPv6: (none)
+2025-09-20T21:18:44.0300320Z * IPv4: 13.225.61.21, 13.225.61.4, 13.225.61.42, 13.225.61.87
+2025-09-20T21:18:44.0300730Z *   Trying 13.225.61.21:443...
+2025-09-20T21:18:44.0389150Z * Connected to crates.io (13.225.61.21) port 443
+2025-09-20T21:18:44.0389480Z * ALPN: curl offers h2,http/1.1
+2025-09-20T21:18:44.0390650Z * (304) (OUT), TLS handshake, Client hello (1):
+2025-09-20T21:18:44.0390980Z } [310 bytes data]
+2025-09-20T21:18:44.0423140Z *  CAfile: /etc/ssl/cert.pem
+2025-09-20T21:18:44.0423420Z *  CApath: none
+2025-09-20T21:18:44.0479050Z * (304) (IN), TLS handshake, Server hello (2):
+2025-09-20T21:18:44.0479420Z { [122 bytes data]
+2025-09-20T21:18:44.0479930Z * (304) (IN), TLS handshake, Unknown (8):
+2025-09-20T21:18:44.0480200Z { [19 bytes data]
+2025-09-20T21:18:44.0487850Z * (304) (IN), TLS handshake, Certificate (11):
+2025-09-20T21:18:44.0488410Z { [3858 bytes data]
+2025-09-20T21:18:44.0492640Z * (304) (IN), TLS handshake, CERT verify (15):
+2025-09-20T21:18:44.0492870Z { [264 bytes data]
+2025-09-20T21:18:44.0493360Z * (304) (IN), TLS handshake, Finished (20):
+2025-09-20T21:18:44.0493610Z { [36 bytes data]
+2025-09-20T21:18:44.0493880Z * (304) (OUT), TLS handshake, Finished (20):
+2025-09-20T21:18:44.0494190Z } [36 bytes data]
+2025-09-20T21:18:44.0494610Z * SSL connection using TLSv1.3 / AEAD-AES128-GCM-SHA256 / [blank] / UNDEF
+2025-09-20T21:18:44.0495070Z * ALPN: server accepted h2
+2025-09-20T21:18:44.0495290Z * Server certificate:
+2025-09-20T21:18:44.0495510Z *  subject: CN=crates.io
+2025-09-20T21:18:44.0495740Z *  start date: Nov 25 00:00:00 2024 GMT
+2025-09-20T21:18:44.0495970Z *  expire date: Dec 24 23:59:59 2025 GMT
+2025-09-20T21:18:44.0496430Z *  subjectAltName: host "crates.io" matched cert's "crates.io"
+2025-09-20T21:18:44.0496860Z *  issuer: C=US; O=Amazon; CN=Amazon RSA 2048 M02
+2025-09-20T21:18:44.0497080Z *  SSL certificate verify ok.
+2025-09-20T21:18:44.0497310Z * using HTTP/2
+2025-09-20T21:18:44.0497600Z * [HTTP/2] [1] OPENED stream for https://crates.io/api/v1/crates/cargo-nextest
+2025-09-20T21:18:44.0497920Z * [HTTP/2] [1] [:method: GET]
+2025-09-20T21:18:44.0498090Z * [HTTP/2] [1] [:scheme: https]
+2025-09-20T21:18:44.0498370Z * [HTTP/2] [1] [:authority: crates.io]
+2025-09-20T21:18:44.0498660Z * [HTTP/2] [1] [:path: /api/v1/crates/cargo-nextest]
+2025-09-20T21:18:44.0498980Z * [HTTP/2] [1] [user-agent: taiki-e/install-action (nextest)]
+2025-09-20T21:18:44.0499860Z * [HTTP/2] [1] [accept: */*]
+2025-09-20T21:18:44.0500100Z > GET /api/v1/crates/cargo-nextest HTTP/2
+2025-09-20T21:18:44.0500330Z > Host: crates.io
+2025-09-20T21:18:44.0500550Z > User-Agent: taiki-e/install-action (nextest)
+2025-09-20T21:18:44.0500820Z > Accept: */*
+2025-09-20T21:18:44.0500940Z > 
+2025-09-20T21:18:44.0501070Z * Request completely sent off
+2025-09-20T21:18:44.1008910Z < HTTP/2 200 
+2025-09-20T21:18:44.1109670Z < content-type: application/json
+2025-09-20T21:18:44.1211010Z < content-length: 182668
+2025-09-20T21:18:44.1311250Z < access-control-allow-origin: *
+2025-09-20T21:18:44.1413870Z < content-security-policy: default-src 'self'; connect-src 'self' *.ingest.sentry.io https://docs.rs https://play.rust-lang.org https://static.crates.io; script-src 'self' 'unsafe-eval' 'sha256-n1+BB7Ckjcal1Pr7QNBh/dKRTtBQsIytFodRiIosXdE=' 'sha256-dbf9FMl76C7BnK1CC3eWb3pvsQAUaTYSHAlBy9tNTG0='; style-src 'self' 'unsafe-inline' https://code.cdn.mozilla.net; font-src https://code.cdn.mozilla.net; img-src *; object-src 'none'
+2025-09-20T21:18:44.1513270Z < date: Sat, 20 Sep 2025 21:18:44 GMT
+2025-09-20T21:18:44.1614060Z < nel: {"report_to":"heroku-nel","response_headers":["Via"],"max_age":3600,"success_fraction":0.01,"failure_fraction":0.1}
+2025-09-20T21:18:44.1715110Z < report-to: {"group":"heroku-nel","endpoints":[{"url":"https://nel.heroku.com/reports?s=C91ufXhVr6ka%2Fk7hnENBtYZtLBftRGqQQKN0QlCg5KM%3D\u0026sid=af571f24-03ee-46d1-9f90-ab9030c2c74c\u0026ts=1758403124"}],"max_age":3600}
+2025-09-20T21:18:44.1816760Z < reporting-endpoints: heroku-nel="https://nel.heroku.com/reports?s=C91ufXhVr6ka%2Fk7hnENBtYZtLBftRGqQQKN0QlCg5KM%3D&sid=af571f24-03ee-46d1-9f90-ab9030c2c74c&ts=1758403124"
+2025-09-20T21:18:44.1918670Z < server: Heroku
+2025-09-20T21:18:44.2018700Z < strict-transport-security: max-age=31536000; includeSubDomains
+2025-09-20T21:18:44.2120320Z < via: 1.1 heroku-router, 1.1 ad253132fbda5b4b790c2a3fe5b0575a.cloudfront.net (CloudFront)
+2025-09-20T21:18:44.2221010Z < x-content-type-options: nosniff
+2025-09-20T21:18:44.2321810Z < x-frame-options: SAMEORIGIN
+2025-09-20T21:18:44.2350970Z < x-xss-protection: 0
+2025-09-20T21:18:44.2369190Z < vary: Accept,Accept-Encoding,Cookie
+2025-09-20T21:18:44.2370250Z < x-cache: Miss from cloudfront
+2025-09-20T21:18:44.2370530Z < x-amz-cf-pop: DFW59-P8
+2025-09-20T21:18:44.2370860Z < x-amz-cf-id: V_twHPJdkvlit7_3wtAragvYG75RmFeoM7FhIZ7LAbOG7p6HGmj-vQ==
+2025-09-20T21:18:44.2371140Z < 
+2025-09-20T21:18:44.2371300Z { [2805 bytes data]
+2025-09-20T21:18:44.2371520Z * Connection #0 to host crates.io left intact
+2025-09-20T21:18:44.2378300Z info: installing cargo-nextest@latest
+2025-09-20T21:18:44.2695760Z info: downloading https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.104/cargo-nextest-0.9.104-universal-apple-darwin.tar.gz
+2025-09-20T21:18:44.6396240Z info: verifying sha256 checksum for cargo-nextest-0.9.104-universal-apple-darwin.tar.gz
+2025-09-20T21:18:44.7308990Z info: cargo-nextest installed at /Users/runner/.cargo/bin/cargo-nextest
+2025-09-20T21:18:44.7322480Z + cargo-nextest nextest --version
+2025-09-20T21:18:44.7410600Z cargo-nextest 0.9.104 (87857ddf2 2025-09-15)
+2025-09-20T21:18:44.7411270Z release: 0.9.104
+2025-09-20T21:18:44.7411570Z commit-hash: 87857ddf299a42c9cb5822422aeba77bd8fb74e8
+2025-09-20T21:18:44.7411930Z commit-date: 2025-09-15
+2025-09-20T21:18:44.7412220Z host: aarch64-apple-darwin
+2025-09-20T21:18:44.7412490Z 
+2025-09-20T21:18:44.7484060Z ##[group]Run taiki-e/install-action@cargo-llvm-cov
+2025-09-20T21:18:44.7484280Z with:
+2025-09-20T21:18:44.7484410Z   tool: cargo-llvm-cov
+2025-09-20T21:18:44.7484570Z   checksum: true
+2025-09-20T21:18:44.7484710Z   fallback: cargo-binstall
+2025-09-20T21:18:44.7484850Z env:
+2025-09-20T21:18:44.7484960Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:44.7485140Z   RUST_BACKTRACE: full
+2025-09-20T21:18:44.7485290Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:44.7485430Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:44.7485570Z   IN_CI: true
+2025-09-20T21:18:44.7485690Z ##[endgroup]
+2025-09-20T21:18:44.7502200Z ##[group]Run bash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"
+2025-09-20T21:18:44.7502560Z [36;1mbash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"[0m
+2025-09-20T21:18:44.7530830Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:18:44.7531050Z env:
+2025-09-20T21:18:44.7531170Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:44.7531370Z   RUST_BACKTRACE: full
+2025-09-20T21:18:44.7531570Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:44.7531740Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:44.7531880Z   IN_CI: true
+2025-09-20T21:18:44.7532020Z   INPUT_TOOL: cargo-llvm-cov
+2025-09-20T21:18:44.7532190Z   INPUT_CHECKSUM: true
+2025-09-20T21:18:44.7532340Z   INPUT_FALLBACK: cargo-binstall
+2025-09-20T21:18:44.7532690Z   DEFAULT_GITHUB_TOKEN: ***
+2025-09-20T21:18:44.7533200Z   ACTION_USER_AGENT: taiki-e/install-action (cargo-llvm-cov)
+2025-09-20T21:18:44.7533450Z ##[endgroup]
+2025-09-20T21:18:44.7858370Z info: host platform: aarch64_macos
+2025-09-20T21:18:44.8105300Z info: installing cargo-llvm-cov@latest
+2025-09-20T21:18:44.8352870Z info: downloading https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.6.19/cargo-llvm-cov-aarch64-apple-darwin.tar.gz
+2025-09-20T21:18:45.0737380Z info: verifying sha256 checksum for cargo-llvm-cov-aarch64-apple-darwin.tar.gz
+2025-09-20T21:18:45.0973800Z info: cargo-llvm-cov installed at /Users/runner/.cargo/bin/cargo-llvm-cov
+2025-09-20T21:18:45.0976280Z + cargo-llvm-cov llvm-cov --version
+2025-09-20T21:18:45.1008120Z cargo-llvm-cov 0.6.19
+2025-09-20T21:18:45.1009630Z 
+2025-09-20T21:18:45.1061230Z ##[group]Run Swatinem/rust-cache@v1
+2025-09-20T21:18:45.1061440Z with:
+2025-09-20T21:18:45.1061560Z env:
+2025-09-20T21:18:45.1061700Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:45.1061860Z   RUST_BACKTRACE: full
+2025-09-20T21:18:45.1062040Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:45.1062210Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:45.1062360Z   IN_CI: true
+2025-09-20T21:18:45.1062480Z ##[endgroup]
+2025-09-20T21:18:45.4915640Z ##[warning]The `save-state` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+2025-09-20T21:18:45.5411320Z ##[warning]The `save-state` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+2025-09-20T21:18:45.5412770Z Restoring paths:
+2025-09-20T21:18:45.5412930Z     /Users/runner/.cargo/bin
+2025-09-20T21:18:45.5413150Z     /Users/runner/.cargo/.crates2.json
+2025-09-20T21:18:45.5413350Z     /Users/runner/.cargo/.crates.toml
+2025-09-20T21:18:45.5413590Z     /Users/runner/.cargo/git
+2025-09-20T21:18:45.5413770Z     /Users/runner/.cargo/registry/cache
+2025-09-20T21:18:45.5413980Z     /Users/runner/.cargo/registry/index
+2025-09-20T21:18:45.5414150Z     ./target
+2025-09-20T21:18:45.5414270Z In directory:
+2025-09-20T21:18:45.5414460Z     /Users/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:18:45.5414690Z Using keys:
+2025-09-20T21:18:45.5414970Z     v0-rust-coverage-1.90.0-aarch64-apple-darwin-1159e78c4747-d350f38ffaf6a651bbd0
+2025-09-20T21:18:45.5415350Z     v0-rust-coverage-1.90.0-aarch64-apple-darwin-1159e78c4747
+2025-09-20T21:18:45.6523900Z ##[warning]Failed to restore: Cache service responded with 400
+2025-09-20T21:18:45.6524910Z No cache found.
+2025-09-20T21:18:45.6525020Z 
+2025-09-20T21:18:45.6527800Z ##[warning]The `set-output` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+2025-09-20T21:18:45.6620540Z ##[group]Run cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs"
+2025-09-20T21:18:45.6622810Z [36;1mcargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs"[0m
+2025-09-20T21:18:45.6651930Z shell: /bin/bash -e {0}
+2025-09-20T21:18:45.6652360Z env:
+2025-09-20T21:18:45.6652500Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:45.6652660Z   RUST_BACKTRACE: full
+2025-09-20T21:18:45.6652850Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:45.6652990Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:45.6653120Z   IN_CI: true
+2025-09-20T21:18:45.6653250Z   CACHE_ON_FAILURE: false
+2025-09-20T21:18:45.6653390Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:18:45.6653550Z   SKIP_EXT_BACKENDS: true
+2025-09-20T21:18:45.6653690Z ##[endgroup]
+2025-09-20T21:18:45.8453980Z info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+2025-09-20T21:18:51.1593000Z [1m[32m Downloading[0m crates ...
+2025-09-20T21:18:51.2704560Z [1m[32m  Downloaded[0m async-stream-impl v0.3.6
+2025-09-20T21:18:51.2805050Z [1m[32m  Downloaded[0m arrayref v0.3.9
+2025-09-20T21:18:51.2846900Z [1m[32m  Downloaded[0m async-trait v0.1.89
+2025-09-20T21:18:51.2938660Z [1m[32m  Downloaded[0m foreign-types v0.3.2
+2025-09-20T21:18:51.2945700Z [1m[32m  Downloaded[0m embed-doc-image v0.1.4
+2025-09-20T21:18:51.2961030Z [1m[32m  Downloaded[0m async-stream v0.3.6
+2025-09-20T21:18:51.3021580Z [1m[32m  Downloaded[0m sha1_smol v1.0.1
+2025-09-20T21:18:51.3054620Z [1m[32m  Downloaded[0m futures-core v0.3.31
+2025-09-20T21:18:51.3091720Z [1m[32m  Downloaded[0m futures-task v0.3.31
+2025-09-20T21:18:51.3121500Z [1m[32m  Downloaded[0m bytes v1.10.1
+2025-09-20T21:18:51.3200330Z [1m[32m  Downloaded[0m metrics v0.24.2
+2025-09-20T21:18:51.3568390Z [1m[32m  Downloaded[0m hex v0.4.3
+2025-09-20T21:18:51.3596500Z [1m[32m  Downloaded[0m universal-hash v0.5.1
+2025-09-20T21:18:51.3610640Z [1m[32m  Downloaded[0m addr2line v0.24.2
+2025-09-20T21:18:51.3640130Z [1m[32m  Downloaded[0m twox-hash v2.1.2
+2025-09-20T21:18:51.3675690Z [1m[32m  Downloaded[0m toml_datetime v0.7.2
+2025-09-20T21:18:51.3695920Z [1m[32m  Downloaded[0m signature v2.2.0
+2025-09-20T21:18:51.3802220Z [1m[32m  Downloaded[0m rand_core v0.9.3
+2025-09-20T21:18:51.3812830Z [1m[32m  Downloaded[0m ipnet v2.11.0
+2025-09-20T21:18:51.3813720Z [1m[32m  Downloaded[0m itoa v1.0.15
+2025-09-20T21:18:51.3854440Z [1m[32m  Downloaded[0m serde_core v1.0.225
+2025-09-20T21:18:51.3897420Z [1m[32m  Downloaded[0m core-foundation-sys v0.8.7
+2025-09-20T21:18:51.4232860Z [1m[32m  Downloaded[0m pin-project-lite v0.2.16
+2025-09-20T21:18:51.4471100Z [1m[32m  Downloaded[0m tower-http v0.6.6
+2025-09-20T21:18:51.4795130Z [1m[32m  Downloaded[0m want v0.3.1
+2025-09-20T21:18:51.4923100Z [1m[32m  Downloaded[0m getrandom v0.2.16
+2025-09-20T21:18:51.5051850Z [1m[32m  Downloaded[0m hyper-rustls v0.27.7
+2025-09-20T21:18:51.5446360Z [1m[32m  Downloaded[0m icu_provider v2.0.0
+2025-09-20T21:18:51.5537880Z [1m[32m  Downloaded[0m tracing-log v0.2.0
+2025-09-20T21:18:51.5601060Z [1m[32m  Downloaded[0m tracing-attributes v0.1.30
+2025-09-20T21:18:51.5688370Z [1m[32m  Downloaded[0m syn v2.0.106
+2025-09-20T21:18:51.5903960Z [1m[32m  Downloaded[0m glob v0.3.3
+2025-09-20T21:18:51.5959910Z [1m[32m  Downloaded[0m rustix v1.1.2
+2025-09-20T21:18:51.7058510Z [1m[32m  Downloaded[0m idna_adapter v1.2.1
+2025-09-20T21:18:51.7099760Z [1m[32m  Downloaded[0m ghash v0.5.1
+2025-09-20T21:18:51.7135830Z [1m[32m  Downloaded[0m icu_properties v2.0.1
+2025-09-20T21:18:51.7189670Z [1m[32m  Downloaded[0m icu_normalizer_data v2.0.0
+2025-09-20T21:18:51.7232660Z [1m[32m  Downloaded[0m hyper-util v0.1.17
+2025-09-20T21:18:51.7344360Z [1m[32m  Downloaded[0m tracing-subscriber v0.3.20
+2025-09-20T21:18:51.7831420Z [1m[32m  Downloaded[0m hashbrown v0.16.0
+2025-09-20T21:18:51.7921130Z [1m[32m  Downloaded[0m idna v1.1.0
+2025-09-20T21:18:51.7978670Z [1m[32m  Downloaded[0m litemap v0.8.0
+2025-09-20T21:18:51.8019660Z [1m[32m  Downloaded[0m hkdf v0.12.4
+2025-09-20T21:18:51.8060760Z [1m[32m  Downloaded[0m lazy_static v1.5.0
+2025-09-20T21:18:51.8092510Z [1m[32m  Downloaded[0m h2 v0.3.27
+2025-09-20T21:18:51.8195830Z [1m[32m  Downloaded[0m gimli v0.31.1
+2025-09-20T21:18:51.8632880Z [1m[32m  Downloaded[0m indexmap v2.11.4
+2025-09-20T21:18:51.8699540Z [1m[32m  Downloaded[0m ring v0.17.14
+2025-09-20T21:18:51.9682800Z [1m[32m  Downloaded[0m lock_api v0.4.13
+2025-09-20T21:18:51.9703510Z [1m[32m  Downloaded[0m igd v0.12.1
+2025-09-20T21:18:51.9739150Z [1m[32m  Downloaded[0m icu_properties_data v2.0.1
+2025-09-20T21:18:52.0234910Z [1m[32m  Downloaded[0m hyper v1.7.0
+2025-09-20T21:18:52.0333590Z [1m[32m  Downloaded[0m hashbrown v0.15.5
+2025-09-20T21:18:52.0406100Z [1m[32m  Downloaded[0m vcpkg v0.2.15
+2025-09-20T21:18:52.1716690Z [1m[32m  Downloaded[0m inout v0.1.4
+2025-09-20T21:18:52.1733260Z [1m[32m  Downloaded[0m heapless v0.7.17
+2025-09-20T21:18:52.1792740Z [1m[32m  Downloaded[0m xmltree v0.10.3
+2025-09-20T21:18:52.1815180Z [1m[32m  Downloaded[0m winnow v0.7.13
+2025-09-20T21:18:52.2330750Z [1m[32m  Downloaded[0m webrtc-util v0.11.0
+2025-09-20T21:18:52.2390010Z [1m[32m  Downloaded[0m icu_locale_core v2.0.0
+2025-09-20T21:18:52.2774500Z [1m[32m  Downloaded[0m http v1.3.1
+2025-09-20T21:18:52.3162320Z [1m[32m  Downloaded[0m http v0.2.12
+2025-09-20T21:18:52.3217940Z [1m[32m  Downloaded[0m xml-rs v0.8.27
+2025-09-20T21:18:52.3263920Z [1m[32m  Downloaded[0m whoami v1.6.1
+2025-09-20T21:18:52.3295190Z [1m[32m  Downloaded[0m ts-rs v11.0.1
+2025-09-20T21:18:52.3402930Z [1m[32m  Downloaded[0m icu_normalizer v2.0.0
+2025-09-20T21:18:52.3459200Z [1m[32m  Downloaded[0m yoke v0.8.0
+2025-09-20T21:18:52.3533980Z [1m[32m  Downloaded[0m wyz v0.5.1
+2025-09-20T21:18:52.3536470Z [1m[32m  Downloaded[0m writeable v0.6.1
+2025-09-20T21:18:52.3833220Z [1m[32m  Downloaded[0m wildmatch v1.1.0
+2025-09-20T21:18:52.3855720Z [1m[32m  Downloaded[0m libc v0.2.175
+2025-09-20T21:18:52.4577400Z [1m[32m  Downloaded[0m tokio v1.47.1
+2025-09-20T21:18:52.5921700Z [1m[32m  Downloaded[0m sha3 v0.10.8
+2025-09-20T21:18:52.5996020Z [1m[32m  Downloaded[0m yoke-derive v0.8.0
+2025-09-20T21:18:52.6009120Z [1m[32m  Downloaded[0m yasna v0.5.2
+2025-09-20T21:18:52.6037970Z [1m[32m  Downloaded[0m version_check v0.9.5
+2025-09-20T21:18:52.6055620Z [1m[32m  Downloaded[0m try-lock v0.2.5
+2025-09-20T21:18:52.6068720Z [1m[32m  Downloaded[0m iana-time-zone v0.1.64
+2025-09-20T21:18:52.6111080Z [1m[32m  Downloaded[0m http-body v0.4.6
+2025-09-20T21:18:52.6136290Z [1m[32m  Downloaded[0m home v0.5.11
+2025-09-20T21:18:52.6150350Z [1m[32m  Downloaded[0m toml_edit v0.23.6
+2025-09-20T21:18:52.6210360Z [1m[32m  Downloaded[0m regex-automata v0.4.10
+2025-09-20T21:18:52.6761500Z [1m[32m  Downloaded[0m rustls v0.23.32
+2025-09-20T21:18:52.6979550Z [1m[32m  Downloaded[0m regex-syntax v0.8.6
+2025-09-20T21:18:52.7416420Z [1m[32m  Downloaded[0m redis v0.32.5
+2025-09-20T21:18:52.7589070Z [1m[32m  Downloaded[0m syn v1.0.109
+2025-09-20T21:18:52.7747720Z [1m[32m  Downloaded[0m tracing v0.1.41
+2025-09-20T21:18:52.7814760Z [1m[32m  Downloaded[0m potential_utf v0.1.3
+2025-09-20T21:18:52.7831740Z [1m[32m  Downloaded[0m pkcs8 v0.10.2
+2025-09-20T21:18:52.8182920Z [1m[32m  Downloaded[0m percent-encoding v2.3.2
+2025-09-20T21:18:52.8195820Z [1m[32m  Downloaded[0m pem v3.0.5
+2025-09-20T21:18:52.8216460Z [1m[32m  Downloaded[0m parking_lot v0.12.4
+2025-09-20T21:18:52.8263900Z [1m[32m  Downloaded[0m openssl-sys v0.9.109
+2025-09-20T21:18:52.8367030Z [1m[32m  Downloaded[0m num-iter v0.1.45
+2025-09-20T21:18:52.8382130Z [1m[32m  Downloaded[0m num-integer v0.1.46
+2025-09-20T21:18:52.8405630Z [1m[32m  Downloaded[0m nix v0.26.4
+2025-09-20T21:18:52.8875430Z [1m[32m  Downloaded[0m hyper v0.14.32
+2025-09-20T21:18:52.9033060Z [1m[32m  Downloaded[0m sqlx v0.8.6
+2025-09-20T21:18:52.9290010Z [1m[32m  Downloaded[0m rayon v1.11.0
+2025-09-20T21:18:52.9459230Z [1m[32m  Downloaded[0m pqc_kyber_kyberslash v0.7.1
+2025-09-20T21:18:52.9912070Z [1m[32m  Downloaded[0m powerfmt v0.2.0
+2025-09-20T21:18:52.9931260Z [1m[32m  Downloaded[0m polyval v0.6.2
+2025-09-20T21:18:52.9962670Z [1m[32m  Downloaded[0m pem-rfc7468 v0.7.0
+2025-09-20T21:18:52.9993880Z [1m[32m  Downloaded[0m parking_lot_core v0.9.11
+2025-09-20T21:18:53.0028410Z [1m[32m  Downloaded[0m packed_struct_codegen v0.10.1
+2025-09-20T21:18:53.0062360Z [1m[32m  Downloaded[0m num-bigint-dig v0.8.4
+2025-09-20T21:18:53.0250130Z [1m[32m  Downloaded[0m native-tls v0.2.14
+2025-09-20T21:18:53.0285970Z [1m[32m  Downloaded[0m multimap v0.10.1
+2025-09-20T21:18:53.0331580Z [1m[32m  Downloaded[0m ml-dsa v0.0.4
+2025-09-20T21:18:53.0350480Z [1m[32m  Downloaded[0m sysinfo v0.29.11
+2025-09-20T21:18:53.0797270Z [1m[32m  Downloaded[0m serde_json v1.0.145
+2025-09-20T21:18:53.0935700Z [1m[32m  Downloaded[0m reqwest v0.12.23
+2025-09-20T21:18:53.1036790Z [1m[32m  Downloaded[0m regex v1.11.2
+2025-09-20T21:18:53.1495060Z [1m[32m  Downloaded[0m quinn-proto v0.11.13
+2025-09-20T21:18:53.1697400Z [1m[32m  Downloaded[0m icu_collections v2.0.0
+2025-09-20T21:18:53.1791170Z [1m[32m  Downloaded[0m hmac v0.12.1
+2025-09-20T21:18:53.1819430Z [1m[32m  Downloaded[0m hashlink v0.10.0
+2025-09-20T21:18:53.1821230Z [1m[32m  Downloaded[0m hash32 v0.2.1
+2025-09-20T21:18:53.1821600Z [1m[32m  Downloaded[0m toml_parser v1.0.3
+2025-09-20T21:18:53.2140000Z [1m[32m  Downloaded[0m portable-atomic v1.11.1
+2025-09-20T21:18:53.2272650Z [1m[32m  Downloaded[0m pkg-config v0.3.32
+2025-09-20T21:18:53.2373930Z [1m[32m  Downloaded[0m num-conv v0.1.0
+2025-09-20T21:18:53.2475180Z [1m[32m  Downloaded[0m num-bigint v0.4.6
+2025-09-20T21:18:53.2576310Z [1m[32m  Downloaded[0m nu-ansi-term v0.50.1
+2025-09-20T21:18:53.2634990Z [1m[32m  Downloaded[0m mio v1.0.4
+2025-09-20T21:18:53.2836610Z [1m[32m  Downloaded[0m md-5 v0.10.6
+2025-09-20T21:18:53.2937750Z [1m[32m  Downloaded[0m matchers v0.2.0
+2025-09-20T21:18:53.3057740Z [1m[32m  Downloaded[0m log v0.4.28
+2025-09-20T21:18:53.3159000Z [1m[32m  Downloaded[0m webrtc-util v0.8.1
+2025-09-20T21:18:53.3215950Z [1m[32m  Downloaded[0m time v0.3.44
+2025-09-20T21:18:53.3216440Z [1m[32m  Downloaded[0m sqlx-postgres v0.8.6
+2025-09-20T21:18:53.3599580Z [1m[32m  Downloaded[0m sqlx-core v0.8.6
+2025-09-20T21:18:53.3808020Z [1m[32m  Downloaded[0m rustls-webpki v0.103.6
+2025-09-20T21:18:53.3909420Z [1m[32m  Downloaded[0m rcgen v0.14.4
+2025-09-20T21:18:53.4211790Z [1m[32m  Downloaded[0m http-body v1.0.1
+2025-09-20T21:18:53.4318130Z [1m[32m  Downloaded[0m tracing-core v0.1.34
+2025-09-20T21:18:53.4442210Z [1m[32m  Downloaded[0m tower-service v0.3.3
+2025-09-20T21:18:53.4543150Z [1m[32m  Downloaded[0m tokio-native-tls v0.3.1
+2025-09-20T21:18:53.4644650Z [1m[32m  Downloaded[0m poly1305 v0.8.0
+2025-09-20T21:18:53.4746280Z [1m[32m  Downloaded[0m petgraph v0.6.5
+2025-09-20T21:18:53.4846640Z [1m[32m  Downloaded[0m parking v2.2.1
+2025-09-20T21:18:53.4947970Z [1m[32m  Downloaded[0m mobc v0.9.0
+2025-09-20T21:18:53.5049400Z [1m[32m  Downloaded[0m memchr v2.7.5
+2025-09-20T21:18:53.5152360Z [1m[32m  Downloaded[0m getrandom v0.3.3
+2025-09-20T21:18:53.5253650Z [1m[32m  Downloaded[0m zerovec-derive v0.11.1
+2025-09-20T21:18:53.5355080Z [1m[32m  Downloaded[0m zerovec v0.11.4
+2025-09-20T21:18:53.5456290Z [1m[32m  Downloaded[0m zerotrie v0.2.2
+2025-09-20T21:18:53.5557370Z [1m[32m  Downloaded[0m zeroize_derive v1.4.2
+2025-09-20T21:18:53.5584550Z [1m[32m  Downloaded[0m zerofrom-derive v0.1.6
+2025-09-20T21:18:53.5685700Z [1m[32m  Downloaded[0m zerocopy v0.8.27
+2025-09-20T21:18:53.6526950Z [1m[32m  Downloaded[0m zerocopy v0.7.35
+2025-09-20T21:18:53.7152810Z [1m[32m  Downloaded[0m openssl v0.10.73
+2025-09-20T21:18:53.7330240Z [1m[32m  Downloaded[0m object v0.36.7
+2025-09-20T21:18:53.7779250Z [1m[32m  Downloaded[0m stun v0.5.1
+2025-09-20T21:18:53.7880490Z [1m[32m  Downloaded[0m socket2 v0.6.0
+2025-09-20T21:18:53.7909560Z [1m[32m  Downloaded[0m socket2 v0.5.10
+2025-09-20T21:18:53.7910070Z [1m[32m  Downloaded[0m sharded-slab v0.1.7
+2025-09-20T21:18:53.7961290Z [1m[32m  Downloaded[0m serde_derive v1.0.225
+2025-09-20T21:18:53.8062750Z [1m[32m  Downloaded[0m security-framework v3.4.0
+2025-09-20T21:18:53.8094810Z [1m[32m  Downloaded[0m security-framework v2.11.1
+2025-09-20T21:18:53.8410650Z [1m[32m  Downloaded[0m rustls-platform-verifier v0.6.1
+2025-09-20T21:18:53.8482090Z [1m[32m  Downloaded[0m rustls-pki-types v1.12.0
+2025-09-20T21:18:53.8571140Z [1m[32m  Downloaded[0m rstest_macros v0.23.0
+2025-09-20T21:18:53.8623060Z [1m[32m  Downloaded[0m rsa v0.9.8
+2025-09-20T21:18:53.8720190Z [1m[32m  Downloaded[0m rayon-core v1.13.0
+2025-09-20T21:18:53.9045630Z [1m[32m  Downloaded[0m rand v0.8.5
+2025-09-20T21:18:53.9113420Z [1m[32m  Downloaded[0m quinn v0.11.9
+2025-09-20T21:18:53.9183470Z [1m[32m  Downloaded[0m zeroize v1.8.1
+2025-09-20T21:18:53.9184150Z [1m[32m  Downloaded[0m zerofrom v0.1.6
+2025-09-20T21:18:53.9197770Z [1m[32m  Downloaded[0m zerocopy-derive v0.7.35
+2025-09-20T21:18:53.9287500Z [1m[32m  Downloaded[0m webpki-roots v1.0.2
+2025-09-20T21:18:53.9338070Z [1m[32m  Downloaded[0m tower v0.5.2
+2025-09-20T21:18:53.9846080Z [1m[32m  Downloaded[0m pkcs1 v0.7.5
+2025-09-20T21:18:53.9887390Z [1m[32m  Downloaded[0m itertools v0.14.0
+2025-09-20T21:18:54.0012060Z [1m[32m  Downloaded[0m iri-string v0.7.8
+2025-09-20T21:18:54.0407010Z [1m[32m  Downloaded[0m uuid v1.18.1
+2025-09-20T21:18:54.0508350Z [1m[32m  Downloaded[0m unicode-properties v0.1.3
+2025-09-20T21:18:54.0609730Z [1m[32m  Downloaded[0m unicode-normalization v0.1.24
+2025-09-20T21:18:54.0711260Z [1m[32m  Downloaded[0m unicode-bidi v0.3.18
+2025-09-20T21:18:54.0785630Z [1m[32m  Downloaded[0m typenum v1.18.0
+2025-09-20T21:18:54.0786130Z [1m[32m  Downloaded[0m tokio-util v0.7.16
+2025-09-20T21:18:54.1076490Z [1m[32m  Downloaded[0m tokio-stream v0.1.17
+2025-09-20T21:18:54.1146140Z [1m[32m  Downloaded[0m tokio-rustls v0.26.3
+2025-09-20T21:18:54.1178500Z [1m[32m  Downloaded[0m num-traits v0.2.19
+2025-09-20T21:18:54.1221600Z [1m[32m  Downloaded[0m miniz_oxide v0.8.9
+2025-09-20T21:18:54.1283910Z [1m[32m  Downloaded[0m libm v0.2.15
+2025-09-20T21:18:54.1760550Z [1m[32m  Downloaded[0m tinyvec v1.10.0
+2025-09-20T21:18:54.1935890Z [1m[32m  Downloaded[0m time-core v0.1.6
+2025-09-20T21:18:54.1951890Z [1m[32m  Downloaded[0m thread_local v1.1.9
+2025-09-20T21:18:54.1975600Z [1m[32m  Downloaded[0m thiserror v2.0.16
+2025-09-20T21:18:54.2092750Z [1m[32m  Downloaded[0m tempfile v3.22.0
+2025-09-20T21:18:54.2436210Z [1m[32m  Downloaded[0m strum_macros v0.27.2
+2025-09-20T21:18:54.2488270Z [1m[32m  Downloaded[0m sqlx-mysql v0.8.6
+2025-09-20T21:18:54.2653500Z [1m[32m  Downloaded[0m sqlx-macros-core v0.8.6
+2025-09-20T21:18:54.2656280Z [1m[32m  Downloaded[0m smallvec v1.15.1
+2025-09-20T21:18:54.2685730Z [1m[32m  Downloaded[0m slab v0.4.11
+2025-09-20T21:18:54.2705660Z [1m[32m  Downloaded[0m serde v1.0.225
+2025-09-20T21:18:54.2729270Z [1m[32m  Downloaded[0m ryu v1.0.20
+2025-09-20T21:18:54.2790220Z [1m[32m  Downloaded[0m rustls-pemfile v2.2.0
+2025-09-20T21:18:54.3150640Z [1m[32m  Downloaded[0m rustls-native-certs v0.8.1
+2025-09-20T21:18:54.3251800Z [1m[32m  Downloaded[0m rustc-demangle v0.1.26
+2025-09-20T21:18:54.3272410Z [1m[32m  Downloaded[0m rust-argon2 v3.0.0
+2025-09-20T21:18:54.3373470Z [1m[32m  Downloaded[0m rstest v0.23.0
+2025-09-20T21:18:54.3474460Z [1m[32m  Downloaded[0m quote v1.0.40
+2025-09-20T21:18:54.3575820Z [1m[32m  Downloaded[0m quinn-udp v0.5.14
+2025-09-20T21:18:54.3660020Z [1m[32m  Downloaded[0m proc-macro2 v1.0.101
+2025-09-20T21:18:54.3812130Z [1m[32m  Downloaded[0m der v0.7.10
+2025-09-20T21:18:54.3932900Z [1m[32m  Downloaded[0m bstr v1.12.0
+2025-09-20T21:18:54.4035200Z [1m[32m  Downloaded[0m tower-layer v0.3.3
+2025-09-20T21:18:54.4117600Z [1m[32m  Downloaded[0m pin-utils v0.1.0
+2025-09-20T21:18:54.4183570Z [1m[32m  Downloaded[0m packed_struct v0.10.1
+2025-09-20T21:18:54.4184950Z [1m[32m  Downloaded[0m keccak v0.1.5
+2025-09-20T21:18:54.4185320Z [1m[32m  Downloaded[0m jwt v0.16.0
+2025-09-20T21:18:54.4186040Z [1m[32m  Downloaded[0m hybrid-array v0.3.1
+2025-09-20T21:18:54.4469310Z [1m[32m  Downloaded[0m httpdate v1.0.3
+2025-09-20T21:18:54.4494970Z [1m[32m  Downloaded[0m httparse v1.10.1
+2025-09-20T21:18:54.4602790Z [1m[32m  Downloaded[0m http-body-util v0.1.3
+2025-09-20T21:18:54.4647900Z [1m[32m  Downloaded[0m heck v0.5.0
+2025-09-20T21:18:54.4648510Z [1m[32m  Downloaded[0m utf8_iter v1.0.4
+2025-09-20T21:18:54.4648870Z [1m[32m  Downloaded[0m url v2.5.7
+2025-09-20T21:18:54.4676330Z [1m[32m  Downloaded[0m untrusted v0.9.0
+2025-09-20T21:18:54.4701670Z [1m[32m  Downloaded[0m unicode-ident v1.0.19
+2025-09-20T21:18:54.4750580Z [1m[32m  Downloaded[0m ts-rs-macros v11.0.1
+2025-09-20T21:18:54.4778490Z [1m[32m  Downloaded[0m opaque-debug v0.3.1
+2025-09-20T21:18:54.4794140Z [1m[32m  Downloaded[0m once_cell v1.21.3
+2025-09-20T21:18:54.4853190Z [1m[32m  Downloaded[0m num_cpus v1.17.0
+2025-09-20T21:18:54.5207200Z [1m[32m  Downloaded[0m memoffset v0.7.1
+2025-09-20T21:18:54.5232180Z [1m[32m  Downloaded[0m tokio-macros v2.5.0
+2025-09-20T21:18:54.5290660Z [1m[32m  Downloaded[0m tinystr v0.8.1
+2025-09-20T21:18:54.5291630Z [1m[32m  Downloaded[0m thread-id v4.2.2
+2025-09-20T21:18:54.5364090Z [1m[32m  Downloaded[0m thiserror-impl v1.0.69
+2025-09-20T21:18:54.5365040Z [1m[32m  Downloaded[0m termcolor v1.4.1
+2025-09-20T21:18:54.5365400Z [1m[32m  Downloaded[0m tap v1.0.1
+2025-09-20T21:18:54.5376320Z [1m[32m  Downloaded[0m synstructure v0.13.2
+2025-09-20T21:18:54.5392210Z [1m[32m  Downloaded[0m subtle v2.6.1
+2025-09-20T21:18:54.5410230Z [1m[32m  Downloaded[0m strum v0.27.2
+2025-09-20T21:18:54.5423010Z [1m[32m  Downloaded[0m stable_deref_trait v1.2.0
+2025-09-20T21:18:54.5449850Z [1m[32m  Downloaded[0m spki v0.7.3
+2025-09-20T21:18:54.5470980Z [1m[32m  Downloaded[0m spin v0.9.8
+2025-09-20T21:18:54.5506580Z [1m[32m  Downloaded[0m sha2 v0.10.9
+2025-09-20T21:18:54.5821990Z [1m[32m  Downloaded[0m sha1 v0.10.6
+2025-09-20T21:18:54.5845830Z [1m[32m  Downloaded[0m serde_urlencoded v0.7.1
+2025-09-20T21:18:54.5876170Z [1m[32m  Downloaded[0m semver v1.0.27
+2025-09-20T21:18:54.5909520Z [1m[32m  Downloaded[0m security-framework-sys v2.15.0
+2025-09-20T21:18:54.5946760Z [1m[32m  Downloaded[0m rustc_version v0.4.1
+2025-09-20T21:18:54.5976350Z [1m[32m  Downloaded[0m relative-path v1.9.3
+2025-09-20T21:18:54.5988730Z [1m[32m  Downloaded[0m rand_core v0.6.4
+2025-09-20T21:18:54.6011320Z [1m[32m  Downloaded[0m rand v0.9.2
+2025-09-20T21:18:54.6076270Z [1m[32m  Downloaded[0m proc-macro-crate v3.4.0
+2025-09-20T21:18:54.6118790Z [1m[32m  Downloaded[0m ppv-lite86 v0.2.21
+2025-09-20T21:18:54.6121160Z [1m[32m  Downloaded[0m futures-util v0.3.31
+2025-09-20T21:18:54.6644990Z [1m[32m  Downloaded[0m futures-intrusive v0.5.0
+2025-09-20T21:18:54.6718170Z [1m[32m  Downloaded[0m futures v0.3.31
+2025-09-20T21:18:54.7129670Z [1m[32m  Downloaded[0m cc v1.2.38
+2025-09-20T21:18:54.7176680Z [1m[32m  Downloaded[0m bitvec v1.0.1
+2025-09-20T21:18:54.7781090Z [1m[32m  Downloaded[0m base64 v0.22.1
+2025-09-20T21:18:54.7840890Z [1m[32m  Downloaded[0m backtrace v0.3.75
+2025-09-20T21:18:54.7941640Z [1m[32m  Downloaded[0m aes-gcm v0.10.3
+2025-09-20T21:18:54.7987300Z [1m[32m  Downloaded[0m kyber-pke v0.5.0
+2025-09-20T21:18:54.8026250Z [1m[32m  Downloaded[0m openssl-macros v0.1.1
+2025-09-20T21:18:54.8026700Z [1m[32m  Downloaded[0m tinyvec_macros v0.1.1
+2025-09-20T21:18:54.8027620Z [1m[32m  Downloaded[0m thiserror-impl v2.0.16
+2025-09-20T21:18:54.8053440Z [1m[32m  Downloaded[0m thiserror v1.0.69
+2025-09-20T21:18:54.8447650Z [1m[32m  Downloaded[0m sync_wrapper v1.0.2
+2025-09-20T21:18:54.8504150Z [1m[32m  Downloaded[0m stringprep v0.1.5
+2025-09-20T21:18:54.8504830Z [1m[32m  Downloaded[0m sqlx-macros v0.8.6
+2025-09-20T21:18:54.8506490Z [1m[32m  Downloaded[0m siphasher v1.0.1
+2025-09-20T21:18:54.8516300Z [1m[32m  Downloaded[0m signal-hook-registry v1.4.6
+2025-09-20T21:18:54.8544540Z [1m[32m  Downloaded[0m serde-big-array v0.5.1
+2025-09-20T21:18:54.8570950Z [1m[32m  Downloaded[0m scopeguard v1.2.0
+2025-09-20T21:18:54.8592490Z [1m[32m  Downloaded[0m rustc-hash v2.1.1
+2025-09-20T21:18:54.8618270Z [1m[32m  Downloaded[0m rand_chacha v0.9.0
+2025-09-20T21:18:54.8639180Z [1m[32m  Downloaded[0m rand_chacha v0.3.1
+2025-09-20T21:18:54.8657010Z [1m[32m  Downloaded[0m radium v0.7.0
+2025-09-20T21:18:54.8673760Z [1m[32m  Downloaded[0m generic-array v0.14.7
+2025-09-20T21:18:54.8694560Z [1m[32m  Downloaded[0m futures-timer v3.0.3
+2025-09-20T21:18:54.8730520Z [1m[32m  Downloaded[0m futures-sink v0.3.31
+2025-09-20T21:18:54.8772820Z [1m[32m  Downloaded[0m futures-macro v0.3.31
+2025-09-20T21:18:54.8773290Z [1m[32m  Downloaded[0m futures-channel v0.3.31
+2025-09-20T21:18:54.9084970Z [1m[32m  Downloaded[0m funty v2.0.0
+2025-09-20T21:18:54.9150480Z [1m[32m  Downloaded[0m form_urlencoded v1.2.2
+2025-09-20T21:18:54.9150950Z [1m[32m  Downloaded[0m foreign-types-shared v0.1.1
+2025-09-20T21:18:54.9151450Z [1m[32m  Downloaded[0m foldhash v0.1.5
+2025-09-20T21:18:54.9152220Z [1m[32m  Downloaded[0m flume v0.11.1
+2025-09-20T21:18:54.9205370Z [1m[32m  Downloaded[0m fixedbitset v0.4.2
+2025-09-20T21:18:54.9223870Z [1m[32m  Downloaded[0m find-msvc-tools v0.1.2
+2025-09-20T21:18:54.9250580Z [1m[32m  Downloaded[0m event-listener v5.4.1
+2025-09-20T21:18:54.9280410Z [1m[32m  Downloaded[0m equivalent v1.0.2
+2025-09-20T21:18:54.9303560Z [1m[32m  Downloaded[0m embedded-semver v0.3.0
+2025-09-20T21:18:54.9327050Z [1m[32m  Downloaded[0m dotenvy v0.15.7
+2025-09-20T21:18:54.9370610Z [1m[32m  Downloaded[0m dirs2 v3.0.1
+2025-09-20T21:18:54.9400830Z [1m[32m  Downloaded[0m dirs-sys v0.3.7
+2025-09-20T21:18:54.9412820Z [1m[32m  Downloaded[0m ctr v0.9.2
+2025-09-20T21:18:54.9797770Z [1m[32m  Downloaded[0m crossbeam-utils v0.8.21
+2025-09-20T21:18:54.9898990Z [1m[32m  Downloaded[0m crossbeam-epoch v0.9.18
+2025-09-20T21:18:54.9899890Z [1m[32m  Downloaded[0m core-foundation v0.10.1
+2025-09-20T21:18:54.9935690Z [1m[32m  Downloaded[0m constant_time_eq v0.4.2
+2025-09-20T21:18:54.9970040Z [1m[32m  Downloaded[0m constant_time_eq v0.3.1
+2025-09-20T21:18:54.9989510Z [1m[32m  Downloaded[0m concurrent-queue v2.5.0
+2025-09-20T21:18:55.0023030Z [1m[32m  Downloaded[0m chacha20poly1305 v0.10.1
+2025-09-20T21:18:55.0046210Z [1m[32m  Downloaded[0m chacha20 v0.9.1
+2025-09-20T21:18:55.0073100Z [1m[32m  Downloaded[0m byteorder v1.5.0
+2025-09-20T21:18:55.0095000Z [1m[32m  Downloaded[0m bytemuck_derive v1.10.1
+2025-09-20T21:18:55.0114530Z [1m[32m  Downloaded[0m bytemuck v1.23.2
+2025-09-20T21:18:55.0420570Z [1m[32m  Downloaded[0m block-buffer v0.10.4
+2025-09-20T21:18:55.0441300Z [1m[32m  Downloaded[0m blake2b_simd v1.0.3
+2025-09-20T21:18:55.0460750Z [1m[32m  Downloaded[0m bitflags v2.9.4
+2025-09-20T21:18:55.0547320Z [1m[32m  Downloaded[0m bitflags v1.3.2
+2025-09-20T21:18:55.0601180Z [1m[32m  Downloaded[0m bincode v1.3.3
+2025-09-20T21:18:55.0658380Z [1m[32m  Downloaded[0m base64ct v1.8.0
+2025-09-20T21:18:55.0680440Z [1m[32m  Downloaded[0m libsqlite3-sys v0.30.1
+2025-09-20T21:18:55.1441990Z [1m[32m  Downloaded[0m base64 v0.21.7
+2025-09-20T21:18:55.2161400Z [1m[32m  Downloaded[0m base64 v0.13.1
+2025-09-20T21:18:55.2266040Z [1m[32m  Downloaded[0m atomic-waker v1.1.2
+2025-09-20T21:18:55.2367490Z [1m[32m  Downloaded[0m atomic v0.6.1
+2025-09-20T21:18:55.2475990Z [1m[32m  Downloaded[0m arrayvec v0.7.6
+2025-09-20T21:18:55.2577140Z [1m[32m  Downloaded[0m futures-executor v0.3.31
+2025-09-20T21:18:55.2634690Z [1m[32m  Downloaded[0m fnv v1.0.7
+2025-09-20T21:18:55.2635200Z [1m[32m  Downloaded[0m fastrand v2.3.0
+2025-09-20T21:18:55.2635530Z [1m[32m  Downloaded[0m either v1.15.0
+2025-09-20T21:18:55.2635850Z [1m[32m  Downloaded[0m digest v0.10.7
+2025-09-20T21:18:55.2641720Z [1m[32m  Downloaded[0m deranged v0.5.3
+2025-09-20T21:18:55.2642150Z [1m[32m  Downloaded[0m crypto-common v0.1.6
+2025-09-20T21:18:55.2642500Z [1m[32m  Downloaded[0m crossbeam-queue v0.3.12
+2025-09-20T21:18:55.2642900Z [1m[32m  Downloaded[0m crc-catalog v2.4.0
+2025-09-20T21:18:55.2836710Z [1m[32m  Downloaded[0m crc v3.3.0
+2025-09-20T21:18:55.2888380Z [1m[32m  Downloaded[0m cfg_aliases v0.2.1
+2025-09-20T21:18:55.2909330Z [1m[32m  Downloaded[0m combine v4.6.7
+2025-09-20T21:18:55.2978480Z [1m[32m  Downloaded[0m cfg-if v0.1.10
+2025-09-20T21:18:55.3075040Z [1m[32m  Downloaded[0m ascon-core v0.4.1
+2025-09-20T21:18:55.3077080Z [1m[32m  Downloaded[0m shlex v1.3.0
+2025-09-20T21:18:55.3077420Z [1m[32m  Downloaded[0m chrono v0.4.42
+2025-09-20T21:18:55.3144540Z [1m[32m  Downloaded[0m aes v0.8.4
+2025-09-20T21:18:55.3196550Z [1m[32m  Downloaded[0m lru-slab v0.1.2
+2025-09-20T21:18:55.3208310Z [1m[32m  Downloaded[0m sqlx-sqlite v0.8.6
+2025-09-20T21:18:55.3573990Z [1m[32m  Downloaded[0m ascon-aead v0.4.4
+2025-09-20T21:18:55.3637170Z [1m[32m  Downloaded[0m aho-corasick v1.1.3
+2025-09-20T21:18:55.3723510Z [1m[32m  Downloaded[0m attohttpc v0.16.3
+2025-09-20T21:18:55.3808010Z [1m[32m  Downloaded[0m fastbloom v0.14.0
+2025-09-20T21:18:55.3835100Z [1m[32m  Downloaded[0m displaydoc v0.2.5
+2025-09-20T21:18:55.3882400Z [1m[32m  Downloaded[0m const-oid v0.9.6
+2025-09-20T21:18:55.3910950Z [1m[32m  Downloaded[0m cipher v0.4.4
+2025-09-20T21:18:55.4223920Z [1m[32m  Downloaded[0m cfg-if v1.0.3
+2025-09-20T21:18:55.4243490Z [1m[32m  Downloaded[0m auto_impl v1.3.0
+2025-09-20T21:18:55.4372220Z [1m[32m  Downloaded[0m async-trait-with-sync v0.1.36
+2025-09-20T21:18:55.4418910Z [1m[32m  Downloaded[0m anyhow v1.0.100
+2025-09-20T21:18:55.4494500Z [1m[32m  Downloaded[0m allocator-api2 v0.2.21
+2025-09-20T21:18:55.4536260Z [1m[32m  Downloaded[0m ahash v0.8.12
+2025-09-20T21:18:55.4924370Z [1m[32m  Downloaded[0m adler2 v2.0.1
+2025-09-20T21:18:55.5036840Z [1m[32m  Downloaded[0m errno v0.3.14
+2025-09-20T21:18:55.5148370Z [1m[32m  Downloaded[0m crossbeam-deque v0.8.6
+2025-09-20T21:18:55.5164480Z [1m[32m  Downloaded[0m core-foundation v0.9.4
+2025-09-20T21:18:55.5165680Z [1m[32m  Downloaded[0m futures-io v0.3.31
+2025-09-20T21:18:55.5166100Z [1m[32m  Downloaded[0m cpufeatures v0.2.17
+2025-09-20T21:18:55.5166430Z [1m[32m  Downloaded[0m autocfg v1.5.0
+2025-09-20T21:18:55.5166780Z [1m[32m  Downloaded[0m atoi v2.0.0
+2025-09-20T21:18:55.5177720Z [1m[32m  Downloaded[0m async-recursion v1.1.1
+2025-09-20T21:18:55.5256120Z [1m[32m  Downloaded[0m aead v0.5.2
+2025-09-20T21:18:55.5406620Z [1m[32m  Downloaded[0m openssl-src v300.5.2+3.5.2
+2025-09-20T21:18:57.0367220Z [1m[32m   Compiling[0m proc-macro2 v1.0.101
+2025-09-20T21:18:57.0388940Z [1m[32m   Compiling[0m unicode-ident v1.0.19
+2025-09-20T21:18:57.0397600Z [1m[32m   Compiling[0m serde_core v1.0.225
+2025-09-20T21:18:57.5404470Z [1m[32m   Compiling[0m serde v1.0.225
+2025-09-20T21:18:59.8002180Z [1m[32m   Compiling[0m libc v0.2.175
+2025-09-20T21:19:00.3984860Z [1m[32m   Compiling[0m quote v1.0.40
+2025-09-20T21:19:00.5427330Z [1m[32m   Compiling[0m syn v2.0.106
+2025-09-20T21:19:00.6673200Z [1m[32m   Compiling[0m cfg-if v1.0.3
+2025-09-20T21:19:00.6899340Z [1m[32m   Compiling[0m autocfg v1.5.0
+2025-09-20T21:19:00.9690730Z [1m[32m   Compiling[0m pin-project-lite v0.2.16
+2025-09-20T21:19:00.9993620Z [1m[32m   Compiling[0m memchr v2.7.5
+2025-09-20T21:19:01.3190140Z [1m[32m   Compiling[0m smallvec v1.15.1
+2025-09-20T21:19:01.3925050Z [1m[32m   Compiling[0m equivalent v1.0.2
+2025-09-20T21:19:01.4293760Z [1m[32m   Compiling[0m hashbrown v0.16.0
+2025-09-20T21:19:01.4385630Z [1m[32m   Compiling[0m typenum v1.18.0
+2025-09-20T21:19:01.6386890Z [1m[32m   Compiling[0m object v0.36.7
+2025-09-20T21:19:01.7608910Z [1m[32m   Compiling[0m indexmap v2.11.4
+2025-09-20T21:19:01.7777570Z [1m[32m   Compiling[0m version_check v0.9.5
+2025-09-20T21:19:01.9486790Z [1m[32m   Compiling[0m generic-array v0.14.7
+2025-09-20T21:19:02.1611890Z [1m[32m   Compiling[0m stable_deref_trait v1.2.0
+2025-09-20T21:19:02.1844660Z [1m[32m   Compiling[0m adler2 v2.0.1
+2025-09-20T21:19:02.2286470Z [1m[32m   Compiling[0m gimli v0.31.1
+2025-09-20T21:19:02.5856980Z [1m[32m   Compiling[0m miniz_oxide v0.8.9
+2025-09-20T21:19:04.0629260Z [1m[32m   Compiling[0m addr2line v0.24.2
+2025-09-20T21:19:04.3195180Z [1m[32m   Compiling[0m lock_api v0.4.13
+2025-09-20T21:19:04.3779480Z [1m[32m   Compiling[0m serde_derive v1.0.225
+2025-09-20T21:19:04.4335620Z [1m[32m   Compiling[0m getrandom v0.2.16
+2025-09-20T21:19:04.5019900Z [1m[32m   Compiling[0m parking_lot_core v0.9.11
+2025-09-20T21:19:04.5983960Z [1m[32m   Compiling[0m futures-core v0.3.31
+2025-09-20T21:19:04.6484990Z [1m[32m   Compiling[0m rustc-demangle v0.1.26
+2025-09-20T21:19:04.9318580Z [1m[32m   Compiling[0m fixedbitset v0.4.2
+2025-09-20T21:19:05.0679160Z [1m[32m   Compiling[0m petgraph v0.6.5
+2025-09-20T21:19:05.2200450Z [1m[32m   Compiling[0m backtrace v0.3.75
+2025-09-20T21:19:06.0146500Z [1m[32m   Compiling[0m thread-id v4.2.2
+2025-09-20T21:19:06.0393510Z [1m[32m   Compiling[0m scopeguard v1.2.0
+2025-09-20T21:19:06.4309110Z [1m[32m   Compiling[0m socket2 v0.6.0
+2025-09-20T21:19:06.4992530Z [1m[32m   Compiling[0m bytes v1.10.1
+2025-09-20T21:19:06.8015030Z [1m[32m   Compiling[0m parking_lot v0.12.4
+2025-09-20T21:19:06.8887700Z [1m[32m   Compiling[0m tokio-macros v2.5.0
+2025-09-20T21:19:06.9641120Z [1m[32m   Compiling[0m signal-hook-registry v1.4.6
+2025-09-20T21:19:07.0663380Z [1m[32m   Compiling[0m mio v1.0.4
+2025-09-20T21:19:07.2215200Z [1m[32m   Compiling[0m log v0.4.28
+2025-09-20T21:19:07.2220250Z [1m[32m   Compiling[0m crypto-common v0.1.6
+2025-09-20T21:19:07.2659600Z [1m[32m   Compiling[0m zeroize_derive v1.4.2
+2025-09-20T21:19:07.3154480Z [1m[32m   Compiling[0m tokio v1.47.1
+2025-09-20T21:19:07.4884490Z [1m[32m   Compiling[0m futures-sink v0.3.31
+2025-09-20T21:19:07.5457460Z [1m[32m   Compiling[0m slab v0.4.11
+2025-09-20T21:19:07.5888310Z [1m[32m   Compiling[0m zerocopy v0.8.27
+2025-09-20T21:19:07.6507580Z [1m[32m   Compiling[0m zeroize v1.8.1
+2025-09-20T21:19:07.7239680Z [1m[32m   Compiling[0m once_cell v1.21.3
+2025-09-20T21:19:07.8181300Z [1m[32m   Compiling[0m pin-utils v0.1.0
+2025-09-20T21:19:07.8388980Z [1m[32m   Compiling[0m rand_core v0.6.4
+2025-09-20T21:19:07.9372590Z [1m[32m   Compiling[0m futures-channel v0.3.31
+2025-09-20T21:19:08.0303210Z [1m[32m   Compiling[0m tracing-core v0.1.34
+2025-09-20T21:19:08.4162060Z [1m[32m   Compiling[0m futures-macro v0.3.31
+2025-09-20T21:19:08.7629100Z [1m[32m   Compiling[0m ppv-lite86 v0.2.21
+2025-09-20T21:19:08.8174240Z [1m[32m   Compiling[0m synstructure v0.13.2
+2025-09-20T21:19:08.8830000Z [1m[32m   Compiling[0m futures-io v0.3.31
+2025-09-20T21:19:08.9443870Z [1m[32m   Compiling[0m futures-task v0.3.31
+2025-09-20T21:19:09.0072210Z [1m[32m   Compiling[0m futures-util v0.3.31
+2025-09-20T21:19:09.1955640Z [1m[32m   Compiling[0m tracing-attributes v0.1.30
+2025-09-20T21:19:10.1739030Z [1m[32m   Compiling[0m itoa v1.0.15
+2025-09-20T21:19:10.2341860Z [1m[32m   Compiling[0m subtle v2.6.1
+2025-09-20T21:19:10.3047540Z [1m[32m   Compiling[0m tracing v0.1.41
+2025-09-20T21:19:10.4553370Z [1m[32m   Compiling[0m zerofrom-derive v0.1.6
+2025-09-20T21:19:11.3552420Z [1m[32m   Compiling[0m rand_chacha v0.3.1
+2025-09-20T21:19:11.7285170Z [1m[32m   Compiling[0m semver v1.0.27
+2025-09-20T21:19:11.9342310Z [1m[32m   Compiling[0m rustc_version v0.4.1
+2025-09-20T21:19:12.1091220Z [1m[32m   Compiling[0m rand v0.8.5
+2025-09-20T21:19:12.2325470Z [1m[32m   Compiling[0m zerofrom v0.1.6
+2025-09-20T21:19:12.2931050Z [1m[32m   Compiling[0m yoke-derive v0.8.0
+2025-09-20T21:19:12.8606220Z [1m[32m   Compiling[0m tokio-util v0.7.16
+2025-09-20T21:19:13.0738440Z [1m[32m   Compiling[0m yoke v0.8.0
+2025-09-20T21:19:13.1387890Z [1m[32m   Compiling[0m getrandom v0.3.3
+2025-09-20T21:19:13.1953930Z [1m[32m   Compiling[0m block-buffer v0.10.4
+2025-09-20T21:19:13.2612600Z [1m[32m   Compiling[0m zerovec-derive v0.11.1
+2025-09-20T21:19:13.3354670Z [1m[32m   Compiling[0m cpufeatures v0.2.17
+2025-09-20T21:19:13.4945070Z [1m[32m   Compiling[0m digest v0.10.7
+2025-09-20T21:19:13.5950610Z [1m[32m   Compiling[0m displaydoc v0.2.5
+2025-09-20T21:19:13.6468780Z [1m[32m   Compiling[0m find-msvc-tools v0.1.2
+2025-09-20T21:19:13.7590070Z [1m[32m   Compiling[0m shlex v1.3.0
+2025-09-20T21:19:13.9098370Z [1m[32m   Compiling[0m cc v1.2.38
+2025-09-20T21:19:14.1121890Z [1m[32m   Compiling[0m tokio-stream v0.1.17
+2025-09-20T21:19:14.2560100Z [1m[32m   Compiling[0m zerovec v0.11.4
+2025-09-20T21:19:14.3563530Z [1m[32m   Compiling[0m fnv v1.0.7
+2025-09-20T21:19:14.3965810Z [1m[32m   Compiling[0m core-foundation-sys v0.8.7
+2025-09-20T21:19:14.5076370Z [1m[32m   Compiling[0m citadel_io v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_io)
+2025-09-20T21:19:14.5479330Z [1m[32m   Compiling[0m futures-executor v0.3.31
+2025-09-20T21:19:14.7188380Z [1m[32m   Compiling[0m syn v1.0.109
+2025-09-20T21:19:14.8570600Z [1m[32m   Compiling[0m base64 v0.22.1
+2025-09-20T21:19:15.0611330Z [1m[32m   Compiling[0m byteorder v1.5.0
+2025-09-20T21:19:15.1472480Z [1m[32m   Compiling[0m futures v0.3.31
+2025-09-20T21:19:15.1729550Z [1m[32m   Compiling[0m async-trait v0.1.89
+2025-09-20T21:19:15.2332230Z [1m[32m   Compiling[0m litemap v0.8.0
+2025-09-20T21:19:15.3275100Z [1m[32m   Compiling[0m writeable v0.6.1
+2025-09-20T21:19:15.3998710Z [1m[32m   Compiling[0m tinystr v0.8.1
+2025-09-20T21:19:15.5001810Z [1m[32m   Compiling[0m icu_locale_core v2.0.0
+2025-09-20T21:19:15.5103250Z [1m[32m   Compiling[0m potential_utf v0.1.3
+2025-09-20T21:19:16.1463450Z [1m[32m   Compiling[0m zerotrie v0.2.2
+2025-09-20T21:19:16.3663870Z [1m[32m   Compiling[0m heapless v0.7.17
+2025-09-20T21:19:16.5004800Z [1m[32m   Compiling[0m inout v0.1.4
+2025-09-20T21:19:16.5406880Z [1m[32m   Compiling[0m radium v0.7.0
+2025-09-20T21:19:16.5613950Z [1m[32m   Compiling[0m icu_normalizer_data v2.0.0
+2025-09-20T21:19:16.6769170Z [1m[32m   Compiling[0m icu_properties_data v2.0.1
+2025-09-20T21:19:16.7206060Z [1m[32m   Compiling[0m cipher v0.4.4
+2025-09-20T21:19:16.8228010Z [1m[32m   Compiling[0m icu_provider v2.0.0
+2025-09-20T21:19:16.8509480Z [1m[32m   Compiling[0m icu_collections v2.0.0
+2025-09-20T21:19:16.9836930Z [1m[32m   Compiling[0m hash32 v0.2.1
+2025-09-20T21:19:17.0642390Z [1m[32m   Compiling[0m universal-hash v0.5.1
+2025-09-20T21:19:17.1318430Z [1m[32m   Compiling[0m bincode v1.3.3
+2025-09-20T21:19:17.1701950Z [1m[32m   Compiling[0m num-traits v0.2.19
+2025-09-20T21:19:17.2653790Z [1m[32m   Compiling[0m tap v1.0.1
+2025-09-20T21:19:17.2951590Z [1m[32m   Compiling[0m regex-syntax v0.8.6
+2025-09-20T21:19:17.3616530Z [1m[32m   Compiling[0m lazy_static v1.5.0
+2025-09-20T21:19:17.3969890Z [1m[32m   Compiling[0m opaque-debug v0.3.1
+2025-09-20T21:19:17.4170030Z [1m[32m   Compiling[0m wyz v0.5.1
+2025-09-20T21:19:17.9959010Z [1m[32m   Compiling[0m regex-automata v0.4.10
+2025-09-20T21:19:18.6942080Z [1m[32m   Compiling[0m const-oid v0.9.6
+2025-09-20T21:19:18.7720420Z [1m[32m   Compiling[0m crossbeam-utils v0.8.21
+2025-09-20T21:19:18.9222690Z [1m[32m   Compiling[0m percent-encoding v2.3.2
+2025-09-20T21:19:19.0129620Z [1m[32m   Compiling[0m funty v2.0.0
+2025-09-20T21:19:19.2952240Z [1m[32m   Compiling[0m bitflags v2.9.4
+2025-09-20T21:19:19.4094580Z [1m[32m   Compiling[0m bitvec v1.0.1
+2025-09-20T21:19:19.5009930Z [1m[32m   Compiling[0m der v0.7.10
+2025-09-20T21:19:20.3315810Z [1m[32m   Compiling[0m icu_normalizer v2.0.0
+2025-09-20T21:19:20.4118910Z [1m[32m   Compiling[0m icu_properties v2.0.1
+2025-09-20T21:19:20.7036200Z [1m[32m   Compiling[0m aead v0.5.2
+2025-09-20T21:19:20.7751370Z [1m[32m   Compiling[0m ring v0.17.14
+2025-09-20T21:19:21.0350940Z [1m[32m   Compiling[0m uuid v1.18.1
+2025-09-20T21:19:21.2182840Z [1m[32m   Compiling[0m keccak v0.1.5
+2025-09-20T21:19:21.2487150Z [1m[32m   Compiling[0m auto_impl v1.3.0
+2025-09-20T21:19:21.2789450Z [1m[32m   Compiling[0m pqc_kyber_kyberslash v0.7.1
+2025-09-20T21:19:21.3969850Z [1m[32m   Compiling[0m packed_struct v0.10.1
+2025-09-20T21:19:21.4494060Z [1m[32m   Compiling[0m httparse v1.10.1
+2025-09-20T21:19:21.5229020Z [1m[32m   Compiling[0m ryu v1.0.20
+2025-09-20T21:19:21.6383950Z [1m[32m   Compiling[0m heck v0.5.0
+2025-09-20T21:19:21.6930810Z [1m[32m   Compiling[0m sha3 v0.10.8
+2025-09-20T21:19:21.7522090Z [1m[32m   Compiling[0m strum_macros v0.27.2
+2025-09-20T21:19:21.8962370Z [1m[32m   Compiling[0m idna_adapter v1.2.1
+2025-09-20T21:19:22.2563270Z [1m[32m   Compiling[0m spki v0.7.3
+2025-09-20T21:19:22.3457390Z [1m[32m   Compiling[0m form_urlencoded v1.2.2
+2025-09-20T21:19:22.4315610Z [1m[32m   Compiling[0m packed_struct_codegen v0.10.1
+2025-09-20T21:19:23.0383260Z [1m[32m   Compiling[0m polyval v0.6.2
+2025-09-20T21:19:23.0495730Z [1m[32m   Compiling[0m http v1.3.1
+2025-09-20T21:19:23.1215300Z [1m[32m   Compiling[0m sha2 v0.10.9
+2025-09-20T21:19:23.2616130Z [1m[32m   Compiling[0m citadel_types v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_types)
+2025-09-20T21:19:23.3529160Z [1m[32m   Compiling[0m utf8_iter v1.0.4
+2025-09-20T21:19:23.4146820Z [1m[32m   Compiling[0m try-lock v0.2.5
+2025-09-20T21:19:23.4510560Z [1m[32m   Compiling[0m tower-service v0.3.3
+2025-09-20T21:19:23.4959550Z [1m[32m   Compiling[0m http-body v1.0.1
+2025-09-20T21:19:23.5543990Z [1m[32m   Compiling[0m want v0.3.1
+2025-09-20T21:19:23.6263750Z [1m[32m   Compiling[0m idna v1.1.0
+2025-09-20T21:19:24.2428350Z [1m[32m   Compiling[0m ghash v0.5.1
+2025-09-20T21:19:24.2869110Z [1m[32m   Compiling[0m strum v0.27.2
+2025-09-20T21:19:24.3198590Z [1m[32m   Compiling[0m pkcs8 v0.10.2
+2025-09-20T21:19:24.6229120Z [1m[32m   Compiling[0m matchers v0.2.0
+2025-09-20T21:19:24.6660790Z [1m[32m   Compiling[0m poly1305 v0.8.0
+2025-09-20T21:19:24.7533060Z [1m[32m   Compiling[0m sharded-slab v0.1.7
+2025-09-20T21:19:25.0493790Z [1m[32m   Compiling[0m aes v0.8.4
+2025-09-20T21:19:25.1843690Z [1m[32m   Compiling[0m chacha20 v0.9.1
+2025-09-20T21:19:25.2507280Z [1m[32m   Compiling[0m ctr v0.9.2
+2025-09-20T21:19:25.2728250Z [1m[32m   Compiling[0m tracing-log v0.2.0
+2025-09-20T21:19:25.3154320Z [1m[32m   Compiling[0m signature v2.2.0
+2025-09-20T21:19:25.3246970Z [1m[32m   Compiling[0m rustls-pki-types v1.12.0
+2025-09-20T21:19:25.3538070Z [1m[32m   Compiling[0m sync_wrapper v1.0.2
+2025-09-20T21:19:25.3826850Z [1m[32m   Compiling[0m hybrid-array v0.3.1
+2025-09-20T21:19:25.3877800Z [1m[32m   Compiling[0m thread_local v1.1.9
+2025-09-20T21:19:25.4949250Z [1m[32m   Compiling[0m twox-hash v2.1.2
+2025-09-20T21:19:25.5453130Z [1m[32m   Compiling[0m nu-ansi-term v0.50.1
+2025-09-20T21:19:25.6025540Z [1m[32m   Compiling[0m ascon-core v0.4.1
+2025-09-20T21:19:25.6594140Z [1m[32m   Compiling[0m untrusted v0.9.0
+2025-09-20T21:19:25.6967840Z [1m[32m   Compiling[0m either v1.15.0
+2025-09-20T21:19:25.7864460Z [1m[32m   Compiling[0m tracing-subscriber v0.3.20
+2025-09-20T21:19:25.9076540Z [1m[32m   Compiling[0m ml-dsa v0.0.4
+2025-09-20T21:19:27.0353370Z [1m[32m   Compiling[0m ascon-aead v0.4.4
+2025-09-20T21:19:27.1784720Z [1m[32m   Compiling[0m aes-gcm v0.10.3
+2025-09-20T21:19:27.2895310Z [1m[32m   Compiling[0m chacha20poly1305 v0.10.1
+2025-09-20T21:19:27.3386500Z [1m[32m   Compiling[0m kyber-pke v0.5.0
+2025-09-20T21:19:27.4086410Z [1m[32m   Compiling[0m url v2.5.7
+2025-09-20T21:19:27.4918890Z [1m[32m   Compiling[0m crossbeam-epoch v0.9.18
+2025-09-20T21:19:27.9411430Z [1m[32m   Compiling[0m serde-big-array v0.5.1
+2025-09-20T21:19:28.0224210Z [1m[32m   Compiling[0m rayon-core v1.13.0
+2025-09-20T21:19:28.1437710Z [1m[32m   Compiling[0m ipnet v2.11.0
+2025-09-20T21:19:28.9273290Z [1m[32m   Compiling[0m winnow v0.7.13
+2025-09-20T21:19:29.0682410Z [1m[32m   Compiling[0m crossbeam-deque v0.8.6
+2025-09-20T21:19:29.1589230Z [1m[32m   Compiling[0m aho-corasick v1.1.3
+2025-09-20T21:19:29.2211990Z [1m[32m   Compiling[0m citadel_logging v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_logging)
+2025-09-20T21:19:29.3618140Z [1m[32m   Compiling[0m arrayvec v0.7.6
+2025-09-20T21:19:29.4823860Z [1m[32m   Compiling[0m bytemuck_derive v1.10.1
+2025-09-20T21:19:30.2148480Z [1m[32m   Compiling[0m constant_time_eq v0.3.1
+2025-09-20T21:19:30.5597220Z [1m[32m   Compiling[0m arrayref v0.3.9
+2025-09-20T21:19:30.5964830Z [1m[32m   Compiling[0m atomic-waker v1.1.2
+2025-09-20T21:19:30.6400710Z [1m[32m   Compiling[0m tower-layer v0.3.3
+2025-09-20T21:19:30.7204640Z [1m[32m   Compiling[0m toml_datetime v0.7.2
+2025-09-20T21:19:30.8453610Z [1m[32m   Compiling[0m tower v0.5.2
+2025-09-20T21:19:31.0537240Z [1m[32m   Compiling[0m toml_parser v1.0.3
+2025-09-20T21:19:31.1977050Z [1m[32m   Compiling[0m hyper v1.7.0
+2025-09-20T21:19:31.4810750Z [1m[32m   Compiling[0m toml_edit v0.23.6
+2025-09-20T21:19:32.2453670Z [1m[32m   Compiling[0m blake2b_simd v1.0.3
+2025-09-20T21:19:32.6193920Z [1m[32m   Compiling[0m bytemuck v1.23.2
+2025-09-20T21:19:32.9714980Z [1m[32m   Compiling[0m citadel_pqcrypto v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_pqcrypto)
+2025-09-20T21:19:33.3364470Z [1m[32m   Compiling[0m rstest_macros v0.23.0
+2025-09-20T21:19:33.4742820Z [1m[32m   Compiling[0m constant_time_eq v0.4.2
+2025-09-20T21:19:33.5846530Z [1m[32m   Compiling[0m rustls v0.23.32
+2025-09-20T21:19:33.6961610Z [1m[32m   Compiling[0m cfg_aliases v0.2.1
+2025-09-20T21:19:33.7263680Z [1m[32m   Compiling[0m iri-string v0.7.8
+2025-09-20T21:19:35.0807760Z [1m[32m   Compiling[0m tower-http v0.6.6
+2025-09-20T21:19:35.3536190Z [1m[32m   Compiling[0m regex v1.11.2
+2025-09-20T21:19:35.4039100Z [1m[32m   Compiling[0m rust-argon2 v3.0.0
+2025-09-20T21:19:35.6236770Z [1m[32m   Compiling[0m rayon v1.11.0
+2025-09-20T21:19:35.7475330Z [1m[32m   Compiling[0m atomic v0.6.1
+2025-09-20T21:19:35.8140880Z [1m[32m   Compiling[0m hyper-util v0.1.17
+2025-09-20T21:19:35.8402510Z [1m[32m   Compiling[0m proc-macro-crate v3.4.0
+2025-09-20T21:19:36.1392220Z [1m[32m   Compiling[0m rustls-webpki v0.103.6
+2025-09-20T21:19:36.8244370Z [1m[32m   Compiling[0m http-body-util v0.1.3
+2025-09-20T21:19:36.8415370Z [1m[32m   Compiling[0m serde_urlencoded v0.7.1
+2025-09-20T21:19:36.9192030Z [1m[32m   Compiling[0m num-integer v0.1.46
+2025-09-20T21:19:36.9609010Z [1m[32m   Compiling[0m security-framework-sys v2.15.0
+2025-09-20T21:19:36.9739870Z [1m[32m   Compiling[0m core-foundation v0.10.1
+2025-09-20T21:19:37.0455430Z [1m[32m   Compiling[0m sysinfo v0.29.11
+2025-09-20T21:19:37.1065590Z [1m[32m   Compiling[0m http v0.2.12
+2025-09-20T21:19:37.1999470Z [1m[32m   Compiling[0m rand_core v0.9.3
+2025-09-20T21:19:37.3000980Z [1m[32m   Compiling[0m memoffset v0.7.1
+2025-09-20T21:19:37.3934780Z [1m[32m   Compiling[0m num_cpus v1.17.0
+2025-09-20T21:19:37.4270870Z [1m[32m   Compiling[0m vcpkg v0.2.15
+2025-09-20T21:19:37.6736930Z [1m[32m   Compiling[0m pkg-config v0.3.32
+2025-09-20T21:19:37.8162790Z [1m[32m   Compiling[0m libm v0.2.15
+2025-09-20T21:19:37.8349500Z [1m[32m   Compiling[0m relative-path v1.9.3
+2025-09-20T21:19:37.9587380Z [1m[32m   Compiling[0m glob v0.3.3
+2025-09-20T21:19:37.9805130Z [1m[32m   Compiling[0m openssl-sys v0.9.109
+2025-09-20T21:19:38.0179970Z [1m[32m   Compiling[0m rand_chacha v0.9.0
+2025-09-20T21:19:38.2525720Z [1m[32m   Compiling[0m security-framework v3.4.0
+2025-09-20T21:19:38.3263410Z [1m[32m   Compiling[0m reqwest v0.12.23
+2025-09-20T21:19:40.3366600Z [1m[32m   Compiling[0m serde_json v1.0.145
+2025-09-20T21:19:40.4125300Z [1m[32m   Compiling[0m anyhow v1.0.100
+2025-09-20T21:19:40.5013770Z [1m[32m   Compiling[0m futures-timer v3.0.3
+2025-09-20T21:19:40.6476620Z [1m[32m   Compiling[0m powerfmt v0.2.0
+2025-09-20T21:19:40.7480940Z [1m[32m   Compiling[0m thiserror v2.0.16
+2025-09-20T21:19:40.7683990Z [1m[32m   Compiling[0m thiserror v1.0.69
+2025-09-20T21:19:40.9569620Z [1m[32m   Compiling[0m deranged v0.5.3
+2025-09-20T21:19:40.9971820Z [1m[32m   Compiling[0m rstest v0.23.0
+2025-09-20T21:19:41.2892900Z [1m[32m   Compiling[0m rand v0.9.2
+2025-09-20T21:19:41.6682810Z [1m[32m   Compiling[0m citadel_crypt v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_crypt)
+2025-09-20T21:19:42.5102490Z [1m[32m   Compiling[0m quinn-udp v0.5.14
+2025-09-20T21:19:42.6865000Z [1m[32m   Compiling[0m iana-time-zone v0.1.64
+2025-09-20T21:19:42.7599810Z [1m[32m   Compiling[0m thiserror-impl v1.0.69
+2025-09-20T21:19:43.2625770Z [1m[32m   Compiling[0m thiserror-impl v2.0.16
+2025-09-20T21:19:43.4409990Z [1m[32m   Compiling[0m async-stream-impl v0.3.6
+2025-09-20T21:19:43.5306740Z [1m[32m   Compiling[0m bitflags v1.3.2
+2025-09-20T21:19:43.5552140Z [1m[32m   Compiling[0m num-conv v0.1.0
+2025-09-20T21:19:43.6136800Z [1m[32m   Compiling[0m time-core v0.1.6
+2025-09-20T21:19:43.6907380Z [1m[32m   Compiling[0m tinyvec_macros v0.1.1
+2025-09-20T21:19:43.7168240Z [1m[32m   Compiling[0m siphasher v1.0.1
+2025-09-20T21:19:43.7245720Z [1m[32m   Compiling[0m async-stream v0.3.6
+2025-09-20T21:19:43.7749690Z [1m[32m   Compiling[0m tinyvec v1.10.0
+2025-09-20T21:19:43.8819900Z [1m[32m   Compiling[0m fastbloom v0.14.0
+2025-09-20T21:19:44.1043210Z [1m[32m   Compiling[0m time v0.3.44
+2025-09-20T21:19:44.1169620Z [1m[32m   Compiling[0m nix v0.26.4
+2025-09-20T21:19:44.1171280Z [1m[32m   Compiling[0m rustls-platform-verifier v0.6.1
+2025-09-20T21:19:44.4915880Z [1m[32m   Compiling[0m chrono v0.4.42
+2025-09-20T21:19:45.7486040Z [1m[32m   Compiling[0m async_ip v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/async_ip)
+2025-09-20T21:19:45.8901810Z [1m[32m   Compiling[0m http-body v0.4.6
+2025-09-20T21:19:45.9206210Z [1m[32m   Compiling[0m h2 v0.3.27
+2025-09-20T21:19:46.0210670Z [1m[32m   Compiling[0m quinn v0.11.9
+2025-09-20T21:19:46.1514860Z [1m[32m   Compiling[0m bstr v1.12.0
+2025-09-20T21:19:46.6311050Z [1m[32m   Compiling[0m multimap v0.10.1
+2025-09-20T21:19:46.7320420Z [1m[32m   Compiling[0m socket2 v0.5.10
+2025-09-20T21:19:47.0946510Z [1m[32m   Compiling[0m openssl v0.10.73
+2025-09-20T21:19:47.2232830Z [1m[32m   Compiling[0m crc-catalog v2.4.0
+2025-09-20T21:19:47.2336420Z [1m[32m   Compiling[0m foreign-types-shared v0.1.1
+2025-09-20T21:19:47.2638310Z [1m[32m   Compiling[0m xml-rs v0.8.27
+2025-09-20T21:19:47.2745090Z [1m[32m   Compiling[0m lru-slab v0.1.2
+2025-09-20T21:19:47.3247580Z [1m[32m   Compiling[0m httpdate v1.0.3
+2025-09-20T21:19:47.4539880Z [1m[32m   Compiling[0m wildmatch v1.1.0
+2025-09-20T21:19:47.5141740Z [1m[32m   Compiling[0m rustc-hash v2.1.1
+2025-09-20T21:19:47.5774400Z [1m[32m   Compiling[0m quinn-proto v0.11.13
+2025-09-20T21:19:48.1714540Z [1m[32m   Compiling[0m xmltree v0.10.3
+2025-09-20T21:19:48.2617060Z [1m[32m   Compiling[0m attohttpc v0.16.3
+2025-09-20T21:19:49.0090770Z [1m[32m   Compiling[0m crc v3.3.0
+2025-09-20T21:19:49.1093960Z [1m[32m   Compiling[0m foreign-types v0.3.2
+2025-09-20T21:19:49.1540270Z [1m[32m   Compiling[0m webrtc-util v0.8.1
+2025-09-20T21:19:50.2682860Z [1m[32m   Compiling[0m hyper v0.14.32
+2025-09-20T21:19:51.4978340Z [1m[32m   Compiling[0m yasna v0.5.2
+2025-09-20T21:19:52.7905570Z [1m[32m   Compiling[0m pem v3.0.5
+2025-09-20T21:19:52.9986740Z [1m[32m   Compiling[0m md-5 v0.10.6
+2025-09-20T21:19:53.0598280Z [1m[32m   Compiling[0m openssl-macros v0.1.1
+2025-09-20T21:19:53.2209180Z [1m[32m   Compiling[0m dirs-sys v0.3.7
+2025-09-20T21:19:53.2780070Z [1m[32m   Compiling[0m base64 v0.21.7
+2025-09-20T21:19:53.4783280Z [1m[32m   Compiling[0m cfg-if v0.1.10
+2025-09-20T21:19:53.5083650Z [1m[32m   Compiling[0m dirs2 v3.0.1
+2025-09-20T21:19:53.5547790Z [1m[32m   Compiling[0m stun v0.5.1
+2025-09-20T21:19:54.6229620Z [1m[32m   Compiling[0m igd v0.12.1
+2025-09-20T21:19:54.7443730Z [1m[32m   Compiling[0m rcgen v0.14.4
+2025-09-20T21:19:55.3745510Z [1m[32m   Compiling[0m citadel_user v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_user)
+2025-09-20T21:19:55.9901720Z [1m[32m   Compiling[0m netbeam v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/netbeam)
+2025-09-20T21:19:56.0348880Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:56.0482300Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_user/src/client_account.rs:326:17[0m
+2025-09-20T21:19:56.0579240Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:56.0580170Z [0m[1m[38;5;12m326[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub fn read(&self) -> RwLockReadGuard<AccountState> {[0m
+2025-09-20T21:19:56.0582120Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^[0m[0m     [0m[0m[1m[38;5;12m-----------------------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:56.0582750Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m|[0m
+2025-09-20T21:19:56.0583190Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:56.0583560Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:56.0584220Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:56.0585130Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(mismatched_lifetime_syntaxes)]` on by default[0m
+2025-09-20T21:19:56.0585680Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:56.0586060Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:56.0586570Z [0m[1m[38;5;12m326[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    pub fn read(&self) -> RwLockReadGuard<[0m[0m[38;5;10m'_, [0m[0mAccountState> {[0m
+2025-09-20T21:19:56.0587460Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[38;5;10m+++[0m
+2025-09-20T21:19:56.0587770Z 
+2025-09-20T21:19:56.0588070Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:56.0588560Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_user/src/client_account.rs:331:18[0m
+2025-09-20T21:19:56.0589380Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:56.0589890Z [0m[1m[38;5;12m331[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub fn write(&self) -> RwLockWriteGuard<AccountState> {[0m
+2025-09-20T21:19:56.0590540Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33m^^^^^[0m[0m     [0m[0m[1m[38;5;12m------------------------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:56.0593180Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33m|[0m
+2025-09-20T21:19:56.0602090Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:56.0602590Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:56.0603210Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:56.0604540Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:56.0604980Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:56.0606630Z [0m[1m[38;5;12m331[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    pub fn write(&self) -> RwLockWriteGuard<[0m[0m[38;5;10m'_, [0m[0mAccountState> {[0m
+2025-09-20T21:19:56.0607330Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                             [0m[0m[38;5;10m+++[0m
+2025-09-20T21:19:56.0607670Z 
+2025-09-20T21:19:56.2057030Z [1m[33mwarning[0m[1m:[0m `citadel_user` (lib) generated 2 warnings
+2025-09-20T21:19:56.2064940Z [1m[32m   Compiling[0m tokio-rustls v0.26.3
+2025-09-20T21:19:56.2392140Z [1m[32m   Compiling[0m rustls-native-certs v0.8.1
+2025-09-20T21:19:56.3366490Z [1m[32m   Compiling[0m itertools v0.14.0
+2025-09-20T21:19:56.4546320Z [1m[32m   Compiling[0m rustls-pemfile v2.2.0
+2025-09-20T21:19:56.5470560Z [1m[32m   Compiling[0m async-trait-with-sync v0.1.36
+2025-09-20T21:19:56.9394400Z [1m[32m   Compiling[0m zerocopy-derive v0.7.35
+2025-09-20T21:19:57.1669750Z [1m[32m   Compiling[0m citadel_wire v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_wire)
+2025-09-20T21:19:57.1801680Z [1m[32m   Compiling[0m embedded-semver v0.3.0
+2025-09-20T21:19:57.3355670Z [1m[32m   Compiling[0m async-recursion v1.1.1
+2025-09-20T21:19:57.4170880Z [1m[32m   Compiling[0m zerocopy v0.7.35
+2025-09-20T21:19:57.9918310Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:57.9918860Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_wire/src/udp_traversal/linear/method3.rs:456:20[0m
+2025-09-20T21:19:57.9919260Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9919650Z [0m[1m[38;5;12m456[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn new(socket: &UdpSocket) -> UdpWrapper {[0m
+2025-09-20T21:19:57.9920620Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                    [0m[0m[1m[33m^^^^^^^^^^[0m[0m     [0m[0m[1m[38;5;12m----------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:57.9921350Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                    [0m[0m[1m[33m|[0m
+2025-09-20T21:19:57.9921780Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                    [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:57.9922260Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9923100Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:57.9923800Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(mismatched_lifetime_syntaxes)]` on by default[0m
+2025-09-20T21:19:57.9924270Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:57.9924550Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9925110Z [0m[1m[38;5;12m456[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    fn new(socket: &UdpSocket) -> UdpWrapper[0m[0m[38;5;10m<'_>[0m[0m {[0m
+2025-09-20T21:19:57.9925590Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                             [0m[0m[38;5;10m++++[0m
+2025-09-20T21:19:57.9925780Z 
+2025-09-20T21:19:57.9927490Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:57.9928430Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_wire/src/udp_traversal/udp_hole_puncher.rs:217:9[0m
+2025-09-20T21:19:57.9928980Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9929510Z [0m[1m[38;5;12m217[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        &self,[0m
+2025-09-20T21:19:57.9930100Z [0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^[0m[0m [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:57.9931110Z [0m[1m[38;5;12m218[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        encrypted_config_container: HolePunchConfigContainer,[0m
+2025-09-20T21:19:57.9931630Z [0m[1m[38;5;12m219[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    ) -> UdpHolePuncher;[0m
+2025-09-20T21:19:57.9932170Z [0m    [0m[0m[1m[38;5;12m|[0m[0m          [0m[0m[1m[38;5;12m--------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:57.9932840Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9933430Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:57.9933960Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:57.9934250Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9934650Z [0m[1m[38;5;12m219[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    ) -> UdpHolePuncher[0m[0m[38;5;10m<'_>[0m[0m;[0m
+2025-09-20T21:19:57.9935090Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                        [0m[0m[38;5;10m++++[0m
+2025-09-20T21:19:57.9935270Z 
+2025-09-20T21:19:57.9935520Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:57.9935940Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_wire/src/udp_traversal/udp_hole_puncher.rs:224:9[0m
+2025-09-20T21:19:57.9936330Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9936830Z [0m[1m[38;5;12m224[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        &self,[0m
+2025-09-20T21:19:57.9937250Z [0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^[0m[0m [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:57.9937780Z [0m[1m[38;5;12m225[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        encrypted_config_container: HolePunchConfigContainer,[0m
+2025-09-20T21:19:57.9938250Z [0m[1m[38;5;12m226[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    ) -> UdpHolePuncher {[0m
+2025-09-20T21:19:57.9938750Z [0m    [0m[0m[1m[38;5;12m|[0m[0m          [0m[0m[1m[38;5;12m--------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:57.9939150Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9939620Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:57.9940090Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:57.9940380Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9940780Z [0m[1m[38;5;12m226[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    ) -> UdpHolePuncher[0m[0m[38;5;10m<'_>[0m[0m {[0m
+2025-09-20T21:19:57.9941190Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                        [0m[0m[38;5;10m++++[0m
+2025-09-20T21:19:57.9941400Z 
+2025-09-20T21:19:57.9959050Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:57.9959710Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_wire/src/standard/quic.rs:133:17[0m
+2025-09-20T21:19:57.9960630Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9961090Z [0m[1m[38;5;12m133[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn listener(&self) -> Accept;[0m
+2025-09-20T21:19:57.9961640Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^[0m[0m     [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:57.9962090Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m|[0m
+2025-09-20T21:19:57.9963230Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:57.9963510Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9964000Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:57.9964670Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:57.9964940Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9965390Z [0m[1m[38;5;12m133[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    fn listener(&self) -> Accept[0m[0m[38;5;10m<'_>[0m[0m;[0m
+2025-09-20T21:19:57.9966020Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                 [0m[0m[38;5;10m++++[0m
+2025-09-20T21:19:57.9966210Z 
+2025-09-20T21:19:57.9966770Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:57.9967240Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_wire/src/standard/quic.rs:134:24[0m
+2025-09-20T21:19:57.9967590Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9967970Z [0m[1m[38;5;12m134[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn next_connection(&mut self) -> QuicNextConnectionFuture[0m
+2025-09-20T21:19:57.9968570Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                        [0m[0m[1m[33m^^^^^^^^^[0m[0m     [0m[0m[1m[38;5;12m------------------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:57.9969080Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                        [0m[0m[1m[33m|[0m
+2025-09-20T21:19:57.9969570Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                        [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:57.9969910Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9971030Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:57.9971500Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:57.9971800Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9972360Z [0m[1m[38;5;12m134[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    fn next_connection(&mut self) -> QuicNextConnectionFuture[0m[0m[38;5;10m<'_>[0m
+2025-09-20T21:19:57.9972900Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                                              [0m[0m[38;5;10m++++[0m
+2025-09-20T21:19:57.9973180Z 
+2025-09-20T21:19:57.9973390Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:19:57.9973830Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_wire/src/standard/quic.rs:169:17[0m
+2025-09-20T21:19:57.9974200Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9974560Z [0m[1m[38;5;12m169[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn listener(&self) -> Accept {[0m
+2025-09-20T21:19:57.9975120Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^[0m[0m     [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:19:57.9975560Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m|[0m
+2025-09-20T21:19:57.9975930Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:19:57.9976220Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9976650Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:19:57.9977110Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:19:57.9977400Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:19:57.9977860Z [0m[1m[38;5;12m169[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    fn listener(&self) -> Accept[0m[0m[38;5;10m<'_>[0m[0m {[0m
+2025-09-20T21:19:57.9978340Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                 [0m[0m[38;5;10m++++[0m
+2025-09-20T21:19:57.9978580Z 
+2025-09-20T21:20:05.2843290Z [1m[33mwarning[0m[1m:[0m `citadel_wire` (lib) generated 6 warnings
+2025-09-20T21:20:05.2945110Z [1m[32m   Compiling[0m citadel_proto v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_proto)
+2025-09-20T21:20:10.3561630Z [1m[33mwarning[0m[1m:[0m `citadel_wire` (lib test) generated 6 warnings (6 duplicates)
+2025-09-20T21:20:11.8203290Z [1m[33mwarning[0m[1m:[0m `citadel_user` (lib test) generated 2 warnings (2 duplicates)
+2025-09-20T21:20:11.8703330Z [0m[1m[38;5;9merror[0m[0m[1m: struct `InnerParameterMut` is never constructed[0m
+2025-09-20T21:20:11.8804980Z [0m  [0m[0m[1m[38;5;12m--> [0m[0mcitadel_proto/src/inner_arg.rs:32:12[0m
+2025-09-20T21:20:11.8906270Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9017090Z [0m[1m[38;5;12m32[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct InnerParameterMut<'a, T: 'a, K> {[0m
+2025-09-20T21:20:11.9121620Z [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;9m^^^^^^^^^^^^^^^^^[0m
+2025-09-20T21:20:11.9223460Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9324790Z [0m[1m[38;5;10mnote[0m[0m: the lint level is defined here[0m
+2025-09-20T21:20:11.9442790Z [0m  [0m[0m[1m[38;5;12m--> [0m[0mcitadel_proto/src/lib.rs:74:5[0m
+2025-09-20T21:20:11.9534200Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9568270Z [0m[1m[38;5;12m74[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    dead_code[0m
+2025-09-20T21:20:11.9568800Z [0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[38;5;10m^^^^^^^^^[0m
+2025-09-20T21:20:11.9569180Z 
+2025-09-20T21:20:11.9569520Z [0m[1m[38;5;9merror[0m[0m[1m: struct `InnerParameter` is never constructed[0m
+2025-09-20T21:20:11.9570060Z [0m  [0m[0m[1m[38;5;12m--> [0m[0mcitadel_proto/src/inner_arg.rs:88:12[0m
+2025-09-20T21:20:11.9580310Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9580710Z [0m[1m[38;5;12m88[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct InnerParameter<'a, T: 'a + ?Sized, K> {[0m
+2025-09-20T21:20:11.9581190Z [0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;9m^^^^^^^^^^^^^^[0m
+2025-09-20T21:20:11.9581370Z 
+2025-09-20T21:20:11.9581570Z [0m[1m[38;5;9merror[0m[0m[1m: struct `P2PListenerConnectInfo` is never constructed[0m
+2025-09-20T21:20:11.9582110Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_proto/src/proto/misc/underlying_proto.rs:177:12[0m
+2025-09-20T21:20:11.9582570Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9583630Z [0m[1m[38;5;12m177[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct P2PListenerConnectInfo {[0m
+2025-09-20T21:20:11.9584050Z [0m    [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;9m^^^^^^^^^^^^^^^^^^^^^^[0m
+2025-09-20T21:20:11.9584280Z 
+2025-09-20T21:20:11.9584550Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:20:11.9584980Z [0m   [0m[0m[1m[38;5;12m--> [0m[0mcitadel_proto/src/proto/packet.rs:245:18[0m
+2025-09-20T21:20:11.9585250Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9585640Z [0m[1m[38;5;12m245[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    pub fn parse(&self) -> Option<ParsedPacket> {[0m
+2025-09-20T21:20:11.9586250Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33m^^^^^[0m[0m            [0m[0m[1m[38;5;12m------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:20:11.9588880Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33m|[0m
+2025-09-20T21:20:11.9589330Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:20:11.9589710Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9591220Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:20:11.9592130Z [0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(mismatched_lifetime_syntaxes)]` on by default[0m
+2025-09-20T21:20:11.9592690Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:20:11.9592990Z [0m    [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9593390Z [0m[1m[38;5;12m245[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    pub fn parse(&self) -> Option<ParsedPacket[0m[0m[38;5;10m<'_>[0m[0m> {[0m
+2025-09-20T21:20:11.9593850Z [0m    [0m[0m[1m[38;5;12m|[0m[0m                                               [0m[0m[38;5;10m++++[0m
+2025-09-20T21:20:11.9594110Z 
+2025-09-20T21:20:11.9594360Z [0m[1m[33mwarning[0m[0m[1m: hiding a lifetime that's elided elsewhere is confusing[0m
+2025-09-20T21:20:11.9595180Z [0m  [0m[0m[1m[38;5;12m--> [0m[0mcitadel_proto/src/proto/validation.rs:59:18[0m
+2025-09-20T21:20:11.9595500Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9595890Z [0m[1m[38;5;12m59[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        payload: &[u8],[0m
+2025-09-20T21:20:11.9596440Z [0m   [0m[0m[1m[38;5;12m|[0m[0m                  [0m[0m[1m[33m^^^^^[0m[0m [0m[0m[1m[33mthe lifetime is elided here[0m
+2025-09-20T21:20:11.9596900Z [0m[1m[38;5;12m60[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    ) -> Option<DoConnectFinalStatusPacket> {[0m
+2025-09-20T21:20:11.9597410Z [0m   [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[38;5;12m--------------------------[0m[0m [0m[0m[1m[38;5;12mthe same lifetime is hidden here[0m
+2025-09-20T21:20:11.9597780Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9598190Z [0m   [0m[0m[1m[38;5;12m= [0m[0m[1mhelp[0m[0m: the same lifetime is referred to in inconsistent ways, making the signature confusing[0m
+2025-09-20T21:20:11.9598660Z [0m[1m[38;5;14mhelp[0m[0m: use `'_` for type paths[0m
+2025-09-20T21:20:11.9599100Z [0m   [0m[0m[1m[38;5;12m|[0m
+2025-09-20T21:20:11.9599550Z [0m[1m[38;5;12m60[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    ) -> Option<DoConnectFinalStatusPacket[0m[0m[38;5;10m<'_>[0m[0m> {[0m
+2025-09-20T21:20:11.9600080Z [0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[38;5;10m++++[0m
+2025-09-20T21:20:11.9601060Z 
+2025-09-20T21:20:11.9681290Z [1m[33mwarning[0m[1m:[0m `citadel_proto` (lib) generated 2 warnings
+2025-09-20T21:20:11.9798500Z [1m[31merror[0m[1m:[0m could not compile `citadel_proto` (lib) due to 3 previous errors; 2 warnings emitted
+2025-09-20T21:20:11.9915810Z [1m[33mwarning[0m[1m:[0m build failed, waiting for other jobs to finish...
+2025-09-20T21:20:12.9089170Z [31;1merror[0m: command `[1m/Users/runner/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --package citadel_sdk --package citadel_user --package citadel_crypt --package citadel_pqcrypto --package citadel_wire --package netbeam --package async_ip --features filesystem,localhost-testing,multi-threaded --target-dir /Users/runner/work/Citadel-Protocol/Citadel-Protocol/target/llvm-cov-target[0m` exited with code [1m101[0m
+2025-09-20T21:20:12.9121250Z error: process didn't exit successfully: `/Users/runner/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo nextest run --manifest-path /Users/runner/work/Citadel-Protocol/Citadel-Protocol/Cargo.toml --target-dir /Users/runner/work/Citadel-Protocol/Citadel-Protocol/target/llvm-cov-target --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip` (exit status: 101)
+2025-09-20T21:20:12.9139420Z ##[error]Process completed with exit code 1.
+2025-09-20T21:20:12.9238090Z Post job cleanup.
+2025-09-20T21:20:13.2182320Z [command]/opt/homebrew/bin/git version
+2025-09-20T21:20:13.2406870Z git version 2.50.1
+2025-09-20T21:20:13.2449450Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/320cbeee-18ba-4ebb-9579-276c394214b7/.gitconfig'
+2025-09-20T21:20:13.2464240Z Temporarily overriding HOME='/Users/runner/work/_temp/320cbeee-18ba-4ebb-9579-276c394214b7' before making global git config changes
+2025-09-20T21:20:13.2466090Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-20T21:20:13.2515240Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:20:13.2577670Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-20T21:20:13.2673000Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-20T21:20:13.3522150Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-20T21:20:13.3569830Z http.https://github.com/.extraheader
+2025-09-20T21:20:13.3578520Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-09-20T21:20:13.3662210Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-20T21:20:13.4438520Z Cleaning up orphan processes

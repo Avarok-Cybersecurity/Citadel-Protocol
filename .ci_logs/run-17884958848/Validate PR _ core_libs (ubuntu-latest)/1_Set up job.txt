@@ -1,0 +1,51 @@
+﻿2025-09-20T21:18:23.7154265Z Current runner version: '2.328.0'
+2025-09-20T21:18:23.7178333Z ##[group]Runner Image Provisioner
+2025-09-20T21:18:23.7179524Z Hosted Compute Agent
+2025-09-20T21:18:23.7180170Z Version: 20250829.383
+2025-09-20T21:18:23.7180801Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-20T21:18:23.7181454Z Build Date: 2025-08-29T13:48:48Z
+2025-09-20T21:18:23.7182090Z ##[endgroup]
+2025-09-20T21:18:23.7182626Z ##[group]Operating System
+2025-09-20T21:18:23.7183185Z Ubuntu
+2025-09-20T21:18:23.7183708Z 24.04.3
+2025-09-20T21:18:23.7184194Z LTS
+2025-09-20T21:18:23.7184650Z ##[endgroup]
+2025-09-20T21:18:23.7185092Z ##[group]Runner Image
+2025-09-20T21:18:23.7185710Z Image: ubuntu-24.04
+2025-09-20T21:18:23.7186179Z Version: 20250907.24.1
+2025-09-20T21:18:23.7187167Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-20T21:18:23.7188539Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-20T21:18:23.7189965Z ##[endgroup]
+2025-09-20T21:18:23.7192400Z ##[group]GITHUB_TOKEN Permissions
+2025-09-20T21:18:23.7194287Z Actions: write
+2025-09-20T21:18:23.7194944Z Attestations: write
+2025-09-20T21:18:23.7195471Z Checks: write
+2025-09-20T21:18:23.7195948Z Contents: write
+2025-09-20T21:18:23.7196545Z Deployments: write
+2025-09-20T21:18:23.7197018Z Discussions: write
+2025-09-20T21:18:23.7197508Z Issues: write
+2025-09-20T21:18:23.7197988Z Metadata: read
+2025-09-20T21:18:23.7198486Z Models: read
+2025-09-20T21:18:23.7198978Z Packages: write
+2025-09-20T21:18:23.7199749Z Pages: write
+2025-09-20T21:18:23.7200280Z PullRequests: write
+2025-09-20T21:18:23.7200787Z RepositoryProjects: write
+2025-09-20T21:18:23.7201380Z SecurityEvents: write
+2025-09-20T21:18:23.7202072Z Statuses: write
+2025-09-20T21:18:23.7202588Z ##[endgroup]
+2025-09-20T21:18:23.7204758Z Secret source: Actions
+2025-09-20T21:18:23.7205511Z Prepare workflow directory
+2025-09-20T21:18:23.7600209Z Prepare all required actions
+2025-09-20T21:18:23.7637973Z Getting action download info
+2025-09-20T21:18:24.1597842Z Download action repository 'shogo82148/actions-setup-mysql@v1' (SHA:b9917bb49fa1c316abfb6931011d54da7f5470d9)
+2025-09-20T21:18:25.0832423Z Download action repository 'Daniel-Marynicz/postgresql-action@master' (SHA:79215751c10f38d037032a85feebba06c1c13968)
+2025-09-20T21:18:25.3569025Z Download action repository 'supercharge/redis-github-action@1.8.0' (SHA:ea9b21c6ecece47bd99595c532e481390ea0f044)
+2025-09-20T21:18:25.6395365Z Download action repository 'Avarok-Cybersecurity/gh-actions-deps@master' (SHA:495f309997d6623b1d15d4767970d70d46cfaa17)
+2025-09-20T21:18:25.8724884Z Download action repository 'taiki-e/install-action@nextest' (SHA:320133d5f45b215a033477e643139da5245dd9fc)
+2025-09-20T21:18:26.2945521Z Getting action download info
+2025-09-20T21:18:26.4702636Z Download action repository 'KyleMayes/install-llvm-action@v1.5.1' (SHA:60cc93ee15c6225007baa18ccf433d9d7f67d8a4)
+2025-09-20T21:18:26.7216237Z Download action repository 'actions/checkout@v2' (SHA:ee0669bd1cc54295c223e0bb666b733df41de1c5)
+2025-09-20T21:18:26.7781921Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:5d458579430fc14a04a08a1e7d3694f545e91ce6)
+2025-09-20T21:18:26.9993861Z Download action repository 'actions-rs/cargo@v1' (SHA:844f36862e911db73fe0815f00a4a2602c279505)
+2025-09-20T21:18:27.3512619Z Uses: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:18:27.3516600Z Complete job name: Validate PR / core_libs (ubuntu-latest)

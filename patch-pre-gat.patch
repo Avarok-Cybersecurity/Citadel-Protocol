@@ -1,0 +1,1991 @@
+Index: citadel_user/tests/primary.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_user/tests/primary.rs b/citadel_user/tests/primary.rs
+--- a/citadel_user/tests/primary.rs	
++++ b/citadel_user/tests/primary.rs	(date 1733103521927)
+@@ -1,9 +1,7 @@
+ #[cfg(test)]
+ mod tests {
+     use citadel_crypt::prelude::ConstructorOpts;
+-    use citadel_crypt::ratchet::constructor::{
+-        BobToAliceTransferType, StackedRatchetConstructor,
+-    };
++    use citadel_crypt::ratchet::constructor::StackedRatchetConstructor;
+     use citadel_crypt::ratchet::StackedRatchet;
+     use citadel_types::crypto::KemAlgorithm;
+     use citadel_user::account_manager::AccountManager;
+@@ -63,8 +61,8 @@
+                         username,
+                         SecBuffer::from(password),
+                     )
+-                    .await
+-                    .unwrap(),
++                        .await
++                        .unwrap(),
+                     server_hr,
+                 )
+                 .await
+@@ -78,8 +76,8 @@
+                         username,
+                         SecBuffer::from(password),
+                     )
+-                    .await
+-                    .unwrap(),
++                        .await
++                        .unwrap(),
+                     conn_info,
+                 )
+                 .await
+@@ -117,8 +115,8 @@
+                         username,
+                         SecBuffer::from(password),
+                     )
+-                    .await
+-                    .unwrap(),
++                        .await
++                        .unwrap(),
+                     server_hr,
+                 )
+                 .await
+@@ -131,8 +129,8 @@
+                         username,
+                         SecBuffer::from(password),
+                     )
+-                    .await
+-                    .unwrap(),
++                        .await
++                        .unwrap(),
+                     conn_info,
+                 )
+                 .await
+@@ -207,7 +205,7 @@
+     async fn test_harness<T, F>(mut t: T) -> Result<(), AccountError>
+     where
+         T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
+-        F: Future<Output = Result<(), AccountError>> + Send + 'static,
++        F: Future<Output=Result<(), AccountError>> + Send + 'static,
+     {
+         citadel_logging::setup_log();
+ 
+@@ -221,7 +219,7 @@
+         ) -> Result<(), AccountError>
+         where
+             T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
+-            F: Future<Output = Result<(), AccountError>> + Send + 'static,
++            F: Future<Output=Result<(), AccountError>> + Send + 'static,
+         {
+             log::info!(target: "citadel", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
+             let container =
+@@ -477,7 +475,7 @@
+ 
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -580,7 +578,7 @@
+                 .is_none());
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -650,7 +648,7 @@
+ 
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -695,7 +693,7 @@
+             assert_eq!(lock_server.cid, lock_server.cid);
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -722,7 +720,7 @@
+                 .is_none());
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -751,7 +749,7 @@
+                 peer.0.as_str(),
+                 &pers_se,
+             )
+-            .await;
++                .await;
+ 
+             assert_eq!(
+                 pers_cl
+@@ -907,7 +905,7 @@
+             peer_container.client_acc_mgr.purge().await?;
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -936,7 +934,7 @@
+                 peer.0.as_str(),
+                 &pers_se,
+             )
+-            .await;
++                .await;
+ 
+             let server_seen_peers = pers_se
+                 .get_hyperlan_peer_list_as_server(client.get_cid())
+@@ -973,7 +971,7 @@
+                 peer_cnac.get_cid(),
+                 &pers_se,
+             )
+-            .await;
++                .await;
+ 
+             assert!(peer_pers
+                 .get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid())
+@@ -1020,7 +1018,7 @@
+             peer_container.client_acc_mgr.purge().await?;
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     /*
+@@ -1058,7 +1056,7 @@
+                 peer.1.as_str(),
+                 &pers_se,
+             )
+-            .await;
++                .await;
+ 
+             deregister_client_from_server(&pers_cl, client.get_cid(), &pers_se).await;
+ 
+@@ -1098,7 +1096,7 @@
+             peer_container.client_acc_mgr.purge().await?;
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -1134,7 +1132,7 @@
+                     peer.0.as_str(),
+                     &pers_se,
+                 )
+-                .await;
++                    .await;
+ 
+                 assert!(pers_se.username_exists(USERNAME).await.unwrap());
+                 assert!(pers_se.username_exists(peer.0.as_str()).await.unwrap());
+@@ -1270,7 +1268,7 @@
+ 
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     #[tokio::test]
+@@ -1305,7 +1303,7 @@
+                     peer.0.as_str(),
+                     &pers_se,
+                 )
+-                .await;
++                    .await;
+ 
+                 assert_eq!(
+                     peer_pers
+@@ -1384,7 +1382,7 @@
+ 
+             Ok(())
+         })
+-        .await
++            .await
+     }
+ 
+     async fn register_peers(
+@@ -1449,18 +1447,18 @@
+             Some(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256),
+             Default::default(),
+         );
+-        let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), cid, version).unwrap();
+-        let mut bob = StackedRatchetConstructor::new_bob::<Vec<u8>>(
++        let mut alice = StackedRatchetConstructor::new_alice_constructor(opts.clone(), cid, version).unwrap();
++        let mut bob = StackedRatchetConstructor::new_bob_constructor::<Vec<u8>>(
+             cid,
+             version,
+             opts,
+             alice.stage0_alice().unwrap(),
+             &[],
+         )
+-        .unwrap();
++            .unwrap();
+         alice
+             .stage1_alice::<Vec<u8>>(
+-                BobToAliceTransferType::Default(bob.stage0_bob().unwrap()),
++                bob.stage0_bob().unwrap(),
+                 &[],
+             )
+             .unwrap();
+Index: citadel_crypt/src/fcm/fcm_ratchet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_crypt/src/fcm/fcm_ratchet.rs b/citadel_crypt/src/fcm/fcm_ratchet.rs
+--- a/citadel_crypt/src/fcm/fcm_ratchet.rs	
++++ b/citadel_crypt/src/fcm/fcm_ratchet.rs	(date 1733109342505)
+@@ -55,7 +55,6 @@
+ use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+ use crate::entropy_bank::EntropyBank;
+ use crate::misc::CryptError;
+-use crate::ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
+ use crate::ratchet::Ratchet;
+ use arrayvec::ArrayVec;
+ use citadel_pqcrypto::bytes_in_place::EzBuffer;
+@@ -67,6 +66,7 @@
+ use citadel_types::crypto::LARGEST_NONCE_LEN;
+ use serde::{Deserialize, Serialize};
+ use std::borrow::Cow;
++use std::fmt::Debug;
+ use std::sync::Arc;
+ 
+ #[derive(Clone, Serialize, Deserialize)]
+@@ -190,49 +190,48 @@
+     version: u32,
+ }
+ 
++impl Debug for ThinRatchetConstructor {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("ThinRatchetConstructor")
++            .field("params", &self.params)
++            .field("cid", &self.cid)
++            .field("version", &self.version)
++            .finish()
++    }
++}
++
+ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
++    type AliceToBobWireTransfer = FcmAliceToBobTransfer;
++    type BobToAliceWireTransfer = FcmBobToAliceTransfer;
++
++
+     fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
+-        ThinRatchetConstructor::new_alice(cid, new_version, opts.into_iter().next()?)
++        ThinRatchetConstructor::new_alice_constructor(cid, new_version, opts.into_iter().next()?)
+     }
+ 
+     fn new_bob<T: AsRef<[u8]>>(
+         _cid: u64,
+         opts: Vec<ConstructorOpts>,
+-        transfer: AliceToBobTransferType,
++        transfer: Self::AliceToBobWireTransfer,
+         psks: &[T],
+     ) -> Option<Self> {
+-        match transfer {
+-            AliceToBobTransferType::Fcm(transfer) => {
+-                ThinRatchetConstructor::new_bob(opts.into_iter().next()?, transfer, psks)
+-            }
++        ThinRatchetConstructor::new_bob(opts.into_iter().next()?, transfer, psks)
++    }
+ 
+-            _ => {
+-                log::error!(target: "citadel", "Incompatible Ratchet Type passed! [X-43]");
+-                None
+-            }
+-        }
+-    }
+-
+-    fn stage0_alice(&self) -> Option<AliceToBobTransferType> {
+-        Some(AliceToBobTransferType::Fcm(self.stage0_alice()?))
++    fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer> {
++        self.stage0_alice()
+     }
+ 
+-    fn stage0_bob(&mut self) -> Option<BobToAliceTransferType> {
+-        Some(BobToAliceTransferType::Fcm(self.stage0_bob()?))
++    fn stage0_bob(&mut self) -> Option<Self::BobToAliceWireTransfer> {
++        self.stage0_bob()
+     }
+ 
+     fn stage1_alice(
+         &mut self,
+-        transfer: BobToAliceTransferType,
++        transfer: Self::BobToAliceWireTransfer,
+         psks: &[Vec<u8>],
+     ) -> Result<(), CryptError> {
+-        match transfer {
+-            BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer, psks),
+-
+-            _ => Err(CryptError::DrillUpdateError(
+-                "Incompatible Ratchet Type passed! [X-44]".to_string(),
+-            )),
+-        }
++        self.stage1_alice(transfer, psks)
+     }
+ 
+     fn update_version(&mut self, version: u32) -> Option<()> {
+@@ -267,7 +266,7 @@
+ 
+ impl ThinRatchetConstructor {
+     /// FCM limits messages to 4Kb, so we need to use firesaber alone
+-    pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
++    pub fn new_alice_constructor(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
+         let params = opts.cryptography.unwrap_or_default();
+         let pqc = PostQuantumContainer::new_alice(opts).ok()?;
+ 
+Index: citadel_crypt/src/ratchet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_crypt/src/ratchet.rs b/citadel_crypt/src/ratchet.rs
+--- a/citadel_crypt/src/ratchet.rs
++++ b/citadel_crypt/src/ratchet.rs	(date 1733109342498)
+@@ -61,7 +61,6 @@
+ 
+ use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+ use crate::entropy_bank::EntropyBank;
+-use crate::fcm::fcm_ratchet::ThinRatchet;
+ use crate::misc::CryptError;
+ use crate::ratchet::constructor::StackedRatchetConstructor;
+ use bytes::BytesMut;
+@@ -103,7 +102,7 @@
+ 
+     /// Returns the message PQC and entropy_bank for the specified index
+     fn message_pqc_entropy_bank(&self, idx: Option<usize>)
+-        -> (&PostQuantumContainer, &EntropyBank);
++                                -> (&PostQuantumContainer, &EntropyBank);
+ 
+     /// Returns the scramble entropy_bank
+     fn get_scramble_entropy_bank(&self) -> &EntropyBank;
+@@ -151,23 +150,6 @@
+     ) -> Result<Vec<u8>, CryptError>;
+ }
+ 
+-/// For returning a variable hyper ratchet from a function
+-pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+-    Default(R),
+-    Fcm(Fcm),
+-}
+-
+-impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
+-    /// Returns the default ratchet if it exists
+-    pub fn assume_default(self) -> Option<R> {
+-        if let RatchetType::Default(r) = self {
+-            Some(r)
+-        } else {
+-            None
+-        }
+-    }
+-}
+-
+ impl Ratchet for StackedRatchet {
+     type Constructor = StackedRatchetConstructor;
+ 
+@@ -485,9 +467,8 @@
+ pub mod constructor {
+     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+     use crate::entropy_bank::EntropyBank;
+-    use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
+     use crate::prelude::CryptError;
+-    use crate::ratchet::{Ratchet, StackedRatchet};
++    use crate::ratchet::StackedRatchet;
+     use arrayvec::ArrayVec;
+     use bytes::BufMut;
+     use bytes::BytesMut;
+@@ -498,6 +479,7 @@
+     use citadel_types::crypto::SecurityLevel;
+     use citadel_types::crypto::LARGEST_NONCE_LEN;
+     use serde::{Deserialize, Serialize};
++    use std::fmt::{Debug, Formatter};
+ 
+     /// Used during the key exchange process
+     #[derive(Serialize, Deserialize)]
+@@ -512,272 +494,161 @@
+         params: CryptoParameters,
+     }
+ 
+-    /// For differentiating between two types when inputting into function parameters
+-    #[derive(Serialize, Deserialize)]
+-    pub enum ConstructorType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
+-        Default(R::Constructor),
+-        Fcm(Fcm::Constructor),
+-    }
+-
+-    impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
+-        pub fn stage1_alice(
+-            &mut self,
+-            transfer: BobToAliceTransferType,
+-            psks: &[Vec<u8>],
+-        ) -> Result<(), CryptError> {
+-            match self {
+-                ConstructorType::Default(con) => con.stage1_alice(transfer, psks),
+-                ConstructorType::Fcm(con) => con.stage1_alice(transfer, psks),
+-            }
+-        }
+-
+-        pub fn assume_default(self) -> Option<R::Constructor> {
+-            if let ConstructorType::Default(c) = self {
+-                Some(c)
+-            } else {
+-                None
+-            }
+-        }
+-
+-        pub fn assume_fcm(self) -> Option<Fcm::Constructor> {
+-            if let ConstructorType::Fcm(c) = self {
+-                Some(c)
+-            } else {
+-                None
+-            }
+-        }
+-
+-        pub fn assume_default_ref(&self) -> Option<&R::Constructor> {
+-            if let ConstructorType::Default(c) = self {
+-                Some(c)
+-            } else {
+-                None
+-            }
+-        }
+-
+-        pub fn assume_fcm_ref(&self) -> Option<&Fcm::Constructor> {
+-            if let ConstructorType::Fcm(c) = self {
+-                Some(c)
+-            } else {
+-                None
+-            }
+-        }
+-
+-        pub fn is_fcm(&self) -> bool {
+-            matches!(self, Self::Fcm(..))
+-        }
+-    }
+-
+-    /// For denoting the different transfer types that have local lifetimes
+-    #[derive(Serialize, Deserialize)]
+-    pub enum AliceToBobTransferType {
+-        Default(AliceToBobTransfer),
+-        Fcm(FcmAliceToBobTransfer),
+-    }
+-
+-    impl AliceToBobTransferType {
+-        pub fn get_declared_new_version(&self) -> u32 {
+-            match self {
+-                AliceToBobTransferType::Default(tx) => tx.new_version,
+-                AliceToBobTransferType::Fcm(tx) => tx.version,
+-            }
++    impl Debug for StackedRatchetConstructor {
++        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++            f.debug_struct("ThinRatchetConstructor")
++                .field("params", &self.params)
++                .field("cid", &self.cid)
++                .field("version", &self.new_version)
++                .finish()
+         }
+     }
+ 
+     impl EndpointRatchetConstructor<StackedRatchet> for StackedRatchetConstructor {
++        type AliceToBobWireTransfer = AliceToBobTransfer;
++        type BobToAliceWireTransfer = BobToAliceTransfer;
++
+         fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
+-            StackedRatchetConstructor::new_alice(opts, cid, new_version)
++            StackedRatchetConstructor::new_alice_constructor(opts, cid, new_version)
+         }
+ 
+         fn new_bob<T: AsRef<[u8]>>(
+             cid: u64,
+             opts: Vec<ConstructorOpts>,
+-            transfer: AliceToBobTransferType,
++            transfer: Self::AliceToBobWireTransfer,
+             psks: &[T],
+         ) -> Option<Self> {
+-            match transfer {
+-                AliceToBobTransferType::Default(transfer) => StackedRatchetConstructor::new_bob(
+-                    cid,
+-                    transfer.new_version,
+-                    opts,
+-                    transfer,
+-                    psks,
+-                ),
+-
+-                _ => {
+-                    log::error!(target: "citadel", "Incompatible Ratchet Type passed! [X-22]");
+-                    None
+-                }
+-            }
++            StackedRatchetConstructor::new_bob_constructor(
++                cid,
++                transfer.new_version,
++                opts,
++                transfer,
++                psks,
++            )
+         }
+ 
+-        fn stage0_alice(&self) -> Option<AliceToBobTransferType> {
+-            Some(AliceToBobTransferType::Default(self.stage0_alice()?))
++        fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer> {
++            self.stage0_alice()
+         }
+ 
+-        fn stage0_bob(&mut self) -> Option<BobToAliceTransferType> {
+-            Some(BobToAliceTransferType::Default(self.stage0_bob()?))
++        fn stage0_bob(&mut self) -> Option<Self::BobToAliceWireTransfer> {
++            self.stage0_bob()
+         }
+ 
+         fn stage1_alice(
+             &mut self,
+-            transfer: BobToAliceTransferType,
++            transfer: Self::BobToAliceWireTransfer,
+             psks: &[Vec<u8>],
+         ) -> Result<(), CryptError> {
+-            println!(
+-                "[DEBUG] stage1_alice: Starting with transfer type: {:?}",
+-                transfer
+-            );
+-            println!("[DEBUG] stage1_alice: PSKs length: {}", psks.len());
+-
+-            if let BobToAliceTransferType::Default(transfer) = transfer {
+-                let nonce_msg = &self.nonce_message;
+-                println!("[DEBUG] Checkpoint 1");
+-                for (container, bob_param_tx) in self
+-                    .message
+-                    .inner
+-                    .iter_mut()
+-                    .zip(transfer.msg_bob_params_txs.clone())
+-                {
+-                    println!(
+-                        "[DEBUG] Checkpoint 1.1 - Current version: {}",
+-                        container.entropy_bank.as_ref().map_or(0, |d| d.version)
+-                    );
+-                    println!("[DEBUG] Checkpoint 1.1 - Bob param tx: {:?}", bob_param_tx);
+-                    container
+-                        .pqc
+-                        .alice_on_receive_ciphertext(bob_param_tx, psks)
+-                        .map_err(|err| {
+-                            println!(
+-                                "[DEBUG] Checkpoint 1.1 - Alice on receive ciphertext error: {:?}",
+-                                err
+-                            );
+-                            CryptError::DrillUpdateError(err.to_string())
+-                        })?;
+-                }
+-                println!("[DEBUG] Checkpoint 2");
++            let nonce_msg = &self.nonce_message;
++            for (container, bob_param_tx) in self
++                .message
++                .inner
++                .iter_mut()
++                .zip(transfer.msg_bob_params_txs.clone())
++            {
++                container
++                    .pqc
++                    .alice_on_receive_ciphertext(bob_param_tx, psks)
++                    .map_err(|err| {
++                        CryptError::DrillUpdateError(err.to_string())
++                    })?;
++            }
+ 
+-                for (idx, container) in self.message.inner.iter_mut().enumerate() {
+-                    println!("[DEBUG] Checkpoint 2.1 - Processing entropy_bank {}", idx);
+-                    println!(
+-                        "[DEBUG] Checkpoint 2.1.1 - Current version: {}",
+-                        container.entropy_bank.as_ref().map_or(0, |d| d.version)
+-                    );
+-                    // now, using the message pqc, decrypt the message entropy_bank
+-                    let decrypted_msg_entropy_bank = match container.pqc.decrypt(
+-                        &transfer.encrypted_msg_entropy_banks.get(idx).ok_or_else(|| {
+-                            println!("[DEBUG] Checkpoint 2.1 - Unable to get encrypted_msg_entropy_banks");
+-                            CryptError::DrillUpdateError(
+-                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                            )
+-                        })?[..],
+-                        nonce_msg,
+-                    ) {
+-                        Ok(entropy_bank) => {
+-                            println!("[DEBUG] Checkpoint 2.2 - Decryption successful");
+-                            entropy_bank
+-                        }
+-                        Err(err) => {
+-                            println!("[DEBUG] Checkpoint 2.3 - Decryption failed: {:?}", err);
+-                            return Err(CryptError::DrillUpdateError(err.to_string()));
+-                        }
+-                    };
+-                    println!("[DEBUG] Checkpoint 2.4 - Deserializing entropy_bank");
+-                    let decrypted_entropy_bank =
+-                        EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
+-                    container.entropy_bank = Some(decrypted_entropy_bank);
+-                    println!("[DEBUG] Checkpoint 2.5 - Drill deserialized successfully");
+-                }
++            for (idx, container) in self.message.inner.iter_mut().enumerate() {
++                // now, using the message pqc, decrypt the message entropy_bank
++                let decrypted_msg_entropy_bank = match container.pqc.decrypt(
++                    &transfer.encrypted_msg_entropy_banks.get(idx).ok_or_else(|| {
++                        CryptError::DrillUpdateError(
++                            "Unable to get encrypted_msg_entropy_banks".to_string(),
++                        )
++                    })?[..],
++                    nonce_msg,
++                ) {
++                    Ok(entropy_bank) => {
++                        entropy_bank
++                    }
++                    Err(err) => {
++                        return Err(CryptError::DrillUpdateError(err.to_string()));
++                    }
++                };
++                let decrypted_entropy_bank =
++                    EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
++                container.entropy_bank = Some(decrypted_entropy_bank);
++            }
+ 
+-                let nonce_scramble = &self.nonce_scramble;
+-                self.scramble
+-                    .pqc
+-                    .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
+-                    .map_err(|err| {
+-                        println!("[DEBUG] Checkpoint 3 - Alice on receive scramble ciphertext error: {:?}", err);
+-                        CryptError::DrillUpdateError(err.to_string())
+-                    })?;
+-                println!("[DEBUG] Checkpoint 4");
+-                // do the same as above
+-                let decrypted_scramble_entropy_bank = self
+-                    .scramble
+-                    .pqc
+-                    .decrypt(&transfer.encrypted_scramble_entropy_bank[..], nonce_scramble)
+-                    .map_err(|err| {
+-                        println!(
+-                            "[DEBUG] Checkpoint 5 - Decryption of scramble entropy_bank failed: {:?}",
+-                            err
+-                        );
+-                        CryptError::DrillUpdateError(err.to_string())
+-                    })?;
+-                println!("[DEBUG] Checkpoint 5");
+-                let decrypted_entropy_bank =
+-                    EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
+-                self.scramble.entropy_bank = Some(decrypted_entropy_bank);
+-                println!("[DEBUG] Checkpoint 6");
++            let nonce_scramble = &self.nonce_scramble;
++            self.scramble
++                .pqc
++                .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
++                .map_err(|err| {
++                    CryptError::DrillUpdateError(err.to_string())
++                })?;
++            // do the same as above
++            let decrypted_scramble_entropy_bank = self
++                .scramble
++                .pqc
++                .decrypt(&transfer.encrypted_scramble_entropy_bank[..], nonce_scramble)
++                .map_err(|err| {
++                    CryptError::DrillUpdateError(err.to_string())
++                })?;
++
++            let decrypted_entropy_bank =
++                EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
++            self.scramble.entropy_bank = Some(decrypted_entropy_bank);
+ 
+-                // version check
+-                if self
+-                    .scramble
+-                    .entropy_bank
+-                    .as_ref()
+-                    .ok_or_else(|| {
+-                        CryptError::DrillUpdateError(
+-                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                        )
+-                    })?
+-                    .version
+-                    != self.message.inner[0]
+-                        .entropy_bank
+-                        .as_ref()
+-                        .ok_or_else(|| {
+-                            CryptError::DrillUpdateError(
+-                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                            )
+-                        })?
+-                        .version
+-                {
+-                    println!("[DEBUG] Checkpoint 7 - Version mismatch");
+-                    return Err(CryptError::DrillUpdateError(
+-                        "Message entropy_bank version != scramble entropy_bank version".to_string(),
+-                    ));
+-                }
+-                println!("[DEBUG] Checkpoint 8");
++            // version check
++            if self
++                .scramble
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .version
++                != self.message.inner[0]
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .version
++            {
++                return Err(CryptError::DrillUpdateError(
++                    "Message entropy_bank version != scramble entropy_bank version".to_string(),
++                ));
++            }
+ 
+-                if self
+-                    .scramble
+-                    .entropy_bank
+-                    .as_ref()
+-                    .ok_or_else(|| {
+-                        CryptError::DrillUpdateError(
+-                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                        )
+-                    })?
+-                    .cid
+-                    != self.message.inner[0]
+-                        .entropy_bank
+-                        .as_ref()
+-                        .ok_or_else(|| {
+-                            CryptError::DrillUpdateError(
+-                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                            )
+-                        })?
+-                        .cid
+-                {
+-                    println!("[DEBUG] Checkpoint 9 - CID mismatch");
+-                    return Err(CryptError::DrillUpdateError(
+-                        "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
+-                    ));
+-                }
+-                println!("[DEBUG] Checkpoint 10 - Success");
++            if self
++                .scramble
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .cid
++                != self.message.inner[0]
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .cid
++            {
++                return Err(CryptError::DrillUpdateError(
++                    "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
++                ));
++            }
+ 
+-                Ok(())
+-            } else {
+-                println!("[DEBUG] Checkpoint 11 - Incompatible Ratchet Type");
+-                Err(CryptError::DrillUpdateError(
+-                    "Incompatible Ratchet Type passed! [X-40]".to_string(),
+-                ))
+-            }
++            Ok(())
+         }
+ 
+         fn update_version(&mut self, version: u32) -> Option<()> {
+@@ -830,13 +701,6 @@
+         pub security_level: SecurityLevel,
+     }
+ 
+-    /// for denoting different types
+-    #[derive(Serialize, Deserialize, Debug)]
+-    pub enum BobToAliceTransferType {
+-        Default(BobToAliceTransfer),
+-        Fcm(FcmBobToAliceTransfer),
+-    }
+-
+     impl BobToAliceTransfer {
+         pub fn serialize_into(&self, buf: &mut BytesMut) -> Option<()> {
+             let len = bincode::serialized_size(self).ok()?;
+@@ -871,7 +735,7 @@
+ 
+     impl StackedRatchetConstructor {
+         /// Called during the initialization stage
+-        pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
++        pub fn new_alice_constructor(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
+             let security_level = opts.implied_security_level();
+             log::trace!(target: "citadel", "[ALICE] creating container with {:?} security level", security_level);
+             //let count = security_level.value() as usize + 1;
+@@ -908,7 +772,7 @@
+         }
+ 
+         /// Called when bob receives alice's pk's
+-        pub fn new_bob<T: AsRef<[u8]>>(
++        pub fn new_bob_constructor<T: AsRef<[u8]>>(
+             cid: u64,
+             new_version: u32,
+             opts: Vec<ConstructorOpts>,
+@@ -950,7 +814,7 @@
+                         transfer.scramble_alice_params,
+                         psks,
+                     )
+-                    .ok()?,
++                        .ok()?,
+                 },
+                 nonce_message: transfer.msg_nonce,
+                 nonce_scramble: transfer.scramble_nonce,
+@@ -1047,127 +911,121 @@
+         /// Returns Ok(()) if process succeeded
+         pub fn stage1_alice<T: AsRef<[u8]>>(
+             &mut self,
+-            transfer: BobToAliceTransferType,
++            transfer: BobToAliceTransfer,
+             psks: &[T],
+         ) -> Result<(), CryptError> {
+-            if let BobToAliceTransferType::Default(transfer) = transfer {
+-                let nonce_msg = &self.nonce_message;
+-                for (container, bob_param_tx) in self
+-                    .message
+-                    .inner
+-                    .iter_mut()
+-                    .zip(transfer.msg_bob_params_txs.clone())
+-                {
+-                    container
+-                        .pqc
+-                        .alice_on_receive_ciphertext(bob_param_tx, psks)
+-                        .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+-                }
++            let nonce_msg = &self.nonce_message;
++            for (container, bob_param_tx) in self
++                .message
++                .inner
++                .iter_mut()
++                .zip(transfer.msg_bob_params_txs.clone())
++            {
++                container
++                    .pqc
++                    .alice_on_receive_ciphertext(bob_param_tx, psks)
++                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
++            }
+ 
+-                for (idx, container) in self.message.inner.iter_mut().enumerate() {
+-                    // now, using the message pqc, decrypt the message entropy_bank
+-                    let decrypted_msg_entropy_bank = match container.pqc.decrypt(
+-                        &transfer
+-                            .encrypted_msg_entropy_banks
+-                            .get(idx)
+-                            .ok_or_else(|| {
+-                                CryptError::DrillUpdateError(
+-                                    "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                                )
+-                            })?[..],
+-                        nonce_msg,
+-                    ) {
+-                        Ok(entropy_bank) => entropy_bank,
+-                        Err(err) => {
+-                            return Err(CryptError::DrillUpdateError(err.to_string()));
+-                        }
+-                    };
+-                    let mut decrypted_entropy_bank =
+-                        EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
+-                    // Overwrite the CID since the entropy bank bob encrypted had his CID
+-                    decrypted_entropy_bank.cid = self.cid;
+-                    container.entropy_bank = Some(decrypted_entropy_bank);
+-                }
++            for (idx, container) in self.message.inner.iter_mut().enumerate() {
++                // now, using the message pqc, decrypt the message entropy_bank
++                let decrypted_msg_entropy_bank = match container.pqc.decrypt(
++                    &transfer
++                        .encrypted_msg_entropy_banks
++                        .get(idx)
++                        .ok_or_else(|| {
++                            CryptError::DrillUpdateError(
++                                "Unable to get encrypted_msg_entropy_banks".to_string(),
++                            )
++                        })?[..],
++                    nonce_msg,
++                ) {
++                    Ok(entropy_bank) => entropy_bank,
++                    Err(err) => {
++                        return Err(CryptError::DrillUpdateError(err.to_string()));
++                    }
++                };
++                let mut decrypted_entropy_bank =
++                    EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
++                // Overwrite the CID since the entropy bank bob encrypted had his CID
++                decrypted_entropy_bank.cid = self.cid;
++                container.entropy_bank = Some(decrypted_entropy_bank);
++            }
+ 
+-                let nonce_scramble = &self.nonce_scramble;
+-                self.scramble
+-                    .pqc
+-                    .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
+-                    .map_err(|err| {
+-                        println!("[DEBUG] Checkpoint 3 - Alice on receive scramble ciphertext error: {:?}", err);
+-                        CryptError::DrillUpdateError(err.to_string())
+-                    })?;
+-                // do the same as above
+-                let decrypted_scramble_entropy_bank = self
+-                    .scramble
+-                    .pqc
+-                    .decrypt(
+-                        &transfer.encrypted_scramble_entropy_bank[..],
+-                        nonce_scramble,
+-                    )
+-                    .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
+-                let mut decrypted_entropy_bank =
+-                    EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
+-                // Overwrite the CID since the entropy bank bob encrypted had his CID
+-                decrypted_entropy_bank.cid = self.cid;
+-                self.scramble.entropy_bank = Some(decrypted_entropy_bank);
+-                // version check
+-                if self
+-                    .scramble
+-                    .entropy_bank
+-                    .as_ref()
+-                    .ok_or_else(|| {
+-                        CryptError::DrillUpdateError(
+-                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                        )
+-                    })?
+-                    .version
+-                    != self.message.inner[0]
+-                        .entropy_bank
+-                        .as_ref()
+-                        .ok_or_else(|| {
+-                            CryptError::DrillUpdateError(
+-                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                            )
+-                        })?
+-                        .version
+-                {
+-                    return Err(CryptError::DrillUpdateError(
+-                        "Message entropy_bank version != scramble entropy_bank version".to_string(),
+-                    ));
+-                }
++            let nonce_scramble = &self.nonce_scramble;
++            self.scramble
++                .pqc
++                .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
++                .map_err(|err| {
++                    println!("[DEBUG] Checkpoint 3 - Alice on receive scramble ciphertext error: {:?}", err);
++                    CryptError::DrillUpdateError(err.to_string())
++                })?;
++            // do the same as above
++            let decrypted_scramble_entropy_bank = self
++                .scramble
++                .pqc
++                .decrypt(
++                    &transfer.encrypted_scramble_entropy_bank[..],
++                    nonce_scramble,
++                )
++                .map_err(|err| CryptError::DrillUpdateError(err.to_string()))?;
++            let mut decrypted_entropy_bank =
++                EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
++            // Overwrite the CID since the entropy bank bob encrypted had his CID
++            decrypted_entropy_bank.cid = self.cid;
++            self.scramble.entropy_bank = Some(decrypted_entropy_bank);
++            // version check
++            if self
++                .scramble
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .version
++                != self.message.inner[0]
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .version
++            {
++                return Err(CryptError::DrillUpdateError(
++                    "Message entropy_bank version != scramble entropy_bank version".to_string(),
++                ));
++            }
+ 
+-                if self
+-                    .scramble
+-                    .entropy_bank
+-                    .as_ref()
+-                    .ok_or_else(|| {
+-                        CryptError::DrillUpdateError(
+-                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                        )
+-                    })?
+-                    .cid
+-                    != self.message.inner[0]
+-                        .entropy_bank
+-                        .as_ref()
+-                        .ok_or_else(|| {
+-                            CryptError::DrillUpdateError(
+-                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+-                            )
+-                        })?
+-                        .cid
+-                {
+-                    return Err(CryptError::DrillUpdateError(
+-                        "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
+-                    ));
+-                }
++            if self
++                .scramble
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .cid
++                != self.message.inner[0]
++                .entropy_bank
++                .as_ref()
++                .ok_or_else(|| {
++                    CryptError::DrillUpdateError(
++                        "Unable to get encrypted_msg_entropy_banks".to_string(),
++                    )
++                })?
++                .cid
++            {
++                return Err(CryptError::DrillUpdateError(
++                    "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
++                ));
++            }
+ 
+-                Ok(())
+-            } else {
+-                Err(CryptError::DrillUpdateError(
+-                    "Incompatible Ratchet Type passed! [X-40]".to_string(),
+-                ))
+-            }
++            Ok(())
+         }
+ 
+         /// Upgrades the construction into the StackedRatchet
+@@ -1187,7 +1045,7 @@
+             Some(())
+         }
+ 
+-        /// Sometimes, replacing the CID is useful such as during peer KEM exhcange wherein
++        /// Sometimes, replacing the CID is useful such as during peer KEM exchange wherein
+         /// the CIDs between both parties are different. If a version is supplied, the version
+         /// will be updated
+         pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<StackedRatchet> {
+Index: citadel_crypt/src/endpoint_crypto_container.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_crypt/src/endpoint_crypto_container.rs b/citadel_crypt/src/endpoint_crypto_container.rs
+--- a/citadel_crypt/src/endpoint_crypto_container.rs	
++++ b/citadel_crypt/src/endpoint_crypto_container.rs	(date 1733109342488)
+@@ -65,14 +65,15 @@
+ #![allow(missing_docs)]
+ 
+ use crate::misc::CryptError;
+-use crate::ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
+ use crate::ratchet::{Ratchet, StackedRatchet};
+ use crate::sync_toggle::{CurrentToggleState, SyncToggle};
+ use crate::toolset::{Toolset, ToolsetUpdateStatus};
+ use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+ use citadel_types::crypto::CryptoParameters;
+ use citadel_types::prelude::ObjectId;
++use serde::de::DeserializeOwned;
+ use serde::{Deserialize, Serialize};
++use std::fmt::Debug;
+ use uuid::Uuid;
+ 
+ /// A container that holds the toolset as well as some boolean flags to ensure validity
+@@ -132,12 +133,13 @@
+ 
+     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
+     /// that the endpoint updated the ratchet (no transfer received, since none needed)
++    #[allow(clippy::type_complexity)]
+     pub fn commit_next_ratchet_version(
+         &mut self,
+         mut newest_version: R::Constructor,
+         local_cid: u64,
+         local_is_alice: bool,
+-    ) -> Result<(Option<BobToAliceTransferType>, ToolsetUpdateStatus), CryptError> {
++    ) -> Result<(Option<<R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer>, ToolsetUpdateStatus), CryptError> {
+         let cur_vers = self.toolset.get_most_recent_ratchet_version();
+         let next_vers = cur_vers.wrapping_add(1);
+ 
+@@ -188,7 +190,7 @@
+         constructor: R::Constructor,
+         local_is_alice: bool,
+         local_cid: u64,
+-    ) -> Result<KemTransferStatus, CryptError> {
++    ) -> Result<KemTransferStatus<R>, CryptError> {
+         let update_in_progress =
+             self.update_in_progress.state() == CurrentToggleState::AlreadyToggled;
+         log::trace!(target: "citadel", "[E2E] Calling UPDATE (local_is_alice: {}. Update in progress: {})", local_is_alice, update_in_progress);
+@@ -323,23 +325,25 @@
+ }
+ 
+ // TODO: Use GAT's to have a type AliceToBobConstructor<'a>. Get rid of these enums
+-pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
++pub trait EndpointRatchetConstructor<R: Ratchet>: Debug + Send + Sync + 'static {
++    type AliceToBobWireTransfer: Send + Sync + Serialize + DeserializeOwned;
++    type BobToAliceWireTransfer: Send + Sync + Serialize + DeserializeOwned;
+     fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self>
+     where
+         Self: Sized;
+     fn new_bob<T: AsRef<[u8]>>(
+         cid: u64,
+         opts: Vec<ConstructorOpts>,
+-        transfer: AliceToBobTransferType,
++        transfer: Self::AliceToBobWireTransfer,
+         psks: &[T],
+     ) -> Option<Self>
+     where
+         Self: Sized;
+-    fn stage0_alice(&self) -> Option<AliceToBobTransferType>;
+-    fn stage0_bob(&mut self) -> Option<BobToAliceTransferType>;
++    fn stage0_alice(&self) -> Option<Self::AliceToBobWireTransfer>;
++    fn stage0_bob(&mut self) -> Option<Self::BobToAliceWireTransfer>;
+     fn stage1_alice(
+         &mut self,
+-        transfer: BobToAliceTransferType,
++        transfer: Self::BobToAliceWireTransfer,
+         psks: &[Vec<u8>],
+     ) -> Result<(), CryptError>;
+ 
+@@ -348,16 +352,32 @@
+     fn finish(self) -> Option<R>;
+ }
+ 
+-#[derive(Serialize, Deserialize, Debug)]
++#[derive(Serialize, Deserialize)]
+ #[allow(variant_size_differences)]
+-pub enum KemTransferStatus {
++pub enum KemTransferStatus<R: Ratchet> {
+     StatusNoTransfer(ToolsetUpdateStatus),
+     Empty,
+     Omitted,
+-    Some(BobToAliceTransferType, ToolsetUpdateStatus),
++    #[serde(bound = "")]
++    Some(<R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer, ToolsetUpdateStatus),
++}
++
++impl<R: Ratchet> Debug for KemTransferStatus<R> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            KemTransferStatus::StatusNoTransfer(status) => {
++                write!(f, "KemTransferStatus::StatusNoTransfer({:?})", status)
++            }
++            KemTransferStatus::Empty => write!(f, "KemTransferStatus::Empty"),
++            KemTransferStatus::Omitted => write!(f, "KemTransferStatus::Omitted"),
++            KemTransferStatus::Some(_, status) => {
++                write!(f, "KemTransferStatus::Some(transfer, {status:?})")
++            }
++        }
++    }
+ }
+ 
+-impl KemTransferStatus {
++impl<R: Ratchet> KemTransferStatus<R> {
+     pub fn requires_truncation(&self) -> Option<u32> {
+         match self {
+             KemTransferStatus::StatusNoTransfer(ToolsetUpdateStatus::CommittedNeedsSynchronization {
+@@ -389,7 +409,7 @@
+ mod tests {
+     use crate::endpoint_crypto_container::{KemTransferStatus, PeerSessionCrypto};
+     use crate::prelude::{ConstructorOpts, Toolset};
+-    use crate::ratchet::constructor::{BobToAliceTransferType, StackedRatchetConstructor};
++    use crate::ratchet::constructor::StackedRatchetConstructor;
+     use crate::ratchet::{Ratchet, StackedRatchet};
+     use crate::toolset::{ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
+     use citadel_types::prelude::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
+@@ -404,8 +424,8 @@
+         psks: &[T],
+     ) -> (StackedRatchet, StackedRatchet) {
+         let mut cx_alice =
+-            StackedRatchetConstructor::new_alice(opts.clone(), ALICE_CID, version).unwrap();
+-        let mut cx_bob = StackedRatchetConstructor::new_bob(
++            StackedRatchetConstructor::new_alice_constructor(opts.clone(), ALICE_CID, version).unwrap();
++        let mut cx_bob = StackedRatchetConstructor::new_bob_constructor(
+             BOB_CID,
+             version,
+             opts,
+@@ -415,7 +435,7 @@
+             .unwrap();
+         cx_alice
+             .stage1_alice(
+-                BobToAliceTransferType::Default(cx_bob.stage0_bob().unwrap()),
++                cx_bob.stage0_bob().unwrap(),
+                 psks,
+             )
+             .unwrap();
+@@ -471,10 +491,10 @@
+         (start_version, new_version)
+     }
+ 
+-    fn expect_truncation_checks(expects_truncation: bool, container: &PeerSessionCrypto<StackedRatchet>, status: ToolsetUpdateStatus, current_version: u32, next_version: u32, requires_truncation: Option<u32>) -> Option<u32> {
++    fn expect_truncation_checks(expects_truncation: bool, container: &PeerSessionCrypto<StackedRatchet>, status: ToolsetUpdateStatus, requires_truncation: Option<u32>) -> Option<u32> {
+         if expects_truncation {
+             if container.toolset.len() >= MAX_RATCHETS_IN_MEMORY {
+-                let ToolsetUpdateStatus::CommittedNeedsSynchronization { new_version, oldest_version } = status else {
++                let ToolsetUpdateStatus::CommittedNeedsSynchronization { new_version: _, oldest_version } = status else {
+                     panic!("Expected ToolsetUpdateStatus::CommittedNeedsSynchronization");
+                 };
+                 return Some(oldest_version);
+@@ -509,7 +529,7 @@
+             .unwrap()
+             .get_next_constructor_opts();
+ 
+-        let bob_constructor = StackedRatchetConstructor::new_bob(
++        let bob_constructor = StackedRatchetConstructor::new_bob_constructor(
+             cid_1,
+             next_version,
+             next_opts,
+@@ -535,91 +555,86 @@
+                 }
+ 
+                 // In this case, bob expects truncation, but, alice will too, in which case we let alice handle the truncation logic
+-                let _do_nothing = expect_truncation_checks(expect_truncation, container_1, toolset_status_bob, start_version, next_version, requires_truncation_bob);
++                let _do_nothing = expect_truncation_checks(expect_truncation, container_1, toolset_status_bob, requires_truncation_bob);
+ 
+-                match bob_to_alice_transfer {
+-                    BobToAliceTransferType::Default(bob_to_alice_transfer) => {
+-                        // Flow in the protocol: primary_group_packet.rs:fn attempt_kem_as_alice_finish
+-                        // alice: stage1_alice
+-                        // alice: update
+-                        // alice: if truncation is required, we call deregister_oldest_ratchet
+-                        // alice: call post_alice_stage1_or_post_stage1_bob
+-                        // alice: if truncation not required, unlock(requires_locked_by_alice=true) and end, else:
+-                        // alice: send TRUNCATE packet to bob
+-                        // bob: call deregister_oldest_ratchet on that truncated version in the packet
+-                        // bob: call post_alice_stage1_or_post_stage1_bob
+-                        // bob: call unlock(requires_locked_by_alice=false), providing false since bob is not alice
+-                        // bob: send TRUNCATE_ACK packet to alice
+-                        // alice: call unlock(requires_locked_by_alice=true) and end
++                // Flow in the protocol: primary_group_packet.rs:fn attempt_kem_as_alice_finish
++                // alice: stage1_alice
++                // alice: update
++                // alice: if truncation is required, we call deregister_oldest_ratchet
++                // alice: call post_alice_stage1_or_post_stage1_bob
++                // alice: if truncation not required, unlock(requires_locked_by_alice=true) and end, else:
++                // alice: send TRUNCATE packet to bob
++                // bob: call deregister_oldest_ratchet on that truncated version in the packet
++                // bob: call post_alice_stage1_or_post_stage1_bob
++                // bob: call unlock(requires_locked_by_alice=false), providing false since bob is not alice
++                // bob: send TRUNCATE_ACK packet to alice
++                // alice: call unlock(requires_locked_by_alice=true) and end
+ 
+-                        alice_constructor
+-                            .stage1_alice(
+-                                BobToAliceTransferType::Default(bob_to_alice_transfer),
+-                                PSKS,
+-                            )
+-                            .unwrap();
++                alice_constructor
++                    .stage1_alice(
++                        bob_to_alice_transfer,
++                        PSKS,
++                    )
++                    .unwrap();
+ 
+-                        let kem_transfer_status_alice = container_0
+-                            .update_sync_safe(alice_constructor, true, cid_0)
+-                            .unwrap();
++                let kem_transfer_status_alice = container_0
++                    .update_sync_safe(alice_constructor, true, cid_0)
++                    .unwrap();
+ 
+-                        let requires_truncation_alice = kem_transfer_status_alice.requires_truncation();
+-                        
+-                        if !expect_truncation {
+-                            assert!(requires_truncation_alice.is_none());
+-                            assert!(matches!(kem_transfer_status_alice,
++                let requires_truncation_alice = kem_transfer_status_alice.requires_truncation();
++
++                if !expect_truncation {
++                    assert!(requires_truncation_alice.is_none());
++                    assert!(matches!(kem_transfer_status_alice,
+                                         KemTransferStatus::StatusNoTransfer(
+                                             ToolsetUpdateStatus::Committed {
+                                                 new_version
+                                             }
+                                         ) if new_version == next_version
+                                     ));
+-                        }
++                }
+ 
+ 
+-                        assert_eq!(requires_truncation_alice, requires_truncation_bob, "Asymmetry not allowed:requires_truncation_alice: {requires_truncation_alice:?}, requires_truncation_bob: {requires_truncation_bob:?}");
++                assert_eq!(requires_truncation_alice, requires_truncation_bob, "Asymmetry not allowed:requires_truncation_alice: {requires_truncation_alice:?}, requires_truncation_bob: {requires_truncation_bob:?}");
+ 
+-                        // Continue to follow protocol flow
+-                    
+-                        // If no truncation, we runs some tests and short-circuit here
+-                        if requires_truncation_alice.is_none() {
+-                            // Test message encryption/decryption. Since post_alice_stage1_or_post_stage1_bob has not yet been called,
+-                            // the latest usable version should still be the start version
+-                            ratchet_encrypt_decrypt_test(container_0, cid_0, container_1, cid_1, start_version);
+-                            simulate_protocol_resolution_no_truncation(container_0, container_1);
++                // Continue to follow protocol flow
++
++                // If no truncation, we runs some tests and short-circuit here
++                if requires_truncation_alice.is_none() {
++                    // Test message encryption/decryption. Since post_alice_stage1_or_post_stage1_bob has not yet been called,
++                    // the latest usable version should still be the start version
++                    ratchet_encrypt_decrypt_test(container_0, cid_0, container_1, cid_1, start_version);
++                    simulate_protocol_resolution_no_truncation(container_0, container_1);
+ 
+-                            assert_eq!(start_version + 1, next_version);
++                    assert_eq!(start_version + 1, next_version);
+ 
+-                            // Test message encryption/decryption again. Now that post_alice_stage1_or_post_stage1_bob has been called,
+-                            // the latest usable version should be the new version
+-                            ratchet_encrypt_decrypt_test(container_0, cid_0, container_1, cid_1, next_version);
+-                            return;
+-                        }
++                    // Test message encryption/decryption again. Now that post_alice_stage1_or_post_stage1_bob has been called,
++                    // the latest usable version should be the new version
++                    ratchet_encrypt_decrypt_test(container_0, cid_0, container_1, cid_1, next_version);
++                    return;
++                }
+ 
+-                        match kem_transfer_status_alice {
+-                            KemTransferStatus::StatusNoTransfer(toolset_status_alice) => {
+-                                if let Some(version_to_truncate) = expect_truncation_checks(expect_truncation, container_0, toolset_status_alice, start_version, next_version, requires_truncation_alice) {
+-                                    container_0.deregister_oldest_ratchet(version_to_truncate).unwrap();
+-                                    container_0.post_alice_stage1_or_post_stage1_bob();
+-                                    // Assume alice then sends a TRUNCATE packet to bob, telling him to remove this version
+-                                    // send_to_bob(version_to_truncate);
+-                                    container_1.deregister_oldest_ratchet(version_to_truncate).unwrap();
+-                                    container_1.post_alice_stage1_or_post_stage1_bob();
+-                                    let ratchet_bob = container_1.maybe_unlock(false).unwrap();
+-                                    // Assume bob then sends a TRUNCATE_ACK packet to alice, telling her to remove her local lock
+-                                    // send_to_alice(version_to_truncate);
+-                                    let ratchet_alice = container_0.maybe_unlock(true).unwrap();
+-                                    assert_eq!(ratchet_alice.version(), ratchet_bob.version());
+-                                    let expected_version = ratchet_alice.version();
+-                                    ratchet_encrypt_decrypt_test(container_0, cid_0, container_1, cid_1, expected_version);
+-                                }
+-                            }
+-                            status => {
+-                                log::warn!(target: "citadel", "KemTransferStatus for Alice is not handled in this test: {status:?}");
+-                            }
+-                        }
++                match kem_transfer_status_alice {
++                    KemTransferStatus::StatusNoTransfer(toolset_status_alice) => {
++                        if let Some(version_to_truncate) = expect_truncation_checks(expect_truncation, container_0, toolset_status_alice, requires_truncation_alice) {
++                            container_0.deregister_oldest_ratchet(version_to_truncate).unwrap();
++                            container_0.post_alice_stage1_or_post_stage1_bob();
++                            // Assume alice then sends a TRUNCATE packet to bob, telling him to remove this version
++                            // send_to_bob(version_to_truncate);
++                            container_1.deregister_oldest_ratchet(version_to_truncate).unwrap();
++                            container_1.post_alice_stage1_or_post_stage1_bob();
++                            let ratchet_bob = container_1.maybe_unlock(false).unwrap();
++                            // Assume bob then sends a TRUNCATE_ACK packet to alice, telling her to remove her local lock
++                            // send_to_alice(version_to_truncate);
++                            let ratchet_alice = container_0.maybe_unlock(true).unwrap();
++                            assert_eq!(ratchet_alice.version(), ratchet_bob.version());
++                            let expected_version = ratchet_alice.version();
++                            ratchet_encrypt_decrypt_test(container_0, cid_0, container_1, cid_1, expected_version);
++                        }
++                    }
++                    status => {
++                        log::warn!(target: "citadel", "KemTransferStatus for Alice is not handled in this test: {status:?}");
+                     }
+-                    _ => panic!("Expected default transfer type"),
+                 }
+             }
+             status => log::warn!(target: "citadel", "KemTransferStatus for Bob is not handled in this test: {status:?}"),
+Index: citadel_proto/src/proto/session.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/session.rs b/citadel_proto/src/proto/session.rs
+--- a/citadel_proto/src/proto/session.rs	
++++ b/citadel_proto/src/proto/session.rs	(date 1733099199278)
+@@ -611,7 +611,7 @@
+                     .passwordless
+                     .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
+                 // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
+-                let alice_constructor = StackedRatchetConstructor::new_alice(
++                let alice_constructor = StackedRatchetConstructor::new_alice_constructor(
+                     ConstructorOpts::new_vec_init(
+                         Some(session_security_settings.crypto_params),
+                         session_security_settings.security_level,
+@@ -696,7 +696,7 @@
+             .take((session_security_settings.security_level.value() + 1) as usize)
+             .collect();
+         //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
+-        let alice_constructor = StackedRatchetConstructor::new_alice(opts, cnac.get_cid(), 0)
++        let alice_constructor = StackedRatchetConstructor::new_alice_constructor(opts, cnac.get_cid(), 0)
+             .ok_or(NetworkError::InternalError(
+                 "Unable to construct Alice ratchet",
+             ))?;
+Index: citadel_proto/src/proto/validation.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/validation.rs b/citadel_proto/src/proto/validation.rs
+--- a/citadel_proto/src/proto/validation.rs	
++++ b/citadel_proto/src/proto/validation.rs	(date 1733102252226)
+@@ -136,7 +136,7 @@
+         ReadyToReceive {
+             fast_msg: bool,
+             initial_window: Option<RangeInclusive<u32>>,
+-            transfer: KemTransferStatus,
++            transfer: KemTransferStatus<StackedRatchet>,
+             object_id: ObjectId,
+         },
+         NotReady {
+@@ -217,7 +217,7 @@
+     }
+ }
+ 
+-pub(crate) mod do_entropy_bank_update {
++pub(crate) mod do_ratchet_update {
+     use crate::proto::packet_crafter::do_entropy_bank_update::{
+         Stage1UpdatePacket, TruncateAckPacket, TruncatePacket,
+     };
+@@ -253,7 +253,7 @@
+     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
+     use crate::proto::session_manager::CitadelSessionManager;
+     use citadel_crypt::ratchet::constructor::{
+-        BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
++        BobToAliceTransfer, StackedRatchetConstructor,
+     };
+     use citadel_crypt::ratchet::{Ratchet, StackedRatchet};
+     use citadel_types::proto::ConnectMode;
+@@ -319,16 +319,16 @@
+             .take((transfer.session_security_settings.security_level.value() + 1) as usize)
+             .collect();
+         //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
+-        let mut bob_constructor = StackedRatchetConstructor::new_bob(
++        let mut bob_constructor = StackedRatchetConstructor::new_bob_constructor(
+             header.session_cid.get(),
+             0,
+             opts,
+             transfer.transfer,
+             session_password.as_ref(),
+         )
+-        .ok_or(NetworkError::InternalError(
+-            "Unable to create bob container",
+-        ))?;
++            .ok_or(NetworkError::InternalError(
++                "Unable to create bob container",
++            ))?;
+         let transfer = bob_constructor
+             .stage0_bob()
+             .ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
+Index: citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs b/citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs
+--- a/citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs	
++++ b/citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs	(date 1733103553871)
+@@ -69,7 +69,7 @@
+ use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
+ use citadel_crypt::prelude::ConstructorOpts;
+ use citadel_crypt::ratchet::constructor::{
+-    AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
++    AliceToBobTransfer, BobToAliceTransfer, StackedRatchetConstructor,
+ };
+ use citadel_crypt::ratchet::StackedRatchet;
+ use citadel_crypt::toolset::Toolset;
+@@ -351,7 +351,7 @@
+                                         //let peer_cid = conn.get_original_session_cid();
+ 
+                                         let alice_constructor =
+-                                            return_if_none!(StackedRatchetConstructor::new_alice(
++                                            return_if_none!(StackedRatchetConstructor::new_alice_constructor(
+                                                 ConstructorOpts::new_vec_init(
+                                                     Some(endpoint_security_settings.crypto_params),
+                                                     endpoint_security_settings.security_level
+@@ -471,7 +471,7 @@
+                                     let session_password = session_password.unwrap_or_default();
+ 
+                                     let mut bob_constructor =
+-                                        return_if_none!(StackedRatchetConstructor::new_bob(
++                                        return_if_none!(StackedRatchetConstructor::new_bob_constructor(
+                                             conn.get_original_target_cid(),
+                                             0,
+                                             ConstructorOpts::new_vec_init(
+@@ -561,7 +561,7 @@
+                                         );
+ 
+                                         if let Err(err) = alice_constructor.stage1_alice(
+-                                            BobToAliceTransferType::Default(deser),
++                                            deser,
+                                             kem_state.session_password.as_ref(),
+                                         ) {
+                                             log::warn!(target: "citadel", "Failed to complete key exchange for {session_cid} | Wrong session passwords? Err: {err:?}");
+Index: citadel_proto/src/proto/packet_processor/rekey_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/packet_processor/rekey_packet.rs b/citadel_proto/src/proto/packet_processor/rekey_packet.rs
+--- a/citadel_proto/src/proto/packet_processor/rekey_packet.rs	
++++ b/citadel_proto/src/proto/packet_processor/rekey_packet.rs	(date 1733102169941)
+@@ -58,8 +58,6 @@
+     attempt_kem_as_alice_finish, attempt_kem_as_bob, get_proper_ratchet,
+     get_resp_target_cid_from_header, ToolsetUpdate,
+ };
+-use citadel_crypt::ratchet::constructor::{AliceToBobTransferType, ConstructorType};
+-use citadel_crypt::ratchet::RatchetType;
+ use citadel_types::crypto::SecrecyMode;
+ use std::ops::Deref;
+ 
+@@ -109,7 +107,7 @@
+         // Bob
+         packet_flags::cmd::aux::do_ratchet_update::STAGE0 => {
+             log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE STAGE 0 PACKET RECV");
+-            match validation::do_entropy_bank_update::validate_stage0(payload) {
++            match validation::do_ratchet_update::validate_stage0(payload) {
+                 Some(transfer) => {
+                     let resp_target_cid = get_resp_target_cid_from_header(&header);
+                     let status = return_if_none!(
+@@ -143,7 +141,7 @@
+         // Alice
+         packet_flags::cmd::aux::do_ratchet_update::STAGE1 => {
+             log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE STAGE 1 PACKET RECV");
+-            match validation::do_entropy_bank_update::validate_stage1(payload) {
++            match validation::do_ratchet_update::validate_stage1(payload) {
+                 Some(transfer) => {
+                     //let mut state_container = inner_mut!(session.state_container);
+                     let peer_cid = header.session_cid.get();
+@@ -294,7 +292,7 @@
+         packet_flags::cmd::aux::do_ratchet_update::TRUNCATE_ACK => {
+             log::trace!(target: "citadel", "DO_STACKED_RATCHET_UPDATE TRUNCATE_ACK PACKET RECV");
+             let truncate_ack_packet = return_if_none!(
+-                validation::do_entropy_bank_update::validate_truncate_ack(payload),
++                validation::do_ratchet_update::validate_truncate_ack(payload),
+                 "Unable to validate truncate ack"
+             );
+             log::trace!(target: "citadel", "Adjacent node has finished deregistering version {}", truncate_ack_packet.truncated_version);
+Index: citadel_proto/src/proto/packet_processor/register_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/packet_processor/register_packet.rs b/citadel_proto/src/proto/packet_processor/register_packet.rs
+--- a/citadel_proto/src/proto/packet_processor/register_packet.rs	
++++ b/citadel_proto/src/proto/packet_processor/register_packet.rs	(date 1733103544894)
+@@ -57,7 +57,7 @@
+ use crate::proto::node_result::{RegisterFailure, RegisterOkay};
+ use citadel_crypt::prelude::ConstructorOpts;
+ use citadel_crypt::ratchet::constructor::{
+-    BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor,
++    BobToAliceTransfer, StackedRatchetConstructor,
+ };
+ 
+ /// This will handle a registration packet
+@@ -126,7 +126,7 @@
+ 
+                                 async move {
+                                     let cid = header.session_cid.get();
+-                                    let mut bob_constructor = StackedRatchetConstructor::new_bob(
++                                    let mut bob_constructor = StackedRatchetConstructor::new_bob_constructor(
+                                         cid,
+                                         0,
+                                         ConstructorOpts::new_vec_init(
+@@ -206,7 +206,7 @@
+                         let security_level = transfer.security_level;
+                         alice_constructor
+                             .stage1_alice(
+-                                BobToAliceTransferType::Default(transfer),
++                                transfer,
+                                 session.session_password.as_ref(),
+                             )
+                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
+Index: citadel_proto/src/proto/packet_processor/primary_group_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/packet_processor/primary_group_packet.rs b/citadel_proto/src/proto/packet_processor/primary_group_packet.rs
+--- a/citadel_proto/src/proto/packet_processor/primary_group_packet.rs	
++++ b/citadel_proto/src/proto/packet_processor/primary_group_packet.rs	(date 1733109342478)
+@@ -64,10 +64,8 @@
+ use citadel_crypt::endpoint_crypto_container::{
+     EndpointRatchetConstructor, KemTransferStatus, PeerSessionCrypto,
+ };
+-use citadel_crypt::fcm::fcm_ratchet::ThinRatchet;
+ use citadel_crypt::misc::CryptError;
+-use citadel_crypt::ratchet::constructor::{AliceToBobTransferType, ConstructorType};
+-use citadel_crypt::ratchet::{Ratchet, RatchetType, StackedRatchet};
++use citadel_crypt::ratchet::{Ratchet, StackedRatchet};
+ use citadel_types::crypto::SecrecyMode;
+ use citadel_types::prelude::ObjectId;
+ use citadel_types::proto::UdpMode;
+@@ -210,7 +208,7 @@
+                                         session,
+                                         resp_target_cid,
+                                         &header,
+-                                        transfer.map(AliceToBobTransferType::Default),
++                                        transfer,
+                                         &mut state_container,
+                                         &ratchet
+                                     ),
+@@ -617,136 +615,64 @@
+ }
+ 
+ #[allow(unused)]
+-pub enum ToolsetUpdate<'a> {
+-    E2E {
+-        crypt: &'a mut PeerSessionCrypto<StackedRatchet>,
+-        local_cid: u64,
+-    },
+-    Fcm {
+-        fcm_crypt_container: &'a mut PeerSessionCrypto<ThinRatchet>,
+-        peer_cid: u64,
+-        local_cid: u64,
+-    },
++pub struct ToolsetUpdate<'a, R: Ratchet> {
++    crypt: &'a mut PeerSessionCrypto<R>,
++    local_cid: u64,
+ }
+ 
+-impl ToolsetUpdate<'_> {
++impl<R: Ratchet> ToolsetUpdate<'_, R> {
+     pub(crate) fn update(
+         &mut self,
+-        constructor: ConstructorType<StackedRatchet, ThinRatchet>,
++        constructor: R::Constructor,
+         local_is_alice: bool,
+-    ) -> Result<KemTransferStatus, CryptError> {
+-        match self {
+-            ToolsetUpdate::E2E { crypt, local_cid } => {
+-                let constructor = constructor.assume_default().ok_or_else(|| {
+-                    CryptError::DrillUpdateError("Constructor is not default type".to_string())
+-                })?;
+-                crypt.update_sync_safe(constructor, local_is_alice, *local_cid)
+-            }
+-
+-            ToolsetUpdate::Fcm {
+-                fcm_crypt_container,
+-                local_cid,
+-                ..
+-            } => {
+-                let constructor = constructor.assume_fcm().ok_or_else(|| {
+-                    CryptError::DrillUpdateError("Constructor is not FCM type".to_string())
+-                })?;
+-                fcm_crypt_container.update_sync_safe(constructor, local_is_alice, *local_cid)
+-            }
+-        }
++    ) -> Result<KemTransferStatus<R>, CryptError> {
++        self.crypt.update_sync_safe(constructor, local_is_alice, self.local_cid)
+     }
+ 
+     /// This should only be called after an update
+     pub(crate) fn post_stage1_alice_or_bob(&mut self) {
+-        match self {
+-            ToolsetUpdate::E2E { crypt, .. } => {
+-                crypt.post_alice_stage1_or_post_stage1_bob();
+-            }
+-
+-            ToolsetUpdate::Fcm {
+-                fcm_crypt_container,
+-                ..
+-            } => {
+-                fcm_crypt_container.post_alice_stage1_or_post_stage1_bob();
+-            }
+-        }
++        self.crypt.post_alice_stage1_or_post_stage1_bob()
+     }
+ 
+     pub(crate) fn deregister(&mut self, version: u32) -> Result<(), NetworkError> {
+-        match self {
+-            ToolsetUpdate::E2E { crypt, .. } => crypt
+-                .deregister_oldest_ratchet(version)
+-                .map_err(|err| NetworkError::Generic(err.to_string())),
+-
+-            ToolsetUpdate::Fcm {
+-                fcm_crypt_container,
+-                ..
+-            } => fcm_crypt_container
+-                .deregister_oldest_ratchet(version)
+-                .map_err(|err| NetworkError::Generic(err.to_string())),
+-        }
++        self.crypt
++            .deregister_oldest_ratchet(version)
++            .map_err(|err| NetworkError::Generic(err.to_string()))
+     }
+ 
+     /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
+     pub(crate) fn unlock(
+         &mut self,
+         requires_locked_by_alice: bool,
+-    ) -> Option<(RatchetType<StackedRatchet, ThinRatchet>, Option<bool>)> {
+-        match self {
+-            ToolsetUpdate::E2E { crypt, .. } => {
+-                let lock_src = crypt.lock_set_by_alice;
+-                crypt
+-                    .maybe_unlock(requires_locked_by_alice)
+-                    .map(|r| (RatchetType::Default(r.clone()), lock_src))
+-            }
+-
+-            ToolsetUpdate::Fcm {
+-                fcm_crypt_container,
+-                ..
+-            } => {
+-                let lock_src = fcm_crypt_container.lock_set_by_alice;
+-                fcm_crypt_container
+-                    .maybe_unlock(requires_locked_by_alice)
+-                    .map(|r| (RatchetType::Fcm(r.clone()), lock_src))
+-            }
+-        }
++    ) -> Option<(R, Option<bool>)> {
++        let lock_src = self.crypt.lock_set_by_alice;
++        self.crypt
++            .maybe_unlock(requires_locked_by_alice)
++            .map(|r| (r.clone(), lock_src))
+     }
+ 
+     pub(crate) fn get_local_cid(&self) -> u64 {
+-        match self {
+-            ToolsetUpdate::E2E { local_cid, .. } => *local_cid,
+-            ToolsetUpdate::Fcm { local_cid, .. } => *local_cid,
+-        }
++        self.local_cid
+     }
+ 
+-    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<StackedRatchet, ThinRatchet>> {
+-        match self {
+-            ToolsetUpdate::E2E { crypt, .. } => crypt
+-                .get_ratchet(None)
+-                .map(|r| RatchetType::Default(r.clone())),
+-
+-            ToolsetUpdate::Fcm {
+-                fcm_crypt_container,
+-                ..
+-            } => fcm_crypt_container
+-                .get_ratchet(None)
+-                .map(|r| RatchetType::Fcm(r.clone())),
+-        }
++    pub(crate) fn get_latest_ratchet(&self) -> Option<&R> {
++        self.crypt
++            .get_ratchet(None)
+     }
+ }
+ 
+ /// peer_cid: from header.session_cid
+ /// target_cid: from header.target_cid
+ /// Returns: Ok(latest_ratchet)
+-pub(crate) fn attempt_kem_as_alice_finish(
++pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet>(
+     session: &CitadelSession,
+     base_session_secrecy_mode: SecrecyMode,
+     peer_cid: u64,
+     target_cid: u64,
+-    transfer: KemTransferStatus,
++    transfer: KemTransferStatus<R>,
+     state_container: &mut StateContainerInner,
+-    constructor: Option<ConstructorType<StackedRatchet, ThinRatchet>>,
+-) -> Result<Option<RatchetType<StackedRatchet, ThinRatchet>>, ()> {
++    constructor: Option<R::Constructor>,
++) -> Result<Option<R>, ()> {
+     let (mut toolset_update_method, secrecy_mode, session_password) = if target_cid
+         != C2S_ENCRYPTION_ONLY
+     {
+@@ -764,7 +690,7 @@
+             return Err(());
+         }
+         (
+-            ToolsetUpdate::E2E {
++            ToolsetUpdate {
+                 crypt,
+                 local_cid: target_cid,
+             },
+@@ -778,7 +704,7 @@
+             .unwrap()
+             .peer_session_crypto;
+         (
+-            ToolsetUpdate::E2E {
++            ToolsetUpdate {
+                 crypt,
+                 local_cid: peer_cid,
+             },
+@@ -845,14 +771,14 @@
+ }
+ 
+ /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
+-pub(crate) fn attempt_kem_as_bob(
++pub(crate) fn attempt_kem_as_bob<R: Ratchet>(
+     session: &CitadelSession,
+     resp_target_cid: u64,
+     header: &Ref<&[u8], HdpHeader>,
+-    transfer: Option<AliceToBobTransferType>,
++    transfer: Option<<R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer>,
+     state_container: &mut StateContainerInner,
+     hr: &StackedRatchet,
+-) -> Option<KemTransferStatus> {
++) -> Option<KemTransferStatus<R>> {
+     if let Some(transfer) = transfer {
+         let (update, session_password) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
+             let session_password = state_container
+@@ -870,7 +796,7 @@
+                 .as_mut()?
+                 .endpoint_crypto;
+             (
+-                ToolsetUpdate::E2E {
++                ToolsetUpdate {
+                     crypt,
+                     local_cid: header.target_cid.get(),
+                 },
+@@ -883,7 +809,7 @@
+                 .unwrap()
+                 .peer_session_crypto;
+             (
+-                ToolsetUpdate::E2E {
++                ToolsetUpdate {
+                     crypt,
+                     local_cid: header.session_cid.get(),
+                 },
+@@ -897,41 +823,26 @@
+     }
+ }
+ 
+-pub(crate) fn update_toolset_as_bob(
+-    mut update_method: ToolsetUpdate<'_>,
+-    transfer: AliceToBobTransferType,
++pub(crate) fn update_toolset_as_bob<R: Ratchet>(
++    mut update_method: ToolsetUpdate<'_, R>,
++    transfer: <R::Constructor as EndpointRatchetConstructor<R>>::AliceToBobWireTransfer,
+     hr: &StackedRatchet,
+     session_password: PreSharedKey,
+-) -> Option<KemTransferStatus> {
++) -> Option<KemTransferStatus<R>> {
+     let cid = update_method.get_local_cid();
+-    //let (crypto_params, session_security_level) = transfer.get_security_opts();
+-    //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
+     let opts = hr.get_next_constructor_opts();
+-    if matches!(transfer, AliceToBobTransferType::Fcm(..)) {
+-        let constructor = EndpointRatchetConstructor::<ThinRatchet>::new_bob(
+-            cid,
+-            opts,
+-            transfer,
+-            session_password.as_ref(),
+-        )?;
+-        Some(
+-            update_method
+-                .update(ConstructorType::Fcm(constructor), false)
+-                .ok()?,
+-        )
+-    } else {
+-        let constructor = EndpointRatchetConstructor::<StackedRatchet>::new_bob(
+-            cid,
+-            opts,
+-            transfer,
+-            session_password.as_ref(),
+-        )?;
+-        Some(
+-            update_method
+-                .update(ConstructorType::Default(constructor), false)
+-                .ok()?,
+-        )
+-    }
++
++    let constructor = EndpointRatchetConstructor::<R>::new_bob(
++        cid,
++        opts,
++        transfer,
++        session_password.as_ref(),
++    )?;
++    Some(
++        update_method
++            .update(constructor, false)
++            .ok()?,
++    )
+ }
+ 
+ /// Returns the virtual connection type for the response target cid. Is relative to the current node, not the receiving node
+Index: citadel_proto/src/proto/packet_crafter.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/packet_crafter.rs b/citadel_proto/src/proto/packet_crafter.rs
+--- a/citadel_proto/src/proto/packet_crafter.rs	
++++ b/citadel_proto/src/proto/packet_crafter.rs	(date 1733103572805)
+@@ -439,7 +439,7 @@
+         initial_wave_window: Option<RangeInclusive<u32>>,
+         fast_msg: bool,
+         timestamp: i64,
+-        transfer: KemTransferStatus,
++        transfer: KemTransferStatus<StackedRatchet>,
+         security_level: SecurityLevel,
+     ) -> BytesMut {
+         let header = HdpHeader {
+@@ -1085,13 +1085,13 @@
+     /// Crafts a do-entropy_bank update stage 1 packet for a given update status, timestamp, target CID, and security level
+     #[derive(Serialize, Deserialize)]
+     pub(crate) struct Stage1UpdatePacket {
+-        pub(crate) update_status: KemTransferStatus,
++        pub(crate) update_status: KemTransferStatus<StackedRatchet>,
+     }
+ 
+     #[allow(unused_results)]
+     pub(crate) fn craft_stage1(
+         ratchet: &StackedRatchet,
+-        update_status: KemTransferStatus,
++        update_status: KemTransferStatus<StackedRatchet>,
+         timestamp: i64,
+         target_cid: u64,
+         security_level: SecurityLevel,
+Index: citadel_proto/src/proto/state_container.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/citadel_proto/src/proto/state_container.rs b/citadel_proto/src/proto/state_container.rs
+--- a/citadel_proto/src/proto/state_container.rs	
++++ b/citadel_proto/src/proto/state_container.rs	(date 1733109342469)
+@@ -77,7 +77,7 @@
+ use crate::proto::packet_processor::primary_group_packet::{
+     attempt_kem_as_alice_finish, get_resp_target_cid_from_header,
+ };
+-use citadel_crypt::ratchet::constructor::{ConstructorType, StackedRatchetConstructor};
++use citadel_crypt::ratchet::constructor::StackedRatchetConstructor;
+ use citadel_crypt::sync_toggle::{CurrentToggleState, SyncToggle};
+ use serde::{Deserialize, Serialize};
+ 

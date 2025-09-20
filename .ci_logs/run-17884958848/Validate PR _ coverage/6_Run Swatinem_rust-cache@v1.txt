@@ -1,0 +1,28 @@
+﻿2025-09-20T21:18:45.1061210Z ##[group]Run Swatinem/rust-cache@v1
+2025-09-20T21:18:45.1061440Z with:
+2025-09-20T21:18:45.1061560Z env:
+2025-09-20T21:18:45.1061690Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:45.1061860Z   RUST_BACKTRACE: full
+2025-09-20T21:18:45.1062040Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:45.1062210Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:45.1062360Z   IN_CI: true
+2025-09-20T21:18:45.1062480Z ##[endgroup]
+2025-09-20T21:18:45.4915600Z ##[warning]The `save-state` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+2025-09-20T21:18:45.5411290Z ##[warning]The `save-state` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+2025-09-20T21:18:45.5412690Z Restoring paths:
+2025-09-20T21:18:45.5412930Z     /Users/runner/.cargo/bin
+2025-09-20T21:18:45.5413150Z     /Users/runner/.cargo/.crates2.json
+2025-09-20T21:18:45.5413340Z     /Users/runner/.cargo/.crates.toml
+2025-09-20T21:18:45.5413580Z     /Users/runner/.cargo/git
+2025-09-20T21:18:45.5413770Z     /Users/runner/.cargo/registry/cache
+2025-09-20T21:18:45.5413980Z     /Users/runner/.cargo/registry/index
+2025-09-20T21:18:45.5414150Z     ./target
+2025-09-20T21:18:45.5414270Z In directory:
+2025-09-20T21:18:45.5414460Z     /Users/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:18:45.5414690Z Using keys:
+2025-09-20T21:18:45.5414960Z     v0-rust-coverage-1.90.0-aarch64-apple-darwin-1159e78c4747-d350f38ffaf6a651bbd0
+2025-09-20T21:18:45.5415350Z     v0-rust-coverage-1.90.0-aarch64-apple-darwin-1159e78c4747
+2025-09-20T21:18:45.6523870Z ##[warning]Failed to restore: Cache service responded with 400
+2025-09-20T21:18:45.6524910Z No cache found.
+2025-09-20T21:18:45.6525020Z 
+2025-09-20T21:18:45.6527770Z ##[warning]The `set-output` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/

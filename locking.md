@@ -3,8 +3,9 @@
 Scope: initial deep dive focusing on citadel_crypt and citadel_proto. Goal: identify locks, whether they’re held across .await, and spots likely to block the Tokio runtime (> ~5ms), especially key exchange and crypto-heavy paths. Follow-ups will expand to other crates (netbeam, citadel_wire, etc.).
 
 Recent changes:
-- Applied “single lock per phase” to citadel_crypt’s ratchet_manager phases (e.g., AliceToBob): consolidated multiple toolset read-locks into a single read per phase. Tests pass in release mode for the messenger suite.
-- Next: apply the same pattern to citadel_proto phases (tracked below).
+- Applied “single lock per phase” to citadel_proto connect_packet.rs (STAGE0 and SUCCESS) and consolidated post-await channel_signal store into a short lock.
+- Eliminated holding a write lock across await in peer_cmd_packet.rs PostConnect routing by introducing an internal-lock helper; lock now scoped to short pre-await operations.
+- citadel_proto tests pass; workspace doctest issues in citadel_wire addressed (get_reuse_udp_socket -> get_udp_socket).
 
 ## Summary of High-Risk Findings
 
@@ -68,6 +69,24 @@ Implementation guidelines:
   - multi-threaded + non-wasm: use tokio::task::spawn_blocking
   - single-threaded or wasm: call synchronously, but ensure minimal/zero lock scope
 - Keep lock scopes minimal: compute heavy work first, then acquire write lock briefly to commit/swap state.
+
+## Additions to Inventory (This PR)
+
+- citadel_proto/src/proto/packet_processor/register_packet.rs
+  - STAGE0: Heavy constructor work offloaded via spawn_blocking before state commit; single short lock for register_state updates. No locks across awaits.
+  - STAGE1: Extracted constructor and creds under a short lock; stage1_alice + finish offloaded via spawn_blocking; state commit done under short lock. No locks across awaits.
+  - STAGE2: Used read-only state to validate and construct work items; dropped state lock before account_manager awaits. No locks across awaits.
+  - SUCCESS: Read-only state to validate; dropped state lock before account registration awaits; short post-await state updates where necessary.
+
+- citadel_crypt/src/endpoint_crypto_container.rs
+  - commit_next_ratchet_version: Verified heavy ops (stage0_bob/finish) computed outside write locks; only update_from commits under short write lock. Added @human-review note. Callers should offload heavy compute on async runtimes (spawn_blocking) — current register/connect flows comply.
+
+- citadel_proto/src/proto/packet_processor/connect_packet.rs
+  - STAGE0 (server): Short critical section updates connect_state, UDP oneshot, channel init, reads session_security_settings; no await while locked.
+  - SUCCESS (client): Compatibility computed outside lock; short state read/commit; no await while locked. Channel_signal store happens post-await under a short lock.
+
+- citadel_proto/src/proto/packet_processor/peer/peer_cmd_packet.rs
+  - PostConnect (server): Previously held write lock on CitadelNodePeerLayerInner across await; now replaced with helper that acquires write lock only for route prelude, drops before await. Avoids runtime stalls.
 
 ## Proposed Next Steps
 

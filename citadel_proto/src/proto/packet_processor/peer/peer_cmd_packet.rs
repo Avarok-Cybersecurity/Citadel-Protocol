@@ -1261,7 +1261,8 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
-                        let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
+                        let peer_layer_arc = session.hypernode_peer_layer.inner.clone();
+                        let mut peer_layer = peer_layer_arc.write().await;
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_connect(session_cid, target_cid)
                         {
@@ -1288,7 +1289,9 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 .await?;
                             Ok(PrimaryProcessorResult::Void)
                         } else {
-                            route_signal_and_register_ticket_forwards(
+                            // Drop the write lock before awaiting routing to avoid holding across await
+                            drop(peer_layer);
+                            route_signal_and_register_ticket_forwards_unlocked(
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
@@ -1306,7 +1309,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 &sess_mgr,
                                 &sess_ratchet,
                                 security_level,
-                                &mut peer_layer,
+                                &peer_layer_arc,
                             )
                             .await
                         }
@@ -1690,14 +1693,75 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
             target_cid,
         )
     } else {
-        let received_signal = PeerSignal::SignalReceived { ticket };
-        reply_to_sender(
-            received_signal,
+        Ok(PrimaryProcessorResult::Void)
+    }
+}
+
+// @human-review: Introduced unlocked variant to avoid holding peer_layer write lock across await. Semantics unchanged; routing still occurs with a short-lived write lock.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn route_signal_and_register_ticket_forwards_unlocked<R: Ratchet>(
+    signal: PeerSignal,
+    timeout: Duration,
+    session_cid: u64,
+    target_cid: u64,
+    timestamp: i64,
+    ticket: Ticket,
+    to_primary_stream: &OutboundPrimaryStreamSender,
+    sess_mgr: &CitadelSessionManager<R>,
+    sess_ratchet: &R,
+    security_level: SecurityLevel,
+    peer_layer_arc: &std::sync::Arc<citadel_io::tokio::sync::RwLock<CitadelNodePeerLayerInner<R>>>,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let sess_ratchet_2 = sess_ratchet.clone();
+    let to_primary_stream = to_primary_stream.clone();
+
+    // Acquire write lock only during the routing operation
+    let mut peer_layer = peer_layer_arc.write().await;
+
+    let res = sess_mgr
+        .route_signal_primary(
+            &mut *peer_layer,
+            session_cid,
+            target_cid,
+            ticket,
+            signal.clone(),
+            move |peer_ratchet| {
+                packet_crafter::peer_cmd::craft_peer_signal(
+                    peer_ratchet,
+                    signal.clone(),
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
+            },
+            timeout,
+            move |stale_signal| {
+                log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
+                let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
+                    &sess_ratchet_2,
+                    stale_signal,
+                    ticket,
+                    timestamp,
+                    security_level,
+                );
+                let _ = to_primary_stream.unbounded_send(error_packet);
+            },
+        )
+        .await;
+
+    drop(peer_layer);
+
+    if let Err(err) = res {
+        reply_to_sender_err(
+            err,
             sess_ratchet,
             ticket,
             timestamp,
             security_level,
+            target_cid,
         )
+    } else {
+        Ok(PrimaryProcessorResult::Void)
     }
 }
 

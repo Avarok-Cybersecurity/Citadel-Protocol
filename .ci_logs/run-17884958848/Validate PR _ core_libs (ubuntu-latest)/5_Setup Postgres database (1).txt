@@ -1,0 +1,81 @@
+﻿2025-09-20T21:18:39.0742410Z ##[group]Run Daniel-Marynicz/postgresql-action@master
+2025-09-20T21:18:39.0742724Z with:
+2025-09-20T21:18:39.0742902Z   postgres_image_tag: latest
+2025-09-20T21:18:39.0743111Z   app_user: nologik
+2025-09-20T21:18:39.0743303Z   app_user_password: password
+2025-09-20T21:18:39.0743519Z   app_db: hyxewave hyxewave2
+2025-09-20T21:18:39.0743723Z   postgres_image_name: postgres
+2025-09-20T21:18:39.0743955Z   postgres_user: postgres
+2025-09-20T21:18:39.0744145Z   postgres_db: postgres
+2025-09-20T21:18:39.0744346Z   exposed_postgres_port: 5432
+2025-09-20T21:18:39.0744538Z env:
+2025-09-20T21:18:39.0744695Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:39.0744885Z   RUST_BACKTRACE: full
+2025-09-20T21:18:39.0745070Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:39.0745262Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:39.0745438Z   IN_CI: true
+2025-09-20T21:18:39.0745648Z   MYSQL_HOME: /tmp/actions-setup-mysql-OVJVtI/etc
+2025-09-20T21:18:39.0770052Z   LIBMYSQL_PLUGIN_DIR: /opt/hostedtoolcache/mysql/8.0.42/x64/lib/plugin
+2025-09-20T21:18:39.0770466Z ##[endgroup]
+2025-09-20T21:18:39.0860085Z ##[command]/usr/bin/docker run --name dcd15cfe4b74fb6ae1d888b6d45c519_86741c --label 933567 --workdir /github/workspace --rm -e "CARGO_TERM_COLOR" -e "RUST_BACKTRACE" -e "RUST_MIN_STACK" -e "RUST_LOG" -e "IN_CI" -e "MYSQL_HOME" -e "LIBMYSQL_PLUGIN_DIR" -e "INPUT_POSTGRES_IMAGE_TAG" -e "INPUT_APP_USER" -e "INPUT_APP_USER_PASSWORD" -e "INPUT_APP_DB" -e "INPUT_POSTGRES_IMAGE_NAME" -e "INPUT_POSTGRES_USER" -e "INPUT_POSTGRES_DB" -e "INPUT_POSTGRES_PASSWORD" -e "INPUT_POSTGRES_EXTENSIONS" -e "INPUT_EXPOSED_POSTGRES_PORT" -e "HOME" -e "GITHUB_JOB" -e "GITHUB_REF" -e "GITHUB_SHA" -e "GITHUB_REPOSITORY" -e "GITHUB_REPOSITORY_OWNER" -e "GITHUB_REPOSITORY_OWNER_ID" -e "GITHUB_RUN_ID" -e "GITHUB_RUN_NUMBER" -e "GITHUB_RETENTION_DAYS" -e "GITHUB_RUN_ATTEMPT" -e "GITHUB_ACTOR_ID" -e "GITHUB_ACTOR" -e "GITHUB_WORKFLOW" -e "GITHUB_HEAD_REF" -e "GITHUB_BASE_REF" -e "GITHUB_EVENT_NAME" -e "GITHUB_SERVER_URL" -e "GITHUB_API_URL" -e "GITHUB_GRAPHQL_URL" -e "GITHUB_REF_NAME" -e "GITHUB_REF_PROTECTED" -e "GITHUB_REF_TYPE" -e "GITHUB_WORKFLOW_REF" -e "GITHUB_WORKFLOW_SHA" -e "GITHUB_REPOSITORY_ID" -e "GITHUB_TRIGGERING_ACTOR" -e "GITHUB_WORKSPACE" -e "GITHUB_ACTION" -e "GITHUB_EVENT_PATH" -e "GITHUB_ACTION_REPOSITORY" -e "GITHUB_ACTION_REF" -e "GITHUB_PATH" -e "GITHUB_ENV" -e "GITHUB_STEP_SUMMARY" -e "GITHUB_STATE" -e "GITHUB_OUTPUT" -e "RUNNER_OS" -e "RUNNER_ARCH" -e "RUNNER_NAME" -e "RUNNER_ENVIRONMENT" -e "RUNNER_TOOL_CACHE" -e "RUNNER_TEMP" -e "RUNNER_WORKSPACE" -e "ACTIONS_RUNTIME_URL" -e "ACTIONS_RUNTIME_TOKEN" -e "ACTIONS_CACHE_URL" -e "ACTIONS_RESULTS_URL" -e GITHUB_ACTIONS=true -e CI=true -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work/_temp/_github_home":"/github/home" -v "/home/runner/work/_temp/_github_workflow":"/github/workflow" -v "/home/runner/work/_temp/_runner_file_commands":"/github/file_commands" -v "/home/runner/work/Citadel-Protocol/Citadel-Protocol":"/github/workspace" 933567:9dcd15cfe4b74fb6ae1d888b6d45c519
+2025-09-20T21:18:51.5687401Z The files belonging to this database system will be owned by user "postgres".
+2025-09-20T21:18:51.5688347Z initdb: warning: enabling "trust" authentication for local connections
+2025-09-20T21:18:51.5689626Z initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2025-09-20T21:18:51.5691037Z 2025-09-20 21:18:49.515 UTC [1] LOG:  starting PostgreSQL 17.6 (Debian 17.6-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2025-09-20T21:18:51.5692089Z 2025-09-20 21:18:49.516 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2025-09-20T21:18:51.5697034Z 2025-09-20 21:18:49.516 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2025-09-20T21:18:51.5697859Z 2025-09-20 21:18:49.516 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2025-09-20T21:18:51.5698685Z 2025-09-20 21:18:49.519 UTC [84] LOG:  database system was shut down at 2025-09-20 21:18:49 UTC
+2025-09-20T21:18:51.5699990Z 2025-09-20 21:18:49.540 UTC [1] LOG:  database system is ready to accept connections
+2025-09-20T21:18:51.5700608Z This user must also own the server process.
+2025-09-20T21:18:51.5700913Z 
+2025-09-20T21:18:51.5701188Z The database cluster will be initialized with locale "en_US.utf8".
+2025-09-20T21:18:51.5701859Z The default database encoding has accordingly been set to "UTF8".
+2025-09-20T21:18:51.5702518Z The default text search configuration will be set to "english".
+2025-09-20T21:18:51.5702910Z 
+2025-09-20T21:18:51.5703048Z Data page checksums are disabled.
+2025-09-20T21:18:51.5703307Z 
+2025-09-20T21:18:51.5703614Z fixing permissions on existing directory /var/lib/postgresql/data ... ok
+2025-09-20T21:18:51.5704211Z creating subdirectories ... ok
+2025-09-20T21:18:51.5704670Z selecting dynamic shared memory implementation ... posix
+2025-09-20T21:18:51.5705169Z selecting default "max_connections" ... 100
+2025-09-20T21:18:51.5705606Z selecting default "shared_buffers" ... 128MB
+2025-09-20T21:18:51.5706044Z selecting default time zone ... Etc/UTC
+2025-09-20T21:18:51.5706428Z creating configuration files ... ok
+2025-09-20T21:18:51.5706834Z running bootstrap script ... ok
+2025-09-20T21:18:51.5707261Z performing post-bootstrap initialization ... ok
+2025-09-20T21:18:51.5707710Z syncing data to disk ... ok
+2025-09-20T21:18:51.5707924Z 
+2025-09-20T21:18:51.5708177Z 
+2025-09-20T21:18:51.5708497Z Success. You can now start the database server using:
+2025-09-20T21:18:51.5708839Z 
+2025-09-20T21:18:51.5709033Z     pg_ctl -D /var/lib/postgresql/data -l logfile start
+2025-09-20T21:18:51.5709500Z 
+2025-09-20T21:18:51.5710240Z waiting for server to start....2025-09-20 21:18:49.107 UTC [48] LOG:  starting PostgreSQL 17.6 (Debian 17.6-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2025-09-20T21:18:51.5711477Z 2025-09-20 21:18:49.108 UTC [48] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2025-09-20T21:18:51.5712225Z 2025-09-20 21:18:49.110 UTC [51] LOG:  database system was shut down at 2025-09-20 21:18:49 UTC
+2025-09-20T21:18:51.5712939Z 2025-09-20 21:18:49.114 UTC [48] LOG:  database system is ready to accept connections
+2025-09-20T21:18:51.5713440Z  done
+2025-09-20T21:18:51.5713715Z server started
+2025-09-20T21:18:51.5713878Z 
+2025-09-20T21:18:51.5714318Z /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-create-app-user.sh
+2025-09-20T21:18:51.5715028Z CREATE ROLE
+2025-09-20T21:18:51.5715179Z 
+2025-09-20T21:18:51.5715695Z /usr/local/bin/docker-entrypoint.sh: sourcing /docker-entrypoint-initdb.d/10-create-postgres-extensions.sh
+2025-09-20T21:18:51.5716391Z 
+2025-09-20T21:18:51.5716797Z /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/20-create-app-db.sh
+2025-09-20T21:18:51.5717462Z CREATE DATABASE
+2025-09-20T21:18:51.5717739Z CREATE DATABASE
+2025-09-20T21:18:51.5717921Z 
+2025-09-20T21:18:51.5718303Z waiting for server to shut down...2025-09-20 21:18:49.397 UTC [48] LOG:  received fast shutdown request
+2025-09-20T21:18:51.5719070Z .2025-09-20 21:18:49.397 UTC [48] LOG:  aborting any active transactions
+2025-09-20T21:18:51.5720060Z 2025-09-20 21:18:49.399 UTC [48] LOG:  background worker "logical replication launcher" (PID 54) exited with exit code 1
+2025-09-20T21:18:51.5720787Z 2025-09-20 21:18:49.399 UTC [49] LOG:  shutting down
+2025-09-20T21:18:51.5721331Z 2025-09-20 21:18:49.400 UTC [49] LOG:  checkpoint starting: shutdown immediate
+2025-09-20T21:18:51.5722571Z 2025-09-20 21:18:49.428 UTC [49] LOG:  checkpoint complete: wrote 1853 buffers (11.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.025 s, sync=0.002 s, total=0.029 s; sync files=604, longest=0.001 s, average=0.001 s; distance=8516 kB, estimate=8516 kB; lsn=0/1D3E800, redo lsn=0/1D3E800
+2025-09-20T21:18:51.5723458Z 2025-09-20 21:18:49.436 UTC [48] LOG:  database system is shut down
+2025-09-20T21:18:51.5723731Z  done
+2025-09-20T21:18:51.5723886Z server stopped
+2025-09-20T21:18:51.5723987Z 
+2025-09-20T21:18:51.5724116Z PostgreSQL init process complete; ready for start up.
+2025-09-20T21:18:51.5724509Z 

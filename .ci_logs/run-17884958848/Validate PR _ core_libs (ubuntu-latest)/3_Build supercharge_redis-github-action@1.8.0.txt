@@ -1,0 +1,35 @@
+﻿2025-09-20T21:18:31.0411971Z ##[group]Build container for action use: '/home/runner/work/_actions/supercharge/redis-github-action/1.8.0/Dockerfile'.
+2025-09-20T21:18:31.0413325Z ##[command]/usr/bin/docker build -t 933567:d0ddc88918d9473f9e9a1992c62b3c7c -f "/home/runner/work/_actions/supercharge/redis-github-action/1.8.0/Dockerfile" "/home/runner/work/_actions/supercharge/redis-github-action/1.8.0"
+2025-09-20T21:18:31.3486207Z #0 building with "default" instance using docker driver
+2025-09-20T21:18:31.3487272Z 
+2025-09-20T21:18:31.3500062Z #1 [internal] load build definition from Dockerfile
+2025-09-20T21:18:31.3500661Z #1 transferring dockerfile: 154B done
+2025-09-20T21:18:31.3501211Z #1 DONE 0.0s
+2025-09-20T21:18:31.3501481Z 
+2025-09-20T21:18:31.3501839Z #2 [internal] load metadata for docker.io/library/docker:stable
+2025-09-20T21:18:31.3503879Z #2 DONE 0.1s
+2025-09-20T21:18:31.3504063Z 
+2025-09-20T21:18:31.3504192Z #3 [internal] load .dockerignore
+2025-09-20T21:18:31.3504569Z #3 transferring context: 2B done
+2025-09-20T21:18:31.3504988Z #3 DONE 0.0s
+2025-09-20T21:18:31.3505149Z 
+2025-09-20T21:18:31.3505695Z #4 [1/3] FROM docker.io/library/docker:stable@sha256:fd4d028713fd05a1fb896412805daed82c4a0cc84331d8dad00cb596d7ce3e3a
+2025-09-20T21:18:31.3506803Z #4 CACHED
+2025-09-20T21:18:31.3506959Z 
+2025-09-20T21:18:31.3507083Z #5 [internal] load build context
+2025-09-20T21:18:31.3507458Z #5 transferring context: 785B done
+2025-09-20T21:18:31.3507805Z #5 DONE 0.0s
+2025-09-20T21:18:31.3507966Z 
+2025-09-20T21:18:31.3508115Z #6 [2/3] COPY start-redis.sh /start-redis.sh
+2025-09-20T21:18:31.3508501Z #6 DONE 0.0s
+2025-09-20T21:18:31.3508661Z 
+2025-09-20T21:18:31.3508790Z #7 [3/3] RUN chmod +x /start-redis.sh
+2025-09-20T21:18:31.3509304Z #7 DONE 0.1s
+2025-09-20T21:18:31.5026267Z 
+2025-09-20T21:18:31.5026557Z #8 exporting to image
+2025-09-20T21:18:31.5027075Z #8 exporting layers
+2025-09-20T21:18:32.0069852Z #8 exporting layers 0.7s done
+2025-09-20T21:18:32.0245636Z #8 writing image sha256:5a5a1758d3ec6aaf3bdac7a3010374d9feeaf94949377acb05dfe9c522cf4fd8 done
+2025-09-20T21:18:32.0248002Z #8 naming to docker.io/library/933567:d0ddc88918d9473f9e9a1992c62b3c7c done
+2025-09-20T21:18:32.0248579Z #8 DONE 0.7s
+2025-09-20T21:18:32.0300177Z ##[endgroup]

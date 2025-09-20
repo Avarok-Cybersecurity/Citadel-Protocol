@@ -1,0 +1,43 @@
+﻿2025-09-20T21:26:40.6691733Z Current runner version: '2.328.0'
+2025-09-20T21:26:40.6717861Z ##[group]Runner Image Provisioner
+2025-09-20T21:26:40.6718802Z Hosted Compute Agent
+2025-09-20T21:26:40.6719336Z Version: 20250829.383
+2025-09-20T21:26:40.6719994Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-20T21:26:40.6720693Z Build Date: 2025-08-29T13:48:48Z
+2025-09-20T21:26:40.6721253Z ##[endgroup]
+2025-09-20T21:26:40.6721884Z ##[group]Operating System
+2025-09-20T21:26:40.6722410Z Ubuntu
+2025-09-20T21:26:40.6722888Z 24.04.3
+2025-09-20T21:26:40.6723350Z LTS
+2025-09-20T21:26:40.6724075Z ##[endgroup]
+2025-09-20T21:26:40.6724532Z ##[group]Runner Image
+2025-09-20T21:26:40.6725123Z Image: ubuntu-24.04
+2025-09-20T21:26:40.6725684Z Version: 20250907.24.1
+2025-09-20T21:26:40.6726652Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-20T21:26:40.6728047Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-20T21:26:40.6729221Z ##[endgroup]
+2025-09-20T21:26:40.6731709Z ##[group]GITHUB_TOKEN Permissions
+2025-09-20T21:26:40.6734192Z Actions: write
+2025-09-20T21:26:40.6734882Z Attestations: write
+2025-09-20T21:26:40.6735389Z Checks: write
+2025-09-20T21:26:40.6735877Z Contents: write
+2025-09-20T21:26:40.6736327Z Deployments: write
+2025-09-20T21:26:40.6736931Z Discussions: write
+2025-09-20T21:26:40.6737437Z Issues: write
+2025-09-20T21:26:40.6737896Z Metadata: read
+2025-09-20T21:26:40.6738409Z Models: read
+2025-09-20T21:26:40.6738896Z Packages: write
+2025-09-20T21:26:40.6739366Z Pages: write
+2025-09-20T21:26:40.6739910Z PullRequests: write
+2025-09-20T21:26:40.6740478Z RepositoryProjects: write
+2025-09-20T21:26:40.6741005Z SecurityEvents: write
+2025-09-20T21:26:40.6741701Z Statuses: write
+2025-09-20T21:26:40.6742169Z ##[endgroup]
+2025-09-20T21:26:40.6744521Z Secret source: Actions
+2025-09-20T21:26:40.6745275Z Prepare workflow directory
+2025-09-20T21:26:40.7468170Z Prepare all required actions
+2025-09-20T21:26:40.7524544Z Getting action download info
+2025-09-20T21:26:41.0646605Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-20T21:26:41.2608384Z Download action repository 'jlumbroso/free-disk-space@main' (SHA:54081f138730dfa15788a46383842cd2f914a1be)
+2025-09-20T21:26:41.6853592Z Uses: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:26:41.6858936Z Complete job name: Validate PR / docker_nat_p2p (address_restricted, port_restricted)

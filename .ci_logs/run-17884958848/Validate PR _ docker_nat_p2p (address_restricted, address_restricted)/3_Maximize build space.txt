@@ -1,0 +1,266 @@
+﻿2025-09-20T21:26:30.2825144Z ##[group]Run jlumbroso/free-disk-space@main
+2025-09-20T21:26:30.2825543Z with:
+2025-09-20T21:26:30.2825768Z   android: true
+2025-09-20T21:26:30.2826011Z   dotnet: true
+2025-09-20T21:26:30.2826225Z   haskell: true
+2025-09-20T21:26:30.2826451Z   large-packages: true
+2025-09-20T21:26:30.2826689Z   docker-images: true
+2025-09-20T21:26:30.2826940Z   tool-cache: false
+2025-09-20T21:26:30.2827153Z   swap-storage: true
+2025-09-20T21:26:30.2827373Z env:
+2025-09-20T21:26:30.2827568Z   CARGO_TERM_COLOR: always
+2025-09-20T21:26:30.2827808Z   RUST_BACKTRACE: full
+2025-09-20T21:26:30.2828071Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:26:30.2828299Z   RUST_LOG: citadel=warn
+2025-09-20T21:26:30.2828527Z   IN_CI: true
+2025-09-20T21:26:30.2828744Z   NAT_TYPE_PEER_A: address_restricted
+2025-09-20T21:26:30.2829037Z   NAT_TYPE_PEER_B: address_restricted
+2025-09-20T21:26:30.2829293Z ##[endgroup]
+2025-09-20T21:26:30.2940539Z ##[group]Run # ======
+2025-09-20T21:26:30.2941871Z [36;1m[0m
+2025-09-20T21:26:30.2942108Z [36;1m# ======[0m
+2025-09-20T21:26:30.2942384Z [36;1m# MACROS[0m
+2025-09-20T21:26:30.2942593Z [36;1m# ======[0m
+2025-09-20T21:26:30.2942792Z [36;1m[0m
+2025-09-20T21:26:30.2943033Z [36;1m# macro to print a line of equals[0m
+2025-09-20T21:26:30.2943335Z [36;1m# (silly but works)[0m
+2025-09-20T21:26:30.2943612Z [36;1mprintSeparationLine() {[0m
+2025-09-20T21:26:30.2943903Z [36;1m  str=${1:=}[0m
+2025-09-20T21:26:30.2944130Z [36;1m  num=${2:-80}[0m
+2025-09-20T21:26:30.2944358Z [36;1m  counter=1[0m
+2025-09-20T21:26:30.2944576Z [36;1m  output=""[0m
+2025-09-20T21:26:30.2944817Z [36;1m  while [ $counter -le $num ][0m
+2025-09-20T21:26:30.2945078Z [36;1m  do[0m
+2025-09-20T21:26:30.2945297Z [36;1m     output="${output}${str}"[0m
+2025-09-20T21:26:30.2945569Z [36;1m     counter=$((counter+1))[0m
+2025-09-20T21:26:30.2945826Z [36;1m  done[0m
+2025-09-20T21:26:30.2946040Z [36;1m  echo "${output}"[0m
+2025-09-20T21:26:30.2946271Z [36;1m}[0m
+2025-09-20T21:26:30.2946466Z [36;1m[0m
+2025-09-20T21:26:30.2946685Z [36;1m# macro to compute available space[0m
+2025-09-20T21:26:30.2947078Z [36;1m# REF: https://unix.stackexchange.com/a/42049/60849[0m
+2025-09-20T21:26:30.2947464Z [36;1m# REF: https://stackoverflow.com/a/450821/408734[0m
+2025-09-20T21:26:30.2947976Z [36;1mgetAvailableSpace() { echo $(df -a $1 | awk 'NR > 1 {avail+=$4} END {print avail}'); }[0m
+2025-09-20T21:26:30.2948579Z [36;1m[0m
+2025-09-20T21:26:30.2948852Z [36;1m# macro to make Kb human readable (assume the input is Kb)[0m
+2025-09-20T21:26:30.2949253Z [36;1m# REF: https://unix.stackexchange.com/a/44087/60849[0m
+2025-09-20T21:26:30.2949707Z [36;1mformatByteCount() { echo $(numfmt --to=iec-i --suffix=B --padding=7 $1'000'); }[0m
+2025-09-20T21:26:30.2950111Z [36;1m[0m
+2025-09-20T21:26:30.2950314Z [36;1m# macro to output saved space[0m
+2025-09-20T21:26:30.2950602Z [36;1mprintSavedSpace() {[0m
+2025-09-20T21:26:30.2950843Z [36;1m  saved=${1}[0m
+2025-09-20T21:26:30.2951072Z [36;1m  title=${2:-}[0m
+2025-09-20T21:26:30.2951291Z [36;1m[0m
+2025-09-20T21:26:30.2951676Z [36;1m  echo ""[0m
+2025-09-20T21:26:30.2951917Z [36;1m  printSeparationLine '*' 80[0m
+2025-09-20T21:26:30.2952192Z [36;1m  if [ ! -z "${title}" ]; then[0m
+2025-09-20T21:26:30.2952515Z [36;1m    echo "=> ${title}: Saved $(formatByteCount $saved)"[0m
+2025-09-20T21:26:30.2952821Z [36;1m  else[0m
+2025-09-20T21:26:30.2953079Z [36;1m    echo "=> Saved $(formatByteCount $saved)"[0m
+2025-09-20T21:26:30.2953367Z [36;1m  fi[0m
+2025-09-20T21:26:30.2953597Z [36;1m  printSeparationLine '*' 80[0m
+2025-09-20T21:26:30.2953876Z [36;1m  echo ""[0m
+2025-09-20T21:26:30.2954083Z [36;1m}[0m
+2025-09-20T21:26:30.2954278Z [36;1m[0m
+2025-09-20T21:26:30.2954511Z [36;1m# macro to print output of dh with caption[0m
+2025-09-20T21:26:30.2954837Z [36;1mprintDH() {[0m
+2025-09-20T21:26:30.2955074Z [36;1m  caption=${1:-}[0m
+2025-09-20T21:26:30.2955303Z [36;1m[0m
+2025-09-20T21:26:30.2955526Z [36;1m  printSeparationLine '=' 80[0m
+2025-09-20T21:26:30.2955802Z [36;1m  echo "${caption}"[0m
+2025-09-20T21:26:30.2956238Z [36;1m  echo ""[0m
+2025-09-20T21:26:30.2956457Z [36;1m  echo "$ dh -h /"[0m
+2025-09-20T21:26:30.2956696Z [36;1m  echo ""[0m
+2025-09-20T21:26:30.2956907Z [36;1m  df -h /[0m
+2025-09-20T21:26:30.2957122Z [36;1m  echo "$ dh -a /"[0m
+2025-09-20T21:26:30.2957354Z [36;1m  echo ""[0m
+2025-09-20T21:26:30.2957577Z [36;1m  df -a /[0m
+2025-09-20T21:26:30.2957795Z [36;1m  echo "$ dh -a"[0m
+2025-09-20T21:26:30.2958021Z [36;1m  echo ""[0m
+2025-09-20T21:26:30.2958239Z [36;1m  df -a[0m
+2025-09-20T21:26:30.2958460Z [36;1m  printSeparationLine '=' 80[0m
+2025-09-20T21:26:30.2958728Z [36;1m}[0m
+2025-09-20T21:26:30.2958915Z [36;1m[0m
+2025-09-20T21:26:30.2959109Z [36;1m[0m
+2025-09-20T21:26:30.2959288Z [36;1m[0m
+2025-09-20T21:26:30.2959478Z [36;1m# ======[0m
+2025-09-20T21:26:30.2959681Z [36;1m# SCRIPT[0m
+2025-09-20T21:26:30.2959893Z [36;1m# ======[0m
+2025-09-20T21:26:30.2960092Z [36;1m[0m
+2025-09-20T21:26:30.2960308Z [36;1m# Display initial disk space stats[0m
+2025-09-20T21:26:30.2960598Z [36;1m[0m
+2025-09-20T21:26:30.2960824Z [36;1mAVAILABLE_INITIAL=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2961181Z [36;1mAVAILABLE_ROOT_INITIAL=$(getAvailableSpace '/')[0m
+2025-09-20T21:26:30.2961610Z [36;1m[0m
+2025-09-20T21:26:30.2961826Z [36;1mprintDH "BEFORE CLEAN-UP:"[0m
+2025-09-20T21:26:30.2962092Z [36;1mecho ""[0m
+2025-09-20T21:26:30.2962296Z [36;1m[0m
+2025-09-20T21:26:30.2962477Z [36;1m[0m
+2025-09-20T21:26:30.2962688Z [36;1m# Option: Remove Android library[0m
+2025-09-20T21:26:30.2962954Z [36;1m[0m
+2025-09-20T21:26:30.2963148Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:30.2963427Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2963682Z [36;1m  [0m
+2025-09-20T21:26:30.2963929Z [36;1m  sudo rm -rf /usr/local/lib/android || true[0m
+2025-09-20T21:26:30.2964213Z [36;1m[0m
+2025-09-20T21:26:30.2964424Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2964731Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.2965043Z [36;1m  printSavedSpace $SAVED "Android library"[0m
+2025-09-20T21:26:30.2965336Z [36;1mfi[0m
+2025-09-20T21:26:30.2965528Z [36;1m[0m
+2025-09-20T21:26:30.2965734Z [36;1m# Option: Remove .NET runtime[0m
+2025-09-20T21:26:30.2965987Z [36;1m[0m
+2025-09-20T21:26:30.2966190Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:30.2966602Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2966866Z [36;1m[0m
+2025-09-20T21:26:30.2967227Z [36;1m  # https://github.community/t/bigger-github-hosted-runners-disk-space/17267/11[0m
+2025-09-20T21:26:30.2967692Z [36;1m  sudo rm -rf /usr/share/dotnet || true[0m
+2025-09-20T21:26:30.2967973Z [36;1m  [0m
+2025-09-20T21:26:30.2968185Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2968465Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.2968749Z [36;1m  printSavedSpace $SAVED ".NET runtime"[0m
+2025-09-20T21:26:30.2969030Z [36;1mfi[0m
+2025-09-20T21:26:30.2969220Z [36;1m[0m
+2025-09-20T21:26:30.2969433Z [36;1m# Option: Remove Haskell runtime[0m
+2025-09-20T21:26:30.2969701Z [36;1m[0m
+2025-09-20T21:26:30.2969904Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:30.2970186Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2970446Z [36;1m[0m
+2025-09-20T21:26:30.2970664Z [36;1m  sudo rm -rf /opt/ghc || true[0m
+2025-09-20T21:26:30.2970968Z [36;1m  sudo rm -rf /usr/local/.ghcup || true[0m
+2025-09-20T21:26:30.2971247Z [36;1m  [0m
+2025-09-20T21:26:30.2971640Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.2971924Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.2972225Z [36;1m  printSavedSpace $SAVED "Haskell runtime"[0m
+2025-09-20T21:26:30.2972531Z [36;1mfi[0m
+2025-09-20T21:26:30.3039594Z [36;1m[0m
+2025-09-20T21:26:30.3040042Z [36;1m# Option: Remove large packages[0m
+2025-09-20T21:26:30.3041036Z [36;1m# REF: https://github.com/apache/flink/blob/master/tools/azure-pipelines/free_disk_space.sh[0m
+2025-09-20T21:26:30.3041977Z [36;1m[0m
+2025-09-20T21:26:30.3042353Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:30.3043198Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3043673Z [36;1m  [0m
+2025-09-20T21:26:30.3044517Z [36;1m  sudo apt-get remove -y '^aspnetcore-.*' || echo "::warning::The command [sudo apt-get remove -y '^aspnetcore-.*'] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3046085Z [36;1m  sudo apt-get remove -y '^dotnet-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^dotnet-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3047908Z [36;1m  sudo apt-get remove -y '^llvm-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^llvm-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3049654Z [36;1m  sudo apt-get remove -y 'php.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y 'php.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3051708Z [36;1m  sudo apt-get remove -y '^mongodb-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^mongodb-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3053532Z [36;1m  sudo apt-get remove -y '^mysql-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^mysql-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3056153Z [36;1m  sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri --fix-missing || echo "::warning::The command [sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3058414Z [36;1m  sudo apt-get remove -y google-cloud-sdk --fix-missing || echo "::debug::The command [sudo apt-get remove -y google-cloud-sdk --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3059576Z [36;1m  sudo apt-get remove -y google-cloud-cli --fix-missing || echo "::debug::The command [sudo apt-get remove -y google-cloud-cli --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3060535Z [36;1m  sudo apt-get autoremove -y || echo "::warning::The command [sudo apt-get autoremove -y] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3061735Z [36;1m  sudo apt-get clean || echo "::warning::The command [sudo apt-get clean] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:30.3062230Z [36;1m[0m
+2025-09-20T21:26:30.3062444Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3062730Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.3063041Z [36;1m  printSavedSpace $SAVED "Large misc. packages"[0m
+2025-09-20T21:26:30.3063361Z [36;1mfi[0m
+2025-09-20T21:26:30.3063554Z [36;1m[0m
+2025-09-20T21:26:30.3063777Z [36;1m# Option: Remove Docker images[0m
+2025-09-20T21:26:30.3064041Z [36;1m[0m
+2025-09-20T21:26:30.3064259Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:30.3064544Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3064800Z [36;1m[0m
+2025-09-20T21:26:30.3065049Z [36;1m  sudo docker image prune --all --force || true[0m
+2025-09-20T21:26:30.3065343Z [36;1m[0m
+2025-09-20T21:26:30.3065566Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3065844Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.3066141Z [36;1m  printSavedSpace $SAVED "Docker images"[0m
+2025-09-20T21:26:30.3066423Z [36;1mfi[0m
+2025-09-20T21:26:30.3066623Z [36;1m[0m
+2025-09-20T21:26:30.3066828Z [36;1m# Option: Remove tool cache[0m
+2025-09-20T21:26:30.3067291Z [36;1m# REF: https://github.com/actions/virtual-environments/issues/2875#issuecomment-1163392159[0m
+2025-09-20T21:26:30.3067733Z [36;1m[0m
+2025-09-20T21:26:30.3067938Z [36;1mif [[ false == 'true' ]]; then[0m
+2025-09-20T21:26:30.3068226Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3068486Z [36;1m[0m
+2025-09-20T21:26:30.3068874Z [36;1m  sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true[0m
+2025-09-20T21:26:30.3069161Z [36;1m  [0m
+2025-09-20T21:26:30.3069380Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3069654Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.3069938Z [36;1m  printSavedSpace $SAVED "Tool cache"[0m
+2025-09-20T21:26:30.3070239Z [36;1mfi[0m
+2025-09-20T21:26:30.3070429Z [36;1m[0m
+2025-09-20T21:26:30.3070641Z [36;1m# Option: Remove Swap storage[0m
+2025-09-20T21:26:30.3070898Z [36;1m[0m
+2025-09-20T21:26:30.3071101Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:30.3071370Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3071861Z [36;1m[0m
+2025-09-20T21:26:30.3072070Z [36;1m  sudo swapoff -a || true[0m
+2025-09-20T21:26:30.3072359Z [36;1m  sudo rm -f /mnt/swapfile || true[0m
+2025-09-20T21:26:30.3072634Z [36;1m  free -h[0m
+2025-09-20T21:26:30.3072851Z [36;1m  [0m
+2025-09-20T21:26:30.3073100Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3073398Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:30.3073687Z [36;1m  printSavedSpace $SAVED "Swap storage"[0m
+2025-09-20T21:26:30.3073976Z [36;1mfi[0m
+2025-09-20T21:26:30.3074164Z [36;1m[0m
+2025-09-20T21:26:30.3074359Z [36;1m[0m
+2025-09-20T21:26:30.3074540Z [36;1m[0m
+2025-09-20T21:26:30.3074758Z [36;1m# Output saved space statistic[0m
+2025-09-20T21:26:30.3075024Z [36;1m[0m
+2025-09-20T21:26:30.3075240Z [36;1mAVAILABLE_END=$(getAvailableSpace)[0m
+2025-09-20T21:26:30.3075572Z [36;1mAVAILABLE_ROOT_END=$(getAvailableSpace '/')[0m
+2025-09-20T21:26:30.3075864Z [36;1m[0m
+2025-09-20T21:26:30.3076056Z [36;1mecho ""[0m
+2025-09-20T21:26:30.3076276Z [36;1mprintDH "AFTER CLEAN-UP:"[0m
+2025-09-20T21:26:30.3076527Z [36;1m[0m
+2025-09-20T21:26:30.3076713Z [36;1mecho ""[0m
+2025-09-20T21:26:30.3076918Z [36;1mecho ""[0m
+2025-09-20T21:26:30.3077112Z [36;1m[0m
+2025-09-20T21:26:30.3077307Z [36;1mecho "/dev/root:"[0m
+2025-09-20T21:26:30.3077672Z [36;1mprintSavedSpace $((AVAILABLE_ROOT_END - AVAILABLE_ROOT_INITIAL))[0m
+2025-09-20T21:26:30.3078052Z [36;1mecho "overall:"[0m
+2025-09-20T21:26:30.3078366Z [36;1mprintSavedSpace $((AVAILABLE_END - AVAILABLE_INITIAL))[0m
+2025-09-20T21:26:30.3136486Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:26:30.3137099Z env:
+2025-09-20T21:26:30.3137332Z   CARGO_TERM_COLOR: always
+2025-09-20T21:26:30.3137587Z   RUST_BACKTRACE: full
+2025-09-20T21:26:30.3137824Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:26:30.3138062Z   RUST_LOG: citadel=warn
+2025-09-20T21:26:30.3138291Z   IN_CI: true
+2025-09-20T21:26:30.3138514Z   NAT_TYPE_PEER_A: address_restricted
+2025-09-20T21:26:30.3138807Z   NAT_TYPE_PEER_B: address_restricted
+2025-09-20T21:26:30.3139076Z ##[endgroup]
+2025-09-20T21:26:30.3384361Z ================================================================================
+2025-09-20T21:26:30.3385207Z BEFORE CLEAN-UP:
+2025-09-20T21:26:30.3385401Z 
+2025-09-20T21:26:30.3385527Z $ dh -h /
+2025-09-20T21:26:30.3385748Z 
+2025-09-20T21:26:30.3394940Z Filesystem      Size  Used Avail Use% Mounted on
+2025-09-20T21:26:30.3395367Z /dev/root        72G   46G   27G  64% /
+2025-09-20T21:26:30.3396663Z $ dh -a /
+2025-09-20T21:26:30.3396913Z 
+2025-09-20T21:26:30.3406985Z Filesystem     1K-blocks     Used Available Use% Mounted on
+2025-09-20T21:26:30.3407721Z /dev/root       75085112 47603220  27465508  64% /
+2025-09-20T21:26:30.3408462Z $ dh -a
+2025-09-20T21:26:30.3408698Z 
+2025-09-20T21:26:30.3420168Z Filesystem     1K-blocks     Used Available Use% Mounted on
+2025-09-20T21:26:30.3420891Z /dev/root       75085112 47603220  27465508  64% /
+2025-09-20T21:26:30.3421328Z devtmpfs         8186144        0   8186144   0% /dev
+2025-09-20T21:26:30.3421875Z proc                   0        0         0    - /proc
+2025-09-20T21:26:30.3422277Z sysfs                  0        0         0    - /sys
+2025-09-20T21:26:30.3422725Z securityfs             0        0         0    - /sys/kernel/security
+2025-09-20T21:26:30.3423211Z tmpfs            8189736       84   8189652   1% /dev/shm
+2025-09-20T21:26:30.3423980Z devpts                 0        0         0    - /dev/pts
+2025-09-20T21:26:30.3424392Z tmpfs            3275896     1104   3274792   1% /run
+2025-09-20T21:26:30.3424793Z tmpfs               5120        0      5120   0% /run/lock
+2025-09-20T21:26:30.3425228Z cgroup2                0        0         0    - /sys/fs/cgroup
+2025-09-20T21:26:30.3425677Z pstore                 0        0         0    - /sys/fs/pstore
+2025-09-20T21:26:30.3426103Z bpf                    0        0         0    - /sys/fs/bpf
+2025-09-20T21:26:30.3426558Z systemd-1              -        -         -    - /proc/sys/fs/binfmt_misc
+2025-09-20T21:26:30.3427050Z hugetlbfs              0        0         0    - /dev/hugepages
+2025-09-20T21:26:30.3427686Z mqueue                 0        0         0    - /dev/mqueue
+2025-09-20T21:26:30.3428387Z debugfs                0        0         0    - /sys/kernel/debug
+2025-09-20T21:26:30.3428851Z tracefs                0        0         0    - /sys/kernel/tracing
+2025-09-20T21:26:30.3429330Z fusectl                0        0         0    - /sys/fs/fuse/connections
+2025-09-20T21:26:30.3429802Z configfs               0        0         0    - /sys/kernel/config
+2025-09-20T21:26:30.3430237Z /dev/sdb16        901520    60640    777752   8% /boot
+2025-09-20T21:26:30.3430669Z /dev/sdb15        106832     6250    100582   6% /boot/efi
+2025-09-20T21:26:30.3431137Z binfmt_misc            0        0         0    - /proc/sys/fs/binfmt_misc
+2025-09-20T21:26:30.3431772Z /dev/sda1       76829444  4194336  68686668   6% /mnt
+2025-09-20T21:26:30.3432130Z tmpfs            1637944       12   1637932   1% /run/user/1001
+2025-09-20T21:26:30.3432492Z ================================================================================
+2025-09-20T21:26:30.3432722Z 
+2025-09-20T21:27:50.3324749Z ##[error]The operation was canceled.

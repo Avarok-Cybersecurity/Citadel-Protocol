@@ -1,0 +1,46 @@
+﻿2025-09-20T21:18:22.5470360Z Current runner version: '2.328.0'
+2025-09-20T21:18:22.5485040Z ##[group]Runner Image Provisioner
+2025-09-20T21:18:22.5485740Z Hosted Compute Agent
+2025-09-20T21:18:22.5486150Z Version: 20250912.392
+2025-09-20T21:18:22.5486560Z Commit: d921fda672a98b64f4f82364647e2f10b2267d0b
+2025-09-20T21:18:22.5487090Z Build Date: 2025-09-12T15:23:14Z
+2025-09-20T21:18:22.5487460Z ##[endgroup]
+2025-09-20T21:18:22.5487840Z ##[group]Operating System
+2025-09-20T21:18:22.5488290Z macOS
+2025-09-20T21:18:22.5488660Z 15.6.1
+2025-09-20T21:18:22.5489020Z 24G90
+2025-09-20T21:18:22.5489340Z ##[endgroup]
+2025-09-20T21:18:22.5489720Z ##[group]Runner Image
+2025-09-20T21:18:22.5490180Z Image: macos-15-arm64
+2025-09-20T21:18:22.5490510Z Version: 20250916.2338
+2025-09-20T21:18:22.5491690Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20250916.2338/images/macos/macos-15-arm64-Readme.md
+2025-09-20T21:18:22.5492990Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20250916.2338
+2025-09-20T21:18:22.5493870Z ##[endgroup]
+2025-09-20T21:18:22.5495950Z ##[group]GITHUB_TOKEN Permissions
+2025-09-20T21:18:22.5497770Z Actions: write
+2025-09-20T21:18:22.5498180Z Attestations: write
+2025-09-20T21:18:22.5498640Z Checks: write
+2025-09-20T21:18:22.5499040Z Contents: write
+2025-09-20T21:18:22.5499420Z Deployments: write
+2025-09-20T21:18:22.5499860Z Discussions: write
+2025-09-20T21:18:22.5500260Z Issues: write
+2025-09-20T21:18:22.5500650Z Metadata: read
+2025-09-20T21:18:22.5501040Z Models: read
+2025-09-20T21:18:22.5501450Z Packages: write
+2025-09-20T21:18:22.5501780Z Pages: write
+2025-09-20T21:18:22.5502250Z PullRequests: write
+2025-09-20T21:18:22.5502630Z RepositoryProjects: write
+2025-09-20T21:18:22.5502990Z SecurityEvents: write
+2025-09-20T21:18:22.5503470Z Statuses: write
+2025-09-20T21:18:22.5503880Z ##[endgroup]
+2025-09-20T21:18:22.5505730Z Secret source: Actions
+2025-09-20T21:18:22.5506250Z Prepare workflow directory
+2025-09-20T21:18:22.5876650Z Prepare all required actions
+2025-09-20T21:18:22.5915230Z Getting action download info
+2025-09-20T21:18:22.9803270Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-20T21:18:23.1794700Z Download action repository 'taiki-e/install-action@nextest' (SHA:320133d5f45b215a033477e643139da5245dd9fc)
+2025-09-20T21:18:24.2905750Z Download action repository 'taiki-e/install-action@cargo-llvm-cov' (SHA:d15b1de745285bb56934d86629e9970d2b5fa19b)
+2025-09-20T21:18:25.3867070Z Download action repository 'Swatinem/rust-cache@v1' (SHA:81d053bdb0871dcd3f10763c8cc60d0adc41762b)
+2025-09-20T21:18:26.8075370Z Download action repository 'codecov/codecov-action@v3' (SHA:ab904c41d6ece82784817410c45d8b8c02684457)
+2025-09-20T21:18:28.1852580Z Uses: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:18:28.1855580Z Complete job name: Validate PR / coverage

@@ -1,0 +1,150 @@
+﻿2025-09-20T21:20:44.5441157Z ##[group]Run taiki-e/install-action@nextest
+2025-09-20T21:20:44.5441453Z with:
+2025-09-20T21:20:44.5441612Z   tool: nextest
+2025-09-20T21:20:44.5441785Z   checksum: true
+2025-09-20T21:20:44.5441962Z   fallback: cargo-binstall
+2025-09-20T21:20:44.5442157Z env:
+2025-09-20T21:20:44.5442310Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:44.5442505Z   RUST_BACKTRACE: full
+2025-09-20T21:20:44.5442686Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:44.5442895Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:44.5443080Z   IN_CI: true
+2025-09-20T21:20:44.5443252Z   CARGO_HOME: /home/runner/.cargo
+2025-09-20T21:20:44.5443475Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:20:44.5443651Z ##[endgroup]
+2025-09-20T21:20:44.5458617Z ##[group]Run set -eu
+2025-09-20T21:20:44.5458851Z [36;1mset -eu[0m
+2025-09-20T21:20:44.5459219Z [36;1mif ! command -v bash >/dev/null; then[0m
+2025-09-20T21:20:44.5459542Z [36;1m  if grep -Eq '^ID=alpine' /etc/os-release; then[0m
+2025-09-20T21:20:44.5459954Z [36;1m    printf '::group::Install packages required for install-action (bash)\n'[0m
+2025-09-20T21:20:44.5460389Z [36;1m    # NB: sync with apk_install in main.sh[0m
+2025-09-20T21:20:44.5460672Z [36;1m    if command -v sudo >/dev/null; then[0m
+2025-09-20T21:20:44.5460943Z [36;1m      sudo apk --no-cache add bash[0m
+2025-09-20T21:20:44.5461217Z [36;1m    elif command -v doas >/dev/null; then[0m
+2025-09-20T21:20:44.5461488Z [36;1m      doas apk --no-cache add bash[0m
+2025-09-20T21:20:44.5461724Z [36;1m    else[0m
+2025-09-20T21:20:44.5461904Z [36;1m      apk --no-cache add bash[0m
+2025-09-20T21:20:44.5462129Z [36;1m    fi[0m
+2025-09-20T21:20:44.5462307Z [36;1m    printf '::endgroup::\n'[0m
+2025-09-20T21:20:44.5462527Z [36;1m  else[0m
+2025-09-20T21:20:44.5462749Z [36;1m    printf '::error::install-action requires bash\n'[0m
+2025-09-20T21:20:44.5463022Z [36;1m    exit 1[0m
+2025-09-20T21:20:44.5463195Z [36;1m  fi[0m
+2025-09-20T21:20:44.5463350Z [36;1mfi[0m
+2025-09-20T21:20:44.5485724Z shell: /usr/bin/sh -e {0}
+2025-09-20T21:20:44.5485945Z env:
+2025-09-20T21:20:44.5486117Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:44.5486320Z   RUST_BACKTRACE: full
+2025-09-20T21:20:44.5486503Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:44.5486696Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:44.5486874Z   IN_CI: true
+2025-09-20T21:20:44.5487052Z   CARGO_HOME: /home/runner/.cargo
+2025-09-20T21:20:44.5487270Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:20:44.5487450Z ##[endgroup]
+2025-09-20T21:20:44.5555760Z ##[group]Run bash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"
+2025-09-20T21:20:44.5556183Z [36;1mbash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"[0m
+2025-09-20T21:20:44.5583448Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:20:44.5583742Z env:
+2025-09-20T21:20:44.5583908Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:44.5584109Z   RUST_BACKTRACE: full
+2025-09-20T21:20:44.5584295Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:44.5584481Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:44.5584664Z   IN_CI: true
+2025-09-20T21:20:44.5584851Z   CARGO_HOME: /home/runner/.cargo
+2025-09-20T21:20:44.5585065Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:20:44.5585247Z   INPUT_TOOL: nextest
+2025-09-20T21:20:44.5585431Z   INPUT_CHECKSUM: true
+2025-09-20T21:20:44.5585621Z   INPUT_FALLBACK: cargo-binstall
+2025-09-20T21:20:44.5586253Z   DEFAULT_GITHUB_TOKEN: ***
+2025-09-20T21:20:44.5586526Z   ACTION_USER_AGENT: taiki-e/install-action (nextest)
+2025-09-20T21:20:44.5586805Z ##[endgroup]
+2025-09-20T21:20:44.5784654Z info: host platform: x86_64_linux
+2025-09-20T21:20:44.9067944Z * Host crates.io:443 was resolved.
+2025-09-20T21:20:44.9069409Z * IPv6: 2600:9000:2508:ea00:c:7ed3:240:93a1, 2600:9000:2508:de00:c:7ed3:240:93a1, 2600:9000:2508:1000:c:7ed3:240:93a1, 2600:9000:2508:9400:c:7ed3:240:93a1, 2600:9000:2508:5000:c:7ed3:240:93a1, 2600:9000:2508:c000:c:7ed3:240:93a1, 2600:9000:2508:b000:c:7ed3:240:93a1, 2600:9000:2508:2a00:c:7ed3:240:93a1
+2025-09-20T21:20:44.9070576Z * IPv4: 108.138.64.68, 108.138.64.83, 108.138.64.48, 108.138.64.108
+2025-09-20T21:20:44.9071387Z *   Trying 108.138.64.68:443...
+2025-09-20T21:20:44.9125162Z * Connected to crates.io (108.138.64.68) port 443
+2025-09-20T21:20:44.9148162Z * ALPN: curl offers h2,http/1.1
+2025-09-20T21:20:44.9150449Z } [5 bytes data]
+2025-09-20T21:20:44.9150827Z * TLSv1.3 (OUT), TLS handshake, Client hello (1):
+2025-09-20T21:20:44.9151273Z } [512 bytes data]
+2025-09-20T21:20:44.9465878Z *  CAfile: /etc/ssl/certs/ca-certificates.crt
+2025-09-20T21:20:44.9466443Z *  CApath: /etc/ssl/certs
+2025-09-20T21:20:44.9466835Z { [5 bytes data]
+2025-09-20T21:20:44.9467220Z * TLSv1.3 (IN), TLS handshake, Server hello (2):
+2025-09-20T21:20:44.9467704Z { [122 bytes data]
+2025-09-20T21:20:44.9468161Z * TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):
+2025-09-20T21:20:44.9468667Z { [19 bytes data]
+2025-09-20T21:20:44.9469229Z * TLSv1.3 (IN), TLS handshake, Certificate (11):
+2025-09-20T21:20:44.9469739Z { [3858 bytes data]
+2025-09-20T21:20:44.9475867Z * TLSv1.3 (IN), TLS handshake, CERT verify (15):
+2025-09-20T21:20:44.9476377Z { [264 bytes data]
+2025-09-20T21:20:44.9477084Z * TLSv1.3 (IN), TLS handshake, Finished (20):
+2025-09-20T21:20:44.9477530Z { [36 bytes data]
+2025-09-20T21:20:44.9477958Z * TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):
+2025-09-20T21:20:44.9478476Z } [1 bytes data]
+2025-09-20T21:20:44.9478863Z * TLSv1.3 (OUT), TLS handshake, Finished (20):
+2025-09-20T21:20:44.9479542Z } [36 bytes data]
+2025-09-20T21:20:44.9480077Z * SSL connection using TLSv1.3 / TLS_AES_128_GCM_SHA256 / X25519 / RSASSA-PSS
+2025-09-20T21:20:44.9480735Z * ALPN: server accepted h2
+2025-09-20T21:20:44.9481123Z * Server certificate:
+2025-09-20T21:20:44.9481484Z *  subject: CN=crates.io
+2025-09-20T21:20:44.9481873Z *  start date: Nov 25 00:00:00 2024 GMT
+2025-09-20T21:20:44.9482334Z *  expire date: Dec 24 23:59:59 2025 GMT
+2025-09-20T21:20:44.9482905Z *  subjectAltName: host "crates.io" matched cert's "crates.io"
+2025-09-20T21:20:44.9483518Z *  issuer: C=US; O=Amazon; CN=Amazon RSA 2048 M02
+2025-09-20T21:20:44.9484017Z *  SSL certificate verify ok.
+2025-09-20T21:20:44.9484773Z *   Certificate level 0: Public key type RSA (2048/112 Bits/secBits), signed using sha256WithRSAEncryption
+2025-09-20T21:20:44.9485901Z *   Certificate level 1: Public key type RSA (2048/112 Bits/secBits), signed using sha256WithRSAEncryption
+2025-09-20T21:20:44.9486975Z *   Certificate level 2: Public key type RSA (2048/112 Bits/secBits), signed using sha256WithRSAEncryption
+2025-09-20T21:20:44.9488086Z } [5 bytes data]
+2025-09-20T21:20:44.9488393Z * using HTTP/2
+2025-09-20T21:20:44.9489163Z * [HTTP/2] [1] OPENED stream for https://crates.io/api/v1/crates/cargo-nextest
+2025-09-20T21:20:44.9489792Z * [HTTP/2] [1] [:method: GET]
+2025-09-20T21:20:44.9490170Z * [HTTP/2] [1] [:scheme: https]
+2025-09-20T21:20:44.9490578Z * [HTTP/2] [1] [:authority: crates.io]
+2025-09-20T21:20:44.9491059Z * [HTTP/2] [1] [:path: /api/v1/crates/cargo-nextest]
+2025-09-20T21:20:44.9491633Z * [HTTP/2] [1] [user-agent: taiki-e/install-action (nextest)]
+2025-09-20T21:20:44.9492137Z * [HTTP/2] [1] [accept: */*]
+2025-09-20T21:20:44.9492498Z } [5 bytes data]
+2025-09-20T21:20:44.9492826Z > GET /api/v1/crates/cargo-nextest HTTP/2
+2025-09-20T21:20:44.9493251Z > Host: crates.io
+2025-09-20T21:20:44.9493624Z > User-Agent: taiki-e/install-action (nextest)
+2025-09-20T21:20:44.9494066Z > Accept: */*
+2025-09-20T21:20:44.9494341Z > 
+2025-09-20T21:20:44.9535960Z { [5 bytes data]
+2025-09-20T21:20:44.9536403Z * TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):
+2025-09-20T21:20:44.9536903Z { [157 bytes data]
+2025-09-20T21:20:44.9673233Z < HTTP/2 200 
+2025-09-20T21:20:44.9673622Z < content-type: application/json
+2025-09-20T21:20:44.9674048Z < content-length: 182668
+2025-09-20T21:20:44.9674442Z < access-control-allow-origin: *
+2025-09-20T21:20:44.9677217Z < content-security-policy: default-src 'self'; connect-src 'self' *.ingest.sentry.io https://docs.rs https://play.rust-lang.org https://static.crates.io; script-src 'self' 'unsafe-eval' 'sha256-n1+BB7Ckjcal1Pr7QNBh/dKRTtBQsIytFodRiIosXdE=' 'sha256-dbf9FMl76C7BnK1CC3eWb3pvsQAUaTYSHAlBy9tNTG0='; style-src 'self' 'unsafe-inline' https://code.cdn.mozilla.net; font-src https://code.cdn.mozilla.net; img-src *; object-src 'none'
+2025-09-20T21:20:44.9680531Z < date: Sat, 20 Sep 2025 21:20:44 GMT
+2025-09-20T21:20:44.9681361Z < nel: {"report_to":"heroku-nel","response_headers":["Via"],"max_age":3600,"success_fraction":0.01,"failure_fraction":0.1}
+2025-09-20T21:20:44.9683219Z < report-to: {"group":"heroku-nel","endpoints":[{"url":"https://nel.heroku.com/reports?s=Gpvplnkq1%2FCuDYCkNbGrcawC1eY15TqlqKm64qgm%2B1I%3D\u0026sid=af571f24-03ee-46d1-9f90-ab9030c2c74c\u0026ts=1758403244"}],"max_age":3600}
+2025-09-20T21:20:44.9685567Z < reporting-endpoints: heroku-nel="https://nel.heroku.com/reports?s=Gpvplnkq1%2FCuDYCkNbGrcawC1eY15TqlqKm64qgm%2B1I%3D&sid=af571f24-03ee-46d1-9f90-ab9030c2c74c&ts=1758403244"
+2025-09-20T21:20:44.9686817Z < server: Heroku
+2025-09-20T21:20:44.9687291Z < strict-transport-security: max-age=31536000; includeSubDomains
+2025-09-20T21:20:44.9688117Z < via: 1.1 heroku-router, 1.1 a1a074529ccb9ea97acd7d95c506f336.cloudfront.net (CloudFront)
+2025-09-20T21:20:44.9688822Z < x-content-type-options: nosniff
+2025-09-20T21:20:44.9689441Z < x-frame-options: SAMEORIGIN
+2025-09-20T21:20:44.9689825Z < x-xss-protection: 0
+2025-09-20T21:20:44.9690206Z < vary: Accept,Accept-Encoding,Cookie
+2025-09-20T21:20:44.9690669Z < x-cache: Miss from cloudfront
+2025-09-20T21:20:44.9691060Z < x-amz-cf-pop: IAD12-P1
+2025-09-20T21:20:44.9691614Z < x-amz-cf-id: LeDrN34EFkGPts_fGeuJLFD2wa8Tmrer_AjLF8VteAlKdTav_U1KRQ==
+2025-09-20T21:20:44.9692160Z < 
+2025-09-20T21:20:44.9692405Z { [15237 bytes data]
+2025-09-20T21:20:44.9836812Z * Connection #0 to host crates.io left intact
+2025-09-20T21:20:45.0085788Z info: installing cargo-nextest@latest
+2025-09-20T21:20:45.0272481Z info: downloading https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.104/cargo-nextest-0.9.104-x86_64-unknown-linux-gnu.tar.gz
+2025-09-20T21:20:45.1773988Z info: verifying sha256 checksum for cargo-nextest-0.9.104-x86_64-unknown-linux-gnu.tar.gz
+2025-09-20T21:20:45.3480502Z info: cargo-nextest installed at /home/runner/.cargo/bin/cargo-nextest
+2025-09-20T21:20:45.3483527Z + cargo-nextest nextest --version
+2025-09-20T21:20:45.3501958Z cargo-nextest 0.9.104 (87857ddf2 2025-09-15)
+2025-09-20T21:20:45.3502437Z release: 0.9.104
+2025-09-20T21:20:45.3502835Z commit-hash: 87857ddf299a42c9cb5822422aeba77bd8fb74e8
+2025-09-20T21:20:45.3503323Z commit-date: 2025-09-15
+2025-09-20T21:20:45.3503931Z host: x86_64-unknown-linux-gnu
+2025-09-20T21:20:45.3506129Z 

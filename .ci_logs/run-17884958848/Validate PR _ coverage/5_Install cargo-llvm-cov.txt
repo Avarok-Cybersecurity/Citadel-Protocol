@@ -1,0 +1,35 @@
+﻿2025-09-20T21:18:44.7484050Z ##[group]Run taiki-e/install-action@cargo-llvm-cov
+2025-09-20T21:18:44.7484280Z with:
+2025-09-20T21:18:44.7484410Z   tool: cargo-llvm-cov
+2025-09-20T21:18:44.7484570Z   checksum: true
+2025-09-20T21:18:44.7484700Z   fallback: cargo-binstall
+2025-09-20T21:18:44.7484850Z env:
+2025-09-20T21:18:44.7484960Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:44.7485140Z   RUST_BACKTRACE: full
+2025-09-20T21:18:44.7485280Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:44.7485430Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:44.7485570Z   IN_CI: true
+2025-09-20T21:18:44.7485680Z ##[endgroup]
+2025-09-20T21:18:44.7502190Z ##[group]Run bash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"
+2025-09-20T21:18:44.7502540Z [36;1mbash --noprofile --norc "${GITHUB_ACTION_PATH:?}/main.sh"[0m
+2025-09-20T21:18:44.7530820Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:18:44.7531050Z env:
+2025-09-20T21:18:44.7531170Z   CARGO_TERM_COLOR: always
+2025-09-20T21:18:44.7531320Z   RUST_BACKTRACE: full
+2025-09-20T21:18:44.7531570Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:18:44.7531730Z   RUST_LOG: citadel=warn
+2025-09-20T21:18:44.7531880Z   IN_CI: true
+2025-09-20T21:18:44.7532020Z   INPUT_TOOL: cargo-llvm-cov
+2025-09-20T21:18:44.7532180Z   INPUT_CHECKSUM: true
+2025-09-20T21:18:44.7532340Z   INPUT_FALLBACK: cargo-binstall
+2025-09-20T21:18:44.7532690Z   DEFAULT_GITHUB_TOKEN: ***
+2025-09-20T21:18:44.7533200Z   ACTION_USER_AGENT: taiki-e/install-action (cargo-llvm-cov)
+2025-09-20T21:18:44.7533450Z ##[endgroup]
+2025-09-20T21:18:44.7858290Z info: host platform: aarch64_macos
+2025-09-20T21:18:44.8105260Z info: installing cargo-llvm-cov@latest
+2025-09-20T21:18:44.8352840Z info: downloading https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.6.19/cargo-llvm-cov-aarch64-apple-darwin.tar.gz
+2025-09-20T21:18:45.0737350Z info: verifying sha256 checksum for cargo-llvm-cov-aarch64-apple-darwin.tar.gz
+2025-09-20T21:18:45.0973750Z info: cargo-llvm-cov installed at /Users/runner/.cargo/bin/cargo-llvm-cov
+2025-09-20T21:18:45.0976200Z + cargo-llvm-cov llvm-cov --version
+2025-09-20T21:18:45.1008110Z cargo-llvm-cov 0.6.19
+2025-09-20T21:18:45.1009620Z 

@@ -1,0 +1,415 @@
+﻿2025-09-20T21:26:40.6692555Z Current runner version: '2.328.0'
+2025-09-20T21:26:40.6717896Z ##[group]Runner Image Provisioner
+2025-09-20T21:26:40.6718807Z Hosted Compute Agent
+2025-09-20T21:26:40.6719339Z Version: 20250829.383
+2025-09-20T21:26:40.6719998Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-20T21:26:40.6720696Z Build Date: 2025-08-29T13:48:48Z
+2025-09-20T21:26:40.6721256Z ##[endgroup]
+2025-09-20T21:26:40.6721888Z ##[group]Operating System
+2025-09-20T21:26:40.6722413Z Ubuntu
+2025-09-20T21:26:40.6722891Z 24.04.3
+2025-09-20T21:26:40.6723353Z LTS
+2025-09-20T21:26:40.6724080Z ##[endgroup]
+2025-09-20T21:26:40.6724535Z ##[group]Runner Image
+2025-09-20T21:26:40.6725126Z Image: ubuntu-24.04
+2025-09-20T21:26:40.6725687Z Version: 20250907.24.1
+2025-09-20T21:26:40.6726657Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-20T21:26:40.6728263Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-20T21:26:40.6729225Z ##[endgroup]
+2025-09-20T21:26:40.6731724Z ##[group]GITHUB_TOKEN Permissions
+2025-09-20T21:26:40.6734212Z Actions: write
+2025-09-20T21:26:40.6734886Z Attestations: write
+2025-09-20T21:26:40.6735392Z Checks: write
+2025-09-20T21:26:40.6735879Z Contents: write
+2025-09-20T21:26:40.6736330Z Deployments: write
+2025-09-20T21:26:40.6736935Z Discussions: write
+2025-09-20T21:26:40.6737440Z Issues: write
+2025-09-20T21:26:40.6737899Z Metadata: read
+2025-09-20T21:26:40.6738412Z Models: read
+2025-09-20T21:26:40.6738899Z Packages: write
+2025-09-20T21:26:40.6739369Z Pages: write
+2025-09-20T21:26:40.6739913Z PullRequests: write
+2025-09-20T21:26:40.6740482Z RepositoryProjects: write
+2025-09-20T21:26:40.6741009Z SecurityEvents: write
+2025-09-20T21:26:40.6741707Z Statuses: write
+2025-09-20T21:26:40.6742172Z ##[endgroup]
+2025-09-20T21:26:40.6744540Z Secret source: Actions
+2025-09-20T21:26:40.6745280Z Prepare workflow directory
+2025-09-20T21:26:40.7468219Z Prepare all required actions
+2025-09-20T21:26:40.7524616Z Getting action download info
+2025-09-20T21:26:41.0646650Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-20T21:26:41.2608422Z Download action repository 'jlumbroso/free-disk-space@main' (SHA:54081f138730dfa15788a46383842cd2f914a1be)
+2025-09-20T21:26:41.6853633Z Uses: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:26:41.6858962Z Complete job name: Validate PR / docker_nat_p2p (address_restricted, port_restricted)
+2025-09-20T21:26:41.7525882Z ##[group]Run actions/checkout@v4
+2025-09-20T21:26:41.7526768Z with:
+2025-09-20T21:26:41.7527276Z   repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:26:41.7528125Z   token: ***
+2025-09-20T21:26:41.7528530Z   ssh-strict: true
+2025-09-20T21:26:41.7529050Z   ssh-user: git
+2025-09-20T21:26:41.7529477Z   persist-credentials: true
+2025-09-20T21:26:41.7529968Z   clean: true
+2025-09-20T21:26:41.7530396Z   sparse-checkout-cone-mode: true
+2025-09-20T21:26:41.7530945Z   fetch-depth: 1
+2025-09-20T21:26:41.7531360Z   fetch-tags: false
+2025-09-20T21:26:41.7531792Z   show-progress: true
+2025-09-20T21:26:41.7532224Z   lfs: false
+2025-09-20T21:26:41.7532624Z   submodules: false
+2025-09-20T21:26:41.7533059Z   set-safe-directory: true
+2025-09-20T21:26:41.7534001Z env:
+2025-09-20T21:26:41.7534427Z   CARGO_TERM_COLOR: always
+2025-09-20T21:26:41.7534898Z   RUST_BACKTRACE: full
+2025-09-20T21:26:41.7535356Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:26:41.7535822Z   RUST_LOG: citadel=warn
+2025-09-20T21:26:41.7536446Z   IN_CI: true
+2025-09-20T21:26:41.7536887Z   NAT_TYPE_PEER_A: address_restricted
+2025-09-20T21:26:41.7537442Z   NAT_TYPE_PEER_B: port_restricted
+2025-09-20T21:26:41.7537939Z ##[endgroup]
+2025-09-20T21:26:41.8633840Z Syncing repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:26:41.8636398Z ##[group]Getting Git version info
+2025-09-20T21:26:41.8637903Z Working directory is '/home/runner/work/Citadel-Protocol/Citadel-Protocol'
+2025-09-20T21:26:41.8639432Z [command]/usr/bin/git version
+2025-09-20T21:26:41.8727342Z git version 2.51.0
+2025-09-20T21:26:41.8755788Z ##[endgroup]
+2025-09-20T21:26:41.8772742Z Temporarily overriding HOME='/home/runner/work/_temp/cfad3437-a33c-47b0-89f4-96137bd8d542' before making global git config changes
+2025-09-20T21:26:41.8775641Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-20T21:26:41.8780100Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:26:41.8820210Z Deleting the contents of '/home/runner/work/Citadel-Protocol/Citadel-Protocol'
+2025-09-20T21:26:41.8824569Z ##[group]Initializing the repository
+2025-09-20T21:26:41.8829668Z [command]/usr/bin/git init /home/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:26:41.8937761Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-09-20T21:26:41.8939582Z hint: is subject to change. To configure the initial branch name to use in all
+2025-09-20T21:26:41.8940587Z hint: of your new repositories, which will suppress this warning, call:
+2025-09-20T21:26:41.8941595Z hint:
+2025-09-20T21:26:41.8942606Z hint: 	git config --global init.defaultBranch <name>
+2025-09-20T21:26:41.8943610Z hint:
+2025-09-20T21:26:41.8944774Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-09-20T21:26:41.8946667Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-09-20T21:26:41.8948159Z hint:
+2025-09-20T21:26:41.8949054Z hint: 	git branch -m <name>
+2025-09-20T21:26:41.8950043Z hint:
+2025-09-20T21:26:41.8951217Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-09-20T21:26:41.8953336Z Initialized empty Git repository in /home/runner/work/Citadel-Protocol/Citadel-Protocol/.git/
+2025-09-20T21:26:41.8957408Z [command]/usr/bin/git remote add origin https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:26:41.8996232Z ##[endgroup]
+2025-09-20T21:26:41.8997686Z ##[group]Disabling automatic garbage collection
+2025-09-20T21:26:41.9001605Z [command]/usr/bin/git config --local gc.auto 0
+2025-09-20T21:26:41.9031710Z ##[endgroup]
+2025-09-20T21:26:41.9033194Z ##[group]Setting up auth
+2025-09-20T21:26:41.9041129Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-20T21:26:41.9075852Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-20T21:26:41.9425277Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-20T21:26:41.9454880Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-20T21:26:41.9692914Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-09-20T21:26:41.9729270Z ##[endgroup]
+2025-09-20T21:26:41.9730088Z ##[group]Fetching the repository
+2025-09-20T21:26:41.9738954Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +7edf0bb75f061919add02f6d6a82672c0b2e9654:refs/remotes/pull/236/merge
+2025-09-20T21:26:42.4189313Z From https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:26:42.4191385Z  * [new ref]         7edf0bb75f061919add02f6d6a82672c0b2e9654 -> pull/236/merge
+2025-09-20T21:26:42.4224549Z ##[endgroup]
+2025-09-20T21:26:42.4226397Z ##[group]Determining the checkout info
+2025-09-20T21:26:42.4228094Z ##[endgroup]
+2025-09-20T21:26:42.4230616Z [command]/usr/bin/git sparse-checkout disable
+2025-09-20T21:26:42.4273294Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-09-20T21:26:42.4301664Z ##[group]Checking out the ref
+2025-09-20T21:26:42.4304834Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/236/merge
+2025-09-20T21:26:42.5743231Z Note: switching to 'refs/remotes/pull/236/merge'.
+2025-09-20T21:26:42.5745422Z 
+2025-09-20T21:26:42.5747569Z You are in 'detached HEAD' state. You can look around, make experimental
+2025-09-20T21:26:42.5750587Z changes and commit them, and you can discard any commits you make in this
+2025-09-20T21:26:42.5752788Z state without impacting any branches by switching back to a branch.
+2025-09-20T21:26:42.5754034Z 
+2025-09-20T21:26:42.5754739Z If you want to create a new branch to retain commits you create, you may
+2025-09-20T21:26:42.5756223Z do so (now or later) by using -c with the switch command. Example:
+2025-09-20T21:26:42.5757085Z 
+2025-09-20T21:26:42.5757428Z   git switch -c <new-branch-name>
+2025-09-20T21:26:42.5758052Z 
+2025-09-20T21:26:42.5758418Z Or undo this operation with:
+2025-09-20T21:26:42.5758974Z 
+2025-09-20T21:26:42.5759259Z   git switch -
+2025-09-20T21:26:42.5759695Z 
+2025-09-20T21:26:42.5760506Z Turn off this advice by setting config variable advice.detachedHead to false
+2025-09-20T21:26:42.5761657Z 
+2025-09-20T21:26:42.5763056Z HEAD is now at 7edf0bb Merge 8a89b2152348ab91c1a5bd335ccb554a7eae26c5 into 2b40ca3c28904a155dd62f453494820feec744f0
+2025-09-20T21:26:42.6016120Z ##[endgroup]
+2025-09-20T21:26:42.6055119Z [command]/usr/bin/git log -1 --format=%H
+2025-09-20T21:26:42.6080728Z 7edf0bb75f061919add02f6d6a82672c0b2e9654
+2025-09-20T21:26:42.6515821Z ##[group]Run jlumbroso/free-disk-space@main
+2025-09-20T21:26:42.6517075Z with:
+2025-09-20T21:26:42.6517862Z   android: true
+2025-09-20T21:26:42.6518705Z   dotnet: true
+2025-09-20T21:26:42.6519523Z   haskell: true
+2025-09-20T21:26:42.6520402Z   large-packages: true
+2025-09-20T21:26:42.6521326Z   docker-images: true
+2025-09-20T21:26:42.6522243Z   tool-cache: false
+2025-09-20T21:26:42.6523120Z   swap-storage: true
+2025-09-20T21:26:42.6524276Z env:
+2025-09-20T21:26:42.6525071Z   CARGO_TERM_COLOR: always
+2025-09-20T21:26:42.6526032Z   RUST_BACKTRACE: full
+2025-09-20T21:26:42.6526966Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:26:42.6527914Z   RUST_LOG: citadel=warn
+2025-09-20T21:26:42.6528834Z   IN_CI: true
+2025-09-20T21:26:42.6529691Z   NAT_TYPE_PEER_A: address_restricted
+2025-09-20T21:26:42.6530823Z   NAT_TYPE_PEER_B: port_restricted
+2025-09-20T21:26:42.6531846Z ##[endgroup]
+2025-09-20T21:26:42.6674791Z ##[group]Run # ======
+2025-09-20T21:26:42.6676575Z [36;1m[0m
+2025-09-20T21:26:42.6677396Z [36;1m# ======[0m
+2025-09-20T21:26:42.6678173Z [36;1m# MACROS[0m
+2025-09-20T21:26:42.6678935Z [36;1m# ======[0m
+2025-09-20T21:26:42.6679687Z [36;1m[0m
+2025-09-20T21:26:42.6680482Z [36;1m# macro to print a line of equals[0m
+2025-09-20T21:26:42.6681573Z [36;1m# (silly but works)[0m
+2025-09-20T21:26:42.6682543Z [36;1mprintSeparationLine() {[0m
+2025-09-20T21:26:42.6683675Z [36;1m  str=${1:=}[0m
+2025-09-20T21:26:42.6684490Z [36;1m  num=${2:-80}[0m
+2025-09-20T21:26:42.6685336Z [36;1m  counter=1[0m
+2025-09-20T21:26:42.6686141Z [36;1m  output=""[0m
+2025-09-20T21:26:42.6687041Z [36;1m  while [ $counter -le $num ][0m
+2025-09-20T21:26:42.6688033Z [36;1m  do[0m
+2025-09-20T21:26:42.6688816Z [36;1m     output="${output}${str}"[0m
+2025-09-20T21:26:42.6689852Z [36;1m     counter=$((counter+1))[0m
+2025-09-20T21:26:42.6690815Z [36;1m  done[0m
+2025-09-20T21:26:42.6691591Z [36;1m  echo "${output}"[0m
+2025-09-20T21:26:42.6692460Z [36;1m}[0m
+2025-09-20T21:26:42.6693160Z [36;1m[0m
+2025-09-20T21:26:42.6694312Z [36;1m# macro to compute available space[0m
+2025-09-20T21:26:42.6695613Z [36;1m# REF: https://unix.stackexchange.com/a/42049/60849[0m
+2025-09-20T21:26:42.6697001Z [36;1m# REF: https://stackoverflow.com/a/450821/408734[0m
+2025-09-20T21:26:42.6698737Z [36;1mgetAvailableSpace() { echo $(df -a $1 | awk 'NR > 1 {avail+=$4} END {print avail}'); }[0m
+2025-09-20T21:26:42.6700267Z [36;1m[0m
+2025-09-20T21:26:42.6701250Z [36;1m# macro to make Kb human readable (assume the input is Kb)[0m
+2025-09-20T21:26:42.6702737Z [36;1m# REF: https://unix.stackexchange.com/a/44087/60849[0m
+2025-09-20T21:26:42.6704891Z [36;1mformatByteCount() { echo $(numfmt --to=iec-i --suffix=B --padding=7 $1'000'); }[0m
+2025-09-20T21:26:42.6706408Z [36;1m[0m
+2025-09-20T21:26:42.6707163Z [36;1m# macro to output saved space[0m
+2025-09-20T21:26:42.6708222Z [36;1mprintSavedSpace() {[0m
+2025-09-20T21:26:42.6709136Z [36;1m  saved=${1}[0m
+2025-09-20T21:26:42.6709959Z [36;1m  title=${2:-}[0m
+2025-09-20T21:26:42.6710787Z [36;1m[0m
+2025-09-20T21:26:42.6711490Z [36;1m  echo ""[0m
+2025-09-20T21:26:42.6712335Z [36;1m  printSeparationLine '*' 80[0m
+2025-09-20T21:26:42.6713498Z [36;1m  if [ ! -z "${title}" ]; then[0m
+2025-09-20T21:26:42.6714696Z [36;1m    echo "=> ${title}: Saved $(formatByteCount $saved)"[0m
+2025-09-20T21:26:42.6715866Z [36;1m  else[0m
+2025-09-20T21:26:42.6716752Z [36;1m    echo "=> Saved $(formatByteCount $saved)"[0m
+2025-09-20T21:26:42.6717841Z [36;1m  fi[0m
+2025-09-20T21:26:42.6718638Z [36;1m  printSeparationLine '*' 80[0m
+2025-09-20T21:26:42.6719632Z [36;1m  echo ""[0m
+2025-09-20T21:26:42.6720776Z [36;1m}[0m
+2025-09-20T21:26:42.6721483Z [36;1m[0m
+2025-09-20T21:26:42.6722432Z [36;1m# macro to print output of dh with caption[0m
+2025-09-20T21:26:42.6723658Z [36;1mprintDH() {[0m
+2025-09-20T21:26:42.6724478Z [36;1m  caption=${1:-}[0m
+2025-09-20T21:26:42.6725317Z [36;1m[0m
+2025-09-20T21:26:42.6726079Z [36;1m  printSeparationLine '=' 80[0m
+2025-09-20T21:26:42.6727373Z [36;1m  echo "${caption}"[0m
+2025-09-20T21:26:42.6728288Z [36;1m  echo ""[0m
+2025-09-20T21:26:42.6729085Z [36;1m  echo "$ dh -h /"[0m
+2025-09-20T21:26:42.6729962Z [36;1m  echo ""[0m
+2025-09-20T21:26:42.6730738Z [36;1m  df -h /[0m
+2025-09-20T21:26:42.6731536Z [36;1m  echo "$ dh -a /"[0m
+2025-09-20T21:26:42.6732411Z [36;1m  echo ""[0m
+2025-09-20T21:26:42.6733182Z [36;1m  df -a /[0m
+2025-09-20T21:26:42.6734250Z [36;1m  echo "$ dh -a"[0m
+2025-09-20T21:26:42.6735108Z [36;1m  echo ""[0m
+2025-09-20T21:26:42.6735886Z [36;1m  df -a[0m
+2025-09-20T21:26:42.6736702Z [36;1m  printSeparationLine '=' 80[0m
+2025-09-20T21:26:42.6737720Z [36;1m}[0m
+2025-09-20T21:26:42.6738424Z [36;1m[0m
+2025-09-20T21:26:42.6739170Z [36;1m[0m
+2025-09-20T21:26:42.6739844Z [36;1m[0m
+2025-09-20T21:26:42.6740533Z [36;1m# ======[0m
+2025-09-20T21:26:42.6741276Z [36;1m# SCRIPT[0m
+2025-09-20T21:26:42.6742020Z [36;1m# ======[0m
+2025-09-20T21:26:42.6742752Z [36;1m[0m
+2025-09-20T21:26:42.6743752Z [36;1m# Display initial disk space stats[0m
+2025-09-20T21:26:42.6744913Z [36;1m[0m
+2025-09-20T21:26:42.6745845Z [36;1mAVAILABLE_INITIAL=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6747161Z [36;1mAVAILABLE_ROOT_INITIAL=$(getAvailableSpace '/')[0m
+2025-09-20T21:26:42.6748353Z [36;1m[0m
+2025-09-20T21:26:42.6749109Z [36;1mprintDH "BEFORE CLEAN-UP:"[0m
+2025-09-20T21:26:42.6750080Z [36;1mecho ""[0m
+2025-09-20T21:26:42.6750819Z [36;1m[0m
+2025-09-20T21:26:42.6751497Z [36;1m[0m
+2025-09-20T21:26:42.6752273Z [36;1m# Option: Remove Android library[0m
+2025-09-20T21:26:42.6753284Z [36;1m[0m
+2025-09-20T21:26:42.6754149Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:42.6755228Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6756210Z [36;1m  [0m
+2025-09-20T21:26:42.6757091Z [36;1m  sudo rm -rf /usr/local/lib/android || true[0m
+2025-09-20T21:26:42.6758173Z [36;1m[0m
+2025-09-20T21:26:42.6758923Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6759932Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6761012Z [36;1m  printSavedSpace $SAVED "Android library"[0m
+2025-09-20T21:26:42.6762083Z [36;1mfi[0m
+2025-09-20T21:26:42.6762758Z [36;1m[0m
+2025-09-20T21:26:42.6763602Z [36;1m# Option: Remove .NET runtime[0m
+2025-09-20T21:26:42.6764556Z [36;1m[0m
+2025-09-20T21:26:42.6765277Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:42.6766316Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6767326Z [36;1m[0m
+2025-09-20T21:26:42.6768624Z [36;1m  # https://github.community/t/bigger-github-hosted-runners-disk-space/17267/11[0m
+2025-09-20T21:26:42.6770817Z [36;1m  sudo rm -rf /usr/share/dotnet || true[0m
+2025-09-20T21:26:42.6771854Z [36;1m  [0m
+2025-09-20T21:26:42.6772595Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6773913Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6775013Z [36;1m  printSavedSpace $SAVED ".NET runtime"[0m
+2025-09-20T21:26:42.6776080Z [36;1mfi[0m
+2025-09-20T21:26:42.6776766Z [36;1m[0m
+2025-09-20T21:26:42.6777551Z [36;1m# Option: Remove Haskell runtime[0m
+2025-09-20T21:26:42.6778544Z [36;1m[0m
+2025-09-20T21:26:42.6779275Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:42.6780322Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6781295Z [36;1m[0m
+2025-09-20T21:26:42.6782063Z [36;1m  sudo rm -rf /opt/ghc || true[0m
+2025-09-20T21:26:42.6783160Z [36;1m  sudo rm -rf /usr/local/.ghcup || true[0m
+2025-09-20T21:26:42.6784335Z [36;1m  [0m
+2025-09-20T21:26:42.6785098Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6786110Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6787209Z [36;1m  printSavedSpace $SAVED "Haskell runtime"[0m
+2025-09-20T21:26:42.6788300Z [36;1mfi[0m
+2025-09-20T21:26:42.6789018Z [36;1m[0m
+2025-09-20T21:26:42.6789786Z [36;1m# Option: Remove large packages[0m
+2025-09-20T21:26:42.6791534Z [36;1m# REF: https://github.com/apache/flink/blob/master/tools/azure-pipelines/free_disk_space.sh[0m
+2025-09-20T21:26:42.6793248Z [36;1m[0m
+2025-09-20T21:26:42.6794275Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:42.6795311Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6870181Z [36;1m  [0m
+2025-09-20T21:26:42.6872544Z [36;1m  sudo apt-get remove -y '^aspnetcore-.*' || echo "::warning::The command [sudo apt-get remove -y '^aspnetcore-.*'] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6876774Z [36;1m  sudo apt-get remove -y '^dotnet-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^dotnet-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6880785Z [36;1m  sudo apt-get remove -y '^llvm-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^llvm-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6884781Z [36;1m  sudo apt-get remove -y 'php.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y 'php.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6888660Z [36;1m  sudo apt-get remove -y '^mongodb-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^mongodb-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6892668Z [36;1m  sudo apt-get remove -y '^mysql-.*' --fix-missing || echo "::warning::The command [sudo apt-get remove -y '^mysql-.*' --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6898605Z [36;1m  sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri --fix-missing || echo "::warning::The command [sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6904622Z [36;1m  sudo apt-get remove -y google-cloud-sdk --fix-missing || echo "::debug::The command [sudo apt-get remove -y google-cloud-sdk --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6908904Z [36;1m  sudo apt-get remove -y google-cloud-cli --fix-missing || echo "::debug::The command [sudo apt-get remove -y google-cloud-cli --fix-missing] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6912592Z [36;1m  sudo apt-get autoremove -y || echo "::warning::The command [sudo apt-get autoremove -y] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6915773Z [36;1m  sudo apt-get clean || echo "::warning::The command [sudo apt-get clean] failed to complete successfully. Proceeding..."[0m
+2025-09-20T21:26:42.6918008Z [36;1m[0m
+2025-09-20T21:26:42.6918775Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6919780Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6920902Z [36;1m  printSavedSpace $SAVED "Large misc. packages"[0m
+2025-09-20T21:26:42.6922052Z [36;1mfi[0m
+2025-09-20T21:26:42.6922753Z [36;1m[0m
+2025-09-20T21:26:42.6923649Z [36;1m# Option: Remove Docker images[0m
+2025-09-20T21:26:42.6924644Z [36;1m[0m
+2025-09-20T21:26:42.6925383Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:42.6926409Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6927396Z [36;1m[0m
+2025-09-20T21:26:42.6928260Z [36;1m  sudo docker image prune --all --force || true[0m
+2025-09-20T21:26:42.6929371Z [36;1m[0m
+2025-09-20T21:26:42.6930146Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6931162Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6932251Z [36;1m  printSavedSpace $SAVED "Docker images"[0m
+2025-09-20T21:26:42.6933316Z [36;1mfi[0m
+2025-09-20T21:26:42.6934275Z [36;1m[0m
+2025-09-20T21:26:42.6935023Z [36;1m# Option: Remove tool cache[0m
+2025-09-20T21:26:42.6936684Z [36;1m# REF: https://github.com/actions/virtual-environments/issues/2875#issuecomment-1163392159[0m
+2025-09-20T21:26:42.6938347Z [36;1m[0m
+2025-09-20T21:26:42.6939101Z [36;1mif [[ false == 'true' ]]; then[0m
+2025-09-20T21:26:42.6940187Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6941357Z [36;1m[0m
+2025-09-20T21:26:42.6942217Z [36;1m  sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true[0m
+2025-09-20T21:26:42.6943305Z [36;1m  [0m
+2025-09-20T21:26:42.6944221Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6945231Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6946271Z [36;1m  printSavedSpace $SAVED "Tool cache"[0m
+2025-09-20T21:26:42.6947307Z [36;1mfi[0m
+2025-09-20T21:26:42.6948009Z [36;1m[0m
+2025-09-20T21:26:42.6948756Z [36;1m# Option: Remove Swap storage[0m
+2025-09-20T21:26:42.6949733Z [36;1m[0m
+2025-09-20T21:26:42.6950488Z [36;1mif [[ true == 'true' ]]; then[0m
+2025-09-20T21:26:42.6951532Z [36;1m  BEFORE=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6952514Z [36;1m[0m
+2025-09-20T21:26:42.6953241Z [36;1m  sudo swapoff -a || true[0m
+2025-09-20T21:26:42.6954562Z [36;1m  sudo rm -f /mnt/swapfile || true[0m
+2025-09-20T21:26:42.6955589Z [36;1m  free -h[0m
+2025-09-20T21:26:42.6956358Z [36;1m  [0m
+2025-09-20T21:26:42.6957184Z [36;1m  AFTER=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6958215Z [36;1m  SAVED=$((AFTER-BEFORE))[0m
+2025-09-20T21:26:42.6959273Z [36;1m  printSavedSpace $SAVED "Swap storage"[0m
+2025-09-20T21:26:42.6960338Z [36;1mfi[0m
+2025-09-20T21:26:42.6961045Z [36;1m[0m
+2025-09-20T21:26:42.6961729Z [36;1m[0m
+2025-09-20T21:26:42.6962423Z [36;1m[0m
+2025-09-20T21:26:42.6963188Z [36;1m# Output saved space statistic[0m
+2025-09-20T21:26:42.6964566Z [36;1m[0m
+2025-09-20T21:26:42.6965349Z [36;1mAVAILABLE_END=$(getAvailableSpace)[0m
+2025-09-20T21:26:42.6966537Z [36;1mAVAILABLE_ROOT_END=$(getAvailableSpace '/')[0m
+2025-09-20T21:26:42.6967677Z [36;1m[0m
+2025-09-20T21:26:42.6968366Z [36;1mecho ""[0m
+2025-09-20T21:26:42.6969163Z [36;1mprintDH "AFTER CLEAN-UP:"[0m
+2025-09-20T21:26:42.6970088Z [36;1m[0m
+2025-09-20T21:26:42.6970808Z [36;1mecho ""[0m
+2025-09-20T21:26:42.6971558Z [36;1mecho ""[0m
+2025-09-20T21:26:42.6972298Z [36;1m[0m
+2025-09-20T21:26:42.6973037Z [36;1mecho "/dev/root:"[0m
+2025-09-20T21:26:42.6974598Z [36;1mprintSavedSpace $((AVAILABLE_ROOT_END - AVAILABLE_ROOT_INITIAL))[0m
+2025-09-20T21:26:42.6976005Z [36;1mecho "overall:"[0m
+2025-09-20T21:26:42.6977175Z [36;1mprintSavedSpace $((AVAILABLE_END - AVAILABLE_INITIAL))[0m
+2025-09-20T21:26:42.7040292Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:26:42.7041536Z env:
+2025-09-20T21:26:42.7042260Z   CARGO_TERM_COLOR: always
+2025-09-20T21:26:42.7043165Z   RUST_BACKTRACE: full
+2025-09-20T21:26:42.7044208Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:26:42.7045085Z   RUST_LOG: citadel=warn
+2025-09-20T21:26:42.7046194Z   IN_CI: true
+2025-09-20T21:26:42.7046976Z   NAT_TYPE_PEER_A: address_restricted
+2025-09-20T21:26:42.7048007Z   NAT_TYPE_PEER_B: port_restricted
+2025-09-20T21:26:42.7048945Z ##[endgroup]
+2025-09-20T21:26:42.7360433Z ================================================================================
+2025-09-20T21:26:42.7362277Z BEFORE CLEAN-UP:
+2025-09-20T21:26:42.7362772Z 
+2025-09-20T21:26:42.7363139Z $ dh -h /
+2025-09-20T21:26:42.7363905Z 
+2025-09-20T21:26:42.7371607Z Filesystem      Size  Used Avail Use% Mounted on
+2025-09-20T21:26:42.7373349Z /dev/root        72G   46G   27G  64% /
+2025-09-20T21:26:42.7375049Z $ dh -a /
+2025-09-20T21:26:42.7375466Z 
+2025-09-20T21:26:42.7384568Z Filesystem     1K-blocks     Used Available Use% Mounted on
+2025-09-20T21:26:42.7386737Z /dev/root       75085112 47603340  27465388  64% /
+2025-09-20T21:26:42.7388261Z $ dh -a
+2025-09-20T21:26:42.7388667Z 
+2025-09-20T21:26:42.7399804Z Filesystem     1K-blocks     Used Available Use% Mounted on
+2025-09-20T21:26:42.7401183Z /dev/root       75085112 47603340  27465388  64% /
+2025-09-20T21:26:42.7402409Z devtmpfs         8186144        0   8186144   0% /dev
+2025-09-20T21:26:42.7403823Z proc                   0        0         0    - /proc
+2025-09-20T21:26:42.7404983Z sysfs                  0        0         0    - /sys
+2025-09-20T21:26:42.7406257Z securityfs             0        0         0    - /sys/kernel/security
+2025-09-20T21:26:42.7408422Z tmpfs            8189736       84   8189652   1% /dev/shm
+2025-09-20T21:26:42.7409650Z devpts                 0        0         0    - /dev/pts
+2025-09-20T21:26:42.7410816Z tmpfs            3275896     1112   3274784   1% /run
+2025-09-20T21:26:42.7411959Z tmpfs               5120        0      5120   0% /run/lock
+2025-09-20T21:26:42.7413173Z cgroup2                0        0         0    - /sys/fs/cgroup
+2025-09-20T21:26:42.7414993Z pstore                 0        0         0    - /sys/fs/pstore
+2025-09-20T21:26:42.7416920Z bpf                    0        0         0    - /sys/fs/bpf
+2025-09-20T21:26:42.7419006Z systemd-1              -        -         -    - /proc/sys/fs/binfmt_misc
+2025-09-20T21:26:42.7421378Z hugetlbfs              0        0         0    - /dev/hugepages
+2025-09-20T21:26:42.7423693Z debugfs                0        0         0    - /sys/kernel/debug
+2025-09-20T21:26:42.7425813Z mqueue                 0        0         0    - /dev/mqueue
+2025-09-20T21:26:42.7427972Z tracefs                0        0         0    - /sys/kernel/tracing
+2025-09-20T21:26:42.7430169Z fusectl                0        0         0    - /sys/fs/fuse/connections
+2025-09-20T21:26:42.7432366Z configfs               0        0         0    - /sys/kernel/config
+2025-09-20T21:26:42.7434757Z /dev/sdb16        901520    60640    777752   8% /boot
+2025-09-20T21:26:42.7436809Z /dev/sdb15        106832     6250    100582   6% /boot/efi
+2025-09-20T21:26:42.7438997Z binfmt_misc            0        0         0    - /proc/sys/fs/binfmt_misc
+2025-09-20T21:26:42.7440489Z /dev/sda1       76829444  4194336  68686668   6% /mnt
+2025-09-20T21:26:42.7441720Z tmpfs            1637944       12   1637932   1% /run/user/1001
+2025-09-20T21:26:42.7442901Z ================================================================================
+2025-09-20T21:26:42.7443863Z 
+2025-09-20T21:27:50.2520120Z ##[error]The operation was canceled.
+2025-09-20T21:27:50.2663759Z Post job cleanup.
+2025-09-20T21:27:50.3638572Z [command]/usr/bin/git version
+2025-09-20T21:27:50.3676547Z git version 2.51.0
+2025-09-20T21:27:50.3729237Z Temporarily overriding HOME='/home/runner/work/_temp/bab160e6-7e15-4a65-995e-b25be1abe05d' before making global git config changes
+2025-09-20T21:27:50.3730176Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-20T21:27:50.3735283Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:27:50.3772002Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-20T21:27:50.3806736Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-20T21:27:50.4040608Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-20T21:27:50.4063292Z http.https://github.com/.extraheader
+2025-09-20T21:27:50.4077432Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-09-20T21:27:50.4113621Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-20T21:27:50.4458557Z Cleaning up orphan processes

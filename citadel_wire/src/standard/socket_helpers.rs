@@ -25,7 +25,7 @@
 //!     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
 //!
 //!     // Create UDP socket with address reuse
-//!     let udp = socket_helpers::get_reuse_udp_socket(addr)?;
+//!     let udp = socket_helpers::get_udp_socket(addr)?;
 //!
 //!     // Create TCP listener with default options
 //!     let tcp = socket_helpers::get_tcp_listener(addr)?;

@@ -1,0 +1,1650 @@
+﻿2025-09-20T21:26:36.8928720Z ##[group]Run docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+2025-09-20T21:26:36.8929475Z [36;1mdocker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a[0m
+2025-09-20T21:26:36.8955236Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:26:36.8955589Z env:
+2025-09-20T21:26:36.8955780Z   CARGO_TERM_COLOR: always
+2025-09-20T21:26:36.8955999Z   RUST_BACKTRACE: full
+2025-09-20T21:26:36.8956202Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:26:36.8956402Z   RUST_LOG: citadel=warn
+2025-09-20T21:26:36.8956607Z   IN_CI: true
+2025-09-20T21:26:36.8956803Z   NAT_TYPE_PEER_A: address_restricted
+2025-09-20T21:26:36.8957242Z   NAT_TYPE_PEER_B: full_cone
+2025-09-20T21:26:36.8957460Z ##[endgroup]
+2025-09-20T21:26:37.3026498Z time="2025-09-20T21:26:37Z" level=warning msg="/home/runner/work/Citadel-Protocol/Citadel-Protocol/docker/peer_to_peer.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+2025-09-20T21:26:37.3349306Z  stun0 Pulling 
+2025-09-20T21:26:37.3349823Z  stun1 Pulling 
+2025-09-20T21:26:37.3350220Z  stun2 Pulling 
+2025-09-20T21:26:39.7041063Z  f1f26f570256 Pulling fs layer 
+2025-09-20T21:26:39.7041791Z  d005b7db85f2 Pulling fs layer 
+2025-09-20T21:26:39.7042423Z  69e015b9fae5 Pulling fs layer 
+2025-09-20T21:26:39.7042990Z  f14cd0fedc6e Pulling fs layer 
+2025-09-20T21:26:39.7043511Z  f14cd0fedc6e Waiting 
+2025-09-20T21:26:39.9088918Z  f1f26f570256 Pulling fs layer 
+2025-09-20T21:26:39.9089430Z  d005b7db85f2 Pulling fs layer 
+2025-09-20T21:26:39.9089802Z  69e015b9fae5 Pulling fs layer 
+2025-09-20T21:26:39.9090203Z  f14cd0fedc6e Pulling fs layer 
+2025-09-20T21:26:39.9090451Z  f14cd0fedc6e Waiting 
+2025-09-20T21:26:39.9909196Z  69e015b9fae5 Downloading [>                                                  ]  17.22kB/1.605MB
+2025-09-20T21:26:39.9911592Z  69e015b9fae5 Downloading [>                                                  ]  17.22kB/1.605MB
+2025-09-20T21:26:40.0220481Z  f1f26f570256 Downloading [>                                                  ]  315.5kB/31.41MB
+2025-09-20T21:26:40.0221208Z  f1f26f570256 Downloading [>                                                  ]  315.5kB/31.41MB
+2025-09-20T21:26:40.0272391Z  d005b7db85f2 Downloading [>                                                  ]    213kB/21.08MB
+2025-09-20T21:26:40.0273115Z  d005b7db85f2 Downloading [>                                                  ]    213kB/21.08MB
+2025-09-20T21:26:40.0704087Z  69e015b9fae5 Verifying Checksum 
+2025-09-20T21:26:40.0706112Z  69e015b9fae5 Download complete 
+2025-09-20T21:26:40.0706664Z  69e015b9fae5 Verifying Checksum 
+2025-09-20T21:26:40.0707870Z  69e015b9fae5 Download complete 
+2025-09-20T21:26:40.0965349Z  f1f26f570256 Pulling fs layer 
+2025-09-20T21:26:40.0965866Z  d005b7db85f2 Pulling fs layer 
+2025-09-20T21:26:40.0966158Z  69e015b9fae5 Pulling fs layer 
+2025-09-20T21:26:40.0966627Z  f1f26f570256 Downloading [>                                                  ]  315.5kB/31.41MB
+2025-09-20T21:26:40.0967596Z  d005b7db85f2 Downloading [>                                                  ]    213kB/21.08MB
+2025-09-20T21:26:40.0968303Z  f14cd0fedc6e Pulling fs layer 
+2025-09-20T21:26:40.0968752Z  f14cd0fedc6e Waiting 
+2025-09-20T21:26:40.0969146Z  69e015b9fae5 Download complete 
+2025-09-20T21:26:40.1312022Z  d005b7db85f2 Downloading [==================>                                ]  7.991MB/21.08MB
+2025-09-20T21:26:40.1314099Z  d005b7db85f2 Downloading [==================>                                ]  7.991MB/21.08MB
+2025-09-20T21:26:40.1314740Z  d005b7db85f2 Downloading [==================>                                ]  7.991MB/21.08MB
+2025-09-20T21:26:40.1369686Z  f1f26f570256 Downloading [==========>                                        ]  6.484MB/31.41MB
+2025-09-20T21:26:40.1371173Z  f1f26f570256 Downloading [==========>                                        ]  6.484MB/31.41MB
+2025-09-20T21:26:40.1373586Z  f1f26f570256 Downloading [==========>                                        ]  6.484MB/31.41MB
+2025-09-20T21:26:40.2379634Z  d005b7db85f2 Downloading [===========================================>       ]  18.16MB/21.08MB
+2025-09-20T21:26:40.2383742Z  d005b7db85f2 Downloading [===========================================>       ]  18.16MB/21.08MB
+2025-09-20T21:26:40.2384856Z  d005b7db85f2 Downloading [===========================================>       ]  18.16MB/21.08MB
+2025-09-20T21:26:40.2385666Z  f1f26f570256 Downloading [==================>                                ]  11.65MB/31.41MB
+2025-09-20T21:26:40.2386421Z  f1f26f570256 Downloading [==================>                                ]  11.65MB/31.41MB
+2025-09-20T21:26:40.2387140Z  f1f26f570256 Downloading [==================>                                ]  11.65MB/31.41MB
+2025-09-20T21:26:40.3041641Z  d005b7db85f2 Verifying Checksum 
+2025-09-20T21:26:40.3042259Z  d005b7db85f2 Download complete 
+2025-09-20T21:26:40.3042726Z  d005b7db85f2 Verifying Checksum 
+2025-09-20T21:26:40.3043236Z  d005b7db85f2 Download complete 
+2025-09-20T21:26:40.3043682Z  d005b7db85f2 Verifying Checksum 
+2025-09-20T21:26:40.3044152Z  d005b7db85f2 Download complete 
+2025-09-20T21:26:40.3487175Z  f1f26f570256 Downloading [===========================>                       ]  17.42MB/31.41MB
+2025-09-20T21:26:40.3488751Z  f1f26f570256 Downloading [===========================>                       ]  17.42MB/31.41MB
+2025-09-20T21:26:40.3489469Z  f1f26f570256 Downloading [===========================>                       ]  17.42MB/31.41MB
+2025-09-20T21:26:40.3507049Z  f14cd0fedc6e Downloading [>                                                  ]   6.41kB/584.8kB
+2025-09-20T21:26:40.3508484Z  f14cd0fedc6e Downloading [>                                                  ]   6.41kB/584.8kB
+2025-09-20T21:26:40.3509869Z  f14cd0fedc6e Downloading [>                                                  ]   6.41kB/584.8kB
+2025-09-20T21:26:40.4044256Z  f14cd0fedc6e Verifying Checksum 
+2025-09-20T21:26:40.4044920Z  f14cd0fedc6e Download complete 
+2025-09-20T21:26:40.4045399Z  f14cd0fedc6e Verifying Checksum 
+2025-09-20T21:26:40.4045668Z  f14cd0fedc6e Download complete 
+2025-09-20T21:26:40.4045900Z  f14cd0fedc6e Verifying Checksum 
+2025-09-20T21:26:40.4046158Z  f14cd0fedc6e Download complete 
+2025-09-20T21:26:40.4503354Z  f1f26f570256 Downloading [=====================================>             ]  23.86MB/31.41MB
+2025-09-20T21:26:40.4504138Z  f1f26f570256 Downloading [=====================================>             ]  23.86MB/31.41MB
+2025-09-20T21:26:40.4504670Z  f1f26f570256 Downloading [=====================================>             ]  23.86MB/31.41MB
+2025-09-20T21:26:40.5403529Z  f1f26f570256 Verifying Checksum 
+2025-09-20T21:26:40.5404085Z  f1f26f570256 Download complete 
+2025-09-20T21:26:40.5404466Z  f1f26f570256 Verifying Checksum 
+2025-09-20T21:26:40.5404888Z  f1f26f570256 Verifying Checksum 
+2025-09-20T21:26:40.5405198Z  f1f26f570256 Download complete 
+2025-09-20T21:26:40.5405481Z  f1f26f570256 Download complete 
+2025-09-20T21:26:40.5452865Z  f1f26f570256 Extracting [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:26:40.5453856Z  f1f26f570256 Extracting [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:26:40.5454584Z  f1f26f570256 Extracting [>                                                  ]  327.7kB/31.41MB
+2025-09-20T21:26:40.6462780Z  f1f26f570256 Extracting [======>                                            ]   4.26MB/31.41MB
+2025-09-20T21:26:40.6464348Z  f1f26f570256 Extracting [======>                                            ]   4.26MB/31.41MB
+2025-09-20T21:26:40.6465898Z  f1f26f570256 Extracting [======>                                            ]   4.26MB/31.41MB
+2025-09-20T21:26:40.7489054Z  f1f26f570256 Extracting [===============>                                   ]   9.83MB/31.41MB
+2025-09-20T21:26:40.7490434Z  f1f26f570256 Extracting [===============>                                   ]   9.83MB/31.41MB
+2025-09-20T21:26:40.7491609Z  f1f26f570256 Extracting [===============>                                   ]   9.83MB/31.41MB
+2025-09-20T21:26:40.8567778Z  f1f26f570256 Extracting [========================>                          ]   15.4MB/31.41MB
+2025-09-20T21:26:40.8568559Z  f1f26f570256 Extracting [========================>                          ]   15.4MB/31.41MB
+2025-09-20T21:26:40.8569347Z  f1f26f570256 Extracting [========================>                          ]   15.4MB/31.41MB
+2025-09-20T21:26:40.9602421Z  f1f26f570256 Extracting [================================>                  ]  20.64MB/31.41MB
+2025-09-20T21:26:40.9603507Z  f1f26f570256 Extracting [================================>                  ]  20.64MB/31.41MB
+2025-09-20T21:26:40.9604352Z  f1f26f570256 Extracting [================================>                  ]  20.64MB/31.41MB
+2025-09-20T21:26:41.0746738Z  f1f26f570256 Extracting [=============================================>     ]  28.51MB/31.41MB
+2025-09-20T21:26:41.0747737Z  f1f26f570256 Extracting [=============================================>     ]  28.51MB/31.41MB
+2025-09-20T21:26:41.0748610Z  f1f26f570256 Extracting [=============================================>     ]  28.51MB/31.41MB
+2025-09-20T21:26:41.1921070Z  f1f26f570256 Extracting [=============================================>     ]  28.84MB/31.41MB
+2025-09-20T21:26:41.1921935Z  f1f26f570256 Extracting [=============================================>     ]  28.84MB/31.41MB
+2025-09-20T21:26:41.1922395Z  f1f26f570256 Extracting [=============================================>     ]  28.84MB/31.41MB
+2025-09-20T21:26:41.3832369Z  f1f26f570256 Extracting [===============================================>   ]  30.15MB/31.41MB
+2025-09-20T21:26:41.3833311Z  f1f26f570256 Extracting [===============================================>   ]  30.15MB/31.41MB
+2025-09-20T21:26:41.3834117Z  f1f26f570256 Extracting [===============================================>   ]  30.15MB/31.41MB
+2025-09-20T21:26:41.6069784Z  f1f26f570256 Extracting [================================================>  ]  30.47MB/31.41MB
+2025-09-20T21:26:41.6070691Z  f1f26f570256 Extracting [================================================>  ]  30.47MB/31.41MB
+2025-09-20T21:26:41.6071326Z  f1f26f570256 Extracting [================================================>  ]  30.47MB/31.41MB
+2025-09-20T21:26:41.7404290Z  f1f26f570256 Extracting [==================================================>]  31.41MB/31.41MB
+2025-09-20T21:26:41.7406342Z  f1f26f570256 Extracting [==================================================>]  31.41MB/31.41MB
+2025-09-20T21:26:41.7408812Z  f1f26f570256 Extracting [==================================================>]  31.41MB/31.41MB
+2025-09-20T21:26:41.7600759Z  f1f26f570256 Pull complete 
+2025-09-20T21:26:41.7601130Z  f1f26f570256 Pull complete 
+2025-09-20T21:26:41.7601384Z  f1f26f570256 Pull complete 
+2025-09-20T21:26:41.7883784Z  d005b7db85f2 Extracting [>                                                  ]  229.4kB/21.08MB
+2025-09-20T21:26:41.7884410Z  d005b7db85f2 Extracting [>                                                  ]  229.4kB/21.08MB
+2025-09-20T21:26:41.7884903Z  d005b7db85f2 Extracting [>                                                  ]  229.4kB/21.08MB
+2025-09-20T21:26:41.8896348Z  d005b7db85f2 Extracting [==================>                                ]  7.799MB/21.08MB
+2025-09-20T21:26:41.8897415Z  d005b7db85f2 Extracting [==================>                                ]  7.799MB/21.08MB
+2025-09-20T21:26:41.8898174Z  d005b7db85f2 Extracting [==================>                                ]  7.799MB/21.08MB
+2025-09-20T21:26:41.9927646Z  d005b7db85f2 Extracting [=========================================>         ]  17.43MB/21.08MB
+2025-09-20T21:26:41.9928824Z  d005b7db85f2 Extracting [=========================================>         ]  17.43MB/21.08MB
+2025-09-20T21:26:41.9929551Z  d005b7db85f2 Extracting [=========================================>         ]  17.43MB/21.08MB
+2025-09-20T21:26:42.1329300Z  d005b7db85f2 Extracting [===============================================>   ]  20.19MB/21.08MB
+2025-09-20T21:26:42.1330385Z  d005b7db85f2 Extracting [===============================================>   ]  20.19MB/21.08MB
+2025-09-20T21:26:42.1331058Z  d005b7db85f2 Extracting [===============================================>   ]  20.19MB/21.08MB
+2025-09-20T21:26:42.3844626Z  d005b7db85f2 Extracting [================================================>  ]  20.41MB/21.08MB
+2025-09-20T21:26:42.3845820Z  d005b7db85f2 Extracting [================================================>  ]  20.41MB/21.08MB
+2025-09-20T21:26:42.3846594Z  d005b7db85f2 Extracting [================================================>  ]  20.41MB/21.08MB
+2025-09-20T21:26:42.5311353Z  d005b7db85f2 Extracting [================================================>  ]  20.64MB/21.08MB
+2025-09-20T21:26:42.5312672Z  d005b7db85f2 Extracting [================================================>  ]  20.64MB/21.08MB
+2025-09-20T21:26:42.5313663Z  d005b7db85f2 Extracting [================================================>  ]  20.64MB/21.08MB
+2025-09-20T21:26:42.5841316Z  d005b7db85f2 Extracting [==================================================>]  21.08MB/21.08MB
+2025-09-20T21:26:42.5842941Z  d005b7db85f2 Extracting [==================================================>]  21.08MB/21.08MB
+2025-09-20T21:26:42.5843702Z  d005b7db85f2 Extracting [==================================================>]  21.08MB/21.08MB
+2025-09-20T21:26:42.7130148Z  d005b7db85f2 Pull complete 
+2025-09-20T21:26:42.7130556Z  d005b7db85f2 Pull complete 
+2025-09-20T21:26:42.7131002Z  d005b7db85f2 Pull complete 
+2025-09-20T21:26:42.7140761Z  69e015b9fae5 Extracting [=>                                                 ]  32.77kB/1.605MB
+2025-09-20T21:26:42.7141820Z  69e015b9fae5 Extracting [=>                                                 ]  32.77kB/1.605MB
+2025-09-20T21:26:42.7142694Z  69e015b9fae5 Extracting [=>                                                 ]  32.77kB/1.605MB
+2025-09-20T21:26:42.7364518Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:26:42.7366515Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:26:42.7367437Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:26:42.7382552Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:26:42.7383403Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:26:42.7384136Z  69e015b9fae5 Extracting [==================================================>]  1.605MB/1.605MB
+2025-09-20T21:26:42.7592696Z  69e015b9fae5 Pull complete 
+2025-09-20T21:26:42.7593162Z  69e015b9fae5 Pull complete 
+2025-09-20T21:26:42.7593502Z  69e015b9fae5 Pull complete 
+2025-09-20T21:26:42.7603689Z  f14cd0fedc6e Extracting [==>                                                ]  32.77kB/584.8kB
+2025-09-20T21:26:42.7604313Z  f14cd0fedc6e Extracting [==>                                                ]  32.77kB/584.8kB
+2025-09-20T21:26:42.7604807Z  f14cd0fedc6e Extracting [==>                                                ]  32.77kB/584.8kB
+2025-09-20T21:26:42.7731744Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:26:42.7732795Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:26:42.7733630Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:26:42.7736147Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:26:42.7737969Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:26:42.7739024Z  f14cd0fedc6e Extracting [==================================================>]  584.8kB/584.8kB
+2025-09-20T21:26:42.7884508Z  f14cd0fedc6e Pull complete 
+2025-09-20T21:26:42.7885280Z  f14cd0fedc6e Pull complete 
+2025-09-20T21:26:42.7885511Z  f14cd0fedc6e Pull complete 
+2025-09-20T21:26:42.7936204Z  stun1 Pulled 
+2025-09-20T21:26:42.7936576Z  stun0 Pulled 
+2025-09-20T21:26:42.7942292Z  stun2 Pulled 
+2025-09-20T21:26:43.0755136Z #1 [internal] load local bake definitions
+2025-09-20T21:26:43.2203841Z #1 reading from stdin 1.08kB done
+2025-09-20T21:26:43.2204426Z #1 DONE 0.0s
+2025-09-20T21:26:43.3935078Z 
+2025-09-20T21:26:43.3935855Z #2 [server internal] load build definition from Dockerfile
+2025-09-20T21:26:43.3936469Z #2 transferring dockerfile: 439B done
+2025-09-20T21:26:43.3937098Z #2 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+2025-09-20T21:26:43.3937588Z #2 DONE 0.0s
+2025-09-20T21:26:43.3937691Z 
+2025-09-20T21:26:43.3937855Z #3 [peer_b internal] load build definition from Dockerfile
+2025-09-20T21:26:43.3938255Z #3 transferring dockerfile: 433B done
+2025-09-20T21:26:43.3938690Z #3 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+2025-09-20T21:26:43.3939166Z #3 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+2025-09-20T21:26:43.3939492Z #3 DONE 0.0s
+2025-09-20T21:26:43.3939597Z 
+2025-09-20T21:26:43.3939734Z #4 [auth] library/rust:pull token for registry-1.docker.io
+2025-09-20T21:26:43.5439700Z #4 DONE 0.0s
+2025-09-20T21:26:43.5440121Z 
+2025-09-20T21:26:43.5440475Z #5 [peer_a internal] load metadata for docker.io/library/rust:latest
+2025-09-20T21:26:44.1582981Z #5 DONE 0.8s
+2025-09-20T21:26:44.1583289Z 
+2025-09-20T21:26:44.1583447Z #6 [server internal] load .dockerignore
+2025-09-20T21:26:44.1583903Z #6 transferring context: 105B done
+2025-09-20T21:26:44.1584197Z #6 DONE 0.0s
+2025-09-20T21:26:44.1584302Z 
+2025-09-20T21:26:44.1584663Z #7 [peer_a 1/8] FROM docker.io/library/rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5
+2025-09-20T21:26:44.1585417Z #7 resolve docker.io/library/rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5 done
+2025-09-20T21:26:44.2611957Z #7 ...
+2025-09-20T21:26:44.2612411Z 
+2025-09-20T21:26:44.2612665Z #8 [peer_b internal] load build context
+2025-09-20T21:26:44.2613266Z #8 transferring context: 7.89MB 0.1s done
+2025-09-20T21:26:44.2613742Z #8 DONE 0.1s
+2025-09-20T21:26:44.2613878Z 
+2025-09-20T21:26:44.2614338Z #7 [peer_a 1/8] FROM docker.io/library/rust:latest@sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5
+2025-09-20T21:26:44.2615254Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 1.05MB / 49.28MB 0.2s
+2025-09-20T21:26:44.2616039Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 0B / 25.61MB 0.2s
+2025-09-20T21:26:44.2616818Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 0B / 67.78MB 0.2s
+2025-09-20T21:26:44.2617830Z #7 sha256:eabb786e74b520e7ea45baca03ea20c3e8c6dc037c392d457badf05d8e5818b5 8.99kB / 8.99kB done
+2025-09-20T21:26:44.2619828Z #7 sha256:fa250457cf8a30440cc577c40c9e073d72e54f008f9a11a046e10db5f42c0320 1.93kB / 1.93kB done
+2025-09-20T21:26:44.2620512Z #7 sha256:764b84273d2bcba8e8c9ed3b36caf520e40b0dc1720a2ac14655497778437e6a 4.47kB / 4.47kB done
+2025-09-20T21:26:44.3613704Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 12.58MB / 49.28MB 0.3s
+2025-09-20T21:26:44.4621457Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 19.92MB / 49.28MB 0.4s
+2025-09-20T21:26:44.4622688Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 3.15MB / 25.61MB 0.4s
+2025-09-20T21:26:44.4623813Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 4.19MB / 67.78MB 0.4s
+2025-09-20T21:26:44.6618266Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 30.41MB / 49.28MB 0.6s
+2025-09-20T21:26:44.6619303Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 7.34MB / 25.61MB 0.6s
+2025-09-20T21:26:44.6620187Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 14.68MB / 67.78MB 0.6s
+2025-09-20T21:26:44.8614936Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 41.94MB / 49.28MB 0.8s
+2025-09-20T21:26:44.8615858Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 16.78MB / 25.61MB 0.8s
+2025-09-20T21:26:44.8616658Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 23.07MB / 67.78MB 0.8s
+2025-09-20T21:26:44.9615804Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 49.28MB / 49.28MB 0.9s
+2025-09-20T21:26:44.9617262Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 20.97MB / 25.61MB 0.9s
+2025-09-20T21:26:44.9618393Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 30.41MB / 67.78MB 0.9s
+2025-09-20T21:26:45.1154184Z #7 sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 49.28MB / 49.28MB 0.9s done
+2025-09-20T21:26:45.1155865Z #7 sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 25.61MB / 25.61MB 1.0s done
+2025-09-20T21:26:45.1157902Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 34.60MB / 67.78MB 1.0s
+2025-09-20T21:26:45.1160895Z #7 extracting sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 0.1s
+2025-09-20T21:26:45.1161939Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 0B / 235.91MB 1.0s
+2025-09-20T21:26:45.1162933Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 0B / 211.09MB 1.0s
+2025-09-20T21:26:45.2250517Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 40.89MB / 67.78MB 1.1s
+2025-09-20T21:26:45.3261149Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 45.09MB / 67.78MB 1.2s
+2025-09-20T21:26:45.4275149Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 50.33MB / 67.78MB 1.3s
+2025-09-20T21:26:45.4277306Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 14.68MB / 235.91MB 1.3s
+2025-09-20T21:26:45.5615511Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 58.72MB / 67.78MB 1.5s
+2025-09-20T21:26:45.5616821Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 27.26MB / 235.91MB 1.5s
+2025-09-20T21:26:45.5618834Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 13.63MB / 211.09MB 1.5s
+2025-09-20T21:26:45.6614951Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 62.91MB / 67.78MB 1.6s
+2025-09-20T21:26:45.9479870Z #7 sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 67.78MB / 67.78MB 1.8s done
+2025-09-20T21:26:45.9481219Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 26.21MB / 211.09MB 1.8s
+2025-09-20T21:26:46.0585449Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 41.94MB / 235.91MB 1.9s
+2025-09-20T21:26:46.2614529Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 38.80MB / 211.09MB 2.2s
+2025-09-20T21:26:46.3611989Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 54.53MB / 235.91MB 2.3s
+2025-09-20T21:26:46.6612045Z #7 extracting sha256:15b1d8a5ff03aeb0f14c8d39a60a73ef22f656550bfa1bb90d1850f25a0ac0fa 1.6s done
+2025-09-20T21:26:46.6613328Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 57.67MB / 211.09MB 2.6s
+2025-09-20T21:26:46.7612089Z #7 extracting sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b
+2025-09-20T21:26:46.9782829Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 66.43MB / 235.91MB 2.9s
+2025-09-20T21:26:47.0791844Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 69.21MB / 211.09MB 3.0s
+2025-09-20T21:26:47.4616598Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 82.84MB / 235.91MB 3.4s
+2025-09-20T21:26:47.4618043Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 89.13MB / 211.09MB 3.4s
+2025-09-20T21:26:47.6617678Z #7 extracting sha256:22718812f617084a0c5e539e02723b75bf79ea2a589430f820efcbb07f45b91b 0.7s done
+2025-09-20T21:26:47.6619185Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 101.71MB / 211.09MB 3.6s
+2025-09-20T21:26:47.9633542Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 114.29MB / 235.91MB 3.9s
+2025-09-20T21:26:47.9635616Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 123.73MB / 211.09MB 3.9s
+2025-09-20T21:26:48.2616458Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 127.93MB / 235.91MB 4.2s
+2025-09-20T21:26:48.2617999Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 137.36MB / 211.09MB 4.2s
+2025-09-20T21:26:48.3616630Z #7 extracting sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97
+2025-09-20T21:26:48.4920879Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 141.56MB / 235.91MB 4.4s
+2025-09-20T21:26:48.4922195Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 150.12MB / 211.09MB 4.4s
+2025-09-20T21:26:48.7001705Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 155.19MB / 235.91MB 4.6s
+2025-09-20T21:26:48.7002934Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 162.53MB / 211.09MB 4.6s
+2025-09-20T21:26:48.9612101Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 175.11MB / 235.91MB 4.9s
+2025-09-20T21:26:48.9613200Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 185.60MB / 211.09MB 4.9s
+2025-09-20T21:26:49.2544705Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 199.23MB / 211.09MB 5.1s
+2025-09-20T21:26:49.3612534Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 196.08MB / 235.91MB 5.3s
+2025-09-20T21:26:49.3613677Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 211.09MB / 211.09MB 5.3s done
+2025-09-20T21:26:49.4612241Z #7 sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 211.09MB / 211.09MB 5.3s done
+2025-09-20T21:26:49.5615852Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 209.72MB / 235.91MB 5.5s
+2025-09-20T21:26:49.8611347Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 230.69MB / 235.91MB 5.8s
+2025-09-20T21:26:50.0955564Z #7 sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 235.91MB / 235.91MB 5.9s done
+2025-09-20T21:26:50.8775552Z #7 extracting sha256:401a98f7495bee3e8e6943da9f52f0ab1043c43eb1d107a3817fc2a4b916be97 2.4s done
+2025-09-20T21:26:51.0710862Z #7 extracting sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f
+2025-09-20T21:26:56.1374614Z #7 extracting sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 5.1s
+2025-09-20T21:26:57.4236628Z #7 extracting sha256:ad446e7df19acd39290d995e6d78ccbfde171596237968a140518b183d94c04f 6.2s done
+2025-09-20T21:26:58.7682905Z #7 extracting sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573
+2025-09-20T21:27:01.4616799Z #7 extracting sha256:0807dfd77f5a19f148b0befb80e3689209b7413ac391e7510e5156b6739df573 2.5s done
+2025-09-20T21:27:02.6824379Z #7 DONE 18.5s
+2025-09-20T21:27:02.6825824Z 
+2025-09-20T21:27:02.6826077Z #9 [peer_b 2/8] WORKDIR /usr/src/peer
+2025-09-20T21:27:02.6826520Z #9 DONE 0.0s
+2025-09-20T21:27:02.6826688Z 
+2025-09-20T21:27:02.6826853Z #10 [server 2/8] WORKDIR /usr/src/server
+2025-09-20T21:27:02.6827438Z #10 DONE 0.0s
+2025-09-20T21:27:02.6827601Z 
+2025-09-20T21:27:02.6827724Z #11 [server 3/8] COPY . .
+2025-09-20T21:27:02.6828046Z #11 DONE 0.1s
+2025-09-20T21:27:02.6828650Z 
+2025-09-20T21:27:02.6828785Z #12 [peer_a 3/8] COPY . .
+2025-09-20T21:27:02.8578994Z #12 DONE 0.1s
+2025-09-20T21:27:02.8579358Z 
+2025-09-20T21:27:02.8579616Z #13 [server 4/8] COPY ./docker/set_nat.sh .
+2025-09-20T21:27:02.8580027Z #13 DONE 0.0s
+2025-09-20T21:27:02.8580241Z 
+2025-09-20T21:27:02.8580451Z #14 [peer_b 4/8] COPY ./docker/set_nat.sh .
+2025-09-20T21:27:02.8581372Z #14 DONE 0.0s
+2025-09-20T21:27:02.8581531Z 
+2025-09-20T21:27:02.8581695Z #15 [server 5/8] COPY ./docker/server/exec.sh .
+2025-09-20T21:27:02.8582191Z #15 DONE 0.0s
+2025-09-20T21:27:02.8582341Z 
+2025-09-20T21:27:02.8582491Z #16 [peer_b 5/8] COPY ./docker/peer/exec.sh .
+2025-09-20T21:27:02.8582939Z #16 DONE 0.0s
+2025-09-20T21:27:02.8583131Z 
+2025-09-20T21:27:02.8584178Z #17 [peer_a 6/8] RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*
+2025-09-20T21:27:03.1450998Z #17 0.437 Hit:1 http://deb.debian.org/debian trixie InRelease
+2025-09-20T21:27:03.2524579Z #17 0.447 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+2025-09-20T21:27:03.2525640Z #17 0.508 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+2025-09-20T21:27:03.3841578Z #17 0.545 Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9669 kB]
+2025-09-20T21:27:03.5530136Z #17 0.677 Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [5412 B]
+2025-09-20T21:27:03.5531269Z #17 0.695 Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [41.1 kB]
+2025-09-20T21:27:04.2023366Z #17 1.344 Fetched 9806 kB in 1s (8450 kB/s)
+2025-09-20T21:27:04.7585113Z #17 1.344 Reading package lists...
+2025-09-20T21:27:05.1417908Z #17 1.901 Reading package lists...
+2025-09-20T21:27:05.5681230Z #17 2.444 Building dependency tree...
+2025-09-20T21:27:05.5681895Z #17 2.626 Reading state information...
+2025-09-20T21:27:05.7627991Z #17 2.870 openssl is already the newest version (3.5.1-1).
+2025-09-20T21:27:05.7628722Z #17 2.870 openssl set to manually installed.
+2025-09-20T21:27:05.7629308Z #17 2.870 The following additional packages will be installed:
+2025-09-20T21:27:05.7630084Z #17 2.871   cmake-data lib32gcc-s1 lib32stdc++6 libarchive13t64 libbpf1 libc6-i386
+2025-09-20T21:27:05.7630956Z #17 2.871   libcap2-bin libclang-19-dev libclang-common-19-dev libclang-rt-19-dev
+2025-09-20T21:27:05.7631835Z #17 2.871   libclang1-19 libgc1 libip4tc2 libip6tc2 libjsoncpp26 libllvm19 libmnl0
+2025-09-20T21:27:05.7632754Z #17 2.871   libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libobjc-14-dev
+2025-09-20T21:27:05.7633676Z #17 2.872   libobjc4 libpam-cap librhash1 libtirpc-common libtirpc3t64 libuv1t64
+2025-09-20T21:27:05.7634343Z #17 2.873   libxtables12 libz3-4 nftables
+2025-09-20T21:27:05.7634785Z #17 2.875 Suggested packages:
+2025-09-20T21:27:05.7635406Z #17 2.875   cmake-doc cmake-format elpa-cmake-mode ninja-build firewalld kmod lrzip
+2025-09-20T21:27:05.8959107Z #17 3.065 The following NEW packages will be installed:
+2025-09-20T21:27:05.8960085Z #17 3.066   build-essential cmake cmake-data inetutils-ping iproute2 iptables
+2025-09-20T21:27:05.8961205Z #17 3.066   lib32gcc-s1 lib32stdc++6 libarchive13t64 libbpf1 libc6-i386 libcap2-bin
+2025-09-20T21:27:05.8962462Z #17 3.066   libclang-19-dev libclang-common-19-dev libclang-dev libclang-rt-19-dev
+2025-09-20T21:27:05.8963522Z #17 3.066   libclang1-19 libgc1 libip4tc2 libip6tc2 libjsoncpp26 libllvm19 libmnl0
+2025-09-20T21:27:05.8964480Z #17 3.066   libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libobjc-14-dev
+2025-09-20T21:27:05.8965456Z #17 3.067   libobjc4 libpam-cap librhash1 libtirpc-common libtirpc3t64 libuv1t64
+2025-09-20T21:27:05.8966023Z #17 3.067   libxtables12 libz3-4 net-tools nftables
+2025-09-20T21:27:05.8966437Z #17 3.134 0 upgraded, 38 newly installed, 0 to remove and 15 not upgraded.
+2025-09-20T21:27:05.8966833Z #17 3.134 Need to get 96.4 MB of archives.
+2025-09-20T21:27:05.8967494Z #17 3.134 After this operation, 654 MB of additional disk space will be used.
+2025-09-20T21:27:05.8968359Z #17 3.134 Get:1 http://deb.debian.org/debian trixie/main amd64 libbpf1 amd64 1:1.5.0-3 [169 kB]
+2025-09-20T21:27:05.8968986Z #17 3.188 Get:2 http://deb.debian.org/debian trixie/main amd64 libmnl0 amd64 1.0.5-3 [11.9 kB]
+2025-09-20T21:27:06.0030667Z #17 3.189 Get:3 http://deb.debian.org/debian trixie/main amd64 libtirpc-common all 1.3.6+ds-1 [11.0 kB]
+2025-09-20T21:27:06.0033211Z #17 3.191 Get:4 http://deb.debian.org/debian trixie/main amd64 libtirpc3t64 amd64 1.3.6+ds-1 [83.3 kB]
+2025-09-20T21:27:06.0038560Z #17 3.194 Get:5 http://deb.debian.org/debian trixie/main amd64 libxtables12 amd64 1.8.11-2 [31.9 kB]
+2025-09-20T21:27:06.0039668Z #17 3.196 Get:6 http://deb.debian.org/debian trixie/main amd64 libcap2-bin amd64 1:2.75-10+b1 [36.4 kB]
+2025-09-20T21:27:06.0040671Z #17 3.198 Get:7 http://deb.debian.org/debian trixie/main amd64 iproute2 amd64 6.15.0-1 [1089 kB]
+2025-09-20T21:27:06.0041363Z #17 3.233 Get:8 http://deb.debian.org/debian trixie/main amd64 libnftnl11 amd64 1.2.9-1 [65.0 kB]
+2025-09-20T21:27:06.0041958Z #17 3.233 Get:9 http://deb.debian.org/debian trixie/main amd64 libnftables1 amd64 1.1.3-1 [332 kB]
+2025-09-20T21:27:06.0042477Z #17 3.243 Get:10 http://deb.debian.org/debian trixie/main amd64 nftables amd64 1.1.3-1 [75.9 kB]
+2025-09-20T21:27:06.0043001Z #17 3.247 Get:11 http://deb.debian.org/debian trixie/main amd64 build-essential amd64 12.12 [4624 B]
+2025-09-20T21:27:06.0044734Z #17 3.249 Get:12 http://deb.debian.org/debian trixie/main amd64 cmake-data all 3.31.6-2 [2268 kB]
+2025-09-20T21:27:06.0045306Z #17 3.267 Get:13 http://deb.debian.org/debian trixie/main amd64 libarchive13t64 amd64 3.7.4-4 [349 kB]
+2025-09-20T21:27:06.0045861Z #17 3.269 Get:14 http://deb.debian.org/debian trixie/main amd64 libjsoncpp26 amd64 1.9.6-3 [81.7 kB]
+2025-09-20T21:27:06.0046375Z #17 3.269 Get:15 http://deb.debian.org/debian trixie/main amd64 librhash1 amd64 1.4.5-1 [132 kB]
+2025-09-20T21:27:06.0047164Z #17 3.270 Get:16 http://deb.debian.org/debian trixie/main amd64 libuv1t64 amd64 1.50.0-2 [154 kB]
+2025-09-20T21:27:06.0047684Z #17 3.272 Get:17 http://deb.debian.org/debian trixie/main amd64 cmake amd64 3.31.6-2 [12.0 MB]
+2025-09-20T21:27:06.1051941Z #17 3.321 Get:18 http://deb.debian.org/debian trixie/main amd64 inetutils-ping amd64 2:2.6-3 [89.0 kB]
+2025-09-20T21:27:06.1053132Z #17 3.323 Get:19 http://deb.debian.org/debian trixie/main amd64 libip4tc2 amd64 1.8.11-2 [20.0 kB]
+2025-09-20T21:27:06.1054047Z #17 3.323 Get:20 http://deb.debian.org/debian trixie/main amd64 libip6tc2 amd64 1.8.11-2 [20.3 kB]
+2025-09-20T21:27:06.1055042Z #17 3.323 Get:21 http://deb.debian.org/debian trixie/main amd64 libnfnetlink0 amd64 1.0.2-3 [14.4 kB]
+2025-09-20T21:27:06.1055983Z #17 3.324 Get:22 http://deb.debian.org/debian trixie/main amd64 libnetfilter-conntrack3 amd64 1.1.0-1 [42.1 kB]
+2025-09-20T21:27:06.1057209Z #17 3.324 Get:23 http://deb.debian.org/debian trixie/main amd64 iptables amd64 1.8.11-2 [361 kB]
+2025-09-20T21:27:06.1058068Z #17 3.326 Get:24 http://deb.debian.org/debian trixie/main amd64 libc6-i386 amd64 2.41-12 [2540 kB]
+2025-09-20T21:27:06.1059013Z #17 3.336 Get:25 http://deb.debian.org/debian trixie/main amd64 lib32gcc-s1 amd64 14.2.0-19 [88.4 kB]
+2025-09-20T21:27:06.1059959Z #17 3.336 Get:26 http://deb.debian.org/debian trixie/main amd64 lib32stdc++6 amd64 14.2.0-19 [745 kB]
+2025-09-20T21:27:06.1060802Z #17 3.341 Get:27 http://deb.debian.org/debian trixie/main amd64 libgc1 amd64 1:8.2.8-1 [247 kB]
+2025-09-20T21:27:06.1061764Z #17 3.359 Get:28 http://deb.debian.org/debian trixie/main amd64 libobjc4 amd64 14.2.0-19 [43.3 kB]
+2025-09-20T21:27:06.1062636Z #17 3.364 Get:29 http://deb.debian.org/debian trixie/main amd64 libobjc-14-dev amd64 14.2.0-19 [173 kB]
+2025-09-20T21:27:06.1063504Z #17 3.365 Get:30 http://deb.debian.org/debian trixie/main amd64 libz3-4 amd64 4.13.3-1 [8560 kB]
+2025-09-20T21:27:06.2301054Z #17 3.401 Get:31 http://deb.debian.org/debian trixie/main amd64 libllvm19 amd64 1:19.1.7-3+b1 [26.0 MB]
+2025-09-20T21:27:06.3499258Z #17 3.521 Get:32 http://deb.debian.org/debian trixie/main amd64 libclang1-19 amd64 1:19.1.7-3+b1 [7623 kB]
+2025-09-20T21:27:06.3502229Z #17 3.551 Get:33 http://deb.debian.org/debian trixie/main amd64 libclang-common-19-dev amd64 1:19.1.7-3+b1 [740 kB]
+2025-09-20T21:27:06.3508701Z #17 3.554 Get:34 http://deb.debian.org/debian trixie/main amd64 libclang-19-dev amd64 1:19.1.7-3+b1 [28.3 MB]
+2025-09-20T21:27:06.4926510Z #17 3.696 Get:35 http://deb.debian.org/debian trixie/main amd64 libclang-dev amd64 1:19.0-63 [5828 B]
+2025-09-20T21:27:06.4927841Z #17 3.697 Get:36 http://deb.debian.org/debian trixie/main amd64 libclang-rt-19-dev amd64 1:19.1.7-3+b1 [3690 kB]
+2025-09-20T21:27:06.4928919Z #17 3.723 Get:37 http://deb.debian.org/debian trixie/main amd64 libpam-cap amd64 1:2.75-10+b1 [16.5 kB]
+2025-09-20T21:27:06.4929887Z #17 3.726 Get:38 http://deb.debian.org/debian trixie/main amd64 net-tools amd64 2.10-1.3 [245 kB]
+2025-09-20T21:27:06.8400859Z #17 3.923 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:06.8401614Z #17 3.923 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:06.8402222Z #17 3.923 debconf: falling back to frontend: Readline
+2025-09-20T21:27:06.8402764Z #17 3.930 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:06.8403296Z #17 3.930 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:06.8403851Z #17 3.930 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:06.8404358Z #17 3.934 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:06.8404900Z #17 3.934 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:06.8405500Z #17 3.934 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:07.7483422Z #17 5.041 Preconfiguring packages ...
+2025-09-20T21:27:07.8502083Z #17 5.094 Fetched 96.4 MB in 1s (150 MB/s)
+2025-09-20T21:27:07.8504223Z #17 5.112 Selecting previously unselected package libbpf1:amd64.
+2025-09-20T21:27:07.8504794Z #17 5.112 (Reading database ... 
+2025-09-20T21:27:07.8505205Z (Reading database ... 5%
+2025-09-20T21:27:07.8505543Z (Reading database ... 10%
+2025-09-20T21:27:07.8505886Z (Reading database ... 15%
+2025-09-20T21:27:07.8506215Z (Reading database ... 20%
+2025-09-20T21:27:07.8506549Z (Reading database ... 25%
+2025-09-20T21:27:07.8506873Z (Reading database ... 30%
+2025-09-20T21:27:07.8507396Z (Reading database ... 35%
+2025-09-20T21:27:07.8507745Z (Reading database ... 40%
+2025-09-20T21:27:07.8508068Z (Reading database ... 45%
+2025-09-20T21:27:07.8508402Z (Reading database ... 50%
+2025-09-20T21:27:07.8508715Z (Reading database ... 55%
+2025-09-20T21:27:07.8509036Z (Reading database ... 60%
+2025-09-20T21:27:07.8509357Z (Reading database ... 65%
+2025-09-20T21:27:07.8509686Z (Reading database ... 70%
+2025-09-20T21:27:07.8509974Z (Reading database ... 75%
+2025-09-20T21:27:07.8510260Z (Reading database ... 80%
+2025-09-20T21:27:07.8510531Z (Reading database ... 85%
+2025-09-20T21:27:07.8510816Z (Reading database ... 90%
+2025-09-20T21:27:07.8511092Z (Reading database ... 95%
+2025-09-20T21:27:07.8511367Z (Reading database ... 100%
+2025-09-20T21:27:07.8511789Z (Reading database ... 26065 files and directories currently installed.)
+2025-09-20T21:27:07.8512352Z #17 5.141 Preparing to unpack .../00-libbpf1_1%3a1.5.0-3_amd64.deb ...
+2025-09-20T21:27:07.8512819Z #17 5.143 Unpacking libbpf1:amd64 (1:1.5.0-3) ...
+2025-09-20T21:27:07.9502126Z #17 5.167 Selecting previously unselected package libmnl0:amd64.
+2025-09-20T21:27:07.9503515Z #17 5.170 Preparing to unpack .../01-libmnl0_1.0.5-3_amd64.deb ...
+2025-09-20T21:27:07.9504050Z #17 5.171 Unpacking libmnl0:amd64 (1.0.5-3) ...
+2025-09-20T21:27:07.9504588Z #17 5.189 Selecting previously unselected package libtirpc-common.
+2025-09-20T21:27:07.9505231Z #17 5.192 Preparing to unpack .../02-libtirpc-common_1.3.6+ds-1_all.deb ...
+2025-09-20T21:27:07.9505797Z #17 5.193 Unpacking libtirpc-common (1.3.6+ds-1) ...
+2025-09-20T21:27:07.9506350Z #17 5.214 Selecting previously unselected package libtirpc3t64:amd64.
+2025-09-20T21:27:07.9507297Z #17 5.217 Preparing to unpack .../03-libtirpc3t64_1.3.6+ds-1_amd64.deb ...
+2025-09-20T21:27:07.9508604Z #17 5.225 Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3 to /lib/x86_64-linux-gnu/libtirpc.so.3.usr-is-merged by libtirpc3t64'
+2025-09-20T21:27:07.9509834Z #17 5.234 Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3.0.0 to /lib/x86_64-linux-gnu/libtirpc.so.3.0.0.usr-is-merged by libtirpc3t64'
+2025-09-20T21:27:07.9510895Z #17 5.236 Unpacking libtirpc3t64:amd64 (1.3.6+ds-1) ...
+2025-09-20T21:27:08.0578570Z #17 5.261 Selecting previously unselected package libxtables12:amd64.
+2025-09-20T21:27:08.0579315Z #17 5.264 Preparing to unpack .../04-libxtables12_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:08.0579872Z #17 5.265 Unpacking libxtables12:amd64 (1.8.11-2) ...
+2025-09-20T21:27:08.0580394Z #17 5.284 Selecting previously unselected package libcap2-bin.
+2025-09-20T21:27:08.0581001Z #17 5.287 Preparing to unpack .../05-libcap2-bin_1%3a2.75-10+b1_amd64.deb ...
+2025-09-20T21:27:08.0581543Z #17 5.288 Unpacking libcap2-bin (1:2.75-10+b1) ...
+2025-09-20T21:27:08.0582053Z #17 5.311 Selecting previously unselected package iproute2.
+2025-09-20T21:27:08.0582612Z #17 5.314 Preparing to unpack .../06-iproute2_6.15.0-1_amd64.deb ...
+2025-09-20T21:27:08.1770080Z #17 5.353 Unpacking iproute2 (6.15.0-1) ...
+2025-09-20T21:27:08.1770731Z #17 5.441 Selecting previously unselected package libnftnl11:amd64.
+2025-09-20T21:27:08.1771407Z #17 5.444 Preparing to unpack .../07-libnftnl11_1.2.9-1_amd64.deb ...
+2025-09-20T21:27:08.1771935Z #17 5.445 Unpacking libnftnl11:amd64 (1.2.9-1) ...
+2025-09-20T21:27:08.2794283Z #17 5.470 Selecting previously unselected package libnftables1:amd64.
+2025-09-20T21:27:08.2795164Z #17 5.473 Preparing to unpack .../08-libnftables1_1.1.3-1_amd64.deb ...
+2025-09-20T21:27:08.2795606Z #17 5.474 Unpacking libnftables1:amd64 (1.1.3-1) ...
+2025-09-20T21:27:08.2796088Z #17 5.506 Selecting previously unselected package nftables.
+2025-09-20T21:27:08.2796495Z #17 5.509 Preparing to unpack .../09-nftables_1.1.3-1_amd64.deb ...
+2025-09-20T21:27:08.2797112Z #17 5.510 Unpacking nftables (1.1.3-1) ...
+2025-09-20T21:27:08.2797465Z #17 5.532 Selecting previously unselected package build-essential.
+2025-09-20T21:27:08.2797966Z #17 5.536 Preparing to unpack .../10-build-essential_12.12_amd64.deb ...
+2025-09-20T21:27:08.2798559Z #17 5.536 Unpacking build-essential (12.12) ...
+2025-09-20T21:27:08.2799120Z #17 5.560 Selecting previously unselected package cmake-data.
+2025-09-20T21:27:08.2799751Z #17 5.563 Preparing to unpack .../11-cmake-data_3.31.6-2_all.deb ...
+2025-09-20T21:27:08.2800112Z #17 5.569 Unpacking cmake-data (3.31.6-2) ...
+2025-09-20T21:27:09.2667352Z #17 6.459 Selecting previously unselected package libarchive13t64:amd64.
+2025-09-20T21:27:09.2668365Z #17 6.463 Preparing to unpack .../12-libarchive13t64_3.7.4-4_amd64.deb ...
+2025-09-20T21:27:09.2668873Z #17 6.465 Unpacking libarchive13t64:amd64 (3.7.4-4) ...
+2025-09-20T21:27:09.2669487Z #17 6.499 Selecting previously unselected package libjsoncpp26:amd64.
+2025-09-20T21:27:09.2670163Z #17 6.502 Preparing to unpack .../13-libjsoncpp26_1.9.6-3_amd64.deb ...
+2025-09-20T21:27:09.2670840Z #17 6.503 Unpacking libjsoncpp26:amd64 (1.9.6-3) ...
+2025-09-20T21:27:09.2671531Z #17 6.526 Selecting previously unselected package librhash1:amd64.
+2025-09-20T21:27:09.2672210Z #17 6.529 Preparing to unpack .../14-librhash1_1.4.5-1_amd64.deb ...
+2025-09-20T21:27:09.2672764Z #17 6.530 Unpacking librhash1:amd64 (1.4.5-1) ...
+2025-09-20T21:27:09.2673323Z #17 6.556 Selecting previously unselected package libuv1t64:amd64.
+2025-09-20T21:27:09.2673969Z #17 6.559 Preparing to unpack .../15-libuv1t64_1.50.0-2_amd64.deb ...
+2025-09-20T21:27:09.5028805Z #17 6.560 Unpacking libuv1t64:amd64 (1.50.0-2) ...
+2025-09-20T21:27:09.5029461Z #17 6.586 Selecting previously unselected package cmake.
+2025-09-20T21:27:09.5030072Z #17 6.590 Preparing to unpack .../16-cmake_3.31.6-2_amd64.deb ...
+2025-09-20T21:27:09.5030597Z #17 6.591 Unpacking cmake (3.31.6-2) ...
+2025-09-20T21:27:09.7369268Z #17 7.029 Selecting previously unselected package inetutils-ping.
+2025-09-20T21:27:09.8374605Z #17 7.034 Preparing to unpack .../17-inetutils-ping_2%3a2.6-3_amd64.deb ...
+2025-09-20T21:27:09.8375780Z #17 7.035 Unpacking inetutils-ping (2:2.6-3) ...
+2025-09-20T21:27:09.8376646Z #17 7.058 Selecting previously unselected package libip4tc2:amd64.
+2025-09-20T21:27:09.8379929Z #17 7.062 Preparing to unpack .../18-libip4tc2_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:09.8380817Z #17 7.063 Unpacking libip4tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:09.8381386Z #17 7.081 Selecting previously unselected package libip6tc2:amd64.
+2025-09-20T21:27:09.8382027Z #17 7.085 Preparing to unpack .../19-libip6tc2_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:09.8382587Z #17 7.087 Unpacking libip6tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:09.8383164Z #17 7.106 Selecting previously unselected package libnfnetlink0:amd64.
+2025-09-20T21:27:09.8383842Z #17 7.110 Preparing to unpack .../20-libnfnetlink0_1.0.2-3_amd64.deb ...
+2025-09-20T21:27:09.8384426Z #17 7.111 Unpacking libnfnetlink0:amd64 (1.0.2-3) ...
+2025-09-20T21:27:09.9379495Z #17 7.130 Selecting previously unselected package libnetfilter-conntrack3:amd64.
+2025-09-20T21:27:09.9380475Z #17 7.134 Preparing to unpack .../21-libnetfilter-conntrack3_1.1.0-1_amd64.deb ...
+2025-09-20T21:27:09.9381201Z #17 7.135 Unpacking libnetfilter-conntrack3:amd64 (1.1.0-1) ...
+2025-09-20T21:27:09.9381849Z #17 7.154 Selecting previously unselected package iptables.
+2025-09-20T21:27:09.9382467Z #17 7.158 Preparing to unpack .../22-iptables_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:09.9383029Z #17 7.159 Unpacking iptables (1.8.11-2) ...
+2025-09-20T21:27:09.9383538Z #17 7.224 Selecting previously unselected package libc6-i386.
+2025-09-20T21:27:09.9384180Z #17 7.227 Preparing to unpack .../23-libc6-i386_2.41-12_amd64.deb ...
+2025-09-20T21:27:10.0893722Z #17 7.230 Unpacking libc6-i386 (2.41-12) ...
+2025-09-20T21:27:10.2054889Z #17 7.382 Selecting previously unselected package lib32gcc-s1.
+2025-09-20T21:27:10.2056852Z #17 7.385 Preparing to unpack .../24-lib32gcc-s1_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:10.2057706Z #17 7.387 Unpacking lib32gcc-s1 (14.2.0-19) ...
+2025-09-20T21:27:10.2058261Z #17 7.410 Selecting previously unselected package lib32stdc++6.
+2025-09-20T21:27:10.2058912Z #17 7.414 Preparing to unpack .../25-lib32stdc++6_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:10.2059525Z #17 7.415 Unpacking lib32stdc++6 (14.2.0-19) ...
+2025-09-20T21:27:10.2060122Z #17 7.469 Selecting previously unselected package libgc1:amd64.
+2025-09-20T21:27:10.2060768Z #17 7.472 Preparing to unpack .../26-libgc1_1%3a8.2.8-1_amd64.deb ...
+2025-09-20T21:27:10.2061338Z #17 7.473 Unpacking libgc1:amd64 (1:8.2.8-1) ...
+2025-09-20T21:27:10.2061897Z #17 7.498 Selecting previously unselected package libobjc4:amd64.
+2025-09-20T21:27:10.3077454Z #17 7.502 Preparing to unpack .../27-libobjc4_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:10.3079617Z #17 7.503 Unpacking libobjc4:amd64 (14.2.0-19) ...
+2025-09-20T21:27:10.3080272Z #17 7.523 Selecting previously unselected package libobjc-14-dev:amd64.
+2025-09-20T21:27:10.3081069Z #17 7.527 Preparing to unpack .../28-libobjc-14-dev_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:10.3081721Z #17 7.528 Unpacking libobjc-14-dev:amd64 (14.2.0-19) ...
+2025-09-20T21:27:10.3082314Z #17 7.558 Selecting previously unselected package libz3-4:amd64.
+2025-09-20T21:27:10.3082971Z #17 7.562 Preparing to unpack .../29-libz3-4_4.13.3-1_amd64.deb ...
+2025-09-20T21:27:10.3083540Z #17 7.563 Unpacking libz3-4:amd64 (4.13.3-1) ...
+2025-09-20T21:27:10.6330414Z #17 7.925 Selecting previously unselected package libllvm19:amd64.
+2025-09-20T21:27:10.8332046Z #17 7.929 Preparing to unpack .../30-libllvm19_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:10.8333326Z #17 7.930 Unpacking libllvm19:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:11.8572649Z #17 8.918 Selecting previously unselected package libclang1-19.
+2025-09-20T21:27:11.8573800Z #17 8.922 Preparing to unpack .../31-libclang1-19_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:11.8574728Z #17 8.923 Unpacking libclang1-19 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:11.9574995Z #17 9.250 Selecting previously unselected package libclang-common-19-dev:amd64.
+2025-09-20T21:27:12.0730289Z #17 9.253 Preparing to unpack .../32-libclang-common-19-dev_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:12.0731682Z #17 9.255 Unpacking libclang-common-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:12.3239813Z #17 9.366 Selecting previously unselected package libclang-19-dev.
+2025-09-20T21:27:12.3241556Z #17 9.370 Preparing to unpack .../33-libclang-19-dev_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:12.3243615Z #17 9.371 Unpacking libclang-19-dev (1:19.1.7-3+b1) ...
+2025-09-20T21:27:12.7728143Z #17 ...
+2025-09-20T21:27:12.7729772Z 
+2025-09-20T21:27:12.7730957Z #18 [server 6/8] RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*
+2025-09-20T21:27:12.7732559Z #18 0.266 Hit:1 http://deb.debian.org/debian trixie InRelease
+2025-09-20T21:27:12.7733662Z #18 0.285 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+2025-09-20T21:27:12.7734886Z #18 0.323 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+2025-09-20T21:27:12.7735943Z #18 0.345 Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9669 kB]
+2025-09-20T21:27:12.7737138Z #18 0.479 Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [5412 B]
+2025-09-20T21:27:12.7739326Z #18 0.497 Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [41.1 kB]
+2025-09-20T21:27:12.7740072Z #18 1.148 Fetched 9806 kB in 1s (10.1 MB/s)
+2025-09-20T21:27:12.7740510Z #18 1.148 Reading package lists...
+2025-09-20T21:27:12.7740893Z #18 1.721 Reading package lists...
+2025-09-20T21:27:12.7741284Z #18 2.280 Building dependency tree...
+2025-09-20T21:27:12.7741691Z #18 2.461 Reading state information...
+2025-09-20T21:27:12.7742172Z #18 2.707 openssl is already the newest version (3.5.1-1).
+2025-09-20T21:27:12.7742693Z #18 2.707 openssl set to manually installed.
+2025-09-20T21:27:12.7743219Z #18 2.707 The following additional packages will be installed:
+2025-09-20T21:27:12.7743929Z #18 2.708   cmake-data lib32gcc-s1 lib32stdc++6 libarchive13t64 libbpf1 libc6-i386
+2025-09-20T21:27:12.7744754Z #18 2.708   libcap2-bin libclang-19-dev libclang-common-19-dev libclang-rt-19-dev
+2025-09-20T21:27:12.7745547Z #18 2.708   libclang1-19 libgc1 libip4tc2 libip6tc2 libjsoncpp26 libllvm19 libmnl0
+2025-09-20T21:27:12.7746380Z #18 2.708   libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libobjc-14-dev
+2025-09-20T21:27:12.7747391Z #18 2.709   libobjc4 libpam-cap librhash1 libtirpc-common libtirpc3t64 libuv1t64
+2025-09-20T21:27:12.7748044Z #18 2.710   libxtables12 libz3-4 nftables
+2025-09-20T21:27:12.7748457Z #18 2.712 Suggested packages:
+2025-09-20T21:27:12.7749017Z #18 2.712   cmake-doc cmake-format elpa-cmake-mode ninja-build firewalld kmod lrzip
+2025-09-20T21:27:12.7749697Z #18 2.905 The following NEW packages will be installed:
+2025-09-20T21:27:12.7750355Z #18 2.905   build-essential cmake cmake-data inetutils-ping iproute2 iptables
+2025-09-20T21:27:12.7751147Z #18 2.905   lib32gcc-s1 lib32stdc++6 libarchive13t64 libbpf1 libc6-i386 libcap2-bin
+2025-09-20T21:27:12.7751957Z #18 2.905   libclang-19-dev libclang-common-19-dev libclang-dev libclang-rt-19-dev
+2025-09-20T21:27:12.7752756Z #18 2.905   libclang1-19 libgc1 libip4tc2 libip6tc2 libjsoncpp26 libllvm19 libmnl0
+2025-09-20T21:27:12.7753620Z #18 2.905   libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libobjc-14-dev
+2025-09-20T21:27:12.7754485Z #18 2.906   libobjc4 libpam-cap librhash1 libtirpc-common libtirpc3t64 libuv1t64
+2025-09-20T21:27:12.7755138Z #18 2.906   libxtables12 libz3-4 net-tools nftables
+2025-09-20T21:27:12.7755719Z #18 3.195 0 upgraded, 38 newly installed, 0 to remove and 15 not upgraded.
+2025-09-20T21:27:12.7756292Z #18 3.195 Need to get 96.4 MB of archives.
+2025-09-20T21:27:12.7756850Z #18 3.195 After this operation, 654 MB of additional disk space will be used.
+2025-09-20T21:27:12.7768873Z #18 3.195 Get:1 http://deb.debian.org/debian trixie/main amd64 libbpf1 amd64 1:1.5.0-3 [169 kB]
+2025-09-20T21:27:12.7769803Z #18 3.249 Get:2 http://deb.debian.org/debian trixie/main amd64 libmnl0 amd64 1.0.5-3 [11.9 kB]
+2025-09-20T21:27:12.7770783Z #18 3.253 Get:3 http://deb.debian.org/debian trixie/main amd64 libtirpc-common all 1.3.6+ds-1 [11.0 kB]
+2025-09-20T21:27:12.7771975Z #18 3.255 Get:4 http://deb.debian.org/debian trixie/main amd64 libtirpc3t64 amd64 1.3.6+ds-1 [83.3 kB]
+2025-09-20T21:27:12.7772921Z #18 3.258 Get:5 http://deb.debian.org/debian trixie/main amd64 libxtables12 amd64 1.8.11-2 [31.9 kB]
+2025-09-20T21:27:12.7773867Z #18 3.260 Get:6 http://deb.debian.org/debian trixie/main amd64 libcap2-bin amd64 1:2.75-10+b1 [36.4 kB]
+2025-09-20T21:27:12.7774834Z #18 3.264 Get:7 http://deb.debian.org/debian trixie/main amd64 iproute2 amd64 6.15.0-1 [1089 kB]
+2025-09-20T21:27:12.7775740Z #18 3.297 Get:8 http://deb.debian.org/debian trixie/main amd64 libnftnl11 amd64 1.2.9-1 [65.0 kB]
+2025-09-20T21:27:12.7776645Z #18 3.298 Get:9 http://deb.debian.org/debian trixie/main amd64 libnftables1 amd64 1.1.3-1 [332 kB]
+2025-09-20T21:27:12.7777712Z #18 3.306 Get:10 http://deb.debian.org/debian trixie/main amd64 nftables amd64 1.1.3-1 [75.9 kB]
+2025-09-20T21:27:12.7778639Z #18 3.306 Get:11 http://deb.debian.org/debian trixie/main amd64 build-essential amd64 12.12 [4624 B]
+2025-09-20T21:27:12.7779573Z #18 3.307 Get:12 http://deb.debian.org/debian trixie/main amd64 cmake-data all 3.31.6-2 [2268 kB]
+2025-09-20T21:27:12.7780489Z #18 3.327 Get:13 http://deb.debian.org/debian trixie/main amd64 libarchive13t64 amd64 3.7.4-4 [349 kB]
+2025-09-20T21:27:12.7781439Z #18 3.328 Get:14 http://deb.debian.org/debian trixie/main amd64 libjsoncpp26 amd64 1.9.6-3 [81.7 kB]
+2025-09-20T21:27:12.7782343Z #18 3.329 Get:15 http://deb.debian.org/debian trixie/main amd64 librhash1 amd64 1.4.5-1 [132 kB]
+2025-09-20T21:27:12.7783216Z #18 3.330 Get:16 http://deb.debian.org/debian trixie/main amd64 libuv1t64 amd64 1.50.0-2 [154 kB]
+2025-09-20T21:27:12.7784105Z #18 3.331 Get:17 http://deb.debian.org/debian trixie/main amd64 cmake amd64 3.31.6-2 [12.0 MB]
+2025-09-20T21:27:12.7785020Z #18 3.387 Get:18 http://deb.debian.org/debian trixie/main amd64 inetutils-ping amd64 2:2.6-3 [89.0 kB]
+2025-09-20T21:27:12.7785951Z #18 3.387 Get:19 http://deb.debian.org/debian trixie/main amd64 libip4tc2 amd64 1.8.11-2 [20.0 kB]
+2025-09-20T21:27:12.7786850Z #18 3.387 Get:20 http://deb.debian.org/debian trixie/main amd64 libip6tc2 amd64 1.8.11-2 [20.3 kB]
+2025-09-20T21:27:12.7787913Z #18 3.387 Get:21 http://deb.debian.org/debian trixie/main amd64 libnfnetlink0 amd64 1.0.2-3 [14.4 kB]
+2025-09-20T21:27:12.7788934Z #18 3.388 Get:22 http://deb.debian.org/debian trixie/main amd64 libnetfilter-conntrack3 amd64 1.1.0-1 [42.1 kB]
+2025-09-20T21:27:12.7789880Z #18 3.389 Get:23 http://deb.debian.org/debian trixie/main amd64 iptables amd64 1.8.11-2 [361 kB]
+2025-09-20T21:27:12.7790740Z #18 3.389 Get:24 http://deb.debian.org/debian trixie/main amd64 libc6-i386 amd64 2.41-12 [2540 kB]
+2025-09-20T21:27:12.7791648Z #18 3.399 Get:25 http://deb.debian.org/debian trixie/main amd64 lib32gcc-s1 amd64 14.2.0-19 [88.4 kB]
+2025-09-20T21:27:12.7792576Z #18 3.399 Get:26 http://deb.debian.org/debian trixie/main amd64 lib32stdc++6 amd64 14.2.0-19 [745 kB]
+2025-09-20T21:27:12.7793487Z #18 3.414 Get:27 http://deb.debian.org/debian trixie/main amd64 libgc1 amd64 1:8.2.8-1 [247 kB]
+2025-09-20T21:27:12.7794363Z #18 3.417 Get:28 http://deb.debian.org/debian trixie/main amd64 libobjc4 amd64 14.2.0-19 [43.3 kB]
+2025-09-20T21:27:12.7795317Z #18 3.418 Get:29 http://deb.debian.org/debian trixie/main amd64 libobjc-14-dev amd64 14.2.0-19 [173 kB]
+2025-09-20T21:27:12.7796239Z #18 3.427 Get:30 http://deb.debian.org/debian trixie/main amd64 libz3-4 amd64 4.13.3-1 [8560 kB]
+2025-09-20T21:27:12.7817465Z #18 3.467 Get:31 http://deb.debian.org/debian trixie/main amd64 libllvm19 amd64 1:19.1.7-3+b1 [26.0 MB]
+2025-09-20T21:27:12.7818504Z #18 3.582 Get:32 http://deb.debian.org/debian trixie/main amd64 libclang1-19 amd64 1:19.1.7-3+b1 [7623 kB]
+2025-09-20T21:27:12.7819786Z #18 3.643 Get:33 http://deb.debian.org/debian trixie/main amd64 libclang-common-19-dev amd64 1:19.1.7-3+b1 [740 kB]
+2025-09-20T21:27:12.7820879Z #18 3.657 Get:34 http://deb.debian.org/debian trixie/main amd64 libclang-19-dev amd64 1:19.1.7-3+b1 [28.3 MB]
+2025-09-20T21:27:12.7822068Z #18 3.786 Get:35 http://deb.debian.org/debian trixie/main amd64 libclang-dev amd64 1:19.0-63 [5828 B]
+2025-09-20T21:27:12.7823090Z #18 3.787 Get:36 http://deb.debian.org/debian trixie/main amd64 libclang-rt-19-dev amd64 1:19.1.7-3+b1 [3690 kB]
+2025-09-20T21:27:12.7824123Z #18 3.799 Get:37 http://deb.debian.org/debian trixie/main amd64 libpam-cap amd64 1:2.75-10+b1 [16.5 kB]
+2025-09-20T21:27:12.7825068Z #18 3.800 Get:38 http://deb.debian.org/debian trixie/main amd64 net-tools amd64 2.10-1.3 [245 kB]
+2025-09-20T21:27:12.7825802Z #18 3.973 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:12.7826414Z #18 3.973 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:12.7827215Z #18 3.973 debconf: falling back to frontend: Readline
+2025-09-20T21:27:12.7827766Z #18 3.979 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:12.7828333Z #18 3.979 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:12.7828884Z #18 3.979 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:12.7829409Z #18 3.984 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:12.7829973Z #18 3.984 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:12.7830547Z #18 3.984 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:12.7831037Z #18 5.107 Preconfiguring packages ...
+2025-09-20T21:27:12.7831466Z #18 5.173 Fetched 96.4 MB in 1s (110 MB/s)
+2025-09-20T21:27:12.7831975Z #18 5.192 Selecting previously unselected package libbpf1:amd64.
+2025-09-20T21:27:12.7832507Z #18 5.192 (Reading database ... 
+2025-09-20T21:27:12.7832860Z (Reading database ... 5%
+2025-09-20T21:27:12.7833204Z (Reading database ... 10%
+2025-09-20T21:27:12.7833545Z (Reading database ... 15%
+2025-09-20T21:27:12.7833872Z (Reading database ... 20%
+2025-09-20T21:27:12.7834186Z (Reading database ... 25%
+2025-09-20T21:27:12.7834519Z (Reading database ... 30%
+2025-09-20T21:27:12.7834839Z (Reading database ... 35%
+2025-09-20T21:27:12.7835164Z (Reading database ... 40%
+2025-09-20T21:27:12.7835501Z (Reading database ... 45%
+2025-09-20T21:27:12.7835826Z (Reading database ... 50%
+2025-09-20T21:27:12.7836144Z (Reading database ... 55%
+2025-09-20T21:27:12.7836470Z (Reading database ... 60%
+2025-09-20T21:27:12.7836786Z (Reading database ... 65%
+2025-09-20T21:27:12.7837240Z (Reading database ... 70%
+2025-09-20T21:27:12.7837575Z (Reading database ... 75%
+2025-09-20T21:27:12.7837912Z (Reading database ... 80%
+2025-09-20T21:27:12.7838238Z (Reading database ... 85%
+2025-09-20T21:27:12.7838564Z (Reading database ... 90%
+2025-09-20T21:27:12.7838894Z (Reading database ... 95%
+2025-09-20T21:27:12.7839235Z (Reading database ... 100%
+2025-09-20T21:27:12.7839734Z (Reading database ... 26065 files and directories currently installed.)
+2025-09-20T21:27:12.7840425Z #18 5.215 Preparing to unpack .../00-libbpf1_1%3a1.5.0-3_amd64.deb ...
+2025-09-20T21:27:12.7840992Z #18 5.217 Unpacking libbpf1:amd64 (1:1.5.0-3) ...
+2025-09-20T21:27:12.7841543Z #18 5.244 Selecting previously unselected package libmnl0:amd64.
+2025-09-20T21:27:12.7842168Z #18 5.248 Preparing to unpack .../01-libmnl0_1.0.5-3_amd64.deb ...
+2025-09-20T21:27:12.7842710Z #18 5.249 Unpacking libmnl0:amd64 (1.0.5-3) ...
+2025-09-20T21:27:12.7843261Z #18 5.265 Selecting previously unselected package libtirpc-common.
+2025-09-20T21:27:12.7843949Z #18 5.268 Preparing to unpack .../02-libtirpc-common_1.3.6+ds-1_all.deb ...
+2025-09-20T21:27:12.7844559Z #18 5.269 Unpacking libtirpc-common (1.3.6+ds-1) ...
+2025-09-20T21:27:12.7845155Z #18 5.289 Selecting previously unselected package libtirpc3t64:amd64.
+2025-09-20T21:27:12.7845851Z #18 5.292 Preparing to unpack .../03-libtirpc3t64_1.3.6+ds-1_amd64.deb ...
+2025-09-20T21:27:12.7859664Z #18 5.301 Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3 to /lib/x86_64-linux-gnu/libtirpc.so.3.usr-is-merged by libtirpc3t64'
+2025-09-20T21:27:12.7861143Z #18 5.308 Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3.0.0 to /lib/x86_64-linux-gnu/libtirpc.so.3.0.0.usr-is-merged by libtirpc3t64'
+2025-09-20T21:27:12.7862335Z #18 5.310 Unpacking libtirpc3t64:amd64 (1.3.6+ds-1) ...
+2025-09-20T21:27:12.7862945Z #18 5.330 Selecting previously unselected package libxtables12:amd64.
+2025-09-20T21:27:12.7863636Z #18 5.333 Preparing to unpack .../04-libxtables12_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:12.7864213Z #18 5.334 Unpacking libxtables12:amd64 (1.8.11-2) ...
+2025-09-20T21:27:12.7864765Z #18 5.352 Selecting previously unselected package libcap2-bin.
+2025-09-20T21:27:12.7865427Z #18 5.355 Preparing to unpack .../05-libcap2-bin_1%3a2.75-10+b1_amd64.deb ...
+2025-09-20T21:27:12.7866028Z #18 5.356 Unpacking libcap2-bin (1:2.75-10+b1) ...
+2025-09-20T21:27:12.7866555Z #18 5.378 Selecting previously unselected package iproute2.
+2025-09-20T21:27:12.7887518Z #18 5.381 Preparing to unpack .../06-iproute2_6.15.0-1_amd64.deb ...
+2025-09-20T21:27:12.7888099Z #18 5.419 Unpacking iproute2 (6.15.0-1) ...
+2025-09-20T21:27:12.7888648Z #18 5.506 Selecting previously unselected package libnftnl11:amd64.
+2025-09-20T21:27:12.7889321Z #18 5.509 Preparing to unpack .../07-libnftnl11_1.2.9-1_amd64.deb ...
+2025-09-20T21:27:12.7889873Z #18 5.511 Unpacking libnftnl11:amd64 (1.2.9-1) ...
+2025-09-20T21:27:12.7890459Z #18 5.532 Selecting previously unselected package libnftables1:amd64.
+2025-09-20T21:27:12.7891116Z #18 5.536 Preparing to unpack .../08-libnftables1_1.1.3-1_amd64.deb ...
+2025-09-20T21:27:12.7891702Z #18 5.537 Unpacking libnftables1:amd64 (1.1.3-1) ...
+2025-09-20T21:27:12.7892237Z #18 5.570 Selecting previously unselected package nftables.
+2025-09-20T21:27:12.7892849Z #18 5.573 Preparing to unpack .../09-nftables_1.1.3-1_amd64.deb ...
+2025-09-20T21:27:12.7893399Z #18 5.575 Unpacking nftables (1.1.3-1) ...
+2025-09-20T21:27:12.7893963Z #18 5.602 Selecting previously unselected package build-essential.
+2025-09-20T21:27:12.7894641Z #18 5.605 Preparing to unpack .../10-build-essential_12.12_amd64.deb ...
+2025-09-20T21:27:12.7895254Z #18 5.607 Unpacking build-essential (12.12) ...
+2025-09-20T21:27:12.7895805Z #18 5.631 Selecting previously unselected package cmake-data.
+2025-09-20T21:27:12.7896423Z #18 5.636 Preparing to unpack .../11-cmake-data_3.31.6-2_all.deb ...
+2025-09-20T21:27:12.7897120Z #18 5.643 Unpacking cmake-data (3.31.6-2) ...
+2025-09-20T21:27:12.7897708Z #18 6.508 Selecting previously unselected package libarchive13t64:amd64.
+2025-09-20T21:27:12.7898423Z #18 6.512 Preparing to unpack .../12-libarchive13t64_3.7.4-4_amd64.deb ...
+2025-09-20T21:27:12.7899028Z #18 6.513 Unpacking libarchive13t64:amd64 (3.7.4-4) ...
+2025-09-20T21:27:12.7899635Z #18 6.548 Selecting previously unselected package libjsoncpp26:amd64.
+2025-09-20T21:27:12.7900310Z #18 6.551 Preparing to unpack .../13-libjsoncpp26_1.9.6-3_amd64.deb ...
+2025-09-20T21:27:12.7900923Z #18 6.552 Unpacking libjsoncpp26:amd64 (1.9.6-3) ...
+2025-09-20T21:27:12.7901502Z #18 6.578 Selecting previously unselected package librhash1:amd64.
+2025-09-20T21:27:12.7902152Z #18 6.581 Preparing to unpack .../14-librhash1_1.4.5-1_amd64.deb ...
+2025-09-20T21:27:12.7902705Z #18 6.582 Unpacking librhash1:amd64 (1.4.5-1) ...
+2025-09-20T21:27:12.7903256Z #18 6.610 Selecting previously unselected package libuv1t64:amd64.
+2025-09-20T21:27:12.7903926Z #18 6.614 Preparing to unpack .../15-libuv1t64_1.50.0-2_amd64.deb ...
+2025-09-20T21:27:12.7904492Z #18 6.616 Unpacking libuv1t64:amd64 (1.50.0-2) ...
+2025-09-20T21:27:12.7905001Z #18 6.641 Selecting previously unselected package cmake.
+2025-09-20T21:27:12.7905579Z #18 6.645 Preparing to unpack .../16-cmake_3.31.6-2_amd64.deb ...
+2025-09-20T21:27:12.7906090Z #18 6.647 Unpacking cmake (3.31.6-2) ...
+2025-09-20T21:27:12.7906618Z #18 7.081 Selecting previously unselected package inetutils-ping.
+2025-09-20T21:27:12.7907782Z #18 7.085 Preparing to unpack .../17-inetutils-ping_2%3a2.6-3_amd64.deb ...
+2025-09-20T21:27:12.7908369Z #18 7.086 Unpacking inetutils-ping (2:2.6-3) ...
+2025-09-20T21:27:12.7908934Z #18 7.108 Selecting previously unselected package libip4tc2:amd64.
+2025-09-20T21:27:12.7909585Z #18 7.112 Preparing to unpack .../18-libip4tc2_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:12.7910407Z #18 7.113 Unpacking libip4tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:12.7910963Z #18 7.131 Selecting previously unselected package libip6tc2:amd64.
+2025-09-20T21:27:12.7911613Z #18 7.136 Preparing to unpack .../19-libip6tc2_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:12.7912173Z #18 7.137 Unpacking libip6tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:12.7912750Z #18 7.155 Selecting previously unselected package libnfnetlink0:amd64.
+2025-09-20T21:27:12.7913442Z #18 7.158 Preparing to unpack .../20-libnfnetlink0_1.0.2-3_amd64.deb ...
+2025-09-20T21:27:12.7914044Z #18 7.159 Unpacking libnfnetlink0:amd64 (1.0.2-3) ...
+2025-09-20T21:27:12.7914714Z #18 7.178 Selecting previously unselected package libnetfilter-conntrack3:amd64.
+2025-09-20T21:27:12.7915525Z #18 7.181 Preparing to unpack .../21-libnetfilter-conntrack3_1.1.0-1_amd64.deb ...
+2025-09-20T21:27:12.7916233Z #18 7.182 Unpacking libnetfilter-conntrack3:amd64 (1.1.0-1) ...
+2025-09-20T21:27:12.7916813Z #18 7.200 Selecting previously unselected package iptables.
+2025-09-20T21:27:12.7917625Z #18 7.204 Preparing to unpack .../22-iptables_1.8.11-2_amd64.deb ...
+2025-09-20T21:27:12.7918160Z #18 7.205 Unpacking iptables (1.8.11-2) ...
+2025-09-20T21:27:12.7918673Z #18 7.266 Selecting previously unselected package libc6-i386.
+2025-09-20T21:27:12.7919293Z #18 7.271 Preparing to unpack .../23-libc6-i386_2.41-12_amd64.deb ...
+2025-09-20T21:27:12.7919831Z #18 7.280 Unpacking libc6-i386 (2.41-12) ...
+2025-09-20T21:27:12.7920334Z #18 7.423 Selecting previously unselected package lib32gcc-s1.
+2025-09-20T21:27:12.7920942Z #18 7.427 Preparing to unpack .../24-lib32gcc-s1_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:12.7921522Z #18 7.428 Unpacking lib32gcc-s1 (14.2.0-19) ...
+2025-09-20T21:27:12.7922040Z #18 7.452 Selecting previously unselected package lib32stdc++6.
+2025-09-20T21:27:12.7922693Z #18 7.455 Preparing to unpack .../25-lib32stdc++6_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:12.7923255Z #18 7.457 Unpacking lib32stdc++6 (14.2.0-19) ...
+2025-09-20T21:27:12.7923784Z #18 7.506 Selecting previously unselected package libgc1:amd64.
+2025-09-20T21:27:12.7924410Z #18 7.510 Preparing to unpack .../26-libgc1_1%3a8.2.8-1_amd64.deb ...
+2025-09-20T21:27:12.7924938Z #18 7.511 Unpacking libgc1:amd64 (1:8.2.8-1) ...
+2025-09-20T21:27:12.7925478Z #18 7.537 Selecting previously unselected package libobjc4:amd64.
+2025-09-20T21:27:12.7926112Z #18 7.540 Preparing to unpack .../27-libobjc4_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:12.7926686Z #18 7.541 Unpacking libobjc4:amd64 (14.2.0-19) ...
+2025-09-20T21:27:12.7927435Z #18 7.560 Selecting previously unselected package libobjc-14-dev:amd64.
+2025-09-20T21:27:12.7928160Z #18 7.564 Preparing to unpack .../28-libobjc-14-dev_14.2.0-19_amd64.deb ...
+2025-09-20T21:27:12.7928787Z #18 7.565 Unpacking libobjc-14-dev:amd64 (14.2.0-19) ...
+2025-09-20T21:27:12.7929355Z #18 7.597 Selecting previously unselected package libz3-4:amd64.
+2025-09-20T21:27:12.7929990Z #18 7.601 Preparing to unpack .../29-libz3-4_4.13.3-1_amd64.deb ...
+2025-09-20T21:27:12.7930520Z #18 7.603 Unpacking libz3-4:amd64 (4.13.3-1) ...
+2025-09-20T21:27:12.7931083Z #18 7.968 Selecting previously unselected package libllvm19:amd64.
+2025-09-20T21:27:12.7931750Z #18 7.973 Preparing to unpack .../30-libllvm19_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:12.7932345Z #18 7.974 Unpacking libllvm19:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:12.7932905Z #18 8.995 Selecting previously unselected package libclang1-19.
+2025-09-20T21:27:12.7933566Z #18 9.000 Preparing to unpack .../31-libclang1-19_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:12.7934200Z #18 9.001 Unpacking libclang1-19 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:12.7935039Z #18 9.324 Selecting previously unselected package libclang-common-19-dev:amd64.
+2025-09-20T21:27:12.7935856Z #18 9.328 Preparing to unpack .../32-libclang-common-19-dev_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:12.7936601Z #18 9.329 Unpacking libclang-common-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:12.7948318Z #18 9.458 Selecting previously unselected package libclang-19-dev.
+2025-09-20T21:27:12.7949309Z #18 9.465 Preparing to unpack .../33-libclang-19-dev_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:12.7949966Z #18 9.466 Unpacking libclang-19-dev (1:19.1.7-3+b1) ...
+2025-09-20T21:27:13.8002797Z #18 ...
+2025-09-20T21:27:13.8004014Z 
+2025-09-20T21:27:13.8005335Z #17 [peer_a 6/8] RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*
+2025-09-20T21:27:13.8006647Z #17 11.09 Selecting previously unselected package libclang-dev.
+2025-09-20T21:27:14.0091263Z #17 11.10 Preparing to unpack .../34-libclang-dev_1%3a19.0-63_amd64.deb ...
+2025-09-20T21:27:14.0093255Z #17 11.10 Unpacking libclang-dev (1:19.0-63) ...
+2025-09-20T21:27:14.0093889Z #17 11.12 Selecting previously unselected package libclang-rt-19-dev:amd64.
+2025-09-20T21:27:14.0094667Z #17 11.12 Preparing to unpack .../35-libclang-rt-19-dev_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:14.0095414Z #17 11.12 Unpacking libclang-rt-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:14.1770695Z #17 11.37 Selecting previously unselected package libpam-cap:amd64.
+2025-09-20T21:27:14.1771406Z #17 11.37 Preparing to unpack .../36-libpam-cap_1%3a2.75-10+b1_amd64.deb ...
+2025-09-20T21:27:14.1771824Z #17 11.37 Unpacking libpam-cap:amd64 (1:2.75-10+b1) ...
+2025-09-20T21:27:14.1772241Z #17 11.39 Selecting previously unselected package net-tools.
+2025-09-20T21:27:14.1772687Z #17 11.40 Preparing to unpack .../37-net-tools_2.10-1.3_amd64.deb ...
+2025-09-20T21:27:14.1773020Z #17 11.40 Unpacking net-tools (2.10-1.3) ...
+2025-09-20T21:27:14.1773325Z #17 11.45 Setting up libip4tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:14.1773615Z #17 11.46 Setting up net-tools (2.10-1.3) ...
+2025-09-20T21:27:14.1773931Z #17 11.46 Setting up libclang-common-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:14.1774255Z #17 11.46 Setting up libip6tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:14.1774550Z #17 11.46 Setting up libtirpc-common (1.3.6+ds-1) ...
+2025-09-20T21:27:14.1774829Z #17 11.47 Setting up libuv1t64:amd64 (1.50.0-2) ...
+2025-09-20T21:27:14.3009827Z #17 11.47 Setting up libcap2-bin (1:2.75-10+b1) ...
+2025-09-20T21:27:14.3013728Z #17 11.47 Setting up libz3-4:amd64 (4.13.3-1) ...
+2025-09-20T21:27:14.3014589Z #17 11.48 Setting up libjsoncpp26:amd64 (1.9.6-3) ...
+2025-09-20T21:27:14.3016069Z #17 11.48 Setting up libmnl0:amd64 (1.0.5-3) ...
+2025-09-20T21:27:14.3019898Z #17 11.48 Setting up libxtables12:amd64 (1.8.11-2) ...
+2025-09-20T21:27:14.3021066Z #17 11.49 Setting up libgc1:amd64 (1:8.2.8-1) ...
+2025-09-20T21:27:14.3022029Z #17 11.49 Setting up inetutils-ping (2:2.6-3) ...
+2025-09-20T21:27:14.3023071Z #17 11.49 Setting up libnfnetlink0:amd64 (1.0.2-3) ...
+2025-09-20T21:27:14.3024180Z #17 11.49 Setting up libc6-i386 (2.41-12) ...
+2025-09-20T21:27:14.3024992Z #17 11.50 Setting up build-essential (12.12) ...
+2025-09-20T21:27:14.3025543Z #17 11.50 Setting up cmake-data (3.31.6-2) ...
+2025-09-20T21:27:14.3026074Z #17 11.51 Setting up librhash1:amd64 (1.4.5-1) ...
+2025-09-20T21:27:14.3026612Z #17 11.51 Setting up libpam-cap:amd64 (1:2.75-10+b1) ...
+2025-09-20T21:27:14.4113118Z #17 11.59 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:14.4113985Z #17 11.59 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:14.4114722Z #17 11.59 debconf: falling back to frontend: Readline
+2025-09-20T21:27:14.4115361Z #17 11.60 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:14.4115888Z #17 11.60 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:14.4116311Z #17 11.60 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:14.4117373Z #17 11.60 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:14.4117824Z #17 11.60 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:14.4118245Z #17 11.60 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:14.4118735Z #17 11.66 Setting up libarchive13t64:amd64 (3.7.4-4) ...
+2025-09-20T21:27:14.4119348Z #17 11.66 Setting up libbpf1:amd64 (1:1.5.0-3) ...
+2025-09-20T21:27:14.4119716Z #17 11.67 Setting up libllvm19:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:14.4120132Z #17 11.67 Setting up libclang1-19 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:14.4120639Z #17 11.67 Setting up libtirpc3t64:amd64 (1.3.6+ds-1) ...
+2025-09-20T21:27:14.4121237Z #17 11.68 Setting up iproute2 (6.15.0-1) ...
+2025-09-20T21:27:14.5231210Z #17 11.75 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:14.5231809Z #17 11.75 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:14.5232224Z #17 11.75 debconf: falling back to frontend: Readline
+2025-09-20T21:27:14.5232594Z #17 11.76 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:14.5232966Z #17 11.76 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:14.5233311Z #17 11.76 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:14.5233653Z #17 11.76 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:14.5234047Z #17 11.76 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:14.5234441Z #17 11.76 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:14.6364233Z #17 11.82 Setting up libnftnl11:amd64 (1.2.9-1) ...
+2025-09-20T21:27:14.6364861Z #17 11.82 Setting up libobjc4:amd64 (14.2.0-19) ...
+2025-09-20T21:27:14.6365388Z #17 11.82 Setting up libobjc-14-dev:amd64 (14.2.0-19) ...
+2025-09-20T21:27:14.6365887Z #17 11.83 Setting up lib32gcc-s1 (14.2.0-19) ...
+2025-09-20T21:27:14.6366292Z #17 11.83 Setting up lib32stdc++6 (14.2.0-19) ...
+2025-09-20T21:27:14.6366755Z #17 11.83 Setting up libclang-rt-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:14.6367478Z #17 11.83 Setting up libnetfilter-conntrack3:amd64 (1.1.0-1) ...
+2025-09-20T21:27:14.6367976Z #17 11.84 Setting up cmake (3.31.6-2) ...
+2025-09-20T21:27:14.6368448Z #17 11.84 Setting up libclang-19-dev (1:19.1.7-3+b1) ...
+2025-09-20T21:27:14.6368870Z #17 11.84 Setting up libnftables1:amd64 (1.1.3-1) ...
+2025-09-20T21:27:14.6369187Z #17 11.84 Setting up nftables (1.1.3-1) ...
+2025-09-20T21:27:14.6369540Z #17 11.93 Setting up libclang-dev (1:19.0-63) ...
+2025-09-20T21:27:14.8498088Z #17 11.93 Setting up iptables (1.8.11-2) ...
+2025-09-20T21:27:14.8498781Z #17 11.94 update-alternatives: using /usr/sbin/iptables-legacy to provide /usr/sbin/iptables (iptables) in auto mode
+2025-09-20T21:27:14.8499543Z #17 11.94 update-alternatives: using /usr/sbin/ip6tables-legacy to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+2025-09-20T21:27:14.8500231Z #17 11.94 update-alternatives: using /usr/sbin/iptables-nft to provide /usr/sbin/iptables (iptables) in auto mode
+2025-09-20T21:27:14.8500926Z #17 11.95 update-alternatives: using /usr/sbin/ip6tables-nft to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+2025-09-20T21:27:14.8501580Z #17 11.95 update-alternatives: using /usr/sbin/arptables-nft to provide /usr/sbin/arptables (arptables) in auto mode
+2025-09-20T21:27:14.8502241Z #17 11.95 update-alternatives: using /usr/sbin/ebtables-nft to provide /usr/sbin/ebtables (ebtables) in auto mode
+2025-09-20T21:27:14.8502751Z #17 11.96 Processing triggers for base-files (13.8+deb13u1) ...
+2025-09-20T21:27:14.8503080Z #17 11.96 Processing triggers for libc-bin (2.41-12) ...
+2025-09-20T21:27:17.6524424Z #17 ...
+2025-09-20T21:27:17.6524740Z 
+2025-09-20T21:27:17.6526072Z #18 [server 6/8] RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*
+2025-09-20T21:27:17.6528263Z #18 11.12 Selecting previously unselected package libclang-dev.
+2025-09-20T21:27:17.6529590Z #18 11.13 Preparing to unpack .../34-libclang-dev_1%3a19.0-63_amd64.deb ...
+2025-09-20T21:27:17.6530315Z #18 11.13 Unpacking libclang-dev (1:19.0-63) ...
+2025-09-20T21:27:17.6531064Z #18 11.15 Selecting previously unselected package libclang-rt-19-dev:amd64.
+2025-09-20T21:27:17.6532077Z #18 11.15 Preparing to unpack .../35-libclang-rt-19-dev_1%3a19.1.7-3+b1_amd64.deb ...
+2025-09-20T21:27:17.6533217Z #18 11.15 Unpacking libclang-rt-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:17.6533809Z #18 11.40 Selecting previously unselected package libpam-cap:amd64.
+2025-09-20T21:27:17.6534468Z #18 11.41 Preparing to unpack .../36-libpam-cap_1%3a2.75-10+b1_amd64.deb ...
+2025-09-20T21:27:17.6535007Z #18 11.41 Unpacking libpam-cap:amd64 (1:2.75-10+b1) ...
+2025-09-20T21:27:17.6535440Z #18 11.43 Selecting previously unselected package net-tools.
+2025-09-20T21:27:17.6535796Z #18 11.43 Preparing to unpack .../37-net-tools_2.10-1.3_amd64.deb ...
+2025-09-20T21:27:17.6536241Z #18 11.43 Unpacking net-tools (2.10-1.3) ...
+2025-09-20T21:27:17.6536562Z #18 11.50 Setting up libip4tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:17.6537220Z #18 11.50 Setting up net-tools (2.10-1.3) ...
+2025-09-20T21:27:17.6537735Z #18 11.50 Setting up libclang-common-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:17.6538067Z #18 11.50 Setting up libip6tc2:amd64 (1.8.11-2) ...
+2025-09-20T21:27:17.6538390Z #18 11.51 Setting up libtirpc-common (1.3.6+ds-1) ...
+2025-09-20T21:27:17.6538752Z #18 11.51 Setting up libuv1t64:amd64 (1.50.0-2) ...
+2025-09-20T21:27:17.6539040Z #18 11.51 Setting up libcap2-bin (1:2.75-10+b1) ...
+2025-09-20T21:27:17.6539447Z #18 11.52 Setting up libz3-4:amd64 (4.13.3-1) ...
+2025-09-20T21:27:17.6539933Z #18 11.52 Setting up libjsoncpp26:amd64 (1.9.6-3) ...
+2025-09-20T21:27:17.6540435Z #18 11.52 Setting up libmnl0:amd64 (1.0.5-3) ...
+2025-09-20T21:27:17.6540942Z #18 11.53 Setting up libxtables12:amd64 (1.8.11-2) ...
+2025-09-20T21:27:17.6541452Z #18 11.53 Setting up libgc1:amd64 (1:8.2.8-1) ...
+2025-09-20T21:27:17.6541933Z #18 11.53 Setting up inetutils-ping (2:2.6-3) ...
+2025-09-20T21:27:17.6542447Z #18 11.54 Setting up libnfnetlink0:amd64 (1.0.2-3) ...
+2025-09-20T21:27:17.6542973Z #18 11.54 Setting up libc6-i386 (2.41-12) ...
+2025-09-20T21:27:17.6543432Z #18 11.54 Setting up build-essential (12.12) ...
+2025-09-20T21:27:17.6543854Z #18 11.55 Setting up cmake-data (3.31.6-2) ...
+2025-09-20T21:27:17.6544375Z #18 11.55 Setting up librhash1:amd64 (1.4.5-1) ...
+2025-09-20T21:27:17.6544684Z #18 11.56 Setting up libpam-cap:amd64 (1:2.75-10+b1) ...
+2025-09-20T21:27:17.6545132Z #18 11.63 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:17.6545775Z #18 11.63 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:17.6546424Z #18 11.63 debconf: falling back to frontend: Readline
+2025-09-20T21:27:17.6547039Z #18 11.63 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:17.6547491Z #18 11.63 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:17.6548076Z #18 11.63 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:17.6548467Z #18 11.64 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:17.6548778Z #18 11.64 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:17.6549093Z #18 11.64 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:17.6549404Z #18 11.71 Setting up libarchive13t64:amd64 (3.7.4-4) ...
+2025-09-20T21:27:17.6549677Z #18 11.71 Setting up libbpf1:amd64 (1:1.5.0-3) ...
+2025-09-20T21:27:17.6550007Z #18 11.71 Setting up libllvm19:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:17.6550314Z #18 11.71 Setting up libclang1-19 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:17.6550594Z #18 11.72 Setting up libtirpc3t64:amd64 (1.3.6+ds-1) ...
+2025-09-20T21:27:17.6550855Z #18 11.72 Setting up iproute2 (6.15.0-1) ...
+2025-09-20T21:27:17.6551223Z #18 11.78 debconf: unable to initialize frontend: Dialog
+2025-09-20T21:27:17.6551557Z #18 11.78 debconf: (TERM is not set, so the dialog frontend is not usable.)
+2025-09-20T21:27:17.6552427Z #18 11.78 debconf: falling back to frontend: Readline
+2025-09-20T21:27:17.6552978Z #18 11.79 debconf: unable to initialize frontend: Readline
+2025-09-20T21:27:17.6553398Z #18 11.79 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:17.6553805Z #18 11.79 debconf: falling back to frontend: Teletype
+2025-09-20T21:27:17.6554508Z #18 11.80 debconf: unable to initialize frontend: Teletype
+2025-09-20T21:27:17.6554903Z #18 11.80 debconf: (This frontend requires a controlling tty.)
+2025-09-20T21:27:17.6555219Z #18 11.80 debconf: falling back to frontend: Noninteractive
+2025-09-20T21:27:17.6555729Z #18 11.85 Setting up libnftnl11:amd64 (1.2.9-1) ...
+2025-09-20T21:27:17.6556232Z #18 11.86 Setting up libobjc4:amd64 (14.2.0-19) ...
+2025-09-20T21:27:17.6556754Z #18 11.86 Setting up libobjc-14-dev:amd64 (14.2.0-19) ...
+2025-09-20T21:27:17.6557332Z #18 11.86 Setting up lib32gcc-s1 (14.2.0-19) ...
+2025-09-20T21:27:17.6557686Z #18 11.86 Setting up lib32stdc++6 (14.2.0-19) ...
+2025-09-20T21:27:17.6558007Z #18 11.87 Setting up libclang-rt-19-dev:amd64 (1:19.1.7-3+b1) ...
+2025-09-20T21:27:17.6558515Z #18 11.87 Setting up libnetfilter-conntrack3:amd64 (1.1.0-1) ...
+2025-09-20T21:27:17.6558814Z #18 11.87 Setting up cmake (3.31.6-2) ...
+2025-09-20T21:27:17.6559079Z #18 11.88 Setting up libclang-19-dev (1:19.1.7-3+b1) ...
+2025-09-20T21:27:17.6559372Z #18 11.88 Setting up libnftables1:amd64 (1.1.3-1) ...
+2025-09-20T21:27:17.6559641Z #18 11.88 Setting up nftables (1.1.3-1) ...
+2025-09-20T21:27:17.6559891Z #18 11.96 Setting up libclang-dev (1:19.0-63) ...
+2025-09-20T21:27:17.6560150Z #18 11.97 Setting up iptables (1.8.11-2) ...
+2025-09-20T21:27:17.6560615Z #18 11.97 update-alternatives: using /usr/sbin/iptables-legacy to provide /usr/sbin/iptables (iptables) in auto mode
+2025-09-20T21:27:17.6561299Z #18 11.98 update-alternatives: using /usr/sbin/ip6tables-legacy to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+2025-09-20T21:27:17.6562042Z #18 11.98 update-alternatives: using /usr/sbin/iptables-nft to provide /usr/sbin/iptables (iptables) in auto mode
+2025-09-20T21:27:17.6562701Z #18 11.98 update-alternatives: using /usr/sbin/ip6tables-nft to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+2025-09-20T21:27:17.6563351Z #18 11.98 update-alternatives: using /usr/sbin/arptables-nft to provide /usr/sbin/arptables (arptables) in auto mode
+2025-09-20T21:27:17.6564001Z #18 11.99 update-alternatives: using /usr/sbin/ebtables-nft to provide /usr/sbin/ebtables (ebtables) in auto mode
+2025-09-20T21:27:17.6564494Z #18 11.99 Processing triggers for base-files (13.8+deb13u1) ...
+2025-09-20T21:27:17.6564817Z #18 11.99 Processing triggers for libc-bin (2.41-12) ...
+2025-09-20T21:27:17.6565073Z #18 DONE 14.9s
+2025-09-20T21:27:17.8057760Z 
+2025-09-20T21:27:17.8060364Z #17 [peer_b 6/8] RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*
+2025-09-20T21:27:17.8061708Z #17 DONE 14.9s
+2025-09-20T21:27:17.8061924Z 
+2025-09-20T21:27:17.8062240Z #19 [peer_a 7/8] RUN cargo install --example peer --path ./citadel_sdk --debug
+2025-09-20T21:27:18.0812041Z #19 0.240   Installing citadel_sdk v0.13.0 (/usr/src/peer/citadel_sdk)
+2025-09-20T21:27:18.0812612Z #19 0.275     Updating crates.io index
+2025-09-20T21:27:18.0813171Z #19 0.276     Updating git repository `https://github.com/second-state/wasi_tokio.git`
+2025-09-20T21:27:20.1887237Z #19 2.384     Updating git repository `https://github.com/second-state/socket2.git`
+2025-09-20T21:27:21.8423817Z #19 4.003      Locking 384 packages to latest Rust 1.90.0 compatible versions
+2025-09-20T21:27:21.8424679Z #19 4.005       Adding ascon-aead v0.4.4 (available: v0.5.1)
+2025-09-20T21:27:21.8426208Z #19 4.007       Adding bincode v1.3.3 (available: v2.0.1)
+2025-09-20T21:27:21.8426791Z #19 4.011       Adding generic-array v0.14.7 (available: v1.2.0)
+2025-09-20T21:27:21.8427603Z #19 4.015       Adding hyper v0.14.32 (available: v1.7.0)
+2025-09-20T21:27:21.8428470Z #19 4.024       Adding rand v0.8.5 (available: v0.9.2)
+2025-09-20T21:27:21.8428988Z #19 4.031       Adding rstest v0.23.0 (available: v0.26.1)
+2025-09-20T21:27:21.8429480Z #19 4.037       Adding stun v0.5.1 (available: v0.9.0)
+2025-09-20T21:27:21.8429991Z #19 4.041       Adding sysinfo v0.29.11 (available: v0.37.0)
+2025-09-20T21:27:21.8430748Z #19 4.054       Adding zerocopy v0.7.35 (available: v0.8.27)
+2025-09-20T21:27:21.8431237Z #19 4.056  Downloading crates ...
+2025-09-20T21:27:21.9445897Z #19 4.212   Downloaded arrayref v0.3.9
+2025-09-20T21:27:21.9446770Z #19 4.216   Downloaded dirs2 v3.0.1
+2025-09-20T21:27:21.9448688Z #19 4.219   Downloaded constant_time_eq v0.3.1
+2025-09-20T21:27:21.9449227Z #19 4.223   Downloaded futures-sink v0.3.31
+2025-09-20T21:27:21.9449678Z #19 4.226   Downloaded ctr v0.9.2
+2025-09-20T21:27:21.9450110Z #19 4.231   Downloaded iana-time-zone v0.1.64
+2025-09-20T21:27:21.9450593Z #19 4.237   Downloaded icu_properties v2.0.1
+2025-09-20T21:27:21.9451038Z #19 4.244   Downloaded hyper v1.7.0
+2025-09-20T21:27:21.9451491Z #19 4.258   Downloaded smallvec v1.15.1
+2025-09-20T21:27:21.9451908Z #19 4.263   Downloaded signature v2.2.0
+2025-09-20T21:27:21.9452344Z #19 4.267   Downloaded stable_deref_trait v1.2.0
+2025-09-20T21:27:21.9452788Z #19 4.269   Downloaded httpdate v1.0.3
+2025-09-20T21:27:21.9453226Z #19 4.273   Downloaded futures-channel v0.3.31
+2025-09-20T21:27:21.9453661Z #19 4.278   Downloaded idna_adapter v1.2.1
+2025-09-20T21:27:21.9455128Z #19 4.281   Downloaded rand_chacha v0.3.1
+2025-09-20T21:27:21.9455619Z #19 4.286   Downloaded percent-encoding v2.3.2
+2025-09-20T21:27:22.0467942Z #19 4.291   Downloaded stun v0.5.1
+2025-09-20T21:27:22.0469009Z #19 4.321   Downloaded sysinfo v0.29.11
+2025-09-20T21:27:22.0469868Z #19 4.354   Downloaded try-lock v0.2.5
+2025-09-20T21:27:22.0470585Z #19 4.359   Downloaded untrusted v0.9.0
+2025-09-20T21:27:22.0471102Z #19 4.373   Downloaded toml_parser v1.0.3
+2025-09-20T21:27:22.0471586Z #19 4.380   Downloaded zerofrom-derive v0.1.6
+2025-09-20T21:27:22.0472083Z #19 4.389   Downloaded writeable v0.6.1
+2025-09-20T21:27:22.2510446Z #19 4.395   Downloaded zerovec-derive v0.11.1
+2025-09-20T21:27:22.2513925Z #19 4.399   Downloaded tracing v0.1.41
+2025-09-20T21:27:22.2514439Z #19 4.408   Downloaded zerofrom v0.1.6
+2025-09-20T21:27:22.2515242Z #19 4.412   Downloaded zeroize_derive v1.4.2
+2025-09-20T21:27:22.2515755Z #19 4.414   Downloaded zeroize v1.8.1
+2025-09-20T21:27:22.2516172Z #19 4.417   Downloaded regex v1.11.2
+2025-09-20T21:27:22.2516593Z #19 4.430   Downloaded webrtc-util v0.8.1
+2025-09-20T21:27:22.2517253Z #19 4.445   Downloaded tracing-subscriber v0.3.20
+2025-09-20T21:27:22.2517764Z #19 4.457   Downloaded zerocopy-derive v0.7.35
+2025-09-20T21:27:22.2518217Z #19 4.465   Downloaded winnow v0.7.13
+2025-09-20T21:27:22.2518623Z #19 4.479   Downloaded vcpkg v0.2.15
+2025-09-20T21:27:22.3518754Z #19 4.596   Downloaded zerotrie v0.2.2
+2025-09-20T21:27:22.3519400Z #19 4.602   Downloaded yasna v0.5.2
+2025-09-20T21:27:22.3519911Z #19 4.605   Downloaded ring v0.17.14
+2025-09-20T21:27:22.4529242Z #19 4.769   Downloaded zerovec v0.11.4
+2025-09-20T21:27:22.4531931Z #19 4.782   Downloaded tower v0.5.2
+2025-09-20T21:27:22.4532853Z #19 4.798   Downloaded xmltree v0.10.3
+2025-09-20T21:27:22.5534279Z #19 4.801   Downloaded yoke-derive v0.8.0
+2025-09-20T21:27:22.5534914Z #19 4.803   Downloaded xml-rs v0.8.27
+2025-09-20T21:27:22.5535415Z #19 4.807   Downloaded zerocopy v0.8.27
+2025-09-20T21:27:22.5535905Z #19 4.866   Downloaded version_check v0.9.5
+2025-09-20T21:27:22.5536352Z #19 4.868   Downloaded sha3 v0.10.8
+2025-09-20T21:27:22.5536751Z #19 4.874   Downloaded url v2.5.7
+2025-09-20T21:27:22.5537380Z #19 4.878   Downloaded regex-automata v0.4.10
+2025-09-20T21:27:22.6574539Z #19 4.903   Downloaded zerocopy v0.7.35
+2025-09-20T21:27:22.6575130Z #19 4.942   Downloaded openssl v0.10.73
+2025-09-20T21:27:22.6575561Z #19 4.960   Downloaded libc v0.2.175
+2025-09-20T21:27:22.6575981Z #19 5.002   Downloaded tokio-util v0.7.16
+2025-09-20T21:27:22.7582275Z #19 5.013   Downloaded quinn-proto v0.11.13
+2025-09-20T21:27:22.7583635Z #19 5.028   Downloaded pqc_kyber_kyberslash v0.7.1
+2025-09-20T21:27:22.7584413Z #19 5.041   Downloaded typenum v1.18.0
+2025-09-20T21:27:22.7584892Z #19 5.046   Downloaded toml_edit v0.23.6
+2025-09-20T21:27:22.7585332Z #19 5.051   Downloaded syn v2.0.106
+2025-09-20T21:27:22.7585717Z #19 5.066   Downloaded rayon v1.11.0
+2025-09-20T21:27:22.7586435Z #19 5.087   Downloaded tower-http v0.6.6
+2025-09-20T21:27:22.7586855Z #19 5.100   Downloaded syn v1.0.109
+2025-09-20T21:27:22.8653171Z #19 5.113   Downloaded quinn v0.11.9
+2025-09-20T21:27:22.8667871Z #19 5.118   Downloaded openssl-sys v0.9.109
+2025-09-20T21:27:22.8668455Z #19 5.126   Downloaded rand v0.9.2
+2025-09-20T21:27:22.8668979Z #19 5.132   Downloaded icu_normalizer_data v2.0.0
+2025-09-20T21:27:22.8669479Z #19 5.135   Downloaded uuid v1.18.1
+2025-09-20T21:27:22.8669936Z #19 5.139   Downloaded tokio-rustls v0.26.3
+2025-09-20T21:27:22.8670353Z #19 5.142   Downloaded tinyvec v1.10.0
+2025-09-20T21:27:22.8670860Z #19 5.146   Downloaded thiserror v2.0.16
+2025-09-20T21:27:22.8671259Z #19 5.164   Downloaded rustls v0.23.32
+2025-09-20T21:27:22.8671730Z #19 5.185   Downloaded regex-syntax v0.8.6
+2025-09-20T21:27:22.8672030Z #19 5.197   Downloaded bstr v1.12.0
+2025-09-20T21:27:22.9655009Z #19 5.210   Downloaded utf8_iter v1.0.4
+2025-09-20T21:27:22.9655942Z #19 5.212   Downloaded twox-hash v2.1.2
+2025-09-20T21:27:22.9657545Z #19 5.217   Downloaded toml_datetime v0.7.2
+2025-09-20T21:27:22.9658403Z #19 5.219   Downloaded nix v0.26.4
+2025-09-20T21:27:22.9658850Z #19 5.241   Downloaded yoke v0.8.0
+2025-09-20T21:27:22.9659243Z #19 5.244   Downloaded wyz v0.5.1
+2025-09-20T21:27:22.9659633Z #19 5.246   Downloaded wildmatch v1.1.0
+2025-09-20T21:27:22.9660057Z #19 5.253   Downloaded want v0.3.1
+2025-09-20T21:27:22.9660484Z #19 5.255   Downloaded unicode-ident v1.0.19
+2025-09-20T21:27:22.9660927Z #19 5.260   Downloaded tracing-log v0.2.0
+2025-09-20T21:27:22.9661376Z #19 5.262   Downloaded tinyvec_macros v0.1.1
+2025-09-20T21:27:22.9661803Z #19 5.263   Downloaded tinystr v0.8.1
+2025-09-20T21:27:22.9662236Z #19 5.273   Downloaded time-core v0.1.6
+2025-09-20T21:27:22.9662655Z #19 5.275   Downloaded time v0.3.44
+2025-09-20T21:27:22.9663052Z #19 5.294   Downloaded thread_local v1.1.9
+2025-09-20T21:27:22.9663511Z #19 5.296   Downloaded thiserror-impl v2.0.16
+2025-09-20T21:27:22.9663975Z #19 5.298   Downloaded thiserror-impl v1.0.69
+2025-09-20T21:27:22.9664426Z #19 5.300   Downloaded tap v1.0.1
+2025-09-20T21:27:22.9664813Z #19 5.302   Downloaded spki v0.7.3
+2025-09-20T21:27:22.9665195Z #19 5.304   Downloaded slab v0.4.11
+2025-09-20T21:27:22.9665587Z #19 5.306   Downloaded serde_core v1.0.225
+2025-09-20T21:27:22.9666085Z #19 5.310   Downloaded rustls-platform-verifier v0.6.1
+2025-09-20T21:27:23.0661584Z #19 5.317   Downloaded reqwest v0.12.23
+2025-09-20T21:27:23.0663452Z #19 5.324   Downloaded pin-project-lite v0.2.16
+2025-09-20T21:27:23.0664091Z #19 5.338   Downloaded num-traits v0.2.19
+2025-09-20T21:27:23.0664823Z #19 5.347   Downloaded heapless v0.7.17
+2025-09-20T21:27:23.0665343Z #19 5.357   Downloaded der v0.7.10
+2025-09-20T21:27:23.0665771Z #19 5.364   Downloaded chacha20poly1305 v0.10.1
+2025-09-20T21:27:23.0666260Z #19 5.367   Downloaded tokio-stream v0.1.17
+2025-09-20T21:27:23.0666694Z #19 5.374   Downloaded thiserror v1.0.69
+2025-09-20T21:27:23.0667415Z #19 5.387   Downloaded synstructure v0.13.2
+2025-09-20T21:27:23.0667904Z #19 5.389   Downloaded sync_wrapper v1.0.2
+2025-09-20T21:27:23.0668327Z #19 5.390   Downloaded subtle v2.6.1
+2025-09-20T21:27:23.0668815Z #19 5.392   Downloaded strum_macros v0.27.2
+2025-09-20T21:27:23.0669238Z #19 5.395   Downloaded spin v0.9.8
+2025-09-20T21:27:23.0669629Z #19 5.403   Downloaded socket2 v0.6.0
+2025-09-20T21:27:23.1675166Z #19 5.411   Downloaded socket2 v0.5.10
+2025-09-20T21:27:23.1675829Z #19 5.419   Downloaded siphasher v1.0.1
+2025-09-20T21:27:23.1676341Z #19 5.420   Downloaded signal-hook-registry v1.4.6
+2025-09-20T21:27:23.1676832Z #19 5.422   Downloaded sharded-slab v0.1.7
+2025-09-20T21:27:23.1677481Z #19 5.427   Downloaded sha2 v0.10.9
+2025-09-20T21:27:23.1678231Z #19 5.431   Downloaded serde_urlencoded v0.7.1
+2025-09-20T21:27:23.1678686Z #19 5.433   Downloaded serde v1.0.225
+2025-09-20T21:27:23.1679263Z #19 5.436   Downloaded rstest v0.23.0
+2025-09-20T21:27:23.1679679Z #19 5.452   Downloaded rand_core v0.9.3
+2025-09-20T21:27:23.1680105Z #19 5.454   Downloaded rand_chacha v0.9.0
+2025-09-20T21:27:23.1681941Z #19 5.456   Downloaded quote v1.0.40
+2025-09-20T21:27:23.1682418Z #19 5.460   Downloaded proc-macro-crate v3.4.0
+2025-09-20T21:27:23.1682880Z #19 5.462   Downloaded poly1305 v0.8.0
+2025-09-20T21:27:23.1683291Z #19 5.466   Downloaded pem v3.0.5
+2025-09-20T21:27:23.1683708Z #19 5.468   Downloaded parking_lot_core v0.9.11
+2025-09-20T21:27:23.1684167Z #19 5.476   Downloaded parking_lot v0.12.4
+2025-09-20T21:27:23.1684644Z #19 5.480   Downloaded packed_struct_codegen v0.10.1
+2025-09-20T21:27:23.1685141Z #19 5.482   Downloaded openssl-probe v0.1.6
+2025-09-20T21:27:23.1685623Z #19 5.483   Downloaded openssl-macros v0.1.1
+2025-09-20T21:27:23.1686106Z #19 5.485   Downloaded opaque-debug v0.3.1
+2025-09-20T21:27:23.1686530Z #19 5.486   Downloaded num_cpus v1.17.0
+2025-09-20T21:27:23.1687191Z #19 5.491   Downloaded multimap v0.10.1
+2025-09-20T21:27:23.1699375Z #19 5.493   Downloaded ml-dsa v0.0.4
+2025-09-20T21:27:23.1699876Z #19 5.497   Downloaded memoffset v0.7.1
+2025-09-20T21:27:23.1700334Z #19 5.504   Downloaded md-5 v0.10.6
+2025-09-20T21:27:23.1700761Z #19 5.506   Downloaded universal-hash v0.5.1
+2025-09-20T21:27:23.1701232Z #19 5.508   Downloaded tower-service v0.3.3
+2025-09-20T21:27:23.1701678Z #19 5.509   Downloaded tower-layer v0.3.3
+2025-09-20T21:27:23.1702111Z #19 5.510   Downloaded tokio v1.47.1
+2025-09-20T21:27:23.3722218Z #19 5.618   Downloaded scopeguard v1.2.0
+2025-09-20T21:27:23.3722976Z #19 5.620   Downloaded ryu v1.0.20
+2025-09-20T21:27:23.3723605Z #19 5.655   Downloaded rustls-native-certs v0.8.1
+2025-09-20T21:27:23.3724181Z #19 5.663   Downloaded rustc_version v0.4.1
+2025-09-20T21:27:23.3724718Z #19 5.665   Downloaded rustc-hash v2.1.1
+2025-09-20T21:27:23.3725281Z #19 5.668   Downloaded relative-path v1.9.3
+2025-09-20T21:27:23.3725659Z #19 5.674   Downloaded rayon-core v1.13.0
+2025-09-20T21:27:23.3725988Z #19 5.690   Downloaded radium v0.7.0
+2025-09-20T21:27:23.3726305Z #19 5.696   Downloaded proc-macro2 v1.0.101
+2025-09-20T21:27:23.3726650Z #19 5.701   Downloaded num-conv v0.1.0
+2025-09-20T21:27:23.3727271Z #19 5.702   Downloaded nu-ansi-term v0.50.1
+2025-09-20T21:27:23.3727620Z #19 5.711   Downloaded matchers v0.2.0
+2025-09-20T21:27:23.3727917Z #19 5.713   Downloaded libm v0.2.15
+2025-09-20T21:27:23.4768754Z #19 5.742   Downloaded itertools v0.14.0
+2025-09-20T21:27:23.4769702Z #19 5.755   Downloaded iri-string v0.7.8
+2025-09-20T21:27:23.4770215Z #19 5.772   Downloaded idna v1.1.0
+2025-09-20T21:27:23.4770714Z #19 5.781   Downloaded icu_properties_data v2.0.1
+2025-09-20T21:27:23.4771227Z #19 5.796   Downloaded icu_collections v2.0.0
+2025-09-20T21:27:23.4771685Z #19 5.806   Downloaded hyper-util v0.1.17
+2025-09-20T21:27:23.5770161Z #19 5.824   Downloaded hyper v0.14.32
+2025-09-20T21:27:23.5770984Z #19 5.840   Downloaded http-body v0.4.6
+2025-09-20T21:27:23.5771473Z #19 5.842   Downloaded http v1.3.1
+2025-09-20T21:27:23.5771883Z #19 5.868   Downloaded h2 v0.3.27
+2025-09-20T21:27:23.5772314Z #19 5.878   Downloaded getrandom v0.3.3
+2025-09-20T21:27:23.5772795Z #19 5.890   Downloaded futures-timer v3.0.3
+2025-09-20T21:27:23.5773276Z #19 5.893   Downloaded futures-executor v0.3.31
+2025-09-20T21:27:23.5773737Z #19 5.895   Downloaded futures v0.3.31
+2025-09-20T21:27:23.5774167Z #19 5.903   Downloaded form_urlencoded v1.2.2
+2025-09-20T21:27:23.5774600Z #19 5.904   Downloaded fnv v1.0.7
+2025-09-20T21:27:23.5775002Z #19 5.905   Downloaded equivalent v1.0.2
+2025-09-20T21:27:23.5775456Z #19 5.907   Downloaded embedded-semver v0.3.0
+2025-09-20T21:27:23.5775890Z #19 5.909   Downloaded either v1.15.0
+2025-09-20T21:27:23.5776322Z #19 5.911   Downloaded displaydoc v0.2.5
+2025-09-20T21:27:23.5776746Z #19 5.916   Downloaded dirs-sys v0.3.7
+2025-09-20T21:27:23.5777769Z #19 5.918   Downloaded deranged v0.5.3
+2025-09-20T21:27:23.5778198Z #19 5.920   Downloaded crypto-common v0.1.6
+2025-09-20T21:27:23.5778678Z #19 5.921   Downloaded crossbeam-utils v0.8.21
+2025-09-20T21:27:23.6771093Z #19 5.926   Downloaded crossbeam-epoch v0.9.18
+2025-09-20T21:27:23.6771753Z #19 5.929   Downloaded crc-catalog v2.4.0
+2025-09-20T21:27:23.6772628Z #19 5.931   Downloaded const-oid v0.9.6
+2025-09-20T21:27:23.6773068Z #19 5.934   Downloaded chacha20 v0.9.1
+2025-09-20T21:27:23.6773492Z #19 5.941   Downloaded cfg-if v0.1.10
+2025-09-20T21:27:23.6773907Z #19 5.943   Downloaded bytes v1.10.1
+2025-09-20T21:27:23.6774322Z #19 5.949   Downloaded base64 v0.22.1
+2025-09-20T21:27:23.6774751Z #19 5.959   Downloaded tracing-core v0.1.34
+2025-09-20T21:27:23.6775209Z #19 5.963   Downloaded tokio-macros v2.5.0
+2025-09-20T21:27:23.6775656Z #19 5.965   Downloaded serde_json v1.0.145
+2025-09-20T21:27:23.6776096Z #19 5.984   Downloaded serde_derive v1.0.225
+2025-09-20T21:27:23.6776593Z #19 5.993   Downloaded rustls-webpki v0.103.6
+2025-09-20T21:27:23.6777325Z #19 6.001   Downloaded rustls-pki-types v1.12.0
+2025-09-20T21:27:23.6777827Z #19 6.009   Downloaded rust-argon2 v3.0.0
+2025-09-20T21:27:23.6778290Z #19 6.016   Downloaded rstest_macros v0.23.0
+2025-09-20T21:27:23.6778742Z #19 6.020   Downloaded rand_core v0.6.4
+2025-09-20T21:27:23.6779179Z #19 6.022   Downloaded rand v0.8.5
+2025-09-20T21:27:23.7790487Z #19 6.032   Downloaded powerfmt v0.2.0
+2025-09-20T21:27:23.7791310Z #19 6.034   Downloaded pkg-config v0.3.32
+2025-09-20T21:27:23.7793268Z #19 6.036   Downloaded pin-utils v0.1.0
+2025-09-20T21:27:23.7793765Z #19 6.038   Downloaded mio v1.0.4
+2025-09-20T21:27:23.7794174Z #19 6.051   Downloaded memchr v2.7.5
+2025-09-20T21:27:23.7794600Z #19 6.064   Downloaded log v0.4.28
+2025-09-20T21:27:23.7795016Z #19 6.068   Downloaded lock_api v0.4.13
+2025-09-20T21:27:23.7795442Z #19 6.070   Downloaded litemap v0.8.0
+2025-09-20T21:27:23.7795885Z #19 6.073   Downloaded ipnet v2.11.0
+2025-09-20T21:27:23.7796336Z #19 6.075   Downloaded indexmap v2.11.4
+2025-09-20T21:27:23.7796779Z #19 6.086   Downloaded icu_provider v2.0.0
+2025-09-20T21:27:23.7797474Z #19 6.095   Downloaded icu_normalizer v2.0.0
+2025-09-20T21:27:23.7797950Z #19 6.100   Downloaded icu_locale_core v2.0.0
+2025-09-20T21:27:23.7798422Z #19 6.116   Downloaded http-body-util v0.1.3
+2025-09-20T21:27:23.7798900Z #19 6.119   Downloaded generic-array v0.14.7
+2025-09-20T21:27:23.8804824Z #19 6.125   Downloaded futures-util v0.3.31
+2025-09-20T21:27:23.8805524Z #19 6.147   Downloaded futures-task v0.3.31
+2025-09-20T21:27:23.8806409Z #19 6.148   Downloaded foreign-types-shared v0.1.1
+2025-09-20T21:27:23.8807130Z #19 6.149   Downloaded find-msvc-tools v0.1.2
+2025-09-20T21:27:23.8807607Z #19 6.152   Downloaded digest v0.10.7
+2025-09-20T21:27:23.8808075Z #19 6.155   Downloaded crossbeam-deque v0.8.6
+2025-09-20T21:27:23.8808541Z #19 6.157   Downloaded crc v3.3.0
+2025-09-20T21:27:23.8808979Z #19 6.164   Downloaded constant_time_eq v0.4.2
+2025-09-20T21:27:23.8809465Z #19 6.167   Downloaded chrono v0.4.42
+2025-09-20T21:27:23.8809886Z #19 6.181   Downloaded cfg_aliases v0.2.1
+2025-09-20T21:27:23.8810311Z #19 6.182   Downloaded cc v1.2.38
+2025-09-20T21:27:23.8810728Z #19 6.191   Downloaded byteorder v1.5.0
+2025-09-20T21:27:23.8811151Z #19 6.194   Downloaded bytemuck v1.23.2
+2025-09-20T21:27:23.8811601Z #19 6.203   Downloaded block-buffer v0.10.4
+2025-09-20T21:27:23.8812052Z #19 6.205   Downloaded bincode v1.3.3
+2025-09-20T21:27:23.8812484Z #19 6.209   Downloaded base64ct v1.8.0
+2025-09-20T21:27:23.8815598Z #19 6.213   Downloaded autocfg v1.5.0
+2025-09-20T21:27:23.8816381Z #19 6.220   Downloaded atomic v0.6.1
+2025-09-20T21:27:23.8817565Z #19 6.223   Downloaded async-trait-with-sync v0.1.36
+2025-09-20T21:27:23.9810859Z #19 6.227   Downloaded strum v0.27.2
+2025-09-20T21:27:23.9812190Z #19 6.228   Downloaded semver v1.0.27
+2025-09-20T21:27:23.9813011Z #19 6.232   Downloaded rustls-pemfile v2.2.0
+2025-09-20T21:27:23.9813526Z #19 6.240   Downloaded rcgen v0.14.4
+2025-09-20T21:27:23.9814312Z #19 6.243   Downloaded quinn-udp v0.5.14
+2025-09-20T21:27:23.9814767Z #19 6.246   Downloaded potential_utf v0.1.3
+2025-09-20T21:27:23.9815211Z #19 6.252   Downloaded polyval v0.6.2
+2025-09-20T21:27:23.9815630Z #19 6.255   Downloaded pkcs8 v0.10.2
+2025-09-20T21:27:23.9816034Z #19 6.259   Downloaded once_cell v1.21.3
+2025-09-20T21:27:23.9816704Z #19 6.263   Downloaded igd v0.12.1
+2025-09-20T21:27:23.9817420Z #19 6.266   Downloaded http-body v1.0.1
+2025-09-20T21:27:23.9817851Z #19 6.268   Downloaded http v0.2.12
+2025-09-20T21:27:23.9818246Z #19 6.273   Downloaded hash32 v0.2.1
+2025-09-20T21:27:23.9818659Z #19 6.275   Downloaded futures-io v0.3.31
+2025-09-20T21:27:23.9819108Z #19 6.276   Downloaded futures-core v0.3.31
+2025-09-20T21:27:23.9819553Z #19 6.278   Downloaded funty v2.0.0
+2025-09-20T21:27:23.9819972Z #19 6.279   Downloaded foreign-types v0.3.2
+2025-09-20T21:27:23.9820403Z #19 6.281   Downloaded auto_impl v1.3.0
+2025-09-20T21:27:23.9820834Z #19 6.304   Downloaded async-trait v0.1.89
+2025-09-20T21:27:23.9821299Z #19 6.316   Downloaded async-stream v0.3.6
+2025-09-20T21:27:23.9821747Z #19 6.319   Downloaded ppv-lite86 v0.2.21
+2025-09-20T21:27:24.0830790Z #19 6.326   Downloaded lazy_static v1.5.0
+2025-09-20T21:27:24.0831425Z #19 6.329   Downloaded glob v0.3.3
+2025-09-20T21:27:24.0831883Z #19 6.332   Downloaded ghash v0.5.1
+2025-09-20T21:27:24.0832376Z #19 6.333   Downloaded cfg-if v1.0.3
+2025-09-20T21:27:24.0832859Z #19 6.340   Downloaded attohttpc v0.16.3
+2025-09-20T21:27:24.0839214Z #19 6.347   Downloaded atomic-waker v1.1.2
+2025-09-20T21:27:24.0839926Z #19 6.349   Downloaded async-stream-impl v0.3.6
+2025-09-20T21:27:24.0840437Z #19 6.350   Downloaded packed_struct v0.10.1
+2025-09-20T21:27:24.0840901Z #19 6.352   Downloaded num-integer v0.1.46
+2025-09-20T21:27:24.0841332Z #19 6.354   Downloaded lru-slab v0.1.2
+2025-09-20T21:27:24.0841754Z #19 6.356   Downloaded keccak v0.1.5
+2025-09-20T21:27:24.0842155Z #19 6.358   Downloaded inout v0.1.4
+2025-09-20T21:27:24.0842569Z #19 6.359   Downloaded hybrid-array v0.3.1
+2025-09-20T21:27:24.0843020Z #19 6.368   Downloaded bitvec v1.0.1
+2025-09-20T21:27:24.0843427Z #19 6.396   Downloaded bitflags v2.9.4
+2025-09-20T21:27:24.0843837Z #19 6.410   Downloaded itoa v1.0.15
+2025-09-20T21:27:24.0844243Z #19 6.412   Downloaded futures-macro v0.3.31
+2025-09-20T21:27:24.0844715Z #19 6.414   Downloaded bytemuck_derive v1.10.1
+2025-09-20T21:27:24.0845161Z #19 6.421   Downloaded shlex v1.3.0
+2025-09-20T21:27:24.2743903Z #19 6.428   Downloaded serde-big-array v0.5.1
+2025-09-20T21:27:24.2744875Z #19 6.431   Downloaded kyber-pke v0.5.0
+2025-09-20T21:27:24.2747505Z #19 6.433   Downloaded httparse v1.10.1
+2025-09-20T21:27:24.2749543Z #19 6.437   Downloaded heck v0.5.0
+2025-09-20T21:27:24.2750326Z #19 6.439   Downloaded fastbloom v0.14.0
+2025-09-20T21:27:24.2751034Z #19 6.441   Downloaded cpufeatures v0.2.17
+2025-09-20T21:27:24.2751858Z #19 6.443   Downloaded bitflags v1.3.2
+2025-09-20T21:27:24.2761171Z #19 6.449   Downloaded aho-corasick v1.1.3
+2025-09-20T21:27:24.2761662Z #19 6.456   Downloaded hashbrown v0.16.0
+2025-09-20T21:27:24.2762068Z #19 6.463   Downloaded aes-gcm v0.10.3
+2025-09-20T21:27:24.2762438Z #19 6.467   Downloaded aes v0.8.4
+2025-09-20T21:27:24.2762807Z #19 6.476   Downloaded base64 v0.21.7
+2025-09-20T21:27:24.2763199Z #19 6.486   Downloaded ascon-aead v0.4.4
+2025-09-20T21:27:24.2763582Z #19 6.490   Downloaded anyhow v1.0.100
+2025-09-20T21:27:24.2763982Z #19 6.496   Downloaded getrandom v0.2.16
+2025-09-20T21:27:24.2764375Z #19 6.501   Downloaded blake2b_simd v1.0.3
+2025-09-20T21:27:24.2764773Z #19 6.503   Downloaded cipher v0.4.4
+2025-09-20T21:27:24.2765150Z #19 6.505   Downloaded ascon-core v0.4.1
+2025-09-20T21:27:24.2765541Z #19 6.507   Downloaded arrayvec v0.7.6
+2025-09-20T21:27:24.2765908Z #19 6.510   Downloaded aead v0.5.2
+2025-09-20T21:27:24.2766298Z #19 6.619    Compiling proc-macro2 v1.0.101
+2025-09-20T21:27:24.4145219Z #19 6.619    Compiling unicode-ident v1.0.19
+2025-09-20T21:27:24.4145751Z #19 6.626    Compiling serde_core v1.0.225
+2025-09-20T21:27:24.4146539Z #19 6.626    Compiling serde v1.0.225
+2025-09-20T21:27:24.4147125Z #19 6.758    Compiling cfg-if v1.0.3
+2025-09-20T21:27:24.5895546Z #19 6.829    Compiling libc v0.2.175
+2025-09-20T21:27:24.7675473Z #19 6.935    Compiling autocfg v1.5.0
+2025-09-20T21:27:25.5002530Z #19 7.687    Compiling pin-project-lite v0.2.16
+2025-09-20T21:27:25.5004992Z #19 7.780    Compiling typenum v1.18.0
+2025-09-20T21:27:26.0869592Z #19 8.259    Compiling quote v1.0.40
+2025-09-20T21:27:26.4275972Z #19 8.714    Compiling syn v2.0.106
+2025-09-20T21:27:26.6223349Z #19 8.817    Compiling lock_api v0.4.13
+2025-09-20T21:27:26.8973063Z #19 9.092    Compiling smallvec v1.15.1
+2025-09-20T21:27:27.1738537Z #19 9.519    Compiling version_check v0.9.5
+2025-09-20T21:27:27.6405544Z #19 ...
+2025-09-20T21:27:27.6405879Z 
+2025-09-20T21:27:27.6406256Z #20 [server 7/8] RUN cargo install --example server --path ./citadel_sdk --debug
+2025-09-20T21:27:27.6407242Z #20 0.228   Installing citadel_sdk v0.13.0 (/usr/src/server/citadel_sdk)
+2025-09-20T21:27:27.6407836Z #20 0.266     Updating crates.io index
+2025-09-20T21:27:27.6408388Z #20 0.266     Updating git repository `https://github.com/second-state/wasi_tokio.git`
+2025-09-20T21:27:27.6409129Z #20 2.355     Updating git repository `https://github.com/second-state/socket2.git`
+2025-09-20T21:27:27.6409819Z #20 4.004      Locking 384 packages to latest Rust 1.90.0 compatible versions
+2025-09-20T21:27:27.6410418Z #20 4.006       Adding ascon-aead v0.4.4 (available: v0.5.1)
+2025-09-20T21:27:27.6410906Z #20 4.008       Adding bincode v1.3.3 (available: v2.0.1)
+2025-09-20T21:27:27.6411445Z #20 4.012       Adding generic-array v0.14.7 (available: v1.2.0)
+2025-09-20T21:27:27.6411966Z #20 4.016       Adding hyper v0.14.32 (available: v1.7.0)
+2025-09-20T21:27:27.6412434Z #20 4.025       Adding rand v0.8.5 (available: v0.9.2)
+2025-09-20T21:27:27.6412908Z #20 4.031       Adding rstest v0.23.0 (available: v0.26.1)
+2025-09-20T21:27:27.6413388Z #20 4.036       Adding stun v0.5.1 (available: v0.9.0)
+2025-09-20T21:27:27.6413914Z #20 4.041       Adding sysinfo v0.29.11 (available: v0.37.0)
+2025-09-20T21:27:27.6414477Z #20 4.053       Adding zerocopy v0.7.35 (available: v0.8.27)
+2025-09-20T21:27:27.6414948Z #20 4.055  Downloading crates ...
+2025-09-20T21:27:27.6415367Z #20 4.188   Downloaded arrayref v0.3.9
+2025-09-20T21:27:27.6415791Z #20 4.193   Downloaded aead v0.5.2
+2025-09-20T21:27:27.6416190Z #20 4.197   Downloaded ascon-core v0.4.1
+2025-09-20T21:27:27.6416599Z #20 4.213   Downloaded arrayvec v0.7.6
+2025-09-20T21:27:27.6431809Z #20 4.229   Downloaded anyhow v1.0.100
+2025-09-20T21:27:27.6432325Z #20 4.239   Downloaded cipher v0.4.4
+2025-09-20T21:27:27.6432721Z #20 4.243   Downloaded async-trait v0.1.89
+2025-09-20T21:27:27.6433120Z #20 4.255   Downloaded icu_provider v2.0.0
+2025-09-20T21:27:27.6433461Z #20 4.261   Downloaded inout v0.1.4
+2025-09-20T21:27:27.6433794Z #20 4.264   Downloaded ascon-aead v0.4.4
+2025-09-20T21:27:27.6434138Z #20 4.270   Downloaded aes-gcm v0.10.3
+2025-09-20T21:27:27.6434472Z #20 4.276   Downloaded aes v0.8.4
+2025-09-20T21:27:27.6434830Z #20 4.284   Downloaded async-stream v0.3.6
+2025-09-20T21:27:27.6435200Z #20 4.290   Downloaded idna_adapter v1.2.1
+2025-09-20T21:27:27.6435560Z #20 4.295   Downloaded kyber-pke v0.5.0
+2025-09-20T21:27:27.6435915Z #20 4.300   Downloaded semver v1.0.27
+2025-09-20T21:27:27.6436279Z #20 4.320   Downloaded openssl-macros v0.1.1
+2025-09-20T21:27:27.6436650Z #20 4.325   Downloaded matchers v0.2.0
+2025-09-20T21:27:27.6437209Z #20 4.329   Downloaded tokio-macros v2.5.0
+2025-09-20T21:27:27.6437594Z #20 4.332   Downloaded shlex v1.3.0
+2025-09-20T21:27:27.6438036Z #20 4.336   Downloaded signal-hook-registry v1.4.6
+2025-09-20T21:27:27.6438477Z #20 4.340   Downloaded slab v0.4.11
+2025-09-20T21:27:27.6438844Z #20 4.343   Downloaded md-5 v0.10.6
+2025-09-20T21:27:27.6439208Z #20 4.347   Downloaded rustc-hash v2.1.1
+2025-09-20T21:27:27.6439628Z #20 4.351   Downloaded spki v0.7.3
+2025-09-20T21:27:27.6440013Z #20 4.356   Downloaded spin v0.9.8
+2025-09-20T21:27:27.6440404Z #20 4.361   Downloaded subtle v2.6.1
+2025-09-20T21:27:27.6441244Z #20 4.372   Downloaded tower-service v0.3.3
+2025-09-20T21:27:27.6441716Z #20 4.376   Downloaded tinyvec_macros v0.1.1
+2025-09-20T21:27:27.6442200Z #20 4.379   Downloaded yoke-derive v0.8.0
+2025-09-20T21:27:27.6442626Z #20 4.382   Downloaded tinyvec v1.10.0
+2025-09-20T21:27:27.6443050Z #20 4.392   Downloaded yoke v0.8.0
+2025-09-20T21:27:27.6443731Z #20 4.397   Downloaded yasna v0.5.2
+2025-09-20T21:27:27.6444176Z #20 4.402   Downloaded zerocopy-derive v0.7.35
+2025-09-20T21:27:27.6444672Z #20 4.412   Downloaded zerovec-derive v0.11.1
+2025-09-20T21:27:27.6445143Z #20 4.415   Downloaded wildmatch v1.1.0
+2025-09-20T21:27:27.6445590Z #20 4.419   Downloaded zeroize_derive v1.4.2
+2025-09-20T21:27:27.6446040Z #20 4.420   Downloaded typenum v1.18.0
+2025-09-20T21:27:27.6446487Z #20 4.425   Downloaded tower-http v0.6.6
+2025-09-20T21:27:27.6467305Z #20 4.444   Downloaded zerovec v0.11.4
+2025-09-20T21:27:27.6467960Z #20 4.452   Downloaded webrtc-util v0.8.1
+2025-09-20T21:27:27.6468349Z #20 4.461   Downloaded url v2.5.7
+2025-09-20T21:27:27.6468718Z #20 4.465   Downloaded sha3 v0.10.8
+2025-09-20T21:27:27.6469116Z #20 4.471   Downloaded tracing-subscriber v0.3.20
+2025-09-20T21:27:27.6469534Z #20 4.489   Downloaded vcpkg v0.2.15
+2025-09-20T21:27:27.6469891Z #20 4.599   Downloaded zerotrie v0.2.2
+2025-09-20T21:27:27.6470267Z #20 4.605   Downloaded zerocopy v0.8.27
+2025-09-20T21:27:27.6470655Z #20 4.697   Downloaded rustls-webpki v0.103.6
+2025-09-20T21:27:27.6471024Z #20 4.702   Downloaded mio v1.0.4
+2025-09-20T21:27:27.6471383Z #20 4.764   Downloaded regex-syntax v0.8.6
+2025-09-20T21:27:27.6471753Z #20 4.773   Downloaded winnow v0.7.13
+2025-09-20T21:27:27.6472105Z #20 4.791   Downloaded rustls v0.23.32
+2025-09-20T21:27:27.6472450Z #20 4.810   Downloaded libm v0.2.15
+2025-09-20T21:27:27.6472800Z #20 4.838   Downloaded iri-string v0.7.8
+2025-09-20T21:27:27.6473166Z #20 4.858   Downloaded serde_json v1.0.145
+2025-09-20T21:27:27.6473520Z #20 4.869   Downloaded reqwest v0.12.23
+2025-09-20T21:27:27.6473863Z #20 4.877   Downloaded nix v0.26.4
+2025-09-20T21:27:27.6474174Z #20 4.891   Downloaded writeable v0.6.1
+2025-09-20T21:27:27.6474504Z #20 4.899   Downloaded uuid v1.18.1
+2025-09-20T21:27:27.6474838Z #20 4.904   Downloaded unicode-ident v1.0.19
+2025-09-20T21:27:27.6475194Z #20 4.912   Downloaded twox-hash v2.1.2
+2025-09-20T21:27:27.6475558Z #20 4.916   Downloaded tower v0.5.2
+2025-09-20T21:27:27.6475943Z #20 4.936   Downloaded ring v0.17.14
+2025-09-20T21:27:27.6476271Z #20 5.003   Downloaded tracing v0.1.41
+2025-09-20T21:27:27.6476610Z #20 5.009   Downloaded toml_edit v0.23.6
+2025-09-20T21:27:27.6477161Z #20 5.015   Downloaded tokio-util v0.7.16
+2025-09-20T21:27:27.6477512Z #20 5.031   Downloaded zerocopy v0.7.35
+2025-09-20T21:27:27.6477858Z #20 5.060   Downloaded want v0.3.1
+2025-09-20T21:27:27.6478196Z #20 5.062   Downloaded utf8_iter v1.0.4
+2025-09-20T21:27:27.6478573Z #20 5.063   Downloaded tracing-log v0.2.0
+2025-09-20T21:27:27.6478967Z #20 5.065   Downloaded tracing-core v0.1.34
+2025-09-20T21:27:27.6479362Z #20 5.075   Downloaded toml_parser v1.0.3
+2025-09-20T21:27:27.6479724Z #20 5.079   Downloaded rayon v1.11.0
+2025-09-20T21:27:27.6480076Z #20 5.093   Downloaded zeroize v1.8.1
+2025-09-20T21:27:27.6480451Z #20 5.095   Downloaded zerofrom-derive v0.1.6
+2025-09-20T21:27:27.6480857Z #20 5.096   Downloaded zerofrom v0.1.6
+2025-09-20T21:27:27.6481274Z #20 5.098   Downloaded version_check v0.9.5
+2025-09-20T21:27:27.6481670Z #20 5.100   Downloaded untrusted v0.9.0
+2025-09-20T21:27:27.6482053Z #20 5.103   Downloaded try-lock v0.2.5
+2025-09-20T21:27:27.6482445Z #20 5.104   Downloaded toml_datetime v0.7.2
+2025-09-20T21:27:27.6482908Z #20 5.106   Downloaded regex-automata v0.4.10
+2025-09-20T21:27:27.6483353Z #20 5.127   Downloaded xml-rs v0.8.27
+2025-09-20T21:27:27.6483743Z #20 5.131   Downloaded wyz v0.5.1
+2025-09-20T21:27:27.6484159Z #20 5.133   Downloaded universal-hash v0.5.1
+2025-09-20T21:27:27.6484625Z #20 5.135   Downloaded tokio-stream v0.1.17
+2025-09-20T21:27:27.6485078Z #20 5.142   Downloaded tokio-rustls v0.26.3
+2025-09-20T21:27:27.6485971Z #20 5.146   Downloaded syn v2.0.106
+2025-09-20T21:27:27.6486384Z #20 5.169   Downloaded libc v0.2.175
+2025-09-20T21:27:27.6486797Z #20 5.219   Downloaded xmltree v0.10.3
+2025-09-20T21:27:27.6487433Z #20 5.222   Downloaded tower-layer v0.3.3
+2025-09-20T21:27:27.6487870Z #20 5.223   Downloaded time v0.3.44
+2025-09-20T21:27:27.6488577Z #20 5.243   Downloaded sysinfo v0.29.11
+2025-09-20T21:27:27.6488989Z #20 5.264   Downloaded regex v1.11.2
+2025-09-20T21:27:27.6489415Z #20 5.288   Downloaded thiserror-impl v1.0.69
+2025-09-20T21:27:27.6489846Z #20 5.290   Downloaded thiserror v2.0.16
+2025-09-20T21:27:27.6490257Z #20 5.301   Downloaded quinn-proto v0.11.13
+2025-09-20T21:27:27.6490701Z #20 5.311   Downloaded pqc_kyber_kyberslash v0.7.1
+2025-09-20T21:27:27.6491156Z #20 5.325   Downloaded thiserror v1.0.69
+2025-09-20T21:27:27.6491582Z #20 5.338   Downloaded tokio v1.47.1
+2025-09-20T21:27:27.6491946Z #20 5.430   Downloaded stun v0.5.1
+2025-09-20T21:27:27.6492370Z #20 5.436   Downloaded strum_macros v0.27.2
+2025-09-20T21:27:27.6492784Z #20 5.440   Downloaded socket2 v0.5.10
+2025-09-20T21:27:27.6493164Z #20 5.443   Downloaded rand v0.9.2
+2025-09-20T21:27:27.6493580Z #20 5.454   Downloaded nu-ansi-term v0.50.1
+2025-09-20T21:27:27.6494002Z #20 5.458   Downloaded log v0.4.28
+2025-09-20T21:27:27.6494405Z #20 5.461   Downloaded lock_api v0.4.13
+2025-09-20T21:27:27.6494852Z #20 5.463   Downloaded litemap v0.8.0
+2025-09-20T21:27:27.6495275Z #20 5.467   Downloaded siphasher v1.0.1
+2025-09-20T21:27:27.6495698Z #20 5.469   Downloaded serde v1.0.225
+2025-09-20T21:27:27.6496190Z #20 5.476   Downloaded rustls-platform-verifier v0.6.1
+2025-09-20T21:27:27.6496659Z #20 5.482   Downloaded rand v0.8.5
+2025-09-20T21:27:27.6497417Z #20 5.487   Downloaded radium v0.7.0
+2025-09-20T21:27:27.6497826Z #20 5.489   Downloaded quinn v0.11.9
+2025-09-20T21:27:27.6498228Z #20 5.494   Downloaded potential_utf v0.1.3
+2025-09-20T21:27:27.6498640Z #20 5.495   Downloaded once_cell v1.21.3
+2025-09-20T21:27:27.6499088Z #20 5.504   Downloaded num_cpus v1.17.0
+2025-09-20T21:27:27.6499531Z #20 5.509   Downloaded num-traits v0.2.19
+2025-09-20T21:27:27.6499962Z #20 5.513   Downloaded multimap v0.10.1
+2025-09-20T21:27:27.6500373Z #20 5.515   Downloaded memoffset v0.7.1
+2025-09-20T21:27:27.6500783Z #20 5.517   Downloaded keccak v0.1.5
+2025-09-20T21:27:27.6501199Z #20 5.523   Downloaded itoa v1.0.15
+2025-09-20T21:27:27.6501607Z #20 5.525   Downloaded tinystr v0.8.1
+2025-09-20T21:27:27.6502012Z #20 5.528   Downloaded time-core v0.1.6
+2025-09-20T21:27:27.6502446Z #20 5.530   Downloaded thread_local v1.1.9
+2025-09-20T21:27:27.6502907Z #20 5.532   Downloaded thiserror-impl v2.0.16
+2025-09-20T21:27:27.6503370Z #20 5.539   Downloaded synstructure v0.13.2
+2025-09-20T21:27:27.6503823Z #20 5.539   Downloaded sync_wrapper v1.0.2
+2025-09-20T21:27:27.6504256Z #20 5.539   Downloaded syn v1.0.109
+2025-09-20T21:27:27.6504633Z #20 5.569   Downloaded sha2 v0.10.9
+2025-09-20T21:27:27.6505062Z #20 5.578   Downloaded serde_derive v1.0.225
+2025-09-20T21:27:27.6505545Z #20 5.578   Downloaded rustls-native-certs v0.8.1
+2025-09-20T21:27:27.6506028Z #20 5.589   Downloaded rust-argon2 v3.0.0
+2025-09-20T21:27:27.6506470Z #20 5.589   Downloaded rayon-core v1.13.0
+2025-09-20T21:27:27.6527256Z #20 5.600   Downloaded rand_core v0.9.3
+2025-09-20T21:27:27.6527859Z #20 5.603   Downloaded poly1305 v0.8.0
+2025-09-20T21:27:27.6528334Z #20 5.608   Downloaded parking_lot v0.12.4
+2025-09-20T21:27:27.6528798Z #20 5.613   Downloaded num-integer v0.1.46
+2025-09-20T21:27:27.6529236Z #20 5.616   Downloaded num-conv v0.1.0
+2025-09-20T21:27:27.6529664Z #20 5.618   Downloaded ml-dsa v0.0.4
+2025-09-20T21:27:27.6530059Z #20 5.652   Downloaded tap v1.0.1
+2025-09-20T21:27:27.6530506Z #20 5.653   Downloaded serde_urlencoded v0.7.1
+2025-09-20T21:27:27.6530981Z #20 5.656   Downloaded serde_core v1.0.225
+2025-09-20T21:27:27.6531468Z #20 5.665   Downloaded serde-big-array v0.5.1
+2025-09-20T21:27:27.6531947Z #20 5.668   Downloaded scopeguard v1.2.0
+2025-09-20T21:27:27.6532818Z #20 5.675   Downloaded rustls-pemfile v2.2.0
+2025-09-20T21:27:27.6533293Z #20 5.688   Downloaded rstest_macros v0.23.0
+2025-09-20T21:27:27.6533730Z #20 5.698   Downloaded quote v1.0.40
+2025-09-20T21:27:27.6534176Z #20 5.703   Downloaded openssl-sys v0.9.109
+2025-09-20T21:27:27.6534603Z #20 5.718   Downloaded openssl v0.10.73
+2025-09-20T21:27:27.6535354Z #20 5.739   Downloaded stable_deref_trait v1.2.0
+2025-09-20T21:27:27.6535822Z #20 5.741   Downloaded ryu v1.0.20
+2025-09-20T21:27:27.6536256Z #20 5.746   Downloaded rustls-pki-types v1.12.0
+2025-09-20T21:27:27.6536712Z #20 5.755   Downloaded bitvec v1.0.1
+2025-09-20T21:27:27.6537346Z #20 5.793   Downloaded socket2 v0.6.0
+2025-09-20T21:27:27.6537763Z #20 5.795   Downloaded smallvec v1.15.1
+2025-09-20T21:27:27.6538197Z #20 5.798   Downloaded rustc_version v0.4.1
+2025-09-20T21:27:27.6538627Z #20 5.800   Downloaded rstest v0.23.0
+2025-09-20T21:27:27.6539020Z #20 5.815   Downloaded rcgen v0.14.4
+2025-09-20T21:27:27.6539430Z #20 5.823   Downloaded rand_chacha v0.3.1
+2025-09-20T21:27:27.6539875Z #20 5.825   Downloaded ppv-lite86 v0.2.21
+2025-09-20T21:27:27.6540323Z #20 5.827   Downloaded openssl-probe v0.1.6
+2025-09-20T21:27:27.6540766Z #20 5.828   Downloaded lru-slab v0.1.2
+2025-09-20T21:27:27.6541170Z #20 5.834   Downloaded rand_core v0.6.4
+2025-09-20T21:27:27.6541634Z #20 5.836   Downloaded proc-macro-crate v3.4.0
+2025-09-20T21:27:27.6542121Z #20 5.838   Downloaded parking_lot_core v0.9.11
+2025-09-20T21:27:27.6542574Z #20 5.842   Downloaded rand_chacha v0.9.0
+2025-09-20T21:27:27.6542996Z #20 5.843   Downloaded quinn-udp v0.5.14
+2025-09-20T21:27:27.6543439Z #20 5.867   Downloaded proc-macro2 v1.0.101
+2025-09-20T21:27:27.6543858Z #20 5.871   Downloaded powerfmt v0.2.0
+2025-09-20T21:27:27.6544288Z #20 5.873   Downloaded pin-utils v0.1.0
+2025-09-20T21:27:27.6544767Z #20 5.875   Downloaded packed_struct_codegen v0.10.1
+2025-09-20T21:27:27.6545246Z #20 5.877   Downloaded memchr v2.7.5
+2025-09-20T21:27:27.6545683Z #20 5.892   Downloaded icu_normalizer_data v2.0.0
+2025-09-20T21:27:27.6546163Z #20 5.895   Downloaded hyper v0.14.32
+2025-09-20T21:27:27.6546579Z #20 5.907   Downloaded http v1.3.1
+2025-09-20T21:27:27.6547183Z #20 5.912   Downloaded heapless v0.7.17
+2025-09-20T21:27:27.6547569Z #20 5.918   Downloaded signature v2.2.0
+2025-09-20T21:27:27.6547941Z #20 5.920   Downloaded pkg-config v0.3.32
+2025-09-20T21:27:27.6548353Z #20 5.923   Downloaded pin-project-lite v0.2.16
+2025-09-20T21:27:27.6548766Z #20 5.933   Downloaded packed_struct v0.10.1
+2025-09-20T21:27:27.6549162Z #20 5.935   Downloaded icu_collections v2.0.0
+2025-09-20T21:27:27.6549548Z #20 5.949   Downloaded hyper-util v0.1.17
+2025-09-20T21:27:27.6549948Z #20 5.962   Downloaded hyper v1.7.0
+2025-09-20T21:27:27.6550333Z #20 5.981   Downloaded http v0.2.12
+2025-09-20T21:27:27.6550684Z #20 5.991   Downloaded hashbrown v0.16.0
+2025-09-20T21:27:27.6551044Z #20 6.003   Downloaded h2 v0.3.27
+2025-09-20T21:27:27.6551392Z #20 6.016   Downloaded futures-util v0.3.31
+2025-09-20T21:27:27.6551766Z #20 6.042   Downloaded base64 v0.21.7
+2025-09-20T21:27:27.6552121Z #20 6.052   Downloaded polyval v0.6.2
+2025-09-20T21:27:27.6552564Z #20 6.055   Downloaded percent-encoding v2.3.2
+2025-09-20T21:27:27.6552947Z #20 6.056   Downloaded pem v3.0.5
+2025-09-20T21:27:27.6553272Z #20 6.062   Downloaded der v0.7.10
+2025-09-20T21:27:27.6553632Z #20 6.070   Downloaded chacha20poly1305 v0.10.1
+2025-09-20T21:27:27.6554037Z #20 6.073   Downloaded sharded-slab v0.1.7
+2025-09-20T21:27:27.6554414Z #20 6.078   Downloaded pkcs8 v0.10.2
+2025-09-20T21:27:27.6554799Z #20 6.087   Downloaded opaque-debug v0.3.1
+2025-09-20T21:27:27.6555181Z #20 6.093   Downloaded icu_properties v2.0.1
+2025-09-20T21:27:27.6555568Z #20 6.096   Downloaded icu_normalizer v2.0.0
+2025-09-20T21:27:27.6555944Z #20 6.101   Downloaded hybrid-array v0.3.1
+2025-09-20T21:27:27.6556316Z #20 6.104   Downloaded getrandom v0.3.3
+2025-09-20T21:27:27.6556684Z #20 6.114   Downloaded getrandom v0.2.16
+2025-09-20T21:27:27.6564419Z #20 6.118   Downloaded futures-executor v0.3.31
+2025-09-20T21:27:27.6565173Z #20 6.125   Downloaded futures-core v0.3.31
+2025-09-20T21:27:27.6565590Z #20 6.127   Downloaded futures-channel v0.3.31
+2025-09-20T21:27:27.6565984Z #20 6.130   Downloaded futures v0.3.31
+2025-09-20T21:27:27.6566350Z #20 6.138   Downloaded fastbloom v0.14.0
+2025-09-20T21:27:27.6566725Z #20 6.140   Downloaded displaydoc v0.2.5
+2025-09-20T21:27:27.6567485Z #20 6.145   Downloaded chrono v0.4.42
+2025-09-20T21:27:27.6567806Z #20 6.154   Downloaded cc v1.2.38
+2025-09-20T21:27:27.6568115Z #20 6.159   Downloaded bytes v1.10.1
+2025-09-20T21:27:27.6568440Z #20 6.169   Downloaded strum v0.27.2
+2025-09-20T21:27:27.6568776Z #20 6.171   Downloaded iana-time-zone v0.1.64
+2025-09-20T21:27:27.6569155Z #20 6.179   Downloaded http-body-util v0.1.3
+2025-09-20T21:27:27.6569577Z #20 6.182   Downloaded http-body v0.4.6
+2025-09-20T21:27:27.6569974Z #20 6.190   Downloaded hash32 v0.2.1
+2025-09-20T21:27:27.6570293Z #20 6.192   Downloaded glob v0.3.3
+2025-09-20T21:27:27.6570596Z #20 6.194   Downloaded ghash v0.5.1
+2025-09-20T21:27:27.6570943Z #20 6.201   Downloaded futures-timer v3.0.3
+2025-09-20T21:27:27.6571300Z #20 6.203   Downloaded futures-task v0.3.31
+2025-09-20T21:27:27.6571655Z #20 6.206   Downloaded futures-sink v0.3.31
+2025-09-20T21:27:27.6572010Z #20 6.207   Downloaded futures-macro v0.3.31
+2025-09-20T21:27:27.6572371Z #20 6.208   Downloaded futures-io v0.3.31
+2025-09-20T21:27:27.6572726Z #20 6.210   Downloaded funty v2.0.0
+2025-09-20T21:27:27.6573070Z #20 6.211   Downloaded form_urlencoded v1.2.2
+2025-09-20T21:27:27.6573456Z #20 6.212   Downloaded find-msvc-tools v0.1.2
+2025-09-20T21:27:27.6573837Z #20 6.219   Downloaded embedded-semver v0.3.0
+2025-09-20T21:27:27.6574215Z #20 6.221   Downloaded either v1.15.0
+2025-09-20T21:27:27.6574595Z #20 6.223   Downloaded lazy_static v1.5.0
+2025-09-20T21:27:27.6575017Z #20 6.226   Downloaded itertools v0.14.0
+2025-09-20T21:27:27.6575379Z #20 6.241   Downloaded idna v1.1.0
+2025-09-20T21:27:27.6575748Z #20 6.246   Downloaded icu_properties_data v2.0.1
+2025-09-20T21:27:27.6576172Z #20 6.266   Downloaded icu_locale_core v2.0.0
+2025-09-20T21:27:27.6576553Z #20 6.278   Downloaded httparse v1.10.1
+2025-09-20T21:27:27.6577070Z #20 6.282   Downloaded http-body v1.0.1
+2025-09-20T21:27:27.6577447Z #20 6.283   Downloaded generic-array v0.14.7
+2025-09-20T21:27:27.6577872Z #20 6.291   Downloaded foreign-types-shared v0.1.1
+2025-09-20T21:27:27.6578296Z #20 6.292   Downloaded foreign-types v0.3.2
+2025-09-20T21:27:27.6578666Z #20 6.293   Downloaded fnv v1.0.7
+2025-09-20T21:27:27.6579004Z #20 6.301   Downloaded equivalent v1.0.2
+2025-09-20T21:27:27.6579372Z #20 6.302   Downloaded dirs2 v3.0.1
+2025-09-20T21:27:27.6579718Z #20 6.304   Downloaded dirs-sys v0.3.7
+2025-09-20T21:27:27.6580073Z #20 6.306   Downloaded digest v0.10.7
+2025-09-20T21:27:27.6580421Z #20 6.314   Downloaded deranged v0.5.3
+2025-09-20T21:27:27.6580781Z #20 6.316   Downloaded crypto-common v0.1.6
+2025-09-20T21:27:27.6581186Z #20 6.318   Downloaded crossbeam-utils v0.8.21
+2025-09-20T21:27:27.6581591Z #20 6.326   Downloaded crossbeam-epoch v0.9.18
+2025-09-20T21:27:27.6582001Z #20 6.330   Downloaded crc-catalog v2.4.0
+2025-09-20T21:27:27.6582373Z #20 6.332   Downloaded crc v3.3.0
+2025-09-20T21:27:27.6582734Z #20 6.335   Downloaded constant_time_eq v0.3.1
+2025-09-20T21:27:27.6583102Z #20 6.342   Downloaded chacha20 v0.9.1
+2025-09-20T21:27:27.6583443Z #20 6.345   Downloaded bstr v1.12.0
+2025-09-20T21:27:27.6583804Z #20 6.356   Downloaded block-buffer v0.10.4
+2025-09-20T21:27:27.6584176Z #20 6.358   Downloaded indexmap v2.11.4
+2025-09-20T21:27:27.6584539Z #20 6.370   Downloaded httpdate v1.0.3
+2025-09-20T21:27:27.6584894Z #20 6.372   Downloaded heck v0.5.0
+2025-09-20T21:27:27.6585259Z #20 6.374   Downloaded crossbeam-deque v0.8.6
+2025-09-20T21:27:27.6585648Z #20 6.376   Downloaded cpufeatures v0.2.17
+2025-09-20T21:27:27.6586022Z #20 6.378   Downloaded const-oid v0.9.6
+2025-09-20T21:27:27.6586401Z #20 6.381   Downloaded cfg_aliases v0.2.1
+2025-09-20T21:27:27.6586790Z #20 6.382   Downloaded cfg-if v1.0.3
+2025-09-20T21:27:27.6617784Z #20 6.385   Downloaded bitflags v2.9.4
+2025-09-20T21:27:27.6618748Z #20 6.392   Downloaded async-trait-with-sync v0.1.36
+2025-09-20T21:27:27.6619218Z #20 6.396   Downloaded relative-path v1.9.3
+2025-09-20T21:27:27.6619629Z #20 6.397   Downloaded byteorder v1.5.0
+2025-09-20T21:27:27.6620053Z #20 6.400   Downloaded bytemuck_derive v1.10.1
+2025-09-20T21:27:27.6620462Z #20 6.409   Downloaded blake2b_simd v1.0.3
+2025-09-20T21:27:27.6621131Z #20 6.411   Downloaded bincode v1.3.3
+2025-09-20T21:27:27.6621548Z #20 6.415   Downloaded base64ct v1.8.0
+2025-09-20T21:27:27.6621946Z #20 6.429   Downloaded atomic v0.6.1
+2025-09-20T21:27:27.6622405Z #20 6.432   Downloaded async-stream-impl v0.3.6
+2025-09-20T21:27:27.6622876Z #20 6.433   Downloaded ipnet v2.11.0
+2025-09-20T21:27:27.6623282Z #20 6.436   Downloaded igd v0.12.1
+2025-09-20T21:27:27.6623672Z #20 6.441   Downloaded ctr v0.9.2
+2025-09-20T21:27:27.6624070Z #20 6.445   Downloaded constant_time_eq v0.4.2
+2025-09-20T21:27:27.6624519Z #20 6.448   Downloaded cfg-if v0.1.10
+2025-09-20T21:27:27.6624946Z #20 6.450   Downloaded bytemuck v1.23.2
+2025-09-20T21:27:27.6625347Z #20 6.454   Downloaded bitflags v1.3.2
+2025-09-20T21:27:27.6625766Z #20 6.459   Downloaded auto_impl v1.3.0
+2025-09-20T21:27:27.6626194Z #20 6.474   Downloaded attohttpc v0.16.3
+2025-09-20T21:27:27.6626644Z #20 6.485   Downloaded atomic-waker v1.1.2
+2025-09-20T21:27:27.6627289Z #20 6.487   Downloaded autocfg v1.5.0
+2025-09-20T21:27:27.6627706Z #20 6.490   Downloaded base64 v0.22.1
+2025-09-20T21:27:27.6628132Z #20 6.495   Downloaded aho-corasick v1.1.3
+2025-09-20T21:27:27.6628581Z #20 6.621    Compiling proc-macro2 v1.0.101
+2025-09-20T21:27:27.6629055Z #20 6.621    Compiling unicode-ident v1.0.19
+2025-09-20T21:27:27.6629511Z #20 6.621    Compiling serde_core v1.0.225
+2025-09-20T21:27:27.6629926Z #20 6.621    Compiling serde v1.0.225
+2025-09-20T21:27:27.6630329Z #20 6.782    Compiling cfg-if v1.0.3
+2025-09-20T21:27:27.6630733Z #20 6.846    Compiling libc v0.2.175
+2025-09-20T21:27:27.6631134Z #20 6.962    Compiling autocfg v1.5.0
+2025-09-20T21:27:27.6631590Z #20 7.770    Compiling pin-project-lite v0.2.16
+2025-09-20T21:27:27.6632057Z #20 7.846    Compiling typenum v1.18.0
+2025-09-20T21:27:27.6632452Z #20 8.281    Compiling quote v1.0.40
+2025-09-20T21:27:27.6632851Z #20 8.649    Compiling syn v2.0.106
+2025-09-20T21:27:27.6633253Z #20 8.773    Compiling lock_api v0.4.13
+2025-09-20T21:27:27.6633704Z #20 9.007    Compiling version_check v0.9.5
+2025-09-20T21:27:27.6634139Z #20 9.624    Compiling smallvec v1.15.1
+2025-09-20T21:27:27.7747930Z #20 9.986    Compiling generic-array v0.14.7
+2025-09-20T21:27:27.7748473Z #20 ...
+2025-09-20T21:27:27.7748623Z 
+2025-09-20T21:27:27.7748944Z #19 [peer_a 7/8] RUN cargo install --example peer --path ./citadel_sdk --debug
+2025-09-20T21:27:27.7749580Z #19 10.12    Compiling generic-array v0.14.7
+2025-09-20T21:27:29.0717399Z #19 11.42    Compiling scopeguard v1.2.0
+2025-09-20T21:27:29.4431749Z #19 11.62    Compiling stable_deref_trait v1.2.0
+2025-09-20T21:27:29.4433814Z #19 11.68    Compiling getrandom v0.2.16
+2025-09-20T21:27:29.8335682Z #19 12.03    Compiling parking_lot_core v0.9.11
+2025-09-20T21:27:30.1799035Z #19 12.34    Compiling futures-core v0.3.31
+2025-09-20T21:27:30.3696481Z #19 12.56    Compiling socket2 v0.6.0
+2025-09-20T21:27:30.5414108Z #19 12.74    Compiling signal-hook-registry v1.4.6
+2025-09-20T21:27:30.7557981Z #19 13.10    Compiling mio v1.0.4
+2025-09-20T21:27:31.1432770Z #19 13.34    Compiling log v0.4.28
+2025-09-20T21:27:31.3981293Z #19 13.69    Compiling once_cell v1.21.3
+2025-09-20T21:27:31.5487594Z #19 13.74    Compiling slab v0.4.11
+2025-09-20T21:27:31.5983289Z #19 13.94    Compiling zerocopy v0.8.27
+2025-09-20T21:27:31.7019234Z #19 13.98    Compiling futures-sink v0.3.31
+2025-09-20T21:27:31.9213953Z #19 14.16    Compiling pin-utils v0.1.0
+2025-09-20T21:27:31.9216322Z #19 14.27    Compiling shlex v1.3.0
+2025-09-20T21:27:32.0826092Z #19 14.28    Compiling find-msvc-tools v0.1.2
+2025-09-20T21:27:32.3887688Z #19 14.58    Compiling cc v1.2.38
+2025-09-20T21:27:32.5787416Z #19 14.77    Compiling itoa v1.0.15
+2025-09-20T21:27:32.8477486Z #19 15.04    Compiling memchr v2.7.5
+2025-09-20T21:27:34.4309281Z #19 16.62    Compiling futures-channel v0.3.31
+2025-09-20T21:27:34.7734337Z #19 16.97    Compiling subtle v2.6.1
+2025-09-20T21:27:34.9242861Z #19 17.27    Compiling synstructure v0.13.2
+2025-09-20T21:27:35.0280788Z #19 17.37    Compiling rand_core v0.6.4
+2025-09-20T21:27:35.4853766Z #19 17.73    Compiling futures-io v0.3.31
+2025-09-20T21:27:35.7917426Z #19 17.99    Compiling futures-task v0.3.31
+2025-09-20T21:27:36.0524758Z #19 18.30    Compiling ppv-lite86 v0.2.21
+2025-09-20T21:27:36.2033097Z #19 18.40    Compiling semver v1.0.27
+2025-09-20T21:27:36.2519379Z #19 18.60    Compiling fnv v1.0.7
+2025-09-20T21:27:36.5105879Z #19 18.70    Compiling tracing-core v0.1.34
+2025-09-20T21:27:36.6392463Z #19 18.87    Compiling rustc_version v0.4.1
+2025-09-20T21:27:36.6393282Z #19 18.98    Compiling getrandom v0.3.3
+2025-09-20T21:27:37.2598673Z #19 19.44    Compiling writeable v0.6.1
+2025-09-20T21:27:37.2599267Z #19 19.45    Compiling litemap v0.8.0
+2025-09-20T21:27:37.2599644Z #19 ...
+2025-09-20T21:27:37.2599803Z 
+2025-09-20T21:27:37.2600145Z #20 [server 7/8] RUN cargo install --example server --path ./citadel_sdk --debug
+2025-09-20T21:27:37.2600787Z #20 10.37    Compiling scopeguard v1.2.0
+2025-09-20T21:27:37.2601246Z #20 10.51    Compiling stable_deref_trait v1.2.0
+2025-09-20T21:27:37.2601731Z #20 10.58    Compiling getrandom v0.2.16
+2025-09-20T21:27:37.2602174Z #20 10.86    Compiling parking_lot_core v0.9.11
+2025-09-20T21:27:37.2602651Z #20 11.04    Compiling futures-core v0.3.31
+2025-09-20T21:27:37.2603092Z #20 11.72    Compiling socket2 v0.6.0
+2025-09-20T21:27:37.2603491Z #20 11.79    Compiling mio v1.0.4
+2025-09-20T21:27:37.2603911Z #20 12.37    Compiling signal-hook-registry v1.4.6
+2025-09-20T21:27:37.2604389Z #20 12.92    Compiling log v0.4.28
+2025-09-20T21:27:37.2604804Z #20 13.13    Compiling once_cell v1.21.3
+2025-09-20T21:27:37.2605224Z #20 13.24    Compiling zerocopy v0.8.27
+2025-09-20T21:27:37.2605653Z #20 13.30    Compiling slab v0.4.11
+2025-09-20T21:27:37.2606064Z #20 13.52    Compiling futures-sink v0.3.31
+2025-09-20T21:27:37.2606504Z #20 13.63    Compiling pin-utils v0.1.0
+2025-09-20T21:27:37.2607162Z #20 13.63    Compiling find-msvc-tools v0.1.2
+2025-09-20T21:27:37.2607625Z #20 13.71    Compiling shlex v1.3.0
+2025-09-20T21:27:37.2608005Z #20 14.05    Compiling cc v1.2.38
+2025-09-20T21:27:37.2608379Z #20 14.08    Compiling itoa v1.0.15
+2025-09-20T21:27:37.2608730Z #20 14.25    Compiling memchr v2.7.5
+2025-09-20T21:27:37.2609128Z #20 15.80    Compiling futures-channel v0.3.31
+2025-09-20T21:27:37.2609573Z #20 16.19    Compiling synstructure v0.13.2
+2025-09-20T21:27:37.2609960Z #20 17.17    Compiling ppv-lite86 v0.2.21
+2025-09-20T21:27:37.2610356Z #20 17.29    Compiling subtle v2.6.1
+2025-09-20T21:27:37.2610733Z #20 17.44    Compiling rand_core v0.6.4
+2025-09-20T21:27:37.2611147Z #20 17.46    Compiling futures-io v0.3.31
+2025-09-20T21:27:37.2611563Z #20 17.66    Compiling futures-task v0.3.31
+2025-09-20T21:27:37.2611992Z #20 17.83    Compiling semver v1.0.27
+2025-09-20T21:27:37.2612386Z #20 17.85    Compiling fnv v1.0.7
+2025-09-20T21:27:37.2612779Z #20 17.87    Compiling tracing-core v0.1.34
+2025-09-20T21:27:37.2613198Z #20 17.90    Compiling getrandom v0.3.3
+2025-09-20T21:27:37.2613595Z #20 18.21    Compiling rustc_version v0.4.1
+2025-09-20T21:27:37.2614010Z #20 18.40    Compiling litemap v0.8.0
+2025-09-20T21:27:37.2614397Z #20 18.74    Compiling writeable v0.6.1
+2025-09-20T21:27:37.2614816Z #20 18.75    Compiling cpufeatures v0.2.17
+2025-09-20T21:27:37.2615231Z #20 18.86    Compiling tracing v0.1.41
+2025-09-20T21:27:37.2615631Z #20 19.37    Compiling rand_chacha v0.3.1
+2025-09-20T21:27:37.2616015Z #20 19.38    Compiling ring v0.17.14
+2025-09-20T21:27:37.2616433Z #20 19.44    Compiling icu_normalizer_data v2.0.0
+2025-09-20T21:27:37.4615330Z #20 19.66    Compiling icu_properties_data v2.0.1
+2025-09-20T21:27:37.4951927Z #20 ...
+2025-09-20T21:27:37.4952206Z 
+2025-09-20T21:27:37.4952555Z #19 [peer_a 7/8] RUN cargo install --example peer --path ./citadel_sdk --debug
+2025-09-20T21:27:37.7318481Z #19 19.84    Compiling cpufeatures v0.2.17
+2025-09-20T21:27:37.7575412Z #19 20.10    Compiling tracing v0.1.41
+2025-09-20T21:27:37.9990779Z #19 20.16    Compiling rand_chacha v0.3.1
+2025-09-20T21:27:37.9991369Z #19 20.19    Compiling ring v0.17.14
+2025-09-20T21:27:38.4163887Z #19 20.61    Compiling icu_properties_data v2.0.1
+2025-09-20T21:27:38.6968892Z #19 20.85    Compiling icu_normalizer_data v2.0.0
+2025-09-20T21:27:38.9958051Z #19 21.19    Compiling rand v0.8.5
+2025-09-20T21:27:39.2896859Z #19 21.50    Compiling serde_derive v1.0.225
+2025-09-20T21:27:39.2899905Z #19 21.63    Compiling zeroize_derive v1.4.2
+2025-09-20T21:27:40.3861458Z #19 22.59    Compiling tokio-macros v2.5.0
+2025-09-20T21:27:40.3866047Z #19 22.62    Compiling zerofrom-derive v0.1.6
+2025-09-20T21:27:41.4300020Z #19 23.62    Compiling yoke-derive v0.8.0
+2025-09-20T21:27:43.0567288Z #19 25.28    Compiling zerovec-derive v0.11.1
+2025-09-20T21:27:43.2071312Z #19 25.40    Compiling zerofrom v0.1.6
+2025-09-20T21:27:43.3744395Z #19 25.62    Compiling futures-macro v0.3.31
+2025-09-20T21:27:43.5249464Z #19 25.72    Compiling yoke v0.8.0
+2025-09-20T21:27:43.9492451Z #19 26.14    Compiling displaydoc v0.2.5
+2025-09-20T21:27:44.8453851Z #19 27.01    Compiling futures-util v0.3.31
+2025-09-20T21:27:44.8455492Z #19 27.04    Compiling zerotrie v0.2.2
+2025-09-20T21:27:45.2859128Z #19 27.45    Compiling byteorder v1.5.0
+2025-09-20T21:27:45.4875051Z #19 27.68    Compiling zerovec v0.11.4
+2025-09-20T21:27:46.1384043Z #19 28.33    Compiling untrusted v0.9.0
+2025-09-20T21:27:46.3070928Z #19 28.50    Compiling percent-encoding v2.3.2
+2025-09-20T21:27:46.8085134Z #19 28.91    Compiling syn v1.0.109
+2025-09-20T21:27:47.6175056Z #19 29.81    Compiling tinystr v0.8.1
+2025-09-20T21:27:47.6175609Z #19 ...
+2025-09-20T21:27:47.6175767Z 
+2025-09-20T21:27:47.6176107Z #20 [server 7/8] RUN cargo install --example server --path ./citadel_sdk --debug
+2025-09-20T21:27:47.6176715Z #20 19.93    Compiling rand v0.8.5
+2025-09-20T21:27:47.6177284Z #20 20.40    Compiling byteorder v1.5.0
+2025-09-20T21:27:47.6177736Z #20 20.47    Compiling serde_derive v1.0.225
+2025-09-20T21:27:47.6178185Z #20 20.89    Compiling zeroize_derive v1.4.2
+2025-09-20T21:27:47.6178635Z #20 21.43    Compiling tokio-macros v2.5.0
+2025-09-20T21:27:47.6179078Z #20 21.98    Compiling zerofrom-derive v0.1.6
+2025-09-20T21:27:47.6179551Z #20 22.73    Compiling yoke-derive v0.8.0
+2025-09-20T21:27:47.6180020Z #20 24.63    Compiling zerovec-derive v0.11.1
+2025-09-20T21:27:47.6180466Z #20 24.96    Compiling zerofrom v0.1.6
+2025-09-20T21:27:47.6180879Z #20 25.13    Compiling displaydoc v0.2.5
+2025-09-20T21:27:47.6181294Z #20 25.25    Compiling yoke v0.8.0
+2025-09-20T21:27:47.6181715Z #20 25.60    Compiling futures-macro v0.3.31
+2025-09-20T21:27:47.6182148Z #20 26.05    Compiling zerotrie v0.2.2
+2025-09-20T21:27:47.6182552Z #20 26.78    Compiling zerovec v0.11.4
+2025-09-20T21:27:47.6182944Z #20 26.83    Compiling untrusted v0.9.0
+2025-09-20T21:27:47.6183352Z #20 26.94    Compiling syn v1.0.109
+2025-09-20T21:27:47.6183755Z #20 27.23    Compiling futures-util v0.3.31
+2025-09-20T21:27:47.6184218Z #20 27.48    Compiling percent-encoding v2.3.2
+2025-09-20T21:27:47.6184661Z #20 28.71    Compiling tinystr v0.8.1
+2025-09-20T21:27:47.6185098Z #20 29.00    Compiling icu_locale_core v2.0.0
+2025-09-20T21:27:47.6185522Z #20 29.60    Compiling bytes v1.10.1
+2025-09-20T21:27:48.0279142Z #20 ...
+2025-09-20T21:27:48.0279444Z 
+2025-09-20T21:27:48.0279910Z #19 [peer_a 7/8] RUN cargo install --example peer --path ./citadel_sdk --debug
+2025-09-20T21:27:48.0280560Z #19 30.22    Compiling bytes v1.10.1
+2025-09-20T21:27:49.6871584Z #19 31.90    Compiling crypto-common v0.1.6
+2025-09-20T21:27:49.6872384Z #19 31.97    Compiling zeroize v1.8.1
+2025-09-20T21:27:49.8382208Z #19 32.03    Compiling parking_lot v0.12.4
+2025-09-20T21:27:50.1520721Z #19 32.35    Compiling block-buffer v0.10.4
+2025-09-20T21:27:50.2516654Z ##[error]The operation was canceled.

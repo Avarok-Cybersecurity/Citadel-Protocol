@@ -1,0 +1,391 @@
+﻿2025-09-20T21:20:44.3111720Z ##[group]Run cargo nextest run --package netbeam
+2025-09-20T21:20:44.3112040Z [36;1mcargo nextest run --package netbeam[0m
+2025-09-20T21:20:44.3141800Z shell: /bin/bash -e {0}
+2025-09-20T21:20:44.3141950Z env:
+2025-09-20T21:20:44.3142080Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:44.3142240Z   RUST_BACKTRACE: full
+2025-09-20T21:20:44.3142380Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:44.3142530Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:44.3142670Z   IN_CI: true
+2025-09-20T21:20:44.3142830Z   OPENSSL_ROOT_DIR: /usr/local/opt/openssl@1.1
+2025-09-20T21:20:44.3143030Z   CARGO_HOME: /Users/runner/.cargo
+2025-09-20T21:20:44.3143210Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:20:44.3143350Z ##[endgroup]
+2025-09-20T21:20:44.5701890Z [1m[32m    Updating[0m crates.io index
+2025-09-20T21:20:44.6450400Z [1m[32m    Updating[0m git repository `https://github.com/second-state/socket2.git`
+2025-09-20T21:20:45.8700030Z [1m[32m    Updating[0m git repository `https://github.com/second-state/wasi_tokio.git`
+2025-09-20T21:20:49.0299250Z [1m[32m     Locking[0m 461 packages to latest Rust 1.90.0 compatible versions
+2025-09-20T21:20:49.0308790Z [1m[36m      Adding[0m ascon-aead v0.4.4 [1m[33m(available: v0.5.1)[0m
+2025-09-20T21:20:49.0329910Z [1m[36m      Adding[0m bincode v1.3.3 [1m[33m(available: v2.0.1)[0m
+2025-09-20T21:20:49.0387360Z [1m[36m      Adding[0m generic-array v0.14.7 [1m[33m(available: v1.2.0)[0m
+2025-09-20T21:20:49.0408040Z [1m[36m      Adding[0m hyper v0.14.32 [1m[33m(available: v1.7.0)[0m
+2025-09-20T21:20:49.0514830Z [1m[36m      Adding[0m rand v0.8.5 [1m[33m(available: v0.9.2)[0m
+2025-09-20T21:20:49.0580960Z [1m[36m      Adding[0m rstest v0.23.0 [1m[33m(available: v0.26.1)[0m
+2025-09-20T21:20:49.0757020Z [1m[36m      Adding[0m stun v0.5.1 [1m[33m(available: v0.9.0)[0m
+2025-09-20T21:20:49.0784310Z [1m[36m      Adding[0m sysinfo v0.29.11 [1m[33m(available: v0.37.0)[0m
+2025-09-20T21:20:49.1000960Z [1m[36m      Adding[0m webrtc-util v0.11.0 [1m[33m(available: v0.12.0)[0m
+2025-09-20T21:20:49.1147390Z [1m[36m      Adding[0m zerocopy v0.7.35 [1m[33m(available: v0.8.27)[0m
+2025-09-20T21:20:49.1430680Z [1m[32m Downloading[0m crates ...
+2025-09-20T21:20:49.3523100Z [1m[32m  Downloaded[0m async-stream-impl v0.3.6
+2025-09-20T21:20:49.3684850Z [1m[32m  Downloaded[0m aes v0.8.4
+2025-09-20T21:20:49.3785880Z [1m[32m  Downloaded[0m aead v0.5.2
+2025-09-20T21:20:49.4071710Z [1m[32m  Downloaded[0m addr2line v0.24.2
+2025-09-20T21:20:49.4121460Z [1m[32m  Downloaded[0m twox-hash v2.1.2
+2025-09-20T21:20:49.4169320Z [1m[32m  Downloaded[0m serde_urlencoded v0.7.1
+2025-09-20T21:20:49.4198720Z [1m[32m  Downloaded[0m pem v3.0.5
+2025-09-20T21:20:49.4224060Z [1m[32m  Downloaded[0m async-stream v0.3.6
+2025-09-20T21:20:49.4276850Z [1m[32m  Downloaded[0m rustls-native-certs v0.8.1
+2025-09-20T21:20:49.4339440Z [1m[32m  Downloaded[0m rustls-platform-verifier v0.6.1
+2025-09-20T21:20:49.4465990Z [1m[32m  Downloaded[0m toml_datetime v0.7.2
+2025-09-20T21:20:49.4528380Z [1m[32m  Downloaded[0m uuid v1.18.1
+2025-09-20T21:20:49.4612050Z [1m[32m  Downloaded[0m tokio-rustls v0.26.3
+2025-09-20T21:20:49.4680310Z [1m[32m  Downloaded[0m rustc_version v0.4.1
+2025-09-20T21:20:49.4733330Z [1m[32m  Downloaded[0m rust-argon2 v3.0.0
+2025-09-20T21:20:49.4832120Z [1m[32m  Downloaded[0m thread-id v4.2.2
+2025-09-20T21:20:49.4942480Z [1m[32m  Downloaded[0m signature v2.2.0
+2025-09-20T21:20:49.4980640Z [1m[32m  Downloaded[0m foreign-types-shared v0.1.1
+2025-09-20T21:20:49.5049610Z [1m[32m  Downloaded[0m h2 v0.3.27
+2025-09-20T21:20:49.5253330Z [1m[32m  Downloaded[0m openssl-macros v0.1.1
+2025-09-20T21:20:49.5347650Z [1m[32m  Downloaded[0m sync_wrapper v1.0.2
+2025-09-20T21:20:49.5414660Z [1m[32m  Downloaded[0m spki v0.7.3
+2025-09-20T21:20:49.5510400Z [1m[32m  Downloaded[0m sqlx-macros v0.8.6
+2025-09-20T21:20:49.5574410Z [1m[32m  Downloaded[0m tempfile v3.22.0
+2025-09-20T21:20:49.5686050Z [1m[32m  Downloaded[0m stun v0.5.1
+2025-09-20T21:20:49.5784290Z [1m[32m  Downloaded[0m sqlx-mysql v0.8.6
+2025-09-20T21:20:49.5938420Z [1m[32m  Downloaded[0m stringprep v0.1.5
+2025-09-20T21:20:49.5983130Z [1m[32m  Downloaded[0m tokio-util v0.7.16
+2025-09-20T21:20:49.6132690Z [1m[32m  Downloaded[0m reqwest v0.12.23
+2025-09-20T21:20:49.6243110Z [1m[32m  Downloaded[0m tokio-macros v2.5.0
+2025-09-20T21:20:49.6278260Z [1m[32m  Downloaded[0m strum_macros v0.27.2
+2025-09-20T21:20:49.6328210Z [1m[32m  Downloaded[0m quinn-proto v0.11.13
+2025-09-20T21:20:49.6848700Z [1m[32m  Downloaded[0m syn v1.0.109
+2025-09-20T21:20:49.7026860Z [1m[32m  Downloaded[0m openssl v0.10.73
+2025-09-20T21:20:49.7201900Z [1m[32m  Downloaded[0m nix v0.26.4
+2025-09-20T21:20:49.7719950Z [1m[32m  Downloaded[0m sqlx-sqlite v0.8.6
+2025-09-20T21:20:49.7805640Z [1m[32m  Downloaded[0m sqlx-postgres v0.8.6
+2025-09-20T21:20:49.8002090Z [1m[32m  Downloaded[0m object v0.36.7
+2025-09-20T21:20:49.8498650Z [1m[32m  Downloaded[0m sqlx-macros-core v0.8.6
+2025-09-20T21:20:49.8542190Z [1m[32m  Downloaded[0m sqlx v0.8.6
+2025-09-20T21:20:49.9120310Z [1m[32m  Downloaded[0m portable-atomic v1.11.1
+2025-09-20T21:20:49.9258710Z [1m[32m  Downloaded[0m redis v0.32.5
+2025-09-20T21:20:49.9447680Z [1m[32m  Downloaded[0m zerocopy v0.7.35
+2025-09-20T21:20:50.0137350Z [1m[32m  Downloaded[0m pqc_kyber_kyberslash v0.7.1
+2025-09-20T21:20:50.0622300Z [1m[32m  Downloaded[0m tap v1.0.1
+2025-09-20T21:20:50.0649720Z [1m[32m  Downloaded[0m rustix v1.1.2
+2025-09-20T21:20:50.1512200Z [1m[32m  Downloaded[0m sysinfo v0.29.11
+2025-09-20T21:20:50.1984400Z [1m[32m  Downloaded[0m sqlx-core v0.8.6
+2025-09-20T21:20:50.2187410Z [1m[32m  Downloaded[0m gimli v0.31.1
+2025-09-20T21:20:50.2338270Z [1m[32m  Downloaded[0m num-bigint-dig v0.8.4
+2025-09-20T21:20:50.2413400Z [1m[32m  Downloaded[0m num-bigint v0.4.6
+2025-09-20T21:20:50.2779960Z [1m[32m  Downloaded[0m bitvec v1.0.1
+2025-09-20T21:20:50.3183390Z [1m[32m  Downloaded[0m tinyvec_macros v0.1.1
+2025-09-20T21:20:50.3350960Z [1m[32m  Downloaded[0m siphasher v1.0.1
+2025-09-20T21:20:50.3540780Z [1m[32m  Downloaded[0m security-framework v3.4.0
+2025-09-20T21:20:50.3616590Z [1m[32m  Downloaded[0m security-framework v2.11.1
+2025-09-20T21:20:50.3687400Z [1m[32m  Downloaded[0m petgraph v0.6.5
+2025-09-20T21:20:50.3984920Z [1m[32m  Downloaded[0m openssl-sys v0.9.109
+2025-09-20T21:20:50.4394240Z [1m[32m  Downloaded[0m mio v1.0.4
+2025-09-20T21:20:50.4511940Z [1m[32m  Downloaded[0m base64 v0.21.7
+2025-09-20T21:20:50.4591660Z [1m[32m  Downloaded[0m tokio v1.47.1
+2025-09-20T21:20:50.5914810Z [1m[32m  Downloaded[0m aes-gcm v0.10.3
+2025-09-20T21:20:50.5971970Z [1m[32m  Downloaded[0m socket2 v0.6.0
+2025-09-20T21:20:50.6014710Z [1m[32m  Downloaded[0m rsa v0.9.8
+2025-09-20T21:20:50.6116520Z [1m[32m  Downloaded[0m rayon-core v1.13.0
+2025-09-20T21:20:50.6729080Z [1m[32m  Downloaded[0m sha3 v0.10.8
+2025-09-20T21:20:50.6821600Z [1m[32m  Downloaded[0m hyper v1.7.0
+2025-09-20T21:20:50.6955960Z [1m[32m  Downloaded[0m chacha20poly1305 v0.10.1
+2025-09-20T21:20:50.6977570Z [1m[32m  Downloaded[0m tinyvec v1.10.0
+2025-09-20T21:20:50.7023280Z [1m[32m  Downloaded[0m socket2 v0.5.10
+2025-09-20T21:20:50.7053850Z [1m[32m  Downloaded[0m sharded-slab v0.1.7
+2025-09-20T21:20:50.7121080Z [1m[32m  Downloaded[0m rstest_macros v0.23.0
+2025-09-20T21:20:50.7188540Z [1m[32m  Downloaded[0m poly1305 v0.8.0
+2025-09-20T21:20:50.7535770Z [1m[32m  Downloaded[0m mobc v0.9.0
+2025-09-20T21:20:50.7585160Z [1m[32m  Downloaded[0m metrics v0.24.2
+2025-09-20T21:20:50.7645730Z [1m[32m  Downloaded[0m jwt v0.16.0
+2025-09-20T21:20:50.7683810Z [1m[32m  Downloaded[0m hyper-util v0.1.17
+2025-09-20T21:20:50.7790780Z [1m[32m  Downloaded[0m bytemuck_derive v1.10.1
+2025-09-20T21:20:50.7815410Z [1m[32m  Downloaded[0m attohttpc v0.16.3
+2025-09-20T21:20:50.7910260Z [1m[32m  Downloaded[0m ahash v0.8.12
+2025-09-20T21:20:50.8233460Z [1m[32m  Downloaded[0m thread_local v1.1.9
+2025-09-20T21:20:50.8258490Z [1m[32m  Downloaded[0m thiserror v1.0.69
+2025-09-20T21:20:50.8381160Z [1m[32m  Downloaded[0m tokio-native-tls v0.3.1
+2025-09-20T21:20:50.8412510Z [1m[32m  Downloaded[0m spin v0.9.8
+2025-09-20T21:20:50.8464020Z [1m[32m  Downloaded[0m toml_parser v1.0.3
+2025-09-20T21:20:50.8520700Z [1m[32m  Downloaded[0m slab v0.4.11
+2025-09-20T21:20:50.8547150Z [1m[32m  Downloaded[0m security-framework-sys v2.15.0
+2025-09-20T21:20:50.8595130Z [1m[32m  Downloaded[0m rstest v0.23.0
+2025-09-20T21:20:50.9010200Z [1m[32m  Downloaded[0m quinn-udp v0.5.14
+2025-09-20T21:20:50.9046060Z [1m[32m  Downloaded[0m pem-rfc7468 v0.7.0
+2025-09-20T21:20:50.9089310Z [1m[32m  Downloaded[0m parking_lot_core v0.9.11
+2025-09-20T21:20:50.9143790Z [1m[32m  Downloaded[0m multimap v0.10.1
+2025-09-20T21:20:50.9163210Z [1m[32m  Downloaded[0m memoffset v0.7.1
+2025-09-20T21:20:50.9190950Z [1m[32m  Downloaded[0m md-5 v0.10.6
+2025-09-20T21:20:50.9227250Z [1m[32m  Downloaded[0m xmltree v0.10.3
+2025-09-20T21:20:50.9257240Z [1m[32m  Downloaded[0m wyz v0.5.1
+2025-09-20T21:20:50.9278770Z [1m[32m  Downloaded[0m wildmatch v1.1.0
+2025-09-20T21:20:50.9300400Z [1m[32m  Downloaded[0m tokio-stream v0.1.17
+2025-09-20T21:20:50.9707460Z [1m[32m  Downloaded[0m kyber-pke v0.5.0
+2025-09-20T21:20:50.9731210Z [1m[32m  Downloaded[0m httparse v1.10.1
+2025-09-20T21:20:50.9771910Z [1m[32m  Downloaded[0m event-listener v5.4.1
+2025-09-20T21:20:50.9807620Z [1m[32m  Downloaded[0m embedded-semver v0.3.0
+2025-09-20T21:20:50.9836700Z [1m[32m  Downloaded[0m dirs2 v3.0.1
+2025-09-20T21:20:50.9887590Z [1m[32m  Downloaded[0m chacha20 v0.9.1
+2025-09-20T21:20:50.9898470Z [1m[32m  Downloaded[0m byteorder v1.5.0
+2025-09-20T21:20:50.9927210Z [1m[32m  Downloaded[0m bitflags v1.3.2
+2025-09-20T21:20:51.0007460Z [1m[32m  Downloaded[0m bincode v1.3.3
+2025-09-20T21:20:51.0394550Z [1m[32m  Downloaded[0m base64 v0.13.1
+2025-09-20T21:20:51.0440840Z [1m[32m  Downloaded[0m arrayref v0.3.9
+2025-09-20T21:20:51.0461800Z [1m[32m  Downloaded[0m allocator-api2 v0.2.21
+2025-09-20T21:20:51.0504720Z [1m[32m  Downloaded[0m thiserror-impl v1.0.69
+2025-09-20T21:20:51.0527550Z [1m[32m  Downloaded[0m strum v0.27.2
+2025-09-20T21:20:51.0543870Z [1m[32m  Downloaded[0m serde-big-array v0.5.1
+2025-09-20T21:20:51.0575180Z [1m[32m  Downloaded[0m rustc-hash v2.1.1
+2025-09-20T21:20:51.0614740Z [1m[32m  Downloaded[0m proc-macro-crate v3.4.0
+2025-09-20T21:20:51.0643530Z [1m[32m  Downloaded[0m libm v0.2.15
+2025-09-20T21:20:51.1190190Z [1m[32m  Downloaded[0m inout v0.1.4
+2025-09-20T21:20:51.1208280Z [1m[32m  Downloaded[0m hybrid-array v0.3.1
+2025-09-20T21:20:51.1256640Z [1m[32m  Downloaded[0m http-body-util v0.1.3
+2025-09-20T21:20:51.1277080Z [1m[32m  Downloaded[0m http v0.2.12
+2025-09-20T21:20:51.1344390Z [1m[32m  Downloaded[0m hmac v0.12.1
+2025-09-20T21:20:51.1385900Z [1m[32m  Downloaded[0m hashbrown v0.15.5
+2025-09-20T21:20:51.1484740Z [1m[32m  Downloaded[0m futures-task v0.3.31
+2025-09-20T21:20:51.1956450Z [1m[32m  Downloaded[0m futures-executor v0.3.31
+2025-09-20T21:20:51.1978890Z [1m[32m  Downloaded[0m foreign-types v0.3.2
+2025-09-20T21:20:51.1990770Z [1m[32m  Downloaded[0m foldhash v0.1.5
+2025-09-20T21:20:51.2012010Z [1m[32m  Downloaded[0m fixedbitset v0.4.2
+2025-09-20T21:20:51.2044760Z [1m[32m  Downloaded[0m cipher v0.4.4
+2025-09-20T21:20:51.2062550Z [1m[32m  Downloaded[0m blake2b_simd v1.0.3
+2025-09-20T21:20:51.2095140Z [1m[32m  Downloaded[0m atomic-waker v1.1.2
+2025-09-20T21:20:51.2114770Z [1m[32m  Downloaded[0m atomic v0.6.1
+2025-09-20T21:20:51.2137270Z [1m[32m  Downloaded[0m opaque-debug v0.3.1
+2025-09-20T21:20:51.2155100Z [1m[32m  Downloaded[0m keccak v0.1.5
+2025-09-20T21:20:51.2175060Z [1m[32m  Downloaded[0m iri-string v0.7.8
+2025-09-20T21:20:51.2308470Z [1m[32m  Downloaded[0m httpdate v1.0.3
+2025-09-20T21:20:51.2377170Z [1m[32m  Downloaded[0m http-body v1.0.1
+2025-09-20T21:20:51.2671440Z [1m[32m  Downloaded[0m hashlink v0.10.0
+2025-09-20T21:20:51.2731630Z [1m[32m  Downloaded[0m ghash v0.5.1
+2025-09-20T21:20:51.2753340Z [1m[32m  Downloaded[0m futures-timer v3.0.3
+2025-09-20T21:20:51.2793170Z [1m[32m  Downloaded[0m futures-sink v0.3.31
+2025-09-20T21:20:51.2815240Z [1m[32m  Downloaded[0m futures-intrusive v0.5.0
+2025-09-20T21:20:51.2902870Z [1m[32m  Downloaded[0m dotenvy v0.15.7
+2025-09-20T21:20:51.2957210Z [1m[32m  Downloaded[0m combine v4.6.7
+2025-09-20T21:20:51.3054690Z [1m[32m  Downloaded[0m futures-channel v0.3.31
+2025-09-20T21:20:51.3099180Z [1m[32m  Downloaded[0m der v0.7.10
+2025-09-20T21:20:51.3528230Z [1m[32m  Downloaded[0m ctr v0.9.2
+2025-09-20T21:20:51.3568530Z [1m[32m  Downloaded[0m const-oid v0.9.6
+2025-09-20T21:20:51.3621130Z [1m[32m  Downloaded[0m cfg-if v0.1.10
+2025-09-20T21:20:51.3641860Z [1m[32m  Downloaded[0m backtrace v0.3.75
+2025-09-20T21:20:51.3854980Z [1m[32m  Downloaded[0m async-trait-with-sync v0.1.36
+2025-09-20T21:20:51.3923720Z [1m[32m  Downloaded[0m async-trait v0.1.89
+2025-09-20T21:20:51.4218250Z [1m[32m  Downloaded[0m anyhow v1.0.100
+2025-09-20T21:20:51.4295640Z [1m[32m  Downloaded[0m sha1 v0.10.6
+2025-09-20T21:20:51.4330290Z [1m[32m  Downloaded[0m scopeguard v1.2.0
+2025-09-20T21:20:51.4345460Z [1m[32m  Downloaded[0m rustls-pemfile v2.2.0
+2025-09-20T21:20:51.4396850Z [1m[32m  Downloaded[0m parking_lot v0.12.4
+2025-09-20T21:20:51.4440900Z [1m[32m  Downloaded[0m packed_struct v0.10.1
+2025-09-20T21:20:51.4470070Z [1m[32m  Downloaded[0m num-integer v0.1.46
+2025-09-20T21:20:51.4498030Z [1m[32m  Downloaded[0m nu-ansi-term v0.50.1
+2025-09-20T21:20:51.4544430Z [1m[32m  Downloaded[0m zeroize_derive v1.4.2
+2025-09-20T21:20:51.4563970Z [1m[32m  Downloaded[0m zerocopy-derive v0.7.35
+2025-09-20T21:20:51.4681630Z [1m[32m  Downloaded[0m xml-rs v0.8.27
+2025-09-20T21:20:51.4740280Z [1m[32m  Downloaded[0m lock_api v0.4.13
+2025-09-20T21:20:51.4761390Z [1m[32m  Downloaded[0m igd v0.12.1
+2025-09-20T21:20:51.4816530Z [1m[32m  Downloaded[0m hyper v0.14.32
+2025-09-20T21:20:51.4968130Z [1m[32m  Downloaded[0m hash32 v0.2.1
+2025-09-20T21:20:51.4994220Z [1m[32m  Downloaded[0m futures-util v0.3.31
+2025-09-20T21:20:51.5286880Z [1m[32m  Downloaded[0m futures-macro v0.3.31
+2025-09-20T21:20:51.5302390Z [1m[32m  Downloaded[0m fastbloom v0.14.0
+2025-09-20T21:20:51.5335380Z [1m[32m  Downloaded[0m crossbeam-queue v0.3.12
+2025-09-20T21:20:51.5356790Z [1m[32m  Downloaded[0m constant_time_eq v0.4.2
+2025-09-20T21:20:51.5397850Z [1m[32m  Downloaded[0m concurrent-queue v2.5.0
+2025-09-20T21:20:51.5427380Z [1m[32m  Downloaded[0m bytemuck v1.23.2
+2025-09-20T21:20:51.5787160Z [1m[32m  Downloaded[0m base64ct v1.8.0
+2025-09-20T21:20:51.5836430Z [1m[32m  Downloaded[0m atoi v2.0.0
+2025-09-20T21:20:51.5858290Z [1m[32m  Downloaded[0m ascon-aead v0.4.4
+2025-09-20T21:20:51.5963300Z [1m[32m  Downloaded[0m termcolor v1.4.1
+2025-09-20T21:20:51.5968380Z [1m[32m  Downloaded[0m signal-hook-registry v1.4.6
+2025-09-20T21:20:51.6002050Z [1m[32m  Downloaded[0m sha1_smol v1.0.1
+2025-09-20T21:20:51.6024340Z [1m[32m  Downloaded[0m rustc-demangle v0.1.26
+2025-09-20T21:20:51.6053860Z [1m[32m  Downloaded[0m relative-path v1.9.3
+2025-09-20T21:20:51.6070770Z [1m[32m  Downloaded[0m rayon v1.11.0
+2025-09-20T21:20:51.6265450Z [1m[32m  Downloaded[0m polyval v0.6.2
+2025-09-20T21:20:51.6312230Z [1m[32m  Downloaded[0m pkcs8 v0.10.2
+2025-09-20T21:20:51.6364960Z [1m[32m  Downloaded[0m radium v0.7.0
+2025-09-20T21:20:51.6449840Z [1m[32m  Downloaded[0m pkcs1 v0.7.5
+2025-09-20T21:20:51.6451780Z [1m[32m  Downloaded[0m pin-utils v0.1.0
+2025-09-20T21:20:51.6456160Z [1m[32m  Downloaded[0m num-iter v0.1.45
+2025-09-20T21:20:51.6473280Z [1m[32m  Downloaded[0m hkdf v0.12.4
+2025-09-20T21:20:51.6517880Z [1m[32m  Downloaded[0m futures v0.3.31
+2025-09-20T21:20:51.6615580Z [1m[32m  Downloaded[0m funty v2.0.0
+2025-09-20T21:20:51.6630530Z [1m[32m  Downloaded[0m embed-doc-image v0.1.4
+2025-09-20T21:20:51.6876750Z [1m[32m  Downloaded[0m dirs-sys v0.3.7
+2025-09-20T21:20:51.6978240Z [1m[32m  Downloaded[0m crc-catalog v2.4.0
+2025-09-20T21:20:51.7002540Z [1m[32m  Downloaded[0m auto_impl v1.3.0
+2025-09-20T21:20:51.7137390Z [1m[32m  Downloaded[0m async-recursion v1.1.1
+2025-09-20T21:20:51.7225360Z [1m[32m  Downloaded[0m arrayvec v0.7.6
+2025-09-20T21:20:51.7269130Z [1m[32m  Downloaded[0m webrtc-util v0.8.1
+2025-09-20T21:20:51.7668100Z [1m[32m  Downloaded[0m vcpkg v0.2.15
+2025-09-20T21:20:51.8707040Z [1m[32m  Downloaded[0m flume v0.11.1
+2025-09-20T21:20:51.8773340Z [1m[32m  Downloaded[0m core-foundation v0.9.4
+2025-09-20T21:20:51.8813900Z [1m[32m  Downloaded[0m toml_edit v0.23.6
+2025-09-20T21:20:51.8902150Z [1m[32m  Downloaded[0m packed_struct_codegen v0.10.1
+2025-09-20T21:20:51.8925650Z [1m[32m  Downloaded[0m matchers v0.2.0
+2025-09-20T21:20:51.8945210Z [1m[32m  Downloaded[0m universal-hash v0.5.1
+2025-09-20T21:20:51.8965570Z [1m[32m  Downloaded[0m unicode-normalization v0.1.24
+2025-09-20T21:20:51.9021480Z [1m[32m  Downloaded[0m unicode-bidi v0.3.18
+2025-09-20T21:20:51.9063940Z [1m[32m  Downloaded[0m ts-rs v11.0.1
+2025-09-20T21:20:51.9172170Z [1m[32m  Downloaded[0m tracing-log v0.2.0
+2025-09-20T21:20:51.9194640Z [1m[32m  Downloaded[0m tracing v0.1.41
+2025-09-20T21:20:51.9282260Z [1m[32m  Downloaded[0m tower-http v0.6.6
+2025-09-20T21:20:51.9444580Z [1m[32m  Downloaded[0m tower v0.5.2
+2025-09-20T21:20:51.9943840Z [1m[32m  Downloaded[0m lru-slab v0.1.2
+2025-09-20T21:20:51.9963510Z [1m[32m  Downloaded[0m ipnet v2.11.0
+2025-09-20T21:20:51.9990620Z [1m[32m  Downloaded[0m hyper-rustls v0.27.7
+2025-09-20T21:20:52.0030400Z [1m[32m  Downloaded[0m http-body v0.4.6
+2025-09-20T21:20:52.0059100Z [1m[32m  Downloaded[0m heapless v0.7.17
+2025-09-20T21:20:52.0142910Z [1m[32m  Downloaded[0m crc v3.3.0
+2025-09-20T21:20:52.0176370Z [1m[32m  Downloaded[0m try-lock v0.2.5
+2025-09-20T21:20:52.0198890Z [1m[32m  Downloaded[0m tracing-subscriber v0.3.20
+2025-09-20T21:20:52.0774700Z [1m[32m  Downloaded[0m tracing-attributes v0.1.30
+2025-09-20T21:20:52.0823400Z [1m[32m  Downloaded[0m tower-layer v0.3.3
+2025-09-20T21:20:52.0839240Z [1m[32m  Downloaded[0m quinn v0.11.9
+2025-09-20T21:20:52.0924240Z [1m[32m  Downloaded[0m native-tls v0.2.14
+2025-09-20T21:20:52.1062200Z [1m[32m  Downloaded[0m yasna v0.5.2
+2025-09-20T21:20:52.1129870Z [1m[32m  Downloaded[0m webrtc-util v0.11.0
+2025-09-20T21:20:52.1231600Z [1m[32m  Downloaded[0m libsqlite3-sys v0.30.1
+2025-09-20T21:20:52.2439770Z [1m[32m  Downloaded[0m unicode-properties v0.1.3
+2025-09-20T21:20:52.2498240Z [1m[32m  Downloaded[0m ts-rs-macros v11.0.1
+2025-09-20T21:20:52.2556190Z [1m[32m  Downloaded[0m rcgen v0.14.4
+2025-09-20T21:20:52.2592670Z [1m[32m  Downloaded[0m core-foundation v0.10.1
+2025-09-20T21:20:52.2647910Z [1m[32m  Downloaded[0m ascon-core v0.4.1
+2025-09-20T21:20:52.2682380Z [1m[32m  Downloaded[0m ml-dsa v0.0.4
+2025-09-20T21:20:52.2740500Z [1m[32m  Downloaded[0m want v0.3.1
+2025-09-20T21:20:52.2754260Z [1m[32m  Downloaded[0m tracing-core v0.1.34
+2025-09-20T21:20:52.2800130Z [1m[32m  Downloaded[0m tower-service v0.3.3
+2025-09-20T21:20:52.2810770Z [1m[32m  Downloaded[0m constant_time_eq v0.3.1
+2025-09-20T21:20:52.3163630Z [1m[32m  Downloaded[0m openssl-src v300.5.2+3.5.2
+2025-09-20T21:20:53.7174080Z [1m[32m   Compiling[0m proc-macro2 v1.0.101
+2025-09-20T21:20:53.7192400Z [1m[32m   Compiling[0m unicode-ident v1.0.19
+2025-09-20T21:20:53.7200840Z [1m[32m   Compiling[0m cfg-if v1.0.3
+2025-09-20T21:20:53.8028780Z [1m[32m   Compiling[0m libc v0.2.175
+2025-09-20T21:20:53.8873830Z [1m[32m   Compiling[0m pin-project-lite v0.2.16
+2025-09-20T21:20:53.9516490Z [1m[32m   Compiling[0m futures-core v0.3.31
+2025-09-20T21:20:54.0731550Z [1m[32m   Compiling[0m autocfg v1.5.0
+2025-09-20T21:20:54.4014260Z [1m[32m   Compiling[0m smallvec v1.15.1
+2025-09-20T21:20:54.4684520Z [1m[32m   Compiling[0m lock_api v0.4.13
+2025-09-20T21:20:54.5116970Z [1m[32m   Compiling[0m quote v1.0.40
+2025-09-20T21:20:54.5964170Z [1m[32m   Compiling[0m futures-sink v0.3.31
+2025-09-20T21:20:54.6471040Z [1m[32m   Compiling[0m syn v2.0.106
+2025-09-20T21:20:54.7085340Z [1m[32m   Compiling[0m parking_lot_core v0.9.11
+2025-09-20T21:20:54.7999560Z [1m[32m   Compiling[0m zerocopy v0.8.27
+2025-09-20T21:20:54.8653310Z [1m[32m   Compiling[0m slab v0.4.11
+2025-09-20T21:20:54.9785640Z [1m[32m   Compiling[0m scopeguard v1.2.0
+2025-09-20T21:20:55.1802440Z [1m[32m   Compiling[0m hashbrown v0.16.0
+2025-09-20T21:20:55.2732270Z [1m[32m   Compiling[0m once_cell v1.21.3
+2025-09-20T21:20:55.3766330Z [1m[32m   Compiling[0m semver v1.0.27
+2025-09-20T21:20:55.5191280Z [1m[32m   Compiling[0m memchr v2.7.5
+2025-09-20T21:20:55.5730380Z [1m[32m   Compiling[0m equivalent v1.0.2
+2025-09-20T21:20:55.6323530Z [1m[32m   Compiling[0m winnow v0.7.13
+2025-09-20T21:20:55.8326940Z [1m[32m   Compiling[0m aho-corasick v1.1.3
+2025-09-20T21:20:56.6656210Z [1m[32m   Compiling[0m toml_parser v1.0.3
+2025-09-20T21:20:56.7787450Z [1m[32m   Compiling[0m indexmap v2.11.4
+2025-09-20T21:20:57.0736150Z [1m[32m   Compiling[0m rustc_version v0.4.1
+2025-09-20T21:20:57.1749700Z [1m[32m   Compiling[0m tracing-core v0.1.34
+2025-09-20T21:20:57.2517540Z [1m[32m   Compiling[0m parking_lot v0.12.4
+2025-09-20T21:20:57.5492280Z [1m[32m   Compiling[0m futures-channel v0.3.31
+2025-09-20T21:20:57.6702080Z [1m[32m   Compiling[0m getrandom v0.2.16
+2025-09-20T21:20:57.7784000Z [1m[32m   Compiling[0m mio v1.0.4
+2025-09-20T21:20:57.8578530Z [1m[32m   Compiling[0m tokio-macros v2.5.0
+2025-09-20T21:20:58.1911400Z [1m[32m   Compiling[0m futures-macro v0.3.31
+2025-09-20T21:20:58.2012920Z [1m[32m   Compiling[0m socket2 v0.6.0
+2025-09-20T21:20:58.5107320Z [1m[32m   Compiling[0m futures-io v0.3.31
+2025-09-20T21:20:58.5959480Z [1m[32m   Compiling[0m regex-syntax v0.8.6
+2025-09-20T21:20:58.6061070Z [1m[32m   Compiling[0m futures-task v0.3.31
+2025-09-20T21:20:58.6979980Z [1m[32m   Compiling[0m pin-utils v0.1.0
+2025-09-20T21:20:58.7393510Z [1m[32m   Compiling[0m toml_datetime v0.7.2
+2025-09-20T21:20:58.8671550Z [1m[32m   Compiling[0m bytes v1.10.1
+2025-09-20T21:20:59.2551780Z [1m[32m   Compiling[0m serde_core v1.0.225
+2025-09-20T21:20:59.4784020Z [1m[32m   Compiling[0m regex-automata v0.4.10
+2025-09-20T21:21:00.4686690Z [1m[32m   Compiling[0m tokio v1.47.1
+2025-09-20T21:21:01.9004180Z [1m[32m   Compiling[0m toml_edit v0.23.6
+2025-09-20T21:21:02.1284810Z [1m[32m   Compiling[0m futures-util v0.3.31
+2025-09-20T21:21:02.5617620Z [1m[32m   Compiling[0m ppv-lite86 v0.2.21
+2025-09-20T21:21:02.6976090Z [1m[32m   Compiling[0m rand_core v0.6.4
+2025-09-20T21:21:02.8066840Z [1m[32m   Compiling[0m rstest_macros v0.23.0
+2025-09-20T21:21:02.9805040Z [1m[32m   Compiling[0m serde v1.0.225
+2025-09-20T21:21:03.2444570Z [1m[32m   Compiling[0m lazy_static v1.5.0
+2025-09-20T21:21:03.3248480Z [1m[32m   Compiling[0m log v0.4.28
+2025-09-20T21:21:03.5659590Z [1m[32m   Compiling[0m tracing-log v0.2.0
+2025-09-20T21:21:03.8084510Z [1m[32m   Compiling[0m sharded-slab v0.1.7
+2025-09-20T21:21:04.2769930Z [1m[32m   Compiling[0m futures-executor v0.3.31
+2025-09-20T21:21:04.3639700Z [1m[32m   Compiling[0m rand_chacha v0.3.1
+2025-09-20T21:21:04.5034520Z [1m[32m   Compiling[0m proc-macro-crate v3.4.0
+2025-09-20T21:21:04.9999350Z [1m[32m   Compiling[0m regex v1.11.2
+2025-09-20T21:21:05.1550250Z [1m[32m   Compiling[0m matchers v0.2.0
+2025-09-20T21:21:05.2162210Z [1m[32m   Compiling[0m serde_derive v1.0.225
+2025-09-20T21:21:05.4598080Z [1m[32m   Compiling[0m tracing v0.1.41
+2025-09-20T21:21:05.5707910Z [1m[32m   Compiling[0m thread_local v1.1.9
+2025-09-20T21:21:05.7313680Z [1m[32m   Compiling[0m nu-ansi-term v0.50.1
+2025-09-20T21:21:05.9626560Z [1m[32m   Compiling[0m relative-path v1.9.3
+2025-09-20T21:21:06.1253080Z [1m[32m   Compiling[0m glob v0.3.3
+2025-09-20T21:21:06.3370030Z [1m[32m   Compiling[0m anyhow v1.0.100
+2025-09-20T21:21:07.7472520Z [1m[32m   Compiling[0m tracing-subscriber v0.3.20
+2025-09-20T21:21:08.6079130Z [1m[32m   Compiling[0m rand v0.8.5
+2025-09-20T21:21:09.3121540Z [1m[32m   Compiling[0m futures v0.3.31
+2025-09-20T21:21:09.3122180Z [1m[32m   Compiling[0m tokio-util v0.7.16
+2025-09-20T21:21:09.3422840Z [1m[32m   Compiling[0m tokio-stream v0.1.17
+2025-09-20T21:21:09.6728590Z [1m[32m   Compiling[0m async-stream-impl v0.3.6
+2025-09-20T21:21:10.0158220Z [1m[32m   Compiling[0m futures-timer v3.0.3
+2025-09-20T21:21:10.2895760Z [1m[32m   Compiling[0m rstest v0.23.0
+2025-09-20T21:21:10.3501380Z [1m[32m   Compiling[0m async-stream v0.3.6
+2025-09-20T21:21:10.3805520Z [1m[32m   Compiling[0m citadel_logging v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_logging)
+2025-09-20T21:21:10.4106160Z [1m[32m   Compiling[0m bincode v1.3.3
+2025-09-20T21:21:10.6838170Z [1m[32m   Compiling[0m citadel_io v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/citadel_io)
+2025-09-20T21:21:10.7346910Z [1m[32m   Compiling[0m async-trait v0.1.89
+2025-09-20T21:21:10.8052360Z [1m[32m   Compiling[0m async-recursion v1.1.1
+2025-09-20T21:21:10.9275060Z [1m[32m   Compiling[0m sync_wrapper v1.0.2
+2025-09-20T21:21:11.3070940Z [1m[32m   Compiling[0m netbeam v0.13.0 (/Users/runner/work/Citadel-Protocol/Citadel-Protocol/netbeam)
+2025-09-20T21:21:15.4230530Z [1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 21.85s
+2025-09-20T21:21:15.4474300Z ────────────
+2025-09-20T21:21:15.4475120Z [32;1m Nextest run[0m ID [1mf3cd9e5b-1be9-44f7-8cdb-087ef1a716da[0m with nextest profile: [1mdefault[0m
+2025-09-20T21:21:15.4476580Z [32;1m    Starting[0m [1m19[0m tests across [1m1[0m binary
+2025-09-20T21:21:15.6454680Z [32;1m        PASS[0m [   0.197s] [35;1mnetbeam[0m [36mmultiplex::tests[0m[36m::[0m[34;1mnested_multiplexed_stream[0m
+2025-09-20T21:21:15.9538930Z [32;1m        PASS[0m [   0.309s] [35;1mnetbeam[0m [36msync::callback_channel::tests[0m[36m::[0m[34;1mmain[0m
+2025-09-20T21:21:15.9762320Z [32;1m        PASS[0m [   0.022s] [35;1mnetbeam[0m [36msync::channel::bi_channel::tests[0m[36m::[0m[34;1mbi_channel[0m
+2025-09-20T21:21:15.9827170Z [32;1m        PASS[0m [   0.006s] [35;1mnetbeam[0m [36msync::network_endpoint::tests[0m[36m::[0m[34;1mmain[0m
+2025-09-20T21:21:32.0414510Z [32;1m        PASS[0m [  16.058s] [35;1mnetbeam[0m [36msync::operations::net_select_ok::tests[0m[36m::[0m[34;1mracer[0m
+2025-09-20T21:21:32.6429710Z [32;1m        PASS[0m [   0.601s] [35;1mnetbeam[0m [36msync::operations::net_try_join::tests[0m[36m::[0m[34;1mracer[0m
+2025-09-20T21:21:32.9358700Z [32;1m        PASS[0m [   0.293s] [35;1mnetbeam[0m [36msync::primitives::net_mutex::tests::test_net_mutex[0m[36m::[0m[34;1mcase_1[0m
+2025-09-20T21:21:37.6107630Z [32;1m        PASS[0m [   4.674s] [35;1mnetbeam[0m [36msync::primitives::net_mutex::tests::test_net_mutex[0m[36m::[0m[34;1mcase_2[0m
+2025-09-20T21:21:43.9659070Z [32;1m        PASS[0m [   6.356s] [35;1mnetbeam[0m [36msync::primitives::net_mutex::tests::test_net_mutex[0m[36m::[0m[34;1mcase_3[0m
+2025-09-20T21:21:44.2758100Z [32;1m        PASS[0m [   0.310s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_interweaved[0m
+2025-09-20T21:21:44.2881990Z [32;1m        PASS[0m [   0.012s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_reads[0m
+2025-09-20T21:21:47.2495500Z [32;1m        PASS[0m [   2.961s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_reads_end_with_write[0m
+2025-09-20T21:21:50.6532650Z [32;1m        PASS[0m [   3.403s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_reads_no_initial_write[0m
+2025-09-20T21:21:50.9573880Z [32;1m        PASS[0m [   0.304s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_writes[0m
+2025-09-20T21:21:50.9659530Z [32;1m        PASS[0m [   0.009s] [35;1mnetbeam[0m [36msync::sync_start::tests[0m[36m::[0m[34;1mrun_getter[0m
+2025-09-20T21:21:51.3099530Z [32;1m        PASS[0m [   0.344s] [35;1mnetbeam[0m [36msync::sync_start::tests[0m[36m::[0m[34;1mrun_parallel_many[0m
+2025-09-20T21:21:51.3176190Z [32;1m        PASS[0m [   0.008s] [35;1mnetbeam[0m [36msync::tracked_callback_channel::tests[0m[36m::[0m[34;1mtest_error[0m
+2025-09-20T21:21:51.3615340Z [32;1m        PASS[0m [   0.044s] [35;1mnetbeam[0m [36msync::tracked_callback_channel::tests[0m[36m::[0m[34;1mtest_tracked_callback[0m
+2025-09-20T21:21:51.3776110Z [32;1m        PASS[0m [   0.016s] [35;1mnetbeam[0m [36msync::tracked_callback_channel::tests[0m[36m::[0m[34;1mtest_tracked_callback_no_response[0m
+2025-09-20T21:21:51.3776780Z ────────────
+2025-09-20T21:21:51.3777450Z [32;1m     Summary[0m [  35.930s] [1m19[0m tests run: [1m19[0m [32;1mpassed[0m, [1m0[0m [33;1mskipped[0m
+2025-09-20T21:21:51.3779800Z [32;1m        PASS[0m [   0.197s] [35;1mnetbeam[0m [36mmultiplex::tests[0m[36m::[0m[34;1mnested_multiplexed_stream[0m
+2025-09-20T21:21:51.3780570Z [32;1m        PASS[0m [   0.309s] [35;1mnetbeam[0m [36msync::callback_channel::tests[0m[36m::[0m[34;1mmain[0m
+2025-09-20T21:21:51.3781580Z [32;1m        PASS[0m [   0.022s] [35;1mnetbeam[0m [36msync::channel::bi_channel::tests[0m[36m::[0m[34;1mbi_channel[0m
+2025-09-20T21:21:51.3782440Z [32;1m        PASS[0m [   0.006s] [35;1mnetbeam[0m [36msync::network_endpoint::tests[0m[36m::[0m[34;1mmain[0m
+2025-09-20T21:21:51.3783890Z [32;1m        PASS[0m [  16.058s] [35;1mnetbeam[0m [36msync::operations::net_select_ok::tests[0m[36m::[0m[34;1mracer[0m
+2025-09-20T21:21:51.3784610Z [32;1m        PASS[0m [   0.601s] [35;1mnetbeam[0m [36msync::operations::net_try_join::tests[0m[36m::[0m[34;1mracer[0m
+2025-09-20T21:21:51.3785380Z [32;1m        PASS[0m [   0.293s] [35;1mnetbeam[0m [36msync::primitives::net_mutex::tests::test_net_mutex[0m[36m::[0m[34;1mcase_1[0m
+2025-09-20T21:21:51.3786270Z [32;1m        PASS[0m [   4.674s] [35;1mnetbeam[0m [36msync::primitives::net_mutex::tests::test_net_mutex[0m[36m::[0m[34;1mcase_2[0m
+2025-09-20T21:21:51.3787110Z [32;1m        PASS[0m [   6.356s] [35;1mnetbeam[0m [36msync::primitives::net_mutex::tests::test_net_mutex[0m[36m::[0m[34;1mcase_3[0m
+2025-09-20T21:21:51.3787860Z [32;1m        PASS[0m [   0.310s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_interweaved[0m
+2025-09-20T21:21:51.3788730Z [32;1m        PASS[0m [   0.012s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_reads[0m
+2025-09-20T21:21:51.3789510Z [32;1m        PASS[0m [   2.961s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_reads_end_with_write[0m
+2025-09-20T21:21:51.3790300Z [32;1m        PASS[0m [   3.403s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_reads_no_initial_write[0m
+2025-09-20T21:21:51.3791190Z [32;1m        PASS[0m [   0.304s] [35;1mnetbeam[0m [36msync::primitives::net_rwlock::tests[0m[36m::[0m[34;1mmany_writes[0m
+2025-09-20T21:21:51.3791900Z [32;1m        PASS[0m [   0.009s] [35;1mnetbeam[0m [36msync::sync_start::tests[0m[36m::[0m[34;1mrun_getter[0m
+2025-09-20T21:21:51.3792610Z [32;1m        PASS[0m [   0.344s] [35;1mnetbeam[0m [36msync::sync_start::tests[0m[36m::[0m[34;1mrun_parallel_many[0m
+2025-09-20T21:21:51.3793470Z [32;1m        PASS[0m [   0.008s] [35;1mnetbeam[0m [36msync::tracked_callback_channel::tests[0m[36m::[0m[34;1mtest_error[0m
+2025-09-20T21:21:51.3794290Z [32;1m        PASS[0m [   0.044s] [35;1mnetbeam[0m [36msync::tracked_callback_channel::tests[0m[36m::[0m[34;1mtest_tracked_callback[0m
+2025-09-20T21:21:51.3795160Z [32;1m        PASS[0m [   0.016s] [35;1mnetbeam[0m [36msync::tracked_callback_channel::tests[0m[36m::[0m[34;1mtest_tracked_callback_no_response[0m

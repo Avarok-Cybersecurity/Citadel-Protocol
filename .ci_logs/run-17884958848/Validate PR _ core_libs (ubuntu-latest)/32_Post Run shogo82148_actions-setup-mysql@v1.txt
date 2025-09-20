@@ -1,0 +1,5 @@
+﻿2025-09-20T21:36:53.8412458Z Post job cleanup.
+2025-09-20T21:36:53.9323765Z ##[group]shutdown MySQL Server
+2025-09-20T21:36:53.9344789Z [command]/opt/hostedtoolcache/mysql/8.0.42/x64/bin/mysqladmin --defaults-file=/tmp/actions-setup-mysql-OVJVtI/etc/my.cnf --user=root shutdown
+2025-09-20T21:36:53.9477456Z wait for MySQL shutdown
+2025-09-20T21:36:55.9626460Z ##[endgroup]

@@ -21,6 +21,9 @@ exclude = [
     "./target/*",
 ]
 
+[workspace.lints.clippy]
+await_holding_lock = "warn"
+
 [workspace.dependencies]
 # workspace deps
 citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.13.0" }

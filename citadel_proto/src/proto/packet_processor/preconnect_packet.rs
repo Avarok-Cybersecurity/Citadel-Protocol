@@ -110,7 +110,10 @@ pub async fn process_preconnect<R: Ratchet>(
                     // Store session password in a short, isolated lock
                     {
                         let mut sc = inner_mut_state!(session.state_container);
-                        sc.store_session_password(C2S_IDENTITY_CID, session.session_password.clone());
+                        sc.store_session_password(
+                            C2S_IDENTITY_CID,
+                            session.session_password.clone(),
+                        );
                     }
 
                     // Validate SYN without holding state lock
@@ -150,7 +153,8 @@ pub async fn process_preconnect<R: Ratchet>(
                                 let mut sc = inner_mut_state!(session.state_container);
                                 sc.pre_connect_state.generated_ratchet = Some(new_ratchet);
                                 sc.pre_connect_state.on_packet_received();
-                                sc.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+                                sc.pre_connect_state.last_stage =
+                                    packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                                 sc.keep_alive_timeout_ns = kat;
                                 sc.udp_mode = udp_mode;
                                 sc.cnac = Some(cnac);

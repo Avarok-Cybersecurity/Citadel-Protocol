@@ -1,0 +1,1175 @@
+﻿2025-09-20T21:20:23.6898168Z ##[group]Run Avarok-Cybersecurity/gh-actions-deps@master
+2025-09-20T21:20:23.6899230Z env:
+2025-09-20T21:20:23.6899434Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:23.6899650Z   RUST_BACKTRACE: full
+2025-09-20T21:20:23.6899867Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:23.6900094Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:23.6900317Z   IN_CI: true
+2025-09-20T21:20:23.6900504Z ##[endgroup]
+2025-09-20T21:20:23.7175125Z ##[group]Run KyleMayes/install-llvm-action@v1.5.1
+2025-09-20T21:20:23.7175494Z with:
+2025-09-20T21:20:23.7175642Z   version: 13.0
+2025-09-20T21:20:23.7175817Z   directory: D:\a\_temp/llvm
+2025-09-20T21:20:23.7176003Z env:
+2025-09-20T21:20:23.7176155Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:23.7176344Z   RUST_BACKTRACE: full
+2025-09-20T21:20:23.7176519Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:23.7179098Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:23.7179299Z   IN_CI: true
+2025-09-20T21:20:23.7179824Z ##[endgroup]
+2025-09-20T21:20:23.8204531Z 
+2025-09-20T21:20:23.8232209Z ##[warning]The `set-output` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+2025-09-20T21:20:23.8235990Z Installing LLVM and Clang 13.0 (13.0.1)...
+2025-09-20T21:20:23.8237187Z Downloading and extracting 'https://github.com/llvm/llvm-project/releases/download/llvmorg-13.0.1/LLVM-13.0.1-win64.exe'...
+2025-09-20T21:20:25.9661945Z [command]C:\ProgramData\Chocolatey\bin\7z.exe x D:\a\_temp\58ffbe4a-4add-49e6-aa41-cf17b698f395 -oD:\a\_temp\llvm
+2025-09-20T21:20:26.2889459Z 
+2025-09-20T21:20:26.2890223Z 7-Zip 25.01 (x64) : Copyright (c) 1999-2025 Igor Pavlov : 2025-08-03
+2025-09-20T21:20:26.2890725Z 
+2025-09-20T21:20:26.2890901Z Scanning the drive for archives:
+2025-09-20T21:20:26.2891270Z 1 file, 239478810 bytes (229 MiB)
+2025-09-20T21:20:26.2891529Z 
+2025-09-20T21:20:26.2891805Z Extracting archive: D:\a\_temp\58ffbe4a-4add-49e6-aa41-cf17b698f395
+2025-09-20T21:20:36.6786978Z --
+2025-09-20T21:20:36.6787547Z Path = D:\a\_temp\58ffbe4a-4add-49e6-aa41-cf17b698f395
+2025-09-20T21:20:36.6788047Z Type = Nsis
+2025-09-20T21:20:36.6788336Z Physical Size = 239478810
+2025-09-20T21:20:36.6788692Z Method = LZMA:25
+2025-09-20T21:20:36.6788957Z Solid = +
+2025-09-20T21:20:36.6789247Z Headers Size = 222282
+2025-09-20T21:20:36.6789735Z Embedded Stub Size = 114688
+2025-09-20T21:20:36.6790514Z SubType = NSIS-3
+2025-09-20T21:20:36.6790750Z 
+2025-09-20T21:20:36.6807673Z Everything is Ok
+2025-09-20T21:20:36.6808051Z 
+2025-09-20T21:20:36.6808190Z Files: 415
+2025-09-20T21:20:36.6808454Z Size:       2286126794
+2025-09-20T21:20:36.6808777Z Compressed: 239478810
+2025-09-20T21:20:36.6873065Z Installed LLVM and Clang 13.0 (13.0.1)!
+2025-09-20T21:20:36.6874141Z Install location: D:\a\_temp\llvm
+2025-09-20T21:20:36.7192057Z ##[group]Run echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+2025-09-20T21:20:36.7192695Z [36;1mecho "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV[0m
+2025-09-20T21:20:36.7229112Z shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
+2025-09-20T21:20:36.7229542Z env:
+2025-09-20T21:20:36.7229792Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:36.7230085Z   RUST_BACKTRACE: full
+2025-09-20T21:20:36.7230277Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:36.7230490Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:36.7230681Z   IN_CI: true
+2025-09-20T21:20:36.7230862Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:36.7231137Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:36.7231405Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:36.7231659Z ##[endgroup]
+2025-09-20T21:20:36.7589710Z ##[group]Run echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" >> $env:GITHUB_ENV
+2025-09-20T21:20:36.7590204Z [36;1mecho "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL" >> $env:GITHUB_ENV[0m
+2025-09-20T21:20:36.7618069Z shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
+2025-09-20T21:20:36.7620178Z env:
+2025-09-20T21:20:36.7620335Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:36.7620534Z   RUST_BACKTRACE: full
+2025-09-20T21:20:36.7620714Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:36.7620895Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:36.7621063Z   IN_CI: true
+2025-09-20T21:20:36.7621217Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:36.7621416Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:36.7621656Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:36.7621869Z ##[endgroup]
+2025-09-20T21:20:36.7959171Z ##[group]Run actions/checkout@v2
+2025-09-20T21:20:36.7959437Z with:
+2025-09-20T21:20:36.7959655Z   repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:20:36.7960040Z   token: ***
+2025-09-20T21:20:36.7960961Z   ssh-strict: true
+2025-09-20T21:20:36.7961149Z   persist-credentials: true
+2025-09-20T21:20:36.7961352Z   clean: true
+2025-09-20T21:20:36.7961503Z   fetch-depth: 1
+2025-09-20T21:20:36.7961695Z   lfs: false
+2025-09-20T21:20:36.7961848Z   submodules: false
+2025-09-20T21:20:36.7962035Z   set-safe-directory: true
+2025-09-20T21:20:36.7962219Z env:
+2025-09-20T21:20:36.7962381Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:36.7962573Z   RUST_BACKTRACE: full
+2025-09-20T21:20:36.7962762Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:36.7962948Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:36.7963132Z   IN_CI: true
+2025-09-20T21:20:36.7963292Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:36.7963509Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:36.7963768Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:36.7964415Z ##[endgroup]
+2025-09-20T21:20:38.8307350Z Syncing repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:20:38.8308624Z ##[group]Getting Git version info
+2025-09-20T21:20:38.8308990Z Working directory is 'D:\a\Citadel-Protocol\Citadel-Protocol'
+2025-09-20T21:20:38.9399197Z [command]"C:\Program Files\Git\bin\git.exe" version
+2025-09-20T21:20:39.4209026Z git version 2.51.0.windows.1
+2025-09-20T21:20:39.4269454Z ##[endgroup]
+2025-09-20T21:20:39.4293502Z Temporarily overriding HOME='D:\a\_temp\ee0bc01d-c627-4f10-b1cb-219284190ddb' before making global git config changes
+2025-09-20T21:20:39.4294263Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-20T21:20:39.4301616Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Citadel-Protocol\Citadel-Protocol
+2025-09-20T21:20:39.4996198Z Deleting the contents of 'D:\a\Citadel-Protocol\Citadel-Protocol'
+2025-09-20T21:20:39.5175613Z ##[group]Initializing the repository
+2025-09-20T21:20:39.5183960Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\Citadel-Protocol\Citadel-Protocol
+2025-09-20T21:20:39.7172006Z Initialized empty Git repository in D:/a/Citadel-Protocol/Citadel-Protocol/.git/
+2025-09-20T21:20:39.7212830Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:20:39.7848931Z ##[endgroup]
+2025-09-20T21:20:39.7849583Z ##[group]Disabling automatic garbage collection
+2025-09-20T21:20:39.7858538Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2025-09-20T21:20:39.8165095Z ##[endgroup]
+2025-09-20T21:20:39.8177226Z ##[group]Setting up auth
+2025-09-20T21:20:39.8177706Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2025-09-20T21:20:39.8479870Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2025-09-20T21:20:41.6312457Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-20T21:20:41.6621433Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2025-09-20T21:20:42.2170451Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2025-09-20T21:20:42.2497015Z ##[endgroup]
+2025-09-20T21:20:42.2497691Z ##[group]Fetching the repository
+2025-09-20T21:20:42.2510444Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --progress --no-recurse-submodules --depth=1 origin +7edf0bb75f061919add02f6d6a82672c0b2e9654:refs/remotes/pull/236/merge
+2025-09-20T21:20:44.0868144Z remote: Enumerating objects: 421, done.        
+2025-09-20T21:20:44.0868747Z remote: Counting objects:   0% (1/421)        
+2025-09-20T21:20:44.0869269Z remote: Counting objects:   1% (5/421)        
+2025-09-20T21:20:44.0870363Z remote: Counting objects:   2% (9/421)        
+2025-09-20T21:20:44.0870861Z remote: Counting objects:   3% (13/421)        
+2025-09-20T21:20:44.0871247Z remote: Counting objects:   4% (17/421)        
+2025-09-20T21:20:44.0871588Z remote: Counting objects:   5% (22/421)        
+2025-09-20T21:20:44.0872013Z remote: Counting objects:   6% (26/421)        
+2025-09-20T21:20:44.0872372Z remote: Counting objects:   7% (30/421)        
+2025-09-20T21:20:44.0872657Z remote: Counting objects:   8% (34/421)        
+2025-09-20T21:20:44.0872927Z remote: Counting objects:   9% (38/421)        
+2025-09-20T21:20:44.0873208Z remote: Counting objects:  10% (43/421)        
+2025-09-20T21:20:44.0873485Z remote: Counting objects:  11% (47/421)        
+2025-09-20T21:20:44.0873756Z remote: Counting objects:  12% (51/421)        
+2025-09-20T21:20:44.0874252Z remote: Counting objects:  13% (55/421)        
+2025-09-20T21:20:44.0874541Z remote: Counting objects:  14% (59/421)        
+2025-09-20T21:20:44.0874828Z remote: Counting objects:  15% (64/421)        
+2025-09-20T21:20:44.0875109Z remote: Counting objects:  16% (68/421)        
+2025-09-20T21:20:44.0875386Z remote: Counting objects:  17% (72/421)        
+2025-09-20T21:20:44.0875673Z remote: Counting objects:  18% (76/421)        
+2025-09-20T21:20:44.0875949Z remote: Counting objects:  19% (80/421)        
+2025-09-20T21:20:44.0876224Z remote: Counting objects:  20% (85/421)        
+2025-09-20T21:20:44.0876499Z remote: Counting objects:  21% (89/421)        
+2025-09-20T21:20:44.0876779Z remote: Counting objects:  22% (93/421)        
+2025-09-20T21:20:44.0877062Z remote: Counting objects:  23% (97/421)        
+2025-09-20T21:20:44.0877342Z remote: Counting objects:  24% (102/421)        
+2025-09-20T21:20:44.0877639Z remote: Counting objects:  25% (106/421)        
+2025-09-20T21:20:44.0877917Z remote: Counting objects:  26% (110/421)        
+2025-09-20T21:20:44.0878196Z remote: Counting objects:  27% (114/421)        
+2025-09-20T21:20:44.0878475Z remote: Counting objects:  28% (118/421)        
+2025-09-20T21:20:44.0878755Z remote: Counting objects:  29% (123/421)        
+2025-09-20T21:20:44.0879027Z remote: Counting objects:  30% (127/421)        
+2025-09-20T21:20:44.0879316Z remote: Counting objects:  31% (131/421)        
+2025-09-20T21:20:44.0879599Z remote: Counting objects:  32% (135/421)        
+2025-09-20T21:20:44.0879876Z remote: Counting objects:  33% (139/421)        
+2025-09-20T21:20:44.0880152Z remote: Counting objects:  34% (144/421)        
+2025-09-20T21:20:44.0880420Z remote: Counting objects:  35% (148/421)        
+2025-09-20T21:20:44.0880694Z remote: Counting objects:  36% (152/421)        
+2025-09-20T21:20:44.0880963Z remote: Counting objects:  37% (156/421)        
+2025-09-20T21:20:44.0881240Z remote: Counting objects:  38% (160/421)        
+2025-09-20T21:20:44.0881513Z remote: Counting objects:  39% (165/421)        
+2025-09-20T21:20:44.0881782Z remote: Counting objects:  40% (169/421)        
+2025-09-20T21:20:44.0882037Z remote: Counting objects:  41% (173/421)        
+2025-09-20T21:20:44.0882275Z remote: Counting objects:  42% (177/421)        
+2025-09-20T21:20:44.0882547Z remote: Counting objects:  43% (182/421)        
+2025-09-20T21:20:44.0882984Z remote: Counting objects:  44% (186/421)        
+2025-09-20T21:20:44.0883223Z remote: Counting objects:  45% (190/421)        
+2025-09-20T21:20:44.0883458Z remote: Counting objects:  46% (194/421)        
+2025-09-20T21:20:44.0883706Z remote: Counting objects:  47% (198/421)        
+2025-09-20T21:20:44.0883946Z remote: Counting objects:  48% (203/421)        
+2025-09-20T21:20:44.0884179Z remote: Counting objects:  49% (207/421)        
+2025-09-20T21:20:44.0884424Z remote: Counting objects:  50% (211/421)        
+2025-09-20T21:20:44.0884659Z remote: Counting objects:  51% (215/421)        
+2025-09-20T21:20:44.0884903Z remote: Counting objects:  52% (219/421)        
+2025-09-20T21:20:44.0885138Z remote: Counting objects:  53% (224/421)        
+2025-09-20T21:20:44.0885773Z remote: Counting objects:  54% (228/421)        
+2025-09-20T21:20:44.0886041Z remote: Counting objects:  55% (232/421)        
+2025-09-20T21:20:44.0886449Z remote: Counting objects:  56% (236/421)        
+2025-09-20T21:20:44.0886714Z remote: Counting objects:  57% (240/421)        
+2025-09-20T21:20:44.0886951Z remote: Counting objects:  58% (245/421)        
+2025-09-20T21:20:44.0887191Z remote: Counting objects:  59% (249/421)        
+2025-09-20T21:20:44.0887427Z remote: Counting objects:  60% (253/421)        
+2025-09-20T21:20:44.0887688Z remote: Counting objects:  61% (257/421)        
+2025-09-20T21:20:44.0887937Z remote: Counting objects:  62% (262/421)        
+2025-09-20T21:20:44.0888184Z remote: Counting objects:  63% (266/421)        
+2025-09-20T21:20:44.0888442Z remote: Counting objects:  64% (270/421)        
+2025-09-20T21:20:44.0888713Z remote: Counting objects:  65% (274/421)        
+2025-09-20T21:20:44.0889115Z remote: Counting objects:  66% (278/421)        
+2025-09-20T21:20:44.0889409Z remote: Counting objects:  67% (283/421)        
+2025-09-20T21:20:44.0889829Z remote: Counting objects:  68% (287/421)        
+2025-09-20T21:20:44.0890089Z remote: Counting objects:  69% (291/421)        
+2025-09-20T21:20:44.0890332Z remote: Counting objects:  70% (295/421)        
+2025-09-20T21:20:44.0890572Z remote: Counting objects:  71% (299/421)        
+2025-09-20T21:20:44.0890806Z remote: Counting objects:  72% (304/421)        
+2025-09-20T21:20:44.0891048Z remote: Counting objects:  73% (308/421)        
+2025-09-20T21:20:44.0891281Z remote: Counting objects:  74% (312/421)        
+2025-09-20T21:20:44.0891528Z remote: Counting objects:  75% (316/421)        
+2025-09-20T21:20:44.0891772Z remote: Counting objects:  76% (320/421)        
+2025-09-20T21:20:44.0892016Z remote: Counting objects:  77% (325/421)        
+2025-09-20T21:20:44.0892267Z remote: Counting objects:  78% (329/421)        
+2025-09-20T21:20:44.0892514Z remote: Counting objects:  79% (333/421)        
+2025-09-20T21:20:44.0892763Z remote: Counting objects:  80% (337/421)        
+2025-09-20T21:20:44.0893000Z remote: Counting objects:  81% (342/421)        
+2025-09-20T21:20:44.0893240Z remote: Counting objects:  82% (346/421)        
+2025-09-20T21:20:44.0893477Z remote: Counting objects:  83% (350/421)        
+2025-09-20T21:20:44.0893717Z remote: Counting objects:  84% (354/421)        
+2025-09-20T21:20:44.0893956Z remote: Counting objects:  85% (358/421)        
+2025-09-20T21:20:44.0894196Z remote: Counting objects:  86% (363/421)        
+2025-09-20T21:20:44.0894434Z remote: Counting objects:  87% (367/421)        
+2025-09-20T21:20:44.0894669Z remote: Counting objects:  88% (371/421)        
+2025-09-20T21:20:44.0894916Z remote: Counting objects:  89% (375/421)        
+2025-09-20T21:20:44.0895150Z remote: Counting objects:  90% (379/421)        
+2025-09-20T21:20:44.0895394Z remote: Counting objects:  91% (384/421)        
+2025-09-20T21:20:44.0895641Z remote: Counting objects:  92% (388/421)        
+2025-09-20T21:20:44.0895895Z remote: Counting objects:  93% (392/421)        
+2025-09-20T21:20:44.0896130Z remote: Counting objects:  94% (396/421)        
+2025-09-20T21:20:44.0896520Z remote: Counting objects:  95% (400/421)        
+2025-09-20T21:20:44.0896766Z remote: Counting objects:  96% (405/421)        
+2025-09-20T21:20:44.0897009Z remote: Counting objects:  97% (409/421)        
+2025-09-20T21:20:44.0897252Z remote: Counting objects:  98% (413/421)        
+2025-09-20T21:20:44.0897491Z remote: Counting objects:  99% (417/421)        
+2025-09-20T21:20:44.0897739Z remote: Counting objects: 100% (421/421)        
+2025-09-20T21:20:44.0898000Z remote: Counting objects: 100% (421/421), done.        
+2025-09-20T21:20:44.0898283Z remote: Compressing objects:   0% (1/377)        
+2025-09-20T21:20:44.0898535Z remote: Compressing objects:   1% (4/377)        
+2025-09-20T21:20:44.1399669Z remote: Compressing objects:   2% (8/377)        
+2025-09-20T21:20:44.1401898Z remote: Compressing objects:   3% (12/377)        
+2025-09-20T21:20:44.1402702Z remote: Compressing objects:   4% (16/377)        
+2025-09-20T21:20:44.1403114Z remote: Compressing objects:   5% (19/377)        
+2025-09-20T21:20:44.1403486Z remote: Compressing objects:   6% (23/377)        
+2025-09-20T21:20:44.1403829Z remote: Compressing objects:   7% (27/377)        
+2025-09-20T21:20:44.1404392Z remote: Compressing objects:   8% (31/377)        
+2025-09-20T21:20:44.1404783Z remote: Compressing objects:   9% (34/377)        
+2025-09-20T21:20:44.1405218Z remote: Compressing objects:  10% (38/377)        
+2025-09-20T21:20:44.1405556Z remote: Compressing objects:  11% (42/377)        
+2025-09-20T21:20:44.1405901Z remote: Compressing objects:  12% (46/377)        
+2025-09-20T21:20:44.1406238Z remote: Compressing objects:  13% (50/377)        
+2025-09-20T21:20:44.1406585Z remote: Compressing objects:  14% (53/377)        
+2025-09-20T21:20:44.1406921Z remote: Compressing objects:  15% (57/377)        
+2025-09-20T21:20:44.1407601Z remote: Compressing objects:  16% (61/377)        
+2025-09-20T21:20:44.1408017Z remote: Compressing objects:  17% (65/377)        
+2025-09-20T21:20:44.1408359Z remote: Compressing objects:  18% (68/377)        
+2025-09-20T21:20:44.1408714Z remote: Compressing objects:  19% (72/377)        
+2025-09-20T21:20:44.1409052Z remote: Compressing objects:  20% (76/377)        
+2025-09-20T21:20:44.1409396Z remote: Compressing objects:  21% (80/377)        
+2025-09-20T21:20:44.1409733Z remote: Compressing objects:  22% (83/377)        
+2025-09-20T21:20:44.1410079Z remote: Compressing objects:  23% (87/377)        
+2025-09-20T21:20:44.1410422Z remote: Compressing objects:  24% (91/377)        
+2025-09-20T21:20:44.1410776Z remote: Compressing objects:  25% (95/377)        
+2025-09-20T21:20:44.1411119Z remote: Compressing objects:  26% (99/377)        
+2025-09-20T21:20:44.1411460Z remote: Compressing objects:  27% (102/377)        
+2025-09-20T21:20:44.1411817Z remote: Compressing objects:  28% (106/377)        
+2025-09-20T21:20:44.1412161Z remote: Compressing objects:  29% (110/377)        
+2025-09-20T21:20:44.1412505Z remote: Compressing objects:  30% (114/377)        
+2025-09-20T21:20:44.1412859Z remote: Compressing objects:  31% (117/377)        
+2025-09-20T21:20:44.1413203Z remote: Compressing objects:  32% (121/377)        
+2025-09-20T21:20:44.1413467Z remote: Compressing objects:  33% (125/377)        
+2025-09-20T21:20:44.1413718Z remote: Compressing objects:  34% (129/377)        
+2025-09-20T21:20:44.1413978Z remote: Compressing objects:  35% (132/377)        
+2025-09-20T21:20:44.1585622Z remote: Compressing objects:  36% (136/377)        
+2025-09-20T21:20:44.1586091Z remote: Compressing objects:  37% (140/377)        
+2025-09-20T21:20:44.1586534Z remote: Compressing objects:  38% (144/377)        
+2025-09-20T21:20:44.1587023Z remote: Compressing objects:  39% (148/377)        
+2025-09-20T21:20:44.1588023Z remote: Compressing objects:  40% (151/377)        
+2025-09-20T21:20:44.1588545Z remote: Compressing objects:  41% (155/377)        
+2025-09-20T21:20:44.1589021Z remote: Compressing objects:  42% (159/377)        
+2025-09-20T21:20:44.1589424Z remote: Compressing objects:  43% (163/377)        
+2025-09-20T21:20:44.1590672Z remote: Compressing objects:  44% (166/377)        
+2025-09-20T21:20:44.1591047Z remote: Compressing objects:  45% (170/377)        
+2025-09-20T21:20:44.1591414Z remote: Compressing objects:  46% (174/377)        
+2025-09-20T21:20:44.1591785Z remote: Compressing objects:  47% (178/377)        
+2025-09-20T21:20:44.1592151Z remote: Compressing objects:  48% (181/377)        
+2025-09-20T21:20:44.1592521Z remote: Compressing objects:  49% (185/377)        
+2025-09-20T21:20:44.1592890Z remote: Compressing objects:  50% (189/377)        
+2025-09-20T21:20:44.1593261Z remote: Compressing objects:  51% (193/377)        
+2025-09-20T21:20:44.1593618Z remote: Compressing objects:  52% (197/377)        
+2025-09-20T21:20:44.1593959Z remote: Compressing objects:  53% (200/377)        
+2025-09-20T21:20:44.1594434Z remote: Compressing objects:  54% (204/377)        
+2025-09-20T21:20:44.1594767Z remote: Compressing objects:  55% (208/377)        
+2025-09-20T21:20:44.1610133Z remote: Compressing objects:  56% (212/377)        
+2025-09-20T21:20:44.1610504Z remote: Compressing objects:  57% (215/377)        
+2025-09-20T21:20:44.1610841Z remote: Compressing objects:  58% (219/377)        
+2025-09-20T21:20:44.1611704Z remote: Compressing objects:  59% (223/377)        
+2025-09-20T21:20:44.1612532Z remote: Compressing objects:  60% (227/377)        
+2025-09-20T21:20:44.1613660Z remote: Compressing objects:  61% (230/377)        
+2025-09-20T21:20:44.1614606Z remote: Compressing objects:  62% (234/377)        
+2025-09-20T21:20:44.1615207Z remote: Compressing objects:  63% (238/377)        
+2025-09-20T21:20:44.1615813Z remote: Compressing objects:  64% (242/377)        
+2025-09-20T21:20:44.1616416Z remote: Compressing objects:  65% (246/377)        
+2025-09-20T21:20:44.1617053Z remote: Compressing objects:  66% (249/377)        
+2025-09-20T21:20:44.1617652Z remote: Compressing objects:  67% (253/377)        
+2025-09-20T21:20:44.1618205Z remote: Compressing objects:  68% (257/377)        
+2025-09-20T21:20:44.1618725Z remote: Compressing objects:  69% (261/377)        
+2025-09-20T21:20:44.1619356Z remote: Compressing objects:  70% (264/377)        
+2025-09-20T21:20:44.1619933Z remote: Compressing objects:  71% (268/377)        
+2025-09-20T21:20:44.1620885Z remote: Compressing objects:  72% (272/377)        
+2025-09-20T21:20:44.1621396Z remote: Compressing objects:  73% (276/377)        
+2025-09-20T21:20:44.1621885Z remote: Compressing objects:  74% (279/377)        
+2025-09-20T21:20:44.1622400Z remote: Compressing objects:  75% (283/377)        
+2025-09-20T21:20:44.1622964Z remote: Compressing objects:  76% (287/377)        
+2025-09-20T21:20:44.1624450Z remote: Compressing objects:  77% (291/377)        
+2025-09-20T21:20:44.1625017Z remote: Compressing objects:  78% (295/377)        
+2025-09-20T21:20:44.1625545Z remote: Compressing objects:  79% (298/377)        
+2025-09-20T21:20:44.1625992Z remote: Compressing objects:  80% (302/377)        
+2025-09-20T21:20:44.1626450Z remote: Compressing objects:  81% (306/377)        
+2025-09-20T21:20:44.1626901Z remote: Compressing objects:  82% (310/377)        
+2025-09-20T21:20:44.1627318Z remote: Compressing objects:  83% (313/377)        
+2025-09-20T21:20:44.1627706Z remote: Compressing objects:  84% (317/377)        
+2025-09-20T21:20:44.1628145Z remote: Compressing objects:  85% (321/377)        
+2025-09-20T21:20:44.1628606Z remote: Compressing objects:  86% (325/377)        
+2025-09-20T21:20:44.1629024Z remote: Compressing objects:  87% (328/377)        
+2025-09-20T21:20:44.1629472Z remote: Compressing objects:  88% (332/377)        
+2025-09-20T21:20:44.1629899Z remote: Compressing objects:  89% (336/377)        
+2025-09-20T21:20:44.1630401Z remote: Compressing objects:  90% (340/377)        
+2025-09-20T21:20:44.1630873Z remote: Compressing objects:  91% (344/377)        
+2025-09-20T21:20:44.1631333Z remote: Compressing objects:  92% (347/377)        
+2025-09-20T21:20:44.1631773Z remote: Compressing objects:  93% (351/377)        
+2025-09-20T21:20:44.1632482Z remote: Compressing objects:  94% (355/377)        
+2025-09-20T21:20:44.1632924Z remote: Compressing objects:  95% (359/377)        
+2025-09-20T21:20:44.1633347Z remote: Compressing objects:  96% (362/377)        
+2025-09-20T21:20:44.1633788Z remote: Compressing objects:  97% (366/377)        
+2025-09-20T21:20:44.1634059Z remote: Compressing objects:  98% (370/377)        
+2025-09-20T21:20:44.1634389Z remote: Compressing objects:  99% (374/377)        
+2025-09-20T21:20:44.1634736Z remote: Compressing objects: 100% (377/377)        
+2025-09-20T21:20:44.1635022Z remote: Compressing objects: 100% (377/377), done.        
+2025-09-20T21:20:44.2751755Z Receiving objects:   0% (1/421)
+2025-09-20T21:20:44.2752321Z Receiving objects:   1% (5/421)
+2025-09-20T21:20:44.2756001Z Receiving objects:   2% (9/421)
+2025-09-20T21:20:44.2759348Z Receiving objects:   3% (13/421)
+2025-09-20T21:20:44.2762806Z Receiving objects:   4% (17/421)
+2025-09-20T21:20:44.2767240Z Receiving objects:   5% (22/421)
+2025-09-20T21:20:44.2773747Z Receiving objects:   6% (26/421)
+2025-09-20T21:20:44.2801320Z Receiving objects:   7% (30/421)
+2025-09-20T21:20:44.2802553Z Receiving objects:   8% (34/421)
+2025-09-20T21:20:44.2805291Z Receiving objects:   9% (38/421)
+2025-09-20T21:20:44.2806722Z Receiving objects:  10% (43/421)
+2025-09-20T21:20:44.2808708Z Receiving objects:  11% (47/421)
+2025-09-20T21:20:44.2810895Z Receiving objects:  12% (51/421)
+2025-09-20T21:20:44.2811531Z Receiving objects:  13% (55/421)
+2025-09-20T21:20:44.2812666Z Receiving objects:  14% (59/421)
+2025-09-20T21:20:44.2814793Z Receiving objects:  15% (64/421)
+2025-09-20T21:20:44.2815430Z Receiving objects:  16% (68/421)
+2025-09-20T21:20:44.2815997Z Receiving objects:  17% (72/421)
+2025-09-20T21:20:44.2817514Z Receiving objects:  18% (76/421)
+2025-09-20T21:20:44.2822880Z Receiving objects:  19% (80/421)
+2025-09-20T21:20:44.2827882Z Receiving objects:  20% (85/421)
+2025-09-20T21:20:44.2832492Z Receiving objects:  21% (89/421)
+2025-09-20T21:20:44.2835281Z Receiving objects:  22% (93/421)
+2025-09-20T21:20:44.2843594Z Receiving objects:  23% (97/421)
+2025-09-20T21:20:44.2852287Z Receiving objects:  24% (102/421)
+2025-09-20T21:20:44.2856679Z Receiving objects:  25% (106/421)
+2025-09-20T21:20:44.2862508Z Receiving objects:  26% (110/421)
+2025-09-20T21:20:44.2864167Z Receiving objects:  27% (114/421)
+2025-09-20T21:20:44.2866277Z Receiving objects:  28% (118/421)
+2025-09-20T21:20:44.2871734Z Receiving objects:  29% (123/421)
+2025-09-20T21:20:44.2872896Z Receiving objects:  30% (127/421)
+2025-09-20T21:20:44.2876385Z Receiving objects:  31% (131/421)
+2025-09-20T21:20:44.2883856Z Receiving objects:  32% (135/421)
+2025-09-20T21:20:44.2888610Z Receiving objects:  33% (139/421)
+2025-09-20T21:20:44.2891645Z Receiving objects:  34% (144/421)
+2025-09-20T21:20:44.2895502Z Receiving objects:  35% (148/421)
+2025-09-20T21:20:44.2899862Z Receiving objects:  36% (152/421)
+2025-09-20T21:20:44.2901882Z Receiving objects:  37% (156/421)
+2025-09-20T21:20:44.2905320Z Receiving objects:  38% (160/421)
+2025-09-20T21:20:44.2909642Z Receiving objects:  39% (165/421)
+2025-09-20T21:20:44.2915873Z Receiving objects:  40% (169/421)
+2025-09-20T21:20:44.2922125Z Receiving objects:  41% (173/421)
+2025-09-20T21:20:44.2934045Z Receiving objects:  42% (177/421)
+2025-09-20T21:20:44.2939483Z Receiving objects:  43% (182/421)
+2025-09-20T21:20:44.2957684Z Receiving objects:  44% (186/421)
+2025-09-20T21:20:44.2972139Z Receiving objects:  45% (190/421)
+2025-09-20T21:20:44.2974563Z Receiving objects:  46% (194/421)
+2025-09-20T21:20:44.2979259Z Receiving objects:  47% (198/421)
+2025-09-20T21:20:44.2983800Z Receiving objects:  48% (203/421)
+2025-09-20T21:20:44.2997588Z Receiving objects:  49% (207/421)
+2025-09-20T21:20:44.3010829Z Receiving objects:  50% (211/421)
+2025-09-20T21:20:44.3012789Z Receiving objects:  51% (215/421)
+2025-09-20T21:20:44.3015724Z Receiving objects:  52% (219/421)
+2025-09-20T21:20:44.3020249Z Receiving objects:  53% (224/421)
+2025-09-20T21:20:44.3021947Z Receiving objects:  54% (228/421)
+2025-09-20T21:20:44.3023418Z Receiving objects:  55% (232/421)
+2025-09-20T21:20:44.3031915Z Receiving objects:  56% (236/421)
+2025-09-20T21:20:44.3038134Z Receiving objects:  57% (240/421)
+2025-09-20T21:20:44.3046375Z Receiving objects:  58% (245/421)
+2025-09-20T21:20:44.3049482Z Receiving objects:  59% (249/421)
+2025-09-20T21:20:44.3052253Z Receiving objects:  60% (253/421)
+2025-09-20T21:20:44.3061053Z Receiving objects:  61% (257/421)
+2025-09-20T21:20:44.3061638Z Receiving objects:  62% (262/421)
+2025-09-20T21:20:44.3064939Z Receiving objects:  63% (266/421)
+2025-09-20T21:20:44.3065905Z Receiving objects:  64% (270/421)
+2025-09-20T21:20:44.3069341Z Receiving objects:  65% (274/421)
+2025-09-20T21:20:44.3072078Z Receiving objects:  66% (278/421)
+2025-09-20T21:20:44.3076021Z Receiving objects:  67% (283/421)
+2025-09-20T21:20:44.3081043Z Receiving objects:  68% (287/421)
+2025-09-20T21:20:44.3088293Z Receiving objects:  69% (291/421)
+2025-09-20T21:20:44.3139991Z Receiving objects:  70% (295/421)
+2025-09-20T21:20:44.3144770Z Receiving objects:  71% (299/421)
+2025-09-20T21:20:44.3164377Z Receiving objects:  72% (304/421)
+2025-09-20T21:20:44.3166413Z Receiving objects:  73% (308/421)
+2025-09-20T21:20:44.3172597Z Receiving objects:  74% (312/421)
+2025-09-20T21:20:44.3174298Z Receiving objects:  75% (316/421)
+2025-09-20T21:20:44.3182126Z Receiving objects:  76% (320/421)
+2025-09-20T21:20:44.3185141Z Receiving objects:  77% (325/421)
+2025-09-20T21:20:44.3190097Z Receiving objects:  78% (329/421)
+2025-09-20T21:20:44.3195798Z Receiving objects:  79% (333/421)
+2025-09-20T21:20:44.3208979Z Receiving objects:  80% (337/421)
+2025-09-20T21:20:44.3209664Z Receiving objects:  81% (342/421)
+2025-09-20T21:20:44.3211188Z Receiving objects:  82% (346/421)
+2025-09-20T21:20:44.3211787Z Receiving objects:  83% (350/421)
+2025-09-20T21:20:44.3213085Z Receiving objects:  84% (354/421)
+2025-09-20T21:20:44.3216188Z Receiving objects:  85% (358/421)
+2025-09-20T21:20:44.3219150Z Receiving objects:  86% (363/421)
+2025-09-20T21:20:44.3221831Z Receiving objects:  87% (367/421)
+2025-09-20T21:20:44.3222447Z Receiving objects:  88% (371/421)
+2025-09-20T21:20:44.3227089Z Receiving objects:  89% (375/421)
+2025-09-20T21:20:44.3228985Z Receiving objects:  90% (379/421)
+2025-09-20T21:20:44.3233288Z Receiving objects:  91% (384/421)
+2025-09-20T21:20:44.3236737Z Receiving objects:  92% (388/421)
+2025-09-20T21:20:44.3241099Z Receiving objects:  93% (392/421)
+2025-09-20T21:20:44.3244216Z Receiving objects:  94% (396/421)
+2025-09-20T21:20:44.3250011Z Receiving objects:  95% (400/421)
+2025-09-20T21:20:44.3259113Z Receiving objects:  96% (405/421)
+2025-09-20T21:20:44.3260477Z Receiving objects:  97% (409/421)
+2025-09-20T21:20:44.3569618Z Receiving objects:  98% (413/421)
+2025-09-20T21:20:44.3572124Z Receiving objects:  99% (417/421)
+2025-09-20T21:20:44.3572979Z remote: Total 421 (delta 39), reused 203 (delta 16), pack-reused 0 (from 0)        
+2025-09-20T21:20:44.3577727Z Receiving objects: 100% (421/421)
+2025-09-20T21:20:44.3578335Z Receiving objects: 100% (421/421), 2.56 MiB | 17.15 MiB/s, done.
+2025-09-20T21:20:44.3596818Z Resolving deltas:   0% (0/39)
+2025-09-20T21:20:44.3597879Z Resolving deltas:   2% (1/39)
+2025-09-20T21:20:44.3599170Z Resolving deltas:   5% (2/39)
+2025-09-20T21:20:44.3601310Z Resolving deltas:   7% (3/39)
+2025-09-20T21:20:44.3602053Z Resolving deltas:  10% (4/39)
+2025-09-20T21:20:44.3603420Z Resolving deltas:  12% (5/39)
+2025-09-20T21:20:44.3603777Z Resolving deltas:  15% (6/39)
+2025-09-20T21:20:44.3604373Z Resolving deltas:  17% (7/39)
+2025-09-20T21:20:44.3604888Z Resolving deltas:  20% (8/39)
+2025-09-20T21:20:44.3605434Z Resolving deltas:  25% (10/39)
+2025-09-20T21:20:44.3605873Z Resolving deltas:  28% (11/39)
+2025-09-20T21:20:44.3606272Z Resolving deltas:  30% (12/39)
+2025-09-20T21:20:44.3606615Z Resolving deltas:  35% (14/39)
+2025-09-20T21:20:44.3606942Z Resolving deltas:  38% (15/39)
+2025-09-20T21:20:44.3610666Z Resolving deltas:  43% (17/39)
+2025-09-20T21:20:44.3611347Z Resolving deltas:  46% (18/39)
+2025-09-20T21:20:44.3611924Z Resolving deltas:  48% (19/39)
+2025-09-20T21:20:44.3612178Z Resolving deltas:  51% (20/39)
+2025-09-20T21:20:44.3612803Z Resolving deltas:  53% (21/39)
+2025-09-20T21:20:44.3613648Z Resolving deltas:  56% (22/39)
+2025-09-20T21:20:44.3613989Z Resolving deltas:  58% (23/39)
+2025-09-20T21:20:44.3615982Z Resolving deltas:  61% (24/39)
+2025-09-20T21:20:44.3618057Z Resolving deltas:  64% (25/39)
+2025-09-20T21:20:44.3618473Z Resolving deltas:  66% (26/39)
+2025-09-20T21:20:44.3619691Z Resolving deltas:  69% (27/39)
+2025-09-20T21:20:44.3622456Z Resolving deltas:  71% (28/39)
+2025-09-20T21:20:44.3623099Z Resolving deltas:  76% (30/39)
+2025-09-20T21:20:44.3625834Z Resolving deltas:  79% (31/39)
+2025-09-20T21:20:44.3626142Z Resolving deltas:  82% (32/39)
+2025-09-20T21:20:44.3626357Z Resolving deltas:  84% (33/39)
+2025-09-20T21:20:44.3626550Z Resolving deltas:  87% (34/39)
+2025-09-20T21:20:44.3626762Z Resolving deltas:  89% (35/39)
+2025-09-20T21:20:44.3626941Z Resolving deltas:  92% (36/39)
+2025-09-20T21:20:44.3627124Z Resolving deltas:  94% (37/39)
+2025-09-20T21:20:44.3627318Z Resolving deltas:  97% (38/39)
+2025-09-20T21:20:44.3627516Z Resolving deltas: 100% (39/39)
+2025-09-20T21:20:44.3627713Z Resolving deltas: 100% (39/39), done.
+2025-09-20T21:20:44.6079947Z From https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:20:44.6080767Z  * [new ref]         7edf0bb75f061919add02f6d6a82672c0b2e9654 -> pull/236/merge
+2025-09-20T21:20:44.6604384Z ##[endgroup]
+2025-09-20T21:20:44.6604799Z ##[group]Determining the checkout info
+2025-09-20T21:20:44.6606816Z ##[endgroup]
+2025-09-20T21:20:44.6607349Z ##[group]Checking out the ref
+2025-09-20T21:20:44.6615277Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force refs/remotes/pull/236/merge
+2025-09-20T21:20:47.9542014Z Updating files:  98% (327/332)
+2025-09-20T21:20:47.9585108Z Updating files:  99% (329/332)
+2025-09-20T21:20:47.9586137Z Updating files: 100% (332/332)
+2025-09-20T21:20:47.9586404Z Updating files: 100% (332/332), done.
+2025-09-20T21:20:47.9831680Z Note: switching to 'refs/remotes/pull/236/merge'.
+2025-09-20T21:20:47.9832110Z 
+2025-09-20T21:20:47.9832423Z You are in 'detached HEAD' state. You can look around, make experimental
+2025-09-20T21:20:47.9833168Z changes and commit them, and you can discard any commits you make in this
+2025-09-20T21:20:47.9833970Z state without impacting any branches by switching back to a branch.
+2025-09-20T21:20:47.9834406Z 
+2025-09-20T21:20:47.9834681Z If you want to create a new branch to retain commits you create, you may
+2025-09-20T21:20:47.9835366Z do so (now or later) by using -c with the switch command. Example:
+2025-09-20T21:20:47.9835767Z 
+2025-09-20T21:20:47.9835922Z   git switch -c <new-branch-name>
+2025-09-20T21:20:47.9836180Z 
+2025-09-20T21:20:47.9836290Z Or undo this operation with:
+2025-09-20T21:20:47.9836528Z 
+2025-09-20T21:20:47.9836658Z   git switch -
+2025-09-20T21:20:47.9836818Z 
+2025-09-20T21:20:47.9837119Z Turn off this advice by setting config variable advice.detachedHead to false
+2025-09-20T21:20:47.9837558Z 
+2025-09-20T21:20:47.9838067Z HEAD is now at 7edf0bb Merge 8a89b2152348ab91c1a5bd335ccb554a7eae26c5 into 2b40ca3c28904a155dd62f453494820feec744f0
+2025-09-20T21:20:48.2831658Z ##[endgroup]
+2025-09-20T21:20:48.3254656Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format='%H'
+2025-09-20T21:20:48.3578539Z '7edf0bb75f061919add02f6d6a82672c0b2e9654'
+2025-09-20T21:20:48.4081506Z ##[group]Run dtolnay/rust-toolchain@stable
+2025-09-20T21:20:48.4081759Z with:
+2025-09-20T21:20:48.4081948Z   toolchain: stable
+2025-09-20T21:20:48.4082220Z env:
+2025-09-20T21:20:48.4082462Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:48.4082712Z   RUST_BACKTRACE: full
+2025-09-20T21:20:48.4082887Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:48.4083060Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:48.4083233Z   IN_CI: true
+2025-09-20T21:20:48.4084206Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:48.4084435Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.4084904Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.4085125Z ##[endgroup]
+2025-09-20T21:20:48.4230114Z ##[group]Run : parse toolchain version
+2025-09-20T21:20:48.4230410Z [36;1m: parse toolchain version[0m
+2025-09-20T21:20:48.4230635Z [36;1mif [[ -z $toolchain ]]; then[0m
+2025-09-20T21:20:48.4231327Z [36;1m  # GitHub does not enforce `required: true` inputs itself. https://github.com/actions/runner/issues/1070[0m
+2025-09-20T21:20:48.4231793Z [36;1m  echo "'toolchain' is a required input" >&2[0m
+2025-09-20T21:20:48.4232032Z [36;1m  exit 1[0m
+2025-09-20T21:20:48.4232297Z [36;1melif [[ $toolchain =~ ^stable' '[0-9]+' '(year|month|week|day)s?' 'ago$ ]]; then[0m
+2025-09-20T21:20:48.4232806Z [36;1m  if [[ Windows == macOS ]]; then[0m
+2025-09-20T21:20:48.4233236Z [36;1m    echo "toolchain=1.$((($(date -v-$(sed 's/stable \([0-9]*\) \(.\).*/\1\2/' <<< $toolchain) +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.4233644Z [36;1m  else[0m
+2025-09-20T21:20:48.4233956Z [36;1m    echo "toolchain=1.$((($(date --date "${toolchain#stable }" +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.4234318Z [36;1m  fi[0m
+2025-09-20T21:20:48.4234582Z [36;1melif [[ $toolchain =~ ^stable' 'minus' '[0-9]+' 'releases?$ ]]; then[0m
+2025-09-20T21:20:48.4235013Z [36;1m  echo "toolchain=1.$((($(date +%s)/60/60/24-16569)/7/6-${toolchain//[^0-9]/}))" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.4235387Z [36;1melif [[ $toolchain =~ ^1\.[0-9]+$ ]]; then[0m
+2025-09-20T21:20:48.4235791Z [36;1m  echo "toolchain=1.$((i=${toolchain#1.}, c=($(date +%s)/60/60/24-16569)/7/6, i+9*i*(10*i<=c)+90*i*(100*i<=c)))" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.4236350Z [36;1melse[0m
+2025-09-20T21:20:48.4236555Z [36;1m  echo "toolchain=$toolchain" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.4236796Z [36;1mfi[0m
+2025-09-20T21:20:48.4285637Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:20:48.4286078Z env:
+2025-09-20T21:20:48.4286262Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:48.4286496Z   RUST_BACKTRACE: full
+2025-09-20T21:20:48.4286710Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:48.4286922Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:48.4287130Z   IN_CI: true
+2025-09-20T21:20:48.4287311Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:48.4287560Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.4287843Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.4288118Z   toolchain: stable
+2025-09-20T21:20:48.4288307Z ##[endgroup]
+2025-09-20T21:20:48.6256627Z ##[group]Run : construct rustup command line
+2025-09-20T21:20:48.6256940Z [36;1m: construct rustup command line[0m
+2025-09-20T21:20:48.6257346Z [36;1mecho "targets=$(for t in ${targets//,/ }; do echo -n ' --target' $t; done)" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.6258297Z [36;1mecho "components=$(for c in ${components//,/ }; do echo -n ' --component' $c; done)" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.6258742Z [36;1mecho "downgrade=" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:20:48.6273414Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:20:48.6273758Z env:
+2025-09-20T21:20:48.6273904Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:48.6274095Z   RUST_BACKTRACE: full
+2025-09-20T21:20:48.6274264Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:48.6274446Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:48.6274605Z   IN_CI: true
+2025-09-20T21:20:48.6274757Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:48.6274958Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.6275189Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.6275415Z   targets: 
+2025-09-20T21:20:48.6275549Z   components: 
+2025-09-20T21:20:48.6275699Z ##[endgroup]
+2025-09-20T21:20:48.7046396Z ##[group]Run : set $CARGO_HOME
+2025-09-20T21:20:48.7046624Z [36;1m: set $CARGO_HOME[0m
+2025-09-20T21:20:48.7047053Z [36;1mecho CARGO_HOME=${CARGO_HOME:-"$USERPROFILE\.cargo"} >> $GITHUB_ENV[0m
+2025-09-20T21:20:48.7060080Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:20:48.7060420Z env:
+2025-09-20T21:20:48.7060562Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:48.7060748Z   RUST_BACKTRACE: full
+2025-09-20T21:20:48.7060924Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:48.7061093Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:48.7061259Z   IN_CI: true
+2025-09-20T21:20:48.7061408Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:48.7061605Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.7061829Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.7062038Z ##[endgroup]
+2025-09-20T21:20:48.7706705Z ##[group]Run : install rustup if needed on windows
+2025-09-20T21:20:48.7707296Z [36;1m: install rustup if needed on windows[0m
+2025-09-20T21:20:48.7707619Z [36;1mif ! command -v rustup &>/dev/null; then[0m
+2025-09-20T21:20:48.7708424Z [36;1m  curl --proto '=https' --tlsv1.2 --retry 10 --retry-connrefused --location --silent --show-error --fail https://win.rustup.rs/x86_64 --output 'D:\a\_temp\rustup-init.exe'[0m
+2025-09-20T21:20:48.7709324Z [36;1m  'D:\a\_temp\rustup-init.exe' --default-toolchain none --no-modify-path -y[0m
+2025-09-20T21:20:48.7709751Z [36;1m  echo "$CARGO_HOME\bin" >> $GITHUB_PATH[0m
+2025-09-20T21:20:48.7710024Z [36;1mfi[0m
+2025-09-20T21:20:48.7723003Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:20:48.7723341Z env:
+2025-09-20T21:20:48.7723921Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:48.7724231Z   RUST_BACKTRACE: full
+2025-09-20T21:20:48.7724402Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:48.7724592Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:48.7724767Z   IN_CI: true
+2025-09-20T21:20:48.7724922Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:48.7725114Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.7725344Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.7725585Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:20:48.7725799Z ##[endgroup]
+2025-09-20T21:20:48.8429228Z ##[group]Run rustup toolchain install stable --profile minimal --no-self-update
+2025-09-20T21:20:48.8429724Z [36;1mrustup toolchain install stable --profile minimal --no-self-update[0m
+2025-09-20T21:20:48.8443136Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:20:48.8443477Z env:
+2025-09-20T21:20:48.8443631Z   CARGO_TERM_COLOR: always
+2025-09-20T21:20:48.8443814Z   RUST_BACKTRACE: full
+2025-09-20T21:20:48.8443984Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:20:48.8444166Z   RUST_LOG: citadel=warn
+2025-09-20T21:20:48.8444329Z   IN_CI: true
+2025-09-20T21:20:48.8444487Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:20:48.8444702Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.8444936Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:20:48.8445159Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:20:48.8445377Z ##[endgroup]
+2025-09-20T21:20:53.5095554Z info: syncing channel updates for 'stable-x86_64-pc-windows-msvc'
+2025-09-20T21:20:54.0248744Z info: latest update on 2025-09-18, rust version 1.90.0 (1159e78c4 2025-09-14)
+2025-09-20T21:20:54.0884658Z info: downloading component 'clippy'
+2025-09-20T21:20:54.2204877Z info: downloading component 'rustfmt'
+2025-09-20T21:20:54.2966486Z info: downloading component 'rust-std' for 'x86_64-pc-windows-gnu'
+2025-09-20T21:20:54.8662474Z info: downloading component 'rust-std' for 'i686-pc-windows-msvc'
+2025-09-20T21:20:55.2286905Z info: downloading component 'cargo'
+2025-09-20T21:20:55.4448845Z info: downloading component 'rust-std'
+2025-09-20T21:20:55.9239446Z info: downloading component 'rustc'
+2025-09-20T21:20:57.0482756Z info: removing previous version of component 'clippy'
+2025-09-20T21:20:57.0878832Z info: removing previous version of component 'rustfmt'
+2025-09-20T21:20:57.1087090Z info: removing previous version of component 'rust-std' for 'x86_64-pc-windows-gnu'
+2025-09-20T21:20:57.2814359Z info: removing previous version of component 'rust-std' for 'i686-pc-windows-msvc'
+2025-09-20T21:20:57.3603760Z info: removing previous version of component 'cargo'
+2025-09-20T21:20:57.4744054Z info: removing previous version of component 'rust-std'
+2025-09-20T21:20:57.5256239Z info: removing previous version of component 'rustc'
+2025-09-20T21:20:57.6382844Z info: installing component 'clippy'
+2025-09-20T21:20:58.0338379Z info: installing component 'rustfmt'
+2025-09-20T21:20:58.3228247Z info: installing component 'rust-std' for 'x86_64-pc-windows-gnu'
+2025-09-20T21:21:00.4789579Z info: installing component 'rust-std' for 'i686-pc-windows-msvc'
+2025-09-20T21:21:02.3299420Z info: installing component 'cargo'
+2025-09-20T21:21:03.3509218Z info: installing component 'rust-std'
+2025-09-20T21:21:04.9358322Z info: installing component 'rustc'
+2025-09-20T21:21:10.1786677Z 
+2025-09-20T21:21:10.2084702Z   stable-x86_64-pc-windows-msvc updated - rustc 1.90.0 (1159e78c4 2025-09-14) (from rustc 1.89.0 (29483883e 2025-08-04))
+2025-09-20T21:21:10.2086351Z 
+2025-09-20T21:21:10.2310361Z ##[group]Run rustup default stable
+2025-09-20T21:21:10.2310633Z [36;1mrustup default stable[0m
+2025-09-20T21:21:10.2324554Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:10.2324908Z env:
+2025-09-20T21:21:10.2325057Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:10.2325244Z   RUST_BACKTRACE: full
+2025-09-20T21:21:10.2325411Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:10.2325589Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:10.2325754Z   IN_CI: true
+2025-09-20T21:21:10.2325910Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:10.2326115Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:10.2326367Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:10.2326594Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:10.2326807Z ##[endgroup]
+2025-09-20T21:21:10.3561320Z info: using existing install for 'stable-x86_64-pc-windows-msvc'
+2025-09-20T21:21:10.4041136Z info: default toolchain set to 'stable-x86_64-pc-windows-msvc'
+2025-09-20T21:21:10.4041535Z 
+2025-09-20T21:21:10.4255048Z   stable-x86_64-pc-windows-msvc unchanged - rustc 1.90.0 (1159e78c4 2025-09-14)
+2025-09-20T21:21:10.4255431Z 
+2025-09-20T21:21:10.5114324Z ##[group]Run : create cachekey
+2025-09-20T21:21:10.5114586Z [36;1m: create cachekey[0m
+2025-09-20T21:21:10.5115008Z [36;1mDATE=$(rustc +stable --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')[0m
+2025-09-20T21:21:10.5115546Z [36;1mHASH=$(rustc +stable --version --verbose | sed -ne 's/^commit-hash: //p')[0m
+2025-09-20T21:21:10.5115974Z [36;1mecho "cachekey=$(echo $DATE$HASH | head -c12)" >> $GITHUB_OUTPUT[0m
+2025-09-20T21:21:10.5129306Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:10.5129650Z env:
+2025-09-20T21:21:10.5129798Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:10.5130002Z   RUST_BACKTRACE: full
+2025-09-20T21:21:10.5130167Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:10.5130343Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:10.5130503Z   IN_CI: true
+2025-09-20T21:21:10.5130652Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:10.5141961Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:10.5142459Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:10.5142883Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:10.5143271Z ##[endgroup]
+2025-09-20T21:21:11.4711464Z ##[group]Run : disable incremental compilation
+2025-09-20T21:21:11.4711930Z [36;1m: disable incremental compilation[0m
+2025-09-20T21:21:11.4712208Z [36;1mif [ -z "${CARGO_INCREMENTAL+set}" ]; then[0m
+2025-09-20T21:21:11.4712491Z [36;1m  echo CARGO_INCREMENTAL=0 >> $GITHUB_ENV[0m
+2025-09-20T21:21:11.4712736Z [36;1mfi[0m
+2025-09-20T21:21:11.4726717Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:11.4727247Z env:
+2025-09-20T21:21:11.4727412Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:11.4727595Z   RUST_BACKTRACE: full
+2025-09-20T21:21:11.4727772Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:11.4727946Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:11.4728123Z   IN_CI: true
+2025-09-20T21:21:11.4728288Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:11.4728493Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.4728731Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.4728965Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:11.4729186Z ##[endgroup]
+2025-09-20T21:21:11.5260942Z ##[group]Run : enable colors in Cargo output
+2025-09-20T21:21:11.5261239Z [36;1m: enable colors in Cargo output[0m
+2025-09-20T21:21:11.5261497Z [36;1mif [ -z "${CARGO_TERM_COLOR+set}" ]; then[0m
+2025-09-20T21:21:11.5261937Z [36;1m  echo CARGO_TERM_COLOR=always >> $GITHUB_ENV[0m
+2025-09-20T21:21:11.5262173Z [36;1mfi[0m
+2025-09-20T21:21:11.5275356Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:11.5275716Z env:
+2025-09-20T21:21:11.5275866Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:11.5276043Z   RUST_BACKTRACE: full
+2025-09-20T21:21:11.5276215Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:11.5276382Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:11.5276546Z   IN_CI: true
+2025-09-20T21:21:11.5276694Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:11.5276901Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.5277126Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.5277356Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:11.5277564Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:21:11.5277724Z ##[endgroup]
+2025-09-20T21:21:11.5818822Z ##[group]Run : enable Cargo sparse registry
+2025-09-20T21:21:11.5819325Z [36;1m: enable Cargo sparse registry[0m
+2025-09-20T21:21:11.5819859Z [36;1m# implemented in 1.66, stabilized in 1.68, made default in 1.70[0m
+2025-09-20T21:21:11.5820867Z [36;1mif [ -z "${CARGO_REGISTRIES_CRATES_IO_PROTOCOL+set}" -o -f "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol ]; then[0m
+2025-09-20T21:21:11.5821935Z [36;1m  if rustc +stable --version --verbose | grep -q '^release: 1\.6[89]\.'; then[0m
+2025-09-20T21:21:11.5822712Z [36;1m    touch "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+2025-09-20T21:21:11.5823453Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse >> $GITHUB_ENV[0m
+2025-09-20T21:21:11.5824239Z [36;1m  elif rustc +stable --version --verbose | grep -q '^release: 1\.6[67]\.'; then[0m
+2025-09-20T21:21:11.5825031Z [36;1m    touch "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol || true[0m
+2025-09-20T21:21:11.5825763Z [36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git >> $GITHUB_ENV[0m
+2025-09-20T21:21:11.5826301Z [36;1m  fi[0m
+2025-09-20T21:21:11.5826539Z [36;1mfi[0m
+2025-09-20T21:21:11.5846718Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:11.5847297Z env:
+2025-09-20T21:21:11.5847555Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:11.5847864Z   RUST_BACKTRACE: full
+2025-09-20T21:21:11.5848150Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:11.5848452Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:11.5848748Z   IN_CI: true
+2025-09-20T21:21:11.5849009Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:11.5849366Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.5850148Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.5850567Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:11.5850958Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:21:11.5851235Z ##[endgroup]
+2025-09-20T21:21:11.8629743Z ##[group]Run : work around spurious network errors in curl 8.0
+2025-09-20T21:21:11.8630432Z [36;1m: work around spurious network errors in curl 8.0[0m
+2025-09-20T21:21:11.8631384Z [36;1m# https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation[0m
+2025-09-20T21:21:11.8632400Z [36;1mif rustc +stable --version --verbose | grep -q '^release: 1\.7[01]\.'; then[0m
+2025-09-20T21:21:11.8633445Z [36;1m  echo CARGO_HTTP_MULTIPLEXING=false >> $GITHUB_ENV[0m
+2025-09-20T21:21:11.8633918Z [36;1mfi[0m
+2025-09-20T21:21:11.8658453Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:11.8659042Z env:
+2025-09-20T21:21:11.8659275Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:11.8659580Z   RUST_BACKTRACE: full
+2025-09-20T21:21:11.8659884Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:11.8660194Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:11.8660484Z   IN_CI: true
+2025-09-20T21:21:11.8660743Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:11.8661085Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.8661483Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.8662155Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:11.8662546Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:21:11.8662816Z ##[endgroup]
+2025-09-20T21:21:11.9930694Z ##[group]Run rustc +stable --version --verbose
+2025-09-20T21:21:11.9931010Z [36;1mrustc +stable --version --verbose[0m
+2025-09-20T21:21:11.9944730Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-09-20T21:21:11.9945077Z env:
+2025-09-20T21:21:11.9945229Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:11.9945427Z   RUST_BACKTRACE: full
+2025-09-20T21:21:11.9945596Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:11.9945780Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:11.9945949Z   IN_CI: true
+2025-09-20T21:21:11.9946108Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:11.9946318Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.9946554Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:11.9946789Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:11.9947019Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:21:11.9947197Z ##[endgroup]
+2025-09-20T21:21:12.0853084Z rustc 1.90.0 (1159e78c4 2025-09-14)
+2025-09-20T21:21:12.0853639Z binary: rustc
+2025-09-20T21:21:12.0854068Z commit-hash: 1159e78c4747b02ef996e55082b704c09b970588
+2025-09-20T21:21:12.0854602Z commit-date: 2025-09-14
+2025-09-20T21:21:12.0854847Z host: x86_64-pc-windows-msvc
+2025-09-20T21:21:12.0855085Z release: 1.90.0
+2025-09-20T21:21:12.0856741Z LLVM version: 20.1.8
+2025-09-20T21:21:12.1141708Z ##[group]Run actions-rs/cargo@v1
+2025-09-20T21:21:12.1141934Z with:
+2025-09-20T21:21:12.1142077Z   command: install
+2025-09-20T21:21:12.1142245Z   args: --force cargo-make
+2025-09-20T21:21:12.1142429Z   use-cross: false
+2025-09-20T21:21:12.1142571Z env:
+2025-09-20T21:21:12.1142710Z   CARGO_TERM_COLOR: always
+2025-09-20T21:21:12.1142883Z   RUST_BACKTRACE: full
+2025-09-20T21:21:12.1143052Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:21:12.1143226Z   RUST_LOG: citadel=warn
+2025-09-20T21:21:12.1143392Z   IN_CI: true
+2025-09-20T21:21:12.1143562Z   LLVM_PATH: D:\a\_temp\llvm
+2025-09-20T21:21:12.1143757Z   LD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:12.1143995Z   DYLD_LIBRARY_PATH: D:\a\_temp\llvm\lib;
+2025-09-20T21:21:12.1144234Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2025-09-20T21:21:12.1144454Z   CARGO_INCREMENTAL: 0
+2025-09-20T21:21:12.1144612Z ##[endgroup]
+2025-09-20T21:21:12.5633871Z [command]C:\Users\runneradmin\.cargo\bin\cargo.exe install --force cargo-make
+2025-09-20T21:21:13.4299180Z [1m[32m    Updating[0m crates.io index
+2025-09-20T21:21:13.5491997Z [1m[32m Downloading[0m crates ...
+2025-09-20T21:21:13.6989011Z [1m[32m  Downloaded[0m cargo-make v0.37.24
+2025-09-20T21:21:14.3748069Z [1m[32m  Installing[0m cargo-make v0.37.24
+2025-09-20T21:21:14.4246636Z [1m[32m    Updating[0m crates.io index
+2025-09-20T21:21:15.7652934Z [1m[32m     Locking[0m 234 packages to latest compatible versions
+2025-09-20T21:21:15.7670698Z [1m[36m      Adding[0m cargo_metadata v0.19.2 [1m[33m(available: v0.22.0)[0m
+2025-09-20T21:21:15.7774453Z [1m[36m      Adding[0m petgraph v0.7.1 [1m[33m(available: v0.8.2)[0m
+2025-09-20T21:21:15.7893828Z [1m[36m      Adding[0m strum_macros v0.26.4 [1m[33m(available: v0.27.2)[0m
+2025-09-20T21:21:15.7925967Z [1m[36m      Adding[0m toml v0.8.23 [1m[33m(available: v0.9.7)[0m
+2025-09-20T21:21:15.7993561Z [1m[32m Downloading[0m crates ...
+2025-09-20T21:21:15.8856411Z [1m[32m  Downloaded[0m equivalent v1.0.2
+2025-09-20T21:21:15.9074145Z [1m[32m  Downloaded[0m yoke v0.8.0
+2025-09-20T21:21:15.9399038Z [1m[32m  Downloaded[0m zerotrie v0.2.2
+2025-09-20T21:21:16.0110909Z [1m[32m  Downloaded[0m ryu v1.0.20
+2025-09-20T21:21:16.0761510Z [1m[32m  Downloaded[0m zerofrom v0.1.6
+2025-09-20T21:21:16.0989712Z [1m[32m  Downloaded[0m zerovec-derive v0.11.1
+2025-09-20T21:21:16.1377628Z [1m[32m  Downloaded[0m zeroize v1.8.1
+2025-09-20T21:21:16.1620652Z [1m[32m  Downloaded[0m zopfli v0.8.2
+2025-09-20T21:21:16.2122140Z [1m[32m  Downloaded[0m suppaftp v6.3.0
+2025-09-20T21:21:16.2542900Z [1m[32m  Downloaded[0m typenum v1.18.0
+2025-09-20T21:21:16.3120505Z [1m[32m  Downloaded[0m zip v2.4.2
+2025-09-20T21:21:16.3769900Z [1m[32m  Downloaded[0m zerovec v0.11.4
+2025-09-20T21:21:16.4859594Z [1m[32m  Downloaded[0m time v0.3.44
+2025-09-20T21:21:16.6739720Z [1m[32m  Downloaded[0m idna v1.1.0
+2025-09-20T21:21:16.7111872Z [1m[32m  Downloaded[0m winnow v0.7.13
+2025-09-20T21:21:16.8649307Z [1m[32m  Downloaded[0m icu_properties_data v2.0.1
+2025-09-20T21:21:17.0554156Z [1m[32m  Downloaded[0m serde_json v1.0.145
+2025-09-20T21:21:17.2052452Z [1m[32m  Downloaded[0m zerocopy v0.8.27
+2025-09-20T21:21:18.1119621Z [1m[32m  Downloaded[0m itertools v0.14.0
+2025-09-20T21:21:18.2438254Z [1m[32m  Downloaded[0m hashbrown v0.16.0
+2025-09-20T21:21:18.3132576Z [1m[32m  Downloaded[0m webpki-roots v1.0.2
+2025-09-20T21:21:18.3400089Z [1m[32m  Downloaded[0m fern v0.7.1
+2025-09-20T21:21:18.3918024Z [1m[32m  Downloaded[0m syn v2.0.106
+2025-09-20T21:21:18.5479246Z [1m[32m  Downloaded[0m regex v1.11.2
+2025-09-20T21:21:19.1423350Z [1m[32m  Downloaded[0m rustls v0.23.32
+2025-09-20T21:21:19.3331345Z [1m[32m  Downloaded[0m regex-syntax v0.8.6
+2025-09-20T21:21:19.4185535Z [1m[32m  Downloaded[0m lenient_semver v0.4.2
+2025-09-20T21:21:19.4588384Z [1m[32m  Downloaded[0m bstr v1.12.0
+2025-09-20T21:21:19.5562849Z [1m[32m  Downloaded[0m duckscriptsdk v0.11.1
+2025-09-20T21:21:20.8107694Z [1m[32m  Downloaded[0m url v2.5.7
+2025-09-20T21:21:20.8443920Z [1m[32m  Downloaded[0m rand v0.9.2
+2025-09-20T21:21:20.9139110Z [1m[32m  Downloaded[0m winsafe v0.0.19
+2025-09-20T21:21:22.1687754Z [1m[32m  Downloaded[0m memchr v2.7.5
+2025-09-20T21:21:22.3548636Z [1m[32m  Downloaded[0m http v1.3.1
+2025-09-20T21:21:22.5169824Z [1m[32m  Downloaded[0m hashbrown v0.12.3
+2025-09-20T21:21:22.6689760Z [1m[32m  Downloaded[0m toml_edit v0.22.27
+2025-09-20T21:21:22.7965816Z [1m[32m  Downloaded[0m rustls-webpki v0.103.6
+2025-09-20T21:21:22.8565717Z [1m[32m  Downloaded[0m rand v0.8.5
+2025-09-20T21:21:23.3242142Z [1m[32m  Downloaded[0m indexmap v2.11.4
+2025-09-20T21:21:23.3947416Z [1m[32m  Downloaded[0m icu_normalizer_data v2.0.0
+2025-09-20T21:21:23.4388514Z [1m[32m  Downloaded[0m icu_locale_core v2.0.0
+2025-09-20T21:21:23.7258401Z [1m[32m  Downloaded[0m icu_collections v2.0.0
+2025-09-20T21:21:23.9625358Z [1m[32m  Downloaded[0m flate2 v1.1.2
+2025-09-20T21:21:24.8101770Z [1m[32m  Downloaded[0m rustls-pki-types v1.12.0
+2025-09-20T21:21:24.9612952Z [1m[32m  Downloaded[0m miniz_oxide v0.8.9
+2025-09-20T21:21:25.0178354Z [1m[32m  Downloaded[0m petgraph v0.7.1
+2025-09-20T21:21:25.4831524Z [1m[32m  Downloaded[0m icu_properties v2.0.1
+2025-09-20T21:21:25.5805826Z [1m[32m  Downloaded[0m icu_normalizer v2.0.0
+2025-09-20T21:21:25.8472790Z [1m[32m  Downloaded[0m evalexpr v11.3.1
+2025-09-20T21:21:25.9967795Z [1m[32m  Downloaded[0m bytes v1.10.1
+2025-09-20T21:21:26.1257271Z [1m[32m  Downloaded[0m walkdir v2.5.0
+2025-09-20T21:21:26.1597254Z [1m[32m  Downloaded[0m windows_x86_64_msvc v0.52.6
+2025-09-20T21:21:26.1970227Z [1m[32m  Downloaded[0m vte v0.14.1
+2025-09-20T21:21:26.2388499Z [1m[32m  Downloaded[0m unicode-ident v1.0.19
+2025-09-20T21:21:26.2882510Z [1m[32m  Downloaded[0m smallvec v1.15.1
+2025-09-20T21:21:26.3521544Z [1m[32m  Downloaded[0m serde_core v1.0.225
+2025-09-20T21:21:26.3979909Z [1m[32m  Downloaded[0m serde v1.0.225
+2025-09-20T21:21:26.4261623Z [1m[32m  Downloaded[0m quote v1.0.40
+2025-09-20T21:21:26.4971743Z [1m[32m  Downloaded[0m num-traits v0.2.19
+2025-09-20T21:21:26.5643653Z [1m[32m  Downloaded[0m lazy-regex v3.4.1
+2025-09-20T21:21:26.6036833Z [1m[32m  Downloaded[0m indexmap v1.9.3
+2025-09-20T21:21:26.6951694Z [1m[32m  Downloaded[0m getrandom v0.2.16
+2025-09-20T21:21:26.8251911Z [1m[32m  Downloaded[0m futures-lite v2.6.1
+2025-09-20T21:21:26.8813105Z [1m[32m  Downloaded[0m find-msvc-tools v0.1.2
+2025-09-20T21:21:26.9414253Z [1m[32m  Downloaded[0m shell2batch v0.4.5
+2025-09-20T21:21:27.6798091Z [1m[32m  Downloaded[0m winapi v0.3.9
+2025-09-20T21:21:28.4137895Z [1m[32m  Downloaded[0m rust_info v0.3.3
+2025-09-20T21:21:28.8091965Z [1m[32m  Downloaded[0m git_info v0.1.3
+2025-09-20T21:21:29.0259273Z [1m[32m  Downloaded[0m envmnt v0.10.4
+2025-09-20T21:21:29.3949216Z [1m[32m  Downloaded[0m cliparser v0.1.2
+2025-09-20T21:21:29.6023548Z [1m[32m  Downloaded[0m ci_info v0.14.14
+2025-09-20T21:21:29.7959023Z [1m[32m  Downloaded[0m crossbeam-utils v0.8.21
+2025-09-20T21:21:29.8593276Z [1m[32m  Downloaded[0m camino v1.2.0
+2025-09-20T21:21:30.2731685Z [1m[32m  Downloaded[0m writeable v0.6.1
+2025-09-20T21:21:30.3219853Z [1m[32m  Downloaded[0m whoami v1.6.1
+2025-09-20T21:21:30.3786261Z [1m[32m  Downloaded[0m untrusted v0.9.0
+2025-09-20T21:21:30.4193312Z [1m[32m  Downloaded[0m toml_write v0.1.2
+2025-09-20T21:21:30.4468202Z [1m[32m  Downloaded[0m toml v0.8.23
+2025-09-20T21:21:30.4950260Z [1m[32m  Downloaded[0m tinystr v0.8.1
+2025-09-20T21:21:30.5418680Z [1m[32m  Downloaded[0m thiserror v2.0.16
+2025-09-20T21:21:30.7197881Z [1m[32m  Downloaded[0m encoding_rs v0.8.35
+2025-09-20T21:21:30.8964587Z [1m[32m  Downloaded[0m strum_macros v0.26.4
+2025-09-20T21:21:30.9448760Z [1m[32m  Downloaded[0m ring v0.17.14
+2025-09-20T21:21:31.8391076Z [1m[32m  Downloaded[0m stable_deref_trait v1.2.0
+2025-09-20T21:21:31.8586444Z [1m[32m  Downloaded[0m sha2 v0.10.9
+2025-09-20T21:21:31.9937392Z [1m[32m  Downloaded[0m serde_ignored v0.1.14
+2025-09-20T21:21:32.0733250Z [1m[32m  Downloaded[0m rustversion v1.0.22
+2025-09-20T21:21:32.2671763Z [1m[32m  Downloaded[0m run_script v0.11.0
+2025-09-20T21:21:32.3848987Z [1m[32m  Downloaded[0m rand_core v0.6.4
+2025-09-20T21:21:32.4494526Z [1m[32m  Downloaded[0m rand_chacha v0.9.0
+2025-09-20T21:21:32.5120595Z [1m[32m  Downloaded[0m rand_chacha v0.3.1
+2025-09-20T21:21:32.5657650Z [1m[32m  Downloaded[0m pin-project-lite v0.2.16
+2025-09-20T21:21:32.9622125Z [1m[32m  Downloaded[0m once_cell v1.21.3
+2025-09-20T21:21:33.0177521Z [1m[32m  Downloaded[0m nu-ansi-term v0.50.1
+2025-09-20T21:21:33.0896275Z [1m[32m  Downloaded[0m litemap v0.8.0
+2025-09-20T21:21:33.1522933Z [1m[32m  Downloaded[0m home v0.5.11
+2025-09-20T21:21:33.1709637Z [1m[32m  Downloaded[0m globset v0.4.16
+2025-09-20T21:21:33.1949828Z [1m[32m  Downloaded[0m generic-array v0.14.7
+2025-09-20T21:21:33.2207892Z [1m[32m  Downloaded[0m fsio v0.4.1
+2025-09-20T21:21:33.2830505Z [1m[32m  Downloaded[0m fs_extra v1.3.0
+2025-09-20T21:21:33.3052349Z [1m[32m  Downloaded[0m fixedbitset v0.5.7
+2025-09-20T21:21:33.3363220Z [1m[32m  Downloaded[0m duckscript v0.10.0
+2025-09-20T21:21:33.4082827Z [1m[32m  Downloaded[0m colored v2.2.0
+2025-09-20T21:21:33.4688328Z [1m[32m  Downloaded[0m cc v1.2.38
+2025-09-20T21:21:33.5157143Z [1m[32m  Downloaded[0m base64 v0.22.1
+2025-09-20T21:21:33.5808208Z [1m[32m  Downloaded[0m zerofrom-derive v0.1.6
+2025-09-20T21:21:33.6028205Z [1m[32m  Downloaded[0m yoke-derive v0.8.0
+2025-09-20T21:21:33.6210300Z [1m[32m  Downloaded[0m which v6.0.3
+2025-09-20T21:21:33.6508810Z [1m[32m  Downloaded[0m webpki-roots v0.26.11
+2025-09-20T21:21:33.6728379Z [1m[32m  Downloaded[0m version_check v0.9.5
+2025-09-20T21:21:33.6966103Z [1m[32m  Downloaded[0m utf8_iter v1.0.4
+2025-09-20T21:21:33.7265033Z [1m[32m  Downloaded[0m toml_datetime v0.6.11
+2025-09-20T21:21:33.7417202Z [1m[32m  Downloaded[0m time-core v0.1.6
+2025-09-20T21:21:33.7585921Z [1m[32m  Downloaded[0m thiserror-impl v2.0.16
+2025-09-20T21:21:33.7900997Z [1m[32m  Downloaded[0m synstructure v0.13.2
+2025-09-20T21:21:33.8062588Z [1m[32m  Downloaded[0m subtle v2.6.1
+2025-09-20T21:21:33.8339373Z [1m[32m  Downloaded[0m strip-ansi-escapes v0.2.1
+2025-09-20T21:21:33.8559248Z [1m[32m  Downloaded[0m simd-adler32 v0.3.7
+2025-09-20T21:21:33.8923580Z [1m[32m  Downloaded[0m shlex v1.3.0
+2025-09-20T21:21:33.9172851Z [1m[32m  Downloaded[0m serde_spanned v0.6.9
+2025-09-20T21:21:33.9339607Z [1m[32m  Downloaded[0m rand_core v0.9.3
+2025-09-20T21:21:33.9672082Z [1m[32m  Downloaded[0m ppv-lite86 v0.2.21
+2025-09-20T21:21:33.9901421Z [1m[32m  Downloaded[0m powerfmt v0.2.0
+2025-09-20T21:21:34.2325504Z [1m[32m  Downloaded[0m pkg-config v0.3.32
+2025-09-20T21:21:34.2909759Z [1m[32m  Downloaded[0m percent-encoding v2.3.2
+2025-09-20T21:21:34.3058715Z [1m[32m  Downloaded[0m parking v2.2.1
+2025-09-20T21:21:34.3293546Z [1m[32m  Downloaded[0m lenient_semver_parser v0.4.2
+2025-09-20T21:21:34.3418368Z [1m[32m  Downloaded[0m lazy_static v1.5.0
+2025-09-20T21:21:34.3757992Z [1m[32m  Downloaded[0m java-properties v2.0.0
+2025-09-20T21:21:34.4019656Z [1m[32m  Downloaded[0m itoa v1.0.15
+2025-09-20T21:21:34.4326858Z [1m[32m  Downloaded[0m idna_adapter v1.2.1
+2025-09-20T21:21:34.4550373Z [1m[32m  Downloaded[0m hex v0.4.3
+2025-09-20T21:21:34.4709035Z [1m[32m  Downloaded[0m heck v0.5.0
+2025-09-20T21:21:34.4833458Z [1m[32m  Downloaded[0m windows-sys v0.59.0
+2025-09-20T21:21:34.7793021Z [1m[32m  Downloaded[0m glob v0.3.3
+2025-09-20T21:21:34.7911584Z [1m[32m  Downloaded[0m futures-io v0.3.31
+2025-09-20T21:21:34.7974255Z [1m[32m  Downloaded[0m windows-sys v0.52.0
+2025-09-20T21:21:35.7250335Z [1m[32m  Downloaded[0m futures-core v0.3.31
+2025-09-20T21:21:35.7453987Z [1m[32m  Downloaded[0m form_urlencoded v1.2.2
+2025-09-20T21:21:35.7522292Z [1m[32m  Downloaded[0m fnv v1.0.7
+2025-09-20T21:21:35.7593948Z [1m[32m  Downloaded[0m either v1.15.0
+2025-09-20T21:21:35.7724059Z [1m[32m  Downloaded[0m dunce v1.0.5
+2025-09-20T21:21:35.7796078Z [1m[32m  Downloaded[0m dirs-next v2.0.0
+2025-09-20T21:21:35.7885726Z [1m[32m  Downloaded[0m digest v0.10.7
+2025-09-20T21:21:35.8041256Z [1m[32m  Downloaded[0m deranged v0.5.3
+2025-09-20T21:21:35.8133284Z [1m[32m  Downloaded[0m windows-sys v0.61.0
+2025-09-20T21:21:36.1152704Z [1m[32m  Downloaded[0m ctrlc v3.5.0
+2025-09-20T21:21:36.1311175Z [1m[32m  Downloaded[0m crypto-common v0.1.6
+2025-09-20T21:21:36.1382443Z [1m[32m  Downloaded[0m crossbeam-epoch v0.9.18
+2025-09-20T21:21:36.1571948Z [1m[32m  Downloaded[0m crossbeam-deque v0.8.6
+2025-09-20T21:21:36.1689966Z [1m[32m  Downloaded[0m cpufeatures v0.2.17
+2025-09-20T21:21:36.1817072Z [1m[32m  Downloaded[0m bzip2-sys v0.1.13+1.0.8
+2025-09-20T21:21:36.2317349Z [1m[32m  Downloaded[0m windows-targets v0.52.6
+2025-09-20T21:21:36.2385578Z [1m[32m  Downloaded[0m windows-link v0.2.0
+2025-09-20T21:21:36.2462072Z [1m[32m  Downloaded[0m serde_derive v1.0.225
+2025-09-20T21:21:36.2688773Z [1m[32m  Downloaded[0m regex-automata v0.4.10
+2025-09-20T21:21:36.3643023Z [1m[32m  Downloaded[0m num-conv v0.1.0
+2025-09-20T21:21:36.3707654Z [1m[32m  Downloaded[0m lenient_semver_version_builder v0.4.2
+2025-09-20T21:21:36.3762708Z [1m[32m  Downloaded[0m lazy-regex-proc_macros v3.4.1
+2025-09-20T21:21:36.3817514Z [1m[32m  Downloaded[0m displaydoc v0.2.5
+2025-09-20T21:21:36.4160745Z [1m[32m  Downloaded[0m crc32fast v1.5.0
+2025-09-20T21:21:36.4290617Z [1m[32m  Downloaded[0m chrono v0.4.42
+2025-09-20T21:21:36.4702365Z [1m[32m  Downloaded[0m bzip2 v0.5.2
+2025-09-20T21:21:36.4831638Z [1m[32m  Downloaded[0m aho-corasick v1.1.3
+2025-09-20T21:21:36.5223142Z [1m[32m  Downloaded[0m dirs-sys-next v0.1.2
+2025-09-20T21:21:36.5302809Z [1m[32m  Downloaded[0m colored v3.0.0
+2025-09-20T21:21:36.5556780Z [1m[32m  Downloaded[0m cargo-platform v0.1.9
+2025-09-20T21:21:36.5649396Z [1m[32m  Downloaded[0m block-buffer v0.10.4
+2025-09-20T21:21:36.5732398Z [1m[32m  Downloaded[0m autocfg v1.5.0
+2025-09-20T21:21:36.5939506Z [1m[32m  Downloaded[0m attohttpc v0.28.5
+2025-09-20T21:21:36.6374447Z [1m[32m  Downloaded[0m adler2 v2.0.1
+2025-09-20T21:21:36.6473697Z [1m[32m  Downloaded[0m semver v1.0.27
+2025-09-20T21:21:36.6698786Z [1m[32m  Downloaded[0m proc-macro2 v1.0.101
+2025-09-20T21:21:36.6965844Z [1m[32m  Downloaded[0m potential_utf v0.1.3
+2025-09-20T21:21:36.7043467Z [1m[32m  Downloaded[0m num_cpus v1.17.0
+2025-09-20T21:21:37.4351279Z [1m[32m  Downloaded[0m log v0.4.28
+2025-09-20T21:21:37.4512726Z [1m[32m  Downloaded[0m ignore v0.4.23
+2025-09-20T21:21:37.4702617Z [1m[32m  Downloaded[0m icu_provider v2.0.0
+2025-09-20T21:21:37.4884574Z [1m[32m  Downloaded[0m getrandom v0.3.3
+2025-09-20T21:21:37.5180131Z [1m[32m  Downloaded[0m cfg-if v1.0.3
+2025-09-20T21:21:37.5369312Z [1m[32m  Downloaded[0m bumpalo v3.19.0
+2025-09-20T21:21:37.5524706Z [1m[32m  Downloaded[0m winapi-util v0.1.11
+2025-09-20T21:21:37.5641834Z [1m[32m  Downloaded[0m same-file v1.0.6
+2025-09-20T21:21:37.5765164Z [1m[32m  Downloaded[0m fastrand v2.3.0
+2025-09-20T21:21:37.5858637Z [1m[32m  Downloaded[0m cargo_metadata v0.19.2
+2025-09-20T21:21:37.8285222Z [1m[32m   Compiling[0m proc-macro2 v1.0.101
+2025-09-20T21:21:37.8286002Z [1m[32m   Compiling[0m unicode-ident v1.0.19
+2025-09-20T21:21:37.8286541Z [1m[32m   Compiling[0m cfg-if v1.0.3
+2025-09-20T21:21:37.8287212Z [1m[32m   Compiling[0m serde_core v1.0.225
+2025-09-20T21:21:37.9037796Z [1m[32m   Compiling[0m memchr v2.7.5
+2025-09-20T21:21:37.9599611Z [1m[32m   Compiling[0m stable_deref_trait v1.2.0
+2025-09-20T21:21:38.0443199Z [1m[32m   Compiling[0m shlex v1.3.0
+2025-09-20T21:21:38.2599230Z [1m[32m   Compiling[0m find-msvc-tools v0.1.2
+2025-09-20T21:21:39.0675356Z [1m[32m   Compiling[0m cc v1.2.38
+2025-09-20T21:21:39.2211450Z [1m[32m   Compiling[0m zerocopy v0.8.27
+2025-09-20T21:21:40.7702834Z [1m[32m   Compiling[0m autocfg v1.5.0
+2025-09-20T21:21:41.3576995Z [1m[32m   Compiling[0m quote v1.0.40
+2025-09-20T21:21:41.8096337Z [1m[32m   Compiling[0m syn v2.0.106
+2025-09-20T21:21:41.8420221Z [1m[32m   Compiling[0m windows_x86_64_msvc v0.52.6
+2025-09-20T21:21:42.1030356Z [1m[32m   Compiling[0m getrandom v0.3.3
+2025-09-20T21:21:42.5173331Z [1m[32m   Compiling[0m serde v1.0.225
+2025-09-20T21:21:43.2894389Z [1m[32m   Compiling[0m aho-corasick v1.1.3
+2025-09-20T21:21:43.6025168Z [1m[32m   Compiling[0m ppv-lite86 v0.2.21
+2025-09-20T21:21:44.2104090Z [1m[32m   Compiling[0m writeable v0.6.1
+2025-09-20T21:21:44.6581940Z [1m[32m   Compiling[0m windows-link v0.2.0
+2025-09-20T21:21:44.7244163Z [1m[32m   Compiling[0m litemap v0.8.0
+2025-09-20T21:21:44.7465795Z [1m[32m   Compiling[0m regex-syntax v0.8.6
+2025-09-20T21:21:45.0906357Z [1m[32m   Compiling[0m rand_core v0.9.3
+2025-09-20T21:21:45.4093072Z [1m[32m   Compiling[0m windows-targets v0.52.6
+2025-09-20T21:21:45.4739279Z [1m[32m   Compiling[0m getrandom v0.2.16
+2025-09-20T21:21:45.6603391Z [1m[32m   Compiling[0m log v0.4.28
+2025-09-20T21:21:45.9569241Z [1m[32m   Compiling[0m typenum v1.18.0
+2025-09-20T21:21:46.4029013Z [1m[32m   Compiling[0m version_check v0.9.5
+2025-09-20T21:21:46.8118736Z [1m[32m   Compiling[0m icu_normalizer_data v2.0.0
+2025-09-20T21:21:47.0654576Z [1m[32m   Compiling[0m synstructure v0.13.2
+2025-09-20T21:21:47.9969392Z [1m[32m   Compiling[0m regex-automata v0.4.10
+2025-09-20T21:21:49.6399445Z [1m[32m   Compiling[0m icu_properties_data v2.0.1
+2025-09-20T21:21:49.9503470Z [1m[32m   Compiling[0m generic-array v0.14.7
+2025-09-20T21:21:50.2271817Z [1m[32m   Compiling[0m rand_chacha v0.9.0
+2025-09-20T21:21:50.3962054Z [1m[32m   Compiling[0m zerofrom-derive v0.1.6
+2025-09-20T21:21:51.3490265Z [1m[32m   Compiling[0m yoke-derive v0.8.0
+2025-09-20T21:21:52.7306768Z [1m[32m   Compiling[0m zerofrom v0.1.6
+2025-09-20T21:21:52.8840758Z [1m[32m   Compiling[0m displaydoc v0.2.5
+2025-09-20T21:21:53.0916488Z [1m[32m   Compiling[0m yoke v0.8.0
+2025-09-20T21:21:53.3629136Z [1m[32m   Compiling[0m zerovec-derive v0.11.1
+2025-09-20T21:21:53.6276737Z [1m[32m   Compiling[0m serde_derive v1.0.225
+2025-09-20T21:21:53.8748762Z [1m[32m   Compiling[0m zerotrie v0.2.2
+2025-09-20T21:21:54.4601507Z [1m[32m   Compiling[0m ring v0.17.14
+2025-09-20T21:21:55.2471330Z [1m[32m   Compiling[0m zerovec v0.11.4
+2025-09-20T21:21:55.2722411Z [1m[32m   Compiling[0m crc32fast v1.5.0
+2025-09-20T21:21:56.6438578Z [1m[32m   Compiling[0m zeroize v1.8.1
+2025-09-20T21:21:56.8592875Z [1m[32m   Compiling[0m rustls-pki-types v1.12.0
+2025-09-20T21:21:57.0396631Z [1m[32m   Compiling[0m tinystr v0.8.1
+2025-09-20T21:21:57.3247265Z [1m[32m   Compiling[0m icu_locale_core v2.0.0
+2025-09-20T21:21:57.9017815Z [1m[32m   Compiling[0m potential_utf v0.1.3
+2025-09-20T21:21:58.1007342Z [1m[32m   Compiling[0m icu_collections v2.0.0
+2025-09-20T21:21:59.0466902Z [1m[32m   Compiling[0m icu_provider v2.0.0
+2025-09-20T21:22:00.4976080Z [1m[32m   Compiling[0m rand v0.9.2
+2025-09-20T21:22:01.7458985Z [1m[32m   Compiling[0m windows-sys v0.61.0
+2025-09-20T21:22:01.7726833Z [1m[32m   Compiling[0m crossbeam-utils v0.8.21
+2025-09-20T21:22:02.1455434Z [1m[32m   Compiling[0m equivalent v1.0.2
+2025-09-20T21:22:02.2220586Z [1m[32m   Compiling[0m thiserror v2.0.16
+2025-09-20T21:22:02.2708586Z [1m[32m   Compiling[0m pkg-config v0.3.32
+2025-09-20T21:22:03.3545403Z [1m[32m   Compiling[0m dunce v1.0.5
+2025-09-20T21:22:03.6461156Z [1m[32m   Compiling[0m smallvec v1.15.1
+2025-09-20T21:22:03.9781804Z [1m[32m   Compiling[0m hashbrown v0.16.0
+2025-09-20T21:22:04.6462139Z [1m[32m   Compiling[0m icu_normalizer v2.0.0
+2025-09-20T21:22:05.0848883Z [1m[32m   Compiling[0m indexmap v2.11.4
+2025-09-20T21:22:05.6727534Z [1m[32m   Compiling[0m fsio v0.4.1
+2025-09-20T21:22:06.3310257Z [1m[32m   Compiling[0m bzip2-sys v0.1.13+1.0.8
+2025-09-20T21:22:06.6715305Z [1m[32m   Compiling[0m icu_properties v2.0.1
+2025-09-20T21:22:07.5637671Z [1m[32m   Compiling[0m regex v1.11.2
+2025-09-20T21:22:07.7062489Z [1m[32m   Compiling[0m thiserror-impl v2.0.16
+2025-09-20T21:22:09.0433984Z [1m[32m   Compiling[0m windows-sys v0.59.0
+2025-09-20T21:22:09.0740919Z [1m[32m   Compiling[0m semver v1.0.27
+2025-09-20T21:22:09.8265395Z [1m[32m   Compiling[0m num-traits v0.2.19
+2025-09-20T21:22:09.8679827Z [1m[32m   Compiling[0m once_cell v1.21.3
+2025-09-20T21:22:10.0808722Z [1m[32m   Compiling[0m adler2 v2.0.1
+2025-09-20T21:22:10.1599394Z [1m[32m   Compiling[0m untrusted v0.9.0
+2025-09-20T21:22:10.2421322Z [1m[32m   Compiling[0m itoa v1.0.15
+2025-09-20T21:22:10.4010857Z [1m[32m   Compiling[0m miniz_oxide v0.8.9
+2025-09-20T21:22:11.7026434Z [1m[32m   Compiling[0m idna_adapter v1.2.1
+2025-09-20T21:22:12.2738296Z [1m[32m   Compiling[0m winapi-util v0.1.11
+2025-09-20T21:22:12.5615502Z [1m[32m   Compiling[0m indexmap v1.9.3
+2025-09-20T21:22:12.7980836Z [1m[32m   Compiling[0m powerfmt v0.2.0
+2025-09-20T21:22:13.0195086Z [1m[32m   Compiling[0m serde_json v1.0.145
+2025-09-20T21:22:13.0731474Z [1m[32m   Compiling[0m rustls v0.23.32
+2025-09-20T21:22:13.2741961Z [1m[32m   Compiling[0m utf8_iter v1.0.4
+2025-09-20T21:22:13.3089488Z [1m[32m   Compiling[0m percent-encoding v2.3.2
+2025-09-20T21:22:13.4338627Z [1m[32m   Compiling[0m winapi v0.3.9
+2025-09-20T21:22:13.5888630Z [1m[32m   Compiling[0m form_urlencoded v1.2.2
+2025-09-20T21:22:13.8440406Z [1m[32m   Compiling[0m idna v1.1.0
+2025-09-20T21:22:14.0649522Z [1m[32m   Compiling[0m deranged v0.5.3
+2025-09-20T21:22:15.4653652Z [1m[32m   Compiling[0m crossbeam-epoch v0.9.18
+2025-09-20T21:22:16.1844289Z [1m[32m   Compiling[0m rustls-webpki v0.103.6
+2025-09-20T21:22:16.3289493Z [1m[32m   Compiling[0m same-file v1.0.6
+2025-09-20T21:22:16.3394624Z [1m[32m   Compiling[0m lazy-regex-proc_macros v3.4.1
+2025-09-20T21:22:17.5738250Z [1m[32m   Compiling[0m flate2 v1.1.2
+2025-09-20T21:22:17.8123974Z [1m[32m   Compiling[0m block-buffer v0.10.4
+2025-09-20T21:22:17.9825279Z [1m[32m   Compiling[0m crypto-common v0.1.6
+2025-09-20T21:22:18.1224080Z [1m[32m   Compiling[0m webpki-roots v1.0.2
+2025-09-20T21:22:18.2668957Z [1m[32m   Compiling[0m rand_core v0.6.4
+2025-09-20T21:22:18.3587411Z [1m[32m   Compiling[0m bstr v1.12.0
+2025-09-20T21:22:18.5598921Z [1m[32m   Compiling[0m fnv v1.0.7
+2025-09-20T21:22:18.6619933Z [1m[32m   Compiling[0m num-conv v0.1.0
+2025-09-20T21:22:18.8557654Z [1m[32m   Compiling[0m futures-core v0.3.31
+2025-09-20T21:22:18.9974691Z [1m[32m   Compiling[0m futures-io v0.3.31
+2025-09-20T21:22:19.2104903Z [1m[32m   Compiling[0m rustversion v1.0.22
+2025-09-20T21:22:19.3222052Z [1m[32m   Compiling[0m pin-project-lite v0.2.16
+2025-09-20T21:22:19.4190920Z [1m[32m   Compiling[0m time-core v0.1.6
+2025-09-20T21:22:19.6508700Z [1m[32m   Compiling[0m fastrand v2.3.0
+2025-09-20T21:22:19.6715796Z [1m[32m   Compiling[0m lazy_static v1.5.0
+2025-09-20T21:22:19.7683319Z [1m[32m   Compiling[0m simd-adler32 v0.3.7
+2025-09-20T21:22:20.0424586Z [1m[32m   Compiling[0m zip v2.4.2
+2025-09-20T21:22:20.2926436Z [1m[32m   Compiling[0m subtle v2.6.1
+2025-09-20T21:22:20.3853903Z [1m[32m   Compiling[0m ryu v1.0.20
+2025-09-20T21:22:20.4930906Z [1m[32m   Compiling[0m either v1.15.0
+2025-09-20T21:22:20.6154240Z [1m[32m   Compiling[0m bytes v1.10.1
+2025-09-20T21:22:20.7467165Z [1m[32m   Compiling[0m bumpalo v3.19.0
+2025-09-20T21:22:20.8109348Z [1m[32m   Compiling[0m camino v1.2.0
+2025-09-20T21:22:21.1885698Z [1m[32m   Compiling[0m hashbrown v0.12.3
+2025-09-20T21:22:21.2686210Z [1m[32m   Compiling[0m parking v2.2.1
+2025-09-20T21:22:21.3477078Z [1m[32m   Compiling[0m bzip2 v0.5.2
+2025-09-20T21:22:21.4406620Z [1m[32m   Compiling[0m futures-lite v2.6.1
+2025-09-20T21:22:21.6187530Z [1m[32m   Compiling[0m http v1.3.1
+2025-09-20T21:22:22.0073075Z [1m[32m   Compiling[0m zopfli v0.8.2
+2025-09-20T21:22:24.1046729Z [1m[32m   Compiling[0m time v0.3.44
+2025-09-20T21:22:24.1087123Z [1m[32m   Compiling[0m globset v0.4.16
+2025-09-20T21:22:25.1634387Z [1m[32m   Compiling[0m rand_chacha v0.3.1
+2025-09-20T21:22:26.0580006Z [1m[32m   Compiling[0m webpki-roots v0.26.11
+2025-09-20T21:22:26.1319198Z [1m[32m   Compiling[0m digest v0.10.7
+2025-09-20T21:22:26.3607862Z [1m[32m   Compiling[0m chrono v0.4.42
+2025-09-20T21:22:26.4320874Z [1m[32m   Compiling[0m lazy-regex v3.4.1
+2025-09-20T21:22:26.5188489Z [1m[32m   Compiling[0m walkdir v2.5.0
+2025-09-20T21:22:27.4461814Z [1m[32m   Compiling[0m crossbeam-deque v0.8.6
+2025-09-20T21:22:27.4745397Z [1m[32m   Compiling[0m url v2.5.7
+2025-09-20T21:22:30.0782099Z [1m[32m   Compiling[0m home v0.5.11
+2025-09-20T21:22:30.2978460Z [1m[32m   Compiling[0m lenient_semver_version_builder v0.4.2
+2025-09-20T21:22:30.5368817Z [1m[32m   Compiling[0m toml_datetime v0.6.11
+2025-09-20T21:22:30.9022996Z [1m[32m   Compiling[0m serde_spanned v0.6.9
+2025-09-20T21:22:31.0200109Z [1m[32m   Compiling[0m encoding_rs v0.8.35
+2025-09-20T21:22:31.0584165Z [1m[32m   Compiling[0m winsafe v0.0.19
+2025-09-20T21:22:31.6894659Z [1m[32m   Compiling[0m toml_write v0.1.2
+2025-09-20T21:22:31.9798517Z [1m[32m   Compiling[0m cpufeatures v0.2.17
+2025-09-20T21:22:32.0490395Z [1m[32m   Compiling[0m winnow v0.7.13
+2025-09-20T21:22:35.3931126Z [1m[32m   Compiling[0m toml_edit v0.22.27
+2025-09-20T21:22:37.4452667Z [1m[32m   Compiling[0m which v6.0.3
+2025-09-20T21:22:38.1753539Z [1m[32m   Compiling[0m java-properties v2.0.0
+2025-09-20T21:22:38.8725909Z [1m[32m   Compiling[0m sha2 v0.10.9
+2025-09-20T21:22:39.1682219Z [1m[32m   Compiling[0m dirs-sys-next v0.1.2
+2025-09-20T21:22:39.3071496Z [1m[32m   Compiling[0m lenient_semver_parser v0.4.2
+2025-09-20T21:22:39.6375628Z [1m[32m   Compiling[0m attohttpc v0.28.5
+2025-09-20T21:22:40.6036877Z [1m[32m   Compiling[0m suppaftp v6.3.0
+2025-09-20T21:22:42.6778352Z [1m[32m   Compiling[0m ignore v0.4.23
+2025-09-20T21:22:43.6612233Z [1m[32m   Compiling[0m rand v0.8.5
+2025-09-20T21:22:45.8670037Z [1m[32m   Compiling[0m envmnt v0.10.4
+2025-09-20T21:22:48.3885180Z [1m[32m   Compiling[0m colored v2.2.0
+2025-09-20T21:22:49.0556839Z [1m[32m   Compiling[0m duckscript v0.10.0
+2025-09-20T21:22:49.1754886Z [1m[32m   Compiling[0m cargo-platform v0.1.9
+2025-09-20T21:22:49.1788756Z [1m[32m   Compiling[0m windows-sys v0.52.0
+2025-09-20T21:22:49.6217215Z [1m[32m   Compiling[0m vte v0.14.1
+2025-09-20T21:22:49.7152045Z [1m[32m   Compiling[0m heck v0.5.0
+2025-09-20T21:22:49.8838124Z [1m[32m   Compiling[0m fixedbitset v0.5.7
+2025-09-20T21:22:50.0427652Z [1m[32m   Compiling[0m evalexpr v11.3.1
+2025-09-20T21:22:50.5448753Z [1m[32m   Compiling[0m fs_extra v1.3.0
+2025-09-20T21:22:51.0523026Z [1m[32m   Compiling[0m num_cpus v1.17.0
+2025-09-20T21:22:51.1552308Z [1m[32m   Compiling[0m base64 v0.22.1
+2025-09-20T21:22:51.2363185Z [1m[32m   Compiling[0m whoami v1.6.1
+2025-09-20T21:22:51.7407299Z [1m[32m   Compiling[0m glob v0.3.3
+2025-09-20T21:22:51.8298551Z [1m[32m   Compiling[0m nu-ansi-term v0.50.1
+2025-09-20T21:22:52.4396342Z [1m[32m   Compiling[0m duckscriptsdk v0.11.1
+2025-09-20T21:22:52.5286686Z [1m[32m   Compiling[0m petgraph v0.7.1
+2025-09-20T21:22:52.9658870Z [1m[32m   Compiling[0m strum_macros v0.26.4
+2025-09-20T21:22:52.9929713Z [1m[32m   Compiling[0m strip-ansi-escapes v0.2.1
+2025-09-20T21:22:53.6710236Z [1m[32m   Compiling[0m cargo_metadata v0.19.2
+2025-09-20T21:22:56.1173419Z [1m[32m   Compiling[0m ci_info v0.14.14
+2025-09-20T21:22:56.2586328Z [1m[32m   Compiling[0m lenient_semver v0.4.2
+2025-09-20T21:22:56.5519716Z [1m[32m   Compiling[0m dirs-next v2.0.0
+2025-09-20T21:22:56.6539367Z [1m[32m   Compiling[0m toml v0.8.23
+2025-09-20T21:22:57.0074339Z [1m[32m   Compiling[0m itertools v0.14.0
+2025-09-20T21:22:59.6240224Z [1m[32m   Compiling[0m colored v3.0.0
+2025-09-20T21:22:59.8346457Z [1m[32m   Compiling[0m shell2batch v0.4.5
+2025-09-20T21:23:00.4095201Z [1m[32m   Compiling[0m run_script v0.11.0
+2025-09-20T21:23:01.0353424Z [1m[32m   Compiling[0m ctrlc v3.5.0
+2025-09-20T21:23:01.2147437Z [1m[32m   Compiling[0m fern v0.7.1
+2025-09-20T21:23:01.2262471Z [1m[32m   Compiling[0m serde_ignored v0.1.14
+2025-09-20T21:23:01.5103445Z [1m[32m   Compiling[0m hex v0.4.3
+2025-09-20T21:23:01.9288652Z [1m[32m   Compiling[0m rust_info v0.3.3
+2025-09-20T21:23:02.7953840Z [1m[32m   Compiling[0m cliparser v0.1.2
+2025-09-20T21:23:02.9568809Z [1m[32m   Compiling[0m git_info v0.1.3
+2025-09-20T21:23:03.1013118Z [1m[32m   Compiling[0m cargo-make v0.37.24
+2025-09-20T21:25:42.9257213Z [1m[32m    Finished[0m `release` profile [optimized] target(s) in 4m 29s
+2025-09-20T21:25:42.9877493Z [1m[32m  Installing[0m C:\Users\runneradmin\.cargo\bin\cargo-make.exe
+2025-09-20T21:25:42.9880825Z [1m[32m  Installing[0m C:\Users\runneradmin\.cargo\bin\makers.exe
+2025-09-20T21:25:42.9889393Z [1m[32m   Installed[0m package `cargo-make v0.37.24` (executables `cargo-make.exe`, `makers.exe`)

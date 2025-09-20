@@ -1,0 +1,48 @@
+﻿2025-09-20T21:19:36.6174463Z Current runner version: '2.328.0'
+2025-09-20T21:19:36.6245964Z ##[group]Runner Image Provisioner
+2025-09-20T21:19:36.6246925Z Hosted Compute Agent
+2025-09-20T21:19:36.6247433Z Version: 20250829.383
+2025-09-20T21:19:36.6247960Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-20T21:19:36.6248539Z Build Date: 2025-08-29T13:48:48Z
+2025-09-20T21:19:36.6249102Z ##[endgroup]
+2025-09-20T21:19:36.6249526Z ##[group]Operating System
+2025-09-20T21:19:36.6250027Z Microsoft Windows Server 2025
+2025-09-20T21:19:36.6250557Z 10.0.26100
+2025-09-20T21:19:36.6250929Z Datacenter
+2025-09-20T21:19:36.6251320Z ##[endgroup]
+2025-09-20T21:19:36.6251707Z ##[group]Runner Image
+2025-09-20T21:19:36.6252170Z Image: windows-2025
+2025-09-20T21:19:36.6252605Z Version: 20250907.19.1
+2025-09-20T21:19:36.6253536Z Included Software: https://github.com/actions/runner-images/blob/win25/20250907.19/images/windows/Windows2025-Readme.md
+2025-09-20T21:19:36.6254784Z Image Release: https://github.com/actions/runner-images/releases/tag/win25%2F20250907.19
+2025-09-20T21:19:36.6256051Z ##[endgroup]
+2025-09-20T21:19:36.6258286Z ##[group]GITHUB_TOKEN Permissions
+2025-09-20T21:19:36.6260202Z Actions: write
+2025-09-20T21:19:36.6260719Z Attestations: write
+2025-09-20T21:19:36.6261336Z Checks: write
+2025-09-20T21:19:36.6261739Z Contents: write
+2025-09-20T21:19:36.6262194Z Deployments: write
+2025-09-20T21:19:36.6262607Z Discussions: write
+2025-09-20T21:19:36.6263057Z Issues: write
+2025-09-20T21:19:36.6263825Z Metadata: read
+2025-09-20T21:19:36.6264456Z Models: read
+2025-09-20T21:19:36.6264903Z Packages: write
+2025-09-20T21:19:36.6265331Z Pages: write
+2025-09-20T21:19:36.6265758Z PullRequests: write
+2025-09-20T21:19:36.6266211Z RepositoryProjects: write
+2025-09-20T21:19:36.6266873Z SecurityEvents: write
+2025-09-20T21:19:36.6267386Z Statuses: write
+2025-09-20T21:19:36.6267805Z ##[endgroup]
+2025-09-20T21:19:36.6269932Z Secret source: Actions
+2025-09-20T21:19:36.6270518Z Prepare workflow directory
+2025-09-20T21:19:36.6662183Z Prepare all required actions
+2025-09-20T21:19:36.6718285Z Getting action download info
+2025-09-20T21:19:37.0699330Z Download action repository 'Avarok-Cybersecurity/gh-actions-deps@master' (SHA:495f309997d6623b1d15d4767970d70d46cfaa17)
+2025-09-20T21:19:37.5385462Z Download action repository 'taiki-e/install-action@nextest' (SHA:320133d5f45b215a033477e643139da5245dd9fc)
+2025-09-20T21:19:38.1911020Z Getting action download info
+2025-09-20T21:19:38.4175175Z Download action repository 'KyleMayes/install-llvm-action@v1.5.1' (SHA:60cc93ee15c6225007baa18ccf433d9d7f67d8a4)
+2025-09-20T21:19:39.0237283Z Download action repository 'actions/checkout@v2' (SHA:ee0669bd1cc54295c223e0bb666b733df41de1c5)
+2025-09-20T21:19:39.1472544Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:5d458579430fc14a04a08a1e7d3694f545e91ce6)
+2025-09-20T21:19:39.5800904Z Download action repository 'actions-rs/cargo@v1' (SHA:844f36862e911db73fe0815f00a4a2602c279505)
+2025-09-20T21:19:40.3220139Z Uses: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:19:40.3224206Z Complete job name: Validate PR / citadel_sdk (windows-latest)

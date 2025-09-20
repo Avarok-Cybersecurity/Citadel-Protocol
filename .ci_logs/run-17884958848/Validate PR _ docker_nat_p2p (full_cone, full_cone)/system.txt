@@ -1,0 +1,8 @@
+2025-09-20T21:18:20.9050000Z Requested labels: ubuntu-latest
+2025-09-20T21:18:20.9050000Z Job defined at: Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge
+2025-09-20T21:18:20.9050000Z Reusable workflow chain:
+2025-09-20T21:18:20.9050000Z Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/exec.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:18:20.9050000Z -> Avarok-Cybersecurity/Citadel-Protocol/.github/workflows/validate.yml@refs/pull/236/merge (7edf0bb75f061919add02f6d6a82672c0b2e9654)
+2025-09-20T21:18:20.9050000Z Waiting for a runner to pick up this job...
+2025-09-20T21:18:21.4080000Z Job is about to start running on the hosted runner: GitHub Actions 1000001624
+2025-09-20T21:18:21.4080000Z Job is waiting for a hosted runner to come online.

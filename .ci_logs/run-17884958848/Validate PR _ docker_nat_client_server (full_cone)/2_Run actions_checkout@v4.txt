@@ -1,0 +1,92 @@
+﻿2025-09-20T21:22:22.5699924Z ##[group]Run actions/checkout@v4
+2025-09-20T21:22:22.5700841Z with:
+2025-09-20T21:22:22.5701320Z   repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:22:22.5702048Z   token: ***
+2025-09-20T21:22:22.5702428Z   ssh-strict: true
+2025-09-20T21:22:22.5702824Z   ssh-user: git
+2025-09-20T21:22:22.5703222Z   persist-credentials: true
+2025-09-20T21:22:22.5703663Z   clean: true
+2025-09-20T21:22:22.5704067Z   sparse-checkout-cone-mode: true
+2025-09-20T21:22:22.5704553Z   fetch-depth: 1
+2025-09-20T21:22:22.5704931Z   fetch-tags: false
+2025-09-20T21:22:22.5705316Z   show-progress: true
+2025-09-20T21:22:22.5705715Z   lfs: false
+2025-09-20T21:22:22.5706068Z   submodules: false
+2025-09-20T21:22:22.5706466Z   set-safe-directory: true
+2025-09-20T21:22:22.5707097Z env:
+2025-09-20T21:22:22.5707634Z   CARGO_TERM_COLOR: always
+2025-09-20T21:22:22.5708073Z   RUST_BACKTRACE: full
+2025-09-20T21:22:22.5708477Z   RUST_MIN_STACK: 40971520
+2025-09-20T21:22:22.5708905Z   RUST_LOG: citadel=warn
+2025-09-20T21:22:22.5709307Z   IN_CI: true
+2025-09-20T21:22:22.5709720Z   NAT_TYPE_CLIENT_A: full_cone
+2025-09-20T21:22:22.5710161Z ##[endgroup]
+2025-09-20T21:22:22.6751225Z Syncing repository: Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:22:22.6753019Z ##[group]Getting Git version info
+2025-09-20T21:22:22.6753811Z Working directory is '/home/runner/work/Citadel-Protocol/Citadel-Protocol'
+2025-09-20T21:22:22.6754801Z [command]/usr/bin/git version
+2025-09-20T21:22:22.6784640Z git version 2.51.0
+2025-09-20T21:22:22.6809870Z ##[endgroup]
+2025-09-20T21:22:22.6822720Z Temporarily overriding HOME='/home/runner/work/_temp/0dec0597-9f99-40ee-b4e3-384f7a88a1e9' before making global git config changes
+2025-09-20T21:22:22.6824099Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-20T21:22:22.6827702Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:22:22.6859331Z Deleting the contents of '/home/runner/work/Citadel-Protocol/Citadel-Protocol'
+2025-09-20T21:22:22.6862567Z ##[group]Initializing the repository
+2025-09-20T21:22:22.6866354Z [command]/usr/bin/git init /home/runner/work/Citadel-Protocol/Citadel-Protocol
+2025-09-20T21:22:22.6921828Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-09-20T21:22:22.6923406Z hint: is subject to change. To configure the initial branch name to use in all
+2025-09-20T21:22:22.6924823Z hint: of your new repositories, which will suppress this warning, call:
+2025-09-20T21:22:22.6925889Z hint:
+2025-09-20T21:22:22.6926380Z hint: 	git config --global init.defaultBranch <name>
+2025-09-20T21:22:22.6926947Z hint:
+2025-09-20T21:22:22.6927803Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-09-20T21:22:22.6928687Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-09-20T21:22:22.6929364Z hint:
+2025-09-20T21:22:22.6929906Z hint: 	git branch -m <name>
+2025-09-20T21:22:22.6930592Z hint:
+2025-09-20T21:22:22.6931217Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-09-20T21:22:22.6932282Z Initialized empty Git repository in /home/runner/work/Citadel-Protocol/Citadel-Protocol/.git/
+2025-09-20T21:22:22.6935508Z [command]/usr/bin/git remote add origin https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:22:22.6966084Z ##[endgroup]
+2025-09-20T21:22:22.6966809Z ##[group]Disabling automatic garbage collection
+2025-09-20T21:22:22.6970035Z [command]/usr/bin/git config --local gc.auto 0
+2025-09-20T21:22:22.6997798Z ##[endgroup]
+2025-09-20T21:22:22.6998475Z ##[group]Setting up auth
+2025-09-20T21:22:22.7004231Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-20T21:22:22.7033560Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-20T21:22:22.7289859Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-20T21:22:22.7319763Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-20T21:22:22.7555806Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-09-20T21:22:22.7601112Z ##[endgroup]
+2025-09-20T21:22:22.7602299Z ##[group]Fetching the repository
+2025-09-20T21:22:22.7610503Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +7edf0bb75f061919add02f6d6a82672c0b2e9654:refs/remotes/pull/236/merge
+2025-09-20T21:22:23.1034984Z From https://github.com/Avarok-Cybersecurity/Citadel-Protocol
+2025-09-20T21:22:23.1035996Z  * [new ref]         7edf0bb75f061919add02f6d6a82672c0b2e9654 -> pull/236/merge
+2025-09-20T21:22:23.1063445Z ##[endgroup]
+2025-09-20T21:22:23.1064134Z ##[group]Determining the checkout info
+2025-09-20T21:22:23.1065597Z ##[endgroup]
+2025-09-20T21:22:23.1070583Z [command]/usr/bin/git sparse-checkout disable
+2025-09-20T21:22:23.1107768Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-09-20T21:22:23.1134691Z ##[group]Checking out the ref
+2025-09-20T21:22:23.1139024Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/236/merge
+2025-09-20T21:22:23.8776675Z Note: switching to 'refs/remotes/pull/236/merge'.
+2025-09-20T21:22:23.8778495Z 
+2025-09-20T21:22:23.8779387Z You are in 'detached HEAD' state. You can look around, make experimental
+2025-09-20T21:22:23.8781665Z changes and commit them, and you can discard any commits you make in this
+2025-09-20T21:22:23.8783817Z state without impacting any branches by switching back to a branch.
+2025-09-20T21:22:23.8785105Z 
+2025-09-20T21:22:23.8785657Z If you want to create a new branch to retain commits you create, you may
+2025-09-20T21:22:23.8786965Z do so (now or later) by using -c with the switch command. Example:
+2025-09-20T21:22:23.8787994Z 
+2025-09-20T21:22:23.8788309Z   git switch -c <new-branch-name>
+2025-09-20T21:22:23.8788794Z 
+2025-09-20T21:22:23.8789079Z Or undo this operation with:
+2025-09-20T21:22:23.8789536Z 
+2025-09-20T21:22:23.8789801Z   git switch -
+2025-09-20T21:22:23.8790191Z 
+2025-09-20T21:22:23.8790851Z Turn off this advice by setting config variable advice.detachedHead to false
+2025-09-20T21:22:23.8791744Z 
+2025-09-20T21:22:23.8792771Z HEAD is now at 7edf0bb Merge 8a89b2152348ab91c1a5bd335ccb554a7eae26c5 into 2b40ca3c28904a155dd62f453494820feec744f0
+2025-09-20T21:22:23.9020513Z ##[endgroup]
+2025-09-20T21:22:23.9055361Z [command]/usr/bin/git log -1 --format=%H
+2025-09-20T21:22:23.9077064Z 7edf0bb75f061919add02f6d6a82672c0b2e9654
