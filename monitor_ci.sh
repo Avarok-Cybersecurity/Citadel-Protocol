@@ -33,9 +33,13 @@ while true; do
         echo ""
         echo "================================================"
         echo "❌ Ratchet Stability Test FAILED"
+        echo "FAILED_PIPELINE_ID: $RATCHET_RUN_ID"
         echo ""
         echo "Getting failed job details..."
-        gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}'
+        failed_jobs=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
+        echo "$failed_jobs"
+        echo ""
+        echo "Failed Pipeline URL: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}"
         exit 1
     fi
     
@@ -43,9 +47,13 @@ while true; do
         echo ""
         echo "================================================"
         echo "❌ Execute Pipeline FAILED"
+        echo "FAILED_PIPELINE_ID: $PIPELINE_RUN_ID"
         echo ""
         echo "Getting failed jobs..."
-        gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}'
+        failed_jobs=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
+        echo "$failed_jobs"
+        echo ""
+        echo "Failed Pipeline URL: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}"
         exit 1
     fi
     
