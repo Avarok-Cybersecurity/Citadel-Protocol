@@ -30,7 +30,7 @@
 use crate::error::NetworkError;
 use crate::proto::node::TlsDomain;
 use citadel_io::Mutex;
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
 use std::fmt::Debug;

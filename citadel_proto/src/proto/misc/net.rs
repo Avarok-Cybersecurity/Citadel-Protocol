@@ -39,7 +39,7 @@ use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
 use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_io::tokio_util::codec::LengthDelimitedCodec;
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};

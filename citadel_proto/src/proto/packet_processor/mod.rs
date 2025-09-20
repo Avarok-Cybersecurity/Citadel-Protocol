@@ -84,7 +84,7 @@ use crate::proto::packet::HdpHeader;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::state_container::VirtualConnectionType;
 use bytes::BytesMut;
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 
 pub mod includes {
     pub use std::net::SocketAddr;

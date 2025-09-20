@@ -55,7 +55,7 @@ use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::MessageGroupKey;
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 use futures::Stream;
 use std::fmt::Debug;
 use std::ops::Deref;

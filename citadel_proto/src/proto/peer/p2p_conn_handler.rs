@@ -53,7 +53,7 @@ use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -70,7 +70,7 @@ pub struct DirectP2PRemote {
 }
 
 impl Debug for DirectP2PRemote {
-    fn fmt(&self, f: &mut Formatter<'_>) -> citadel_user::re_exports::__private::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DirectP2PRemote")
             .field("from_listener", &self.from_listener)
             .finish()

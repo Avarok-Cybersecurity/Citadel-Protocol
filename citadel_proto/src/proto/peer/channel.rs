@@ -65,7 +65,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use std::fmt::Debug;

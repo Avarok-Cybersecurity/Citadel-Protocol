@@ -39,7 +39,7 @@ use bytes::BytesMut;
 pub use citadel_io::tokio::sync::mpsc::{
     error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
-use citadel_user::re_exports::__private::Formatter;
+use std::fmt::Formatter;
 use futures::task::{Context, Poll};
 use futures::Sink;
 use std::net::SocketAddr;
