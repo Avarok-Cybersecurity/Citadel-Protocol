@@ -1,90 +1,67 @@
 #!/bin/bash
+set -e
 
-echo "Starting continuous monitoring of CI pipelines..."
-echo "================================================"
+PR_NUMBER=236
+LOG_DIR="./tmp/ci-logs"
+POLL_INTERVAL=30
 
-# Get the latest run IDs dynamically
-RATCHET_RUN_ID=$(gh run list --repo Avarok-Cybersecurity/Citadel-Protocol --branch stability-improvements --workflow "Ratchet Stability Test" --limit 1 --json databaseId --jq '.[0].databaseId')
-PIPELINE_RUN_ID=$(gh run list --repo Avarok-Cybersecurity/Citadel-Protocol --branch stability-improvements --workflow "Execute Pipeline" --limit 1 --json databaseId --jq '.[0].databaseId')
+mkdir -p "$LOG_DIR"
 
-echo "Monitoring Ratchet Stability Test: $RATCHET_RUN_ID"
-echo "Monitoring Execute Pipeline: $PIPELINE_RUN_ID"
+echo "Monitoring PR #$PR_NUMBER for failures..."
+echo "Logs will be saved to: $LOG_DIR"
+echo ""
 
 while true; do
-    # Get status of both runs
-    ratchet_json=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID})
-    pipeline_json=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID})
+    echo "=== Checking PR status at $(date) ==="
     
-    # Extract status and conclusion
-    ratchet_status=$(echo "$ratchet_json" | jq -r '.status')
-    ratchet_conclusion=$(echo "$ratchet_json" | jq -r '.conclusion')
-    pipeline_status=$(echo "$pipeline_json" | jq -r '.status')
-    pipeline_conclusion=$(echo "$pipeline_json" | jq -r '.conclusion')
+    # Get all check runs for the PR
+    checks=$(gh pr view "$PR_NUMBER" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.__typename == "CheckRun") | {name, status, conclusion, workflowName, detailsUrl}')
     
-    # Display current status
-    echo ""
-    echo "$(date +'%Y-%m-%d %H:%M:%S')"
-    echo "----------------------------------------"
-    echo "Ratchet Stability Test: status=$ratchet_status, conclusion=$ratchet_conclusion"
-    echo "Execute Pipeline:       status=$pipeline_status, conclusion=$pipeline_conclusion"
+    # Check for any failures (ignore CodeQL)
+    failed_checks=$(echo "$checks" | jq -s '.[] | select(.conclusion == "FAILURE") | select(.name != "CodeQL")')
     
-    # Check if either pipeline failed (even before both complete)
-    if [ "$ratchet_status" = "completed" ] && [ "$ratchet_conclusion" = "failure" ]; then
+    if [ -n "$failed_checks" ]; then
         echo ""
-        echo "================================================"
-        echo "❌ Ratchet Stability Test FAILED"
-        echo "FAILED_PIPELINE_ID: $RATCHET_RUN_ID"
+        echo "❌ FAILURE DETECTED!"
+        echo "$failed_checks" | jq -r '"Failed check: \(.name) (workflow: \(.workflowName))\nURL: \(.detailsUrl)"'
         echo ""
-        echo "Getting failed job details..."
-        failed_jobs=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
-        echo "$failed_jobs"
-        echo ""
-        echo "Failed Pipeline URL: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${RATCHET_RUN_ID}"
-        exit 1
-    fi
-    
-    if [ "$pipeline_status" = "completed" ] && [ "$pipeline_conclusion" = "failure" ]; then
-        echo ""
-        echo "================================================"
-        echo "❌ Execute Pipeline FAILED"
-        echo "FAILED_PIPELINE_ID: $PIPELINE_RUN_ID"
-        echo ""
-        echo "Getting failed jobs..."
-        failed_jobs=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
-        echo "$failed_jobs"
-        echo ""
-        echo "Failed Pipeline URL: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}"
-        exit 1
-    fi
-    
-    # Check if both completed successfully
-    if [ "$ratchet_status" = "completed" ] && [ "$pipeline_status" = "completed" ]; then
-        echo ""
-        echo "================================================"
-        echo "Both pipelines completed!"
-        echo ""
-        echo "Final Results:"
-        echo "  Ratchet Stability Test: $ratchet_conclusion"
-        echo "  Execute Pipeline:       $pipeline_conclusion"
         
-        if [ "$ratchet_conclusion" = "success" ] && [ "$pipeline_conclusion" = "success" ]; then
-            echo ""
-            echo "✅ ALL PIPELINES PASSED SUCCESSFULLY! ✅"
-            exit 0
-        else
-            echo ""
-            echo "❌ One or more pipelines did not succeed"
-            exit 1
-        fi
+        # Extract run IDs from failed checks
+        failed_runs=$(echo "$failed_checks" | jq -r '.detailsUrl' | grep -o '/runs/[0-9]*' | cut -d'/' -f3 | sort -u)
+        
+        for run_id in $failed_runs; do
+            echo "Downloading logs for run $run_id..."
+            log_file="$LOG_DIR/run-${run_id}.zip"
+            gh run download "$run_id" --dir "$LOG_DIR/run-${run_id}" 2>/dev/null || {
+                echo "Failed to download logs for run $run_id (may not have artifacts)"
+            }
+            
+            # Also get the run view
+            gh run view "$run_id" > "$LOG_DIR/run-${run_id}-view.txt" 2>&1 || true
+        done
+        
+        echo ""
+        echo "Logs saved to: $LOG_DIR"
+        echo ""
+        echo "Failed checks summary:"
+        echo "$failed_checks" | jq -r '.name'
+        
+        exit 1
     fi
     
-    # Get job counts for Execute Pipeline
-    if [ "$pipeline_status" = "in_progress" ]; then
-        completed_jobs=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --paginate --jq '[.jobs[] | select(.status == "completed")] | length')
-        total_jobs=$(gh api /repos/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/${PIPELINE_RUN_ID}/jobs --paginate --jq '.jobs | length')
-        echo "  Execute Pipeline Progress: $completed_jobs/$total_jobs jobs completed"
+    # Check if all checks are completed
+    in_progress=$(echo "$checks" | jq -s '.[] | select(.status == "IN_PROGRESS" or .status == "QUEUED")')
+    
+    if [ -z "$in_progress" ]; then
+        echo ""
+        echo "✅ All checks completed successfully!"
+        exit 0
     fi
     
-    # Wait before next check
-    sleep 30
+    # Show progress
+    total=$(echo "$checks" | jq -s 'length')
+    completed=$(echo "$checks" | jq -s '.[] | select(.status == "COMPLETED") | select(.conclusion == "SUCCESS")' | jq -s 'length')
+    echo "Progress: $completed/$total checks completed successfully"
+    
+    sleep "$POLL_INTERVAL"
 done

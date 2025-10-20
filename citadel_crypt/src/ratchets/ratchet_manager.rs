@@ -285,6 +285,10 @@ where
         attached_payload: Option<P>,
         wait_for_completion: bool,
     ) -> Result<Option<P>, CryptError> {
+        // CBD: Checkpoint RKT-0
+        let rkt_start = std::time::Instant::now();
+        log::info!(target: "citadel", "[CBD-RKT-0] Client {} entry: wait_for_completion={}, role={:?}, state={:?}, elapsed=0ms",
+            self.cid, wait_for_completion, self.role(), self.state());
         log::info!(target: "citadel", "Client {} manually triggering rekey", self.cid);
         let state = self.state();
         if state == RekeyState::Halted {
@@ -294,15 +298,25 @@ where
         }
 
         if self.is_rekeying() {
+            // CBD: Checkpoint RKT-1a
+            log::info!(target: "citadel", "[CBD-RKT-1a] Client {} already rekeying, returning payload: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
             // We are already in a rekey process
             return Ok(attached_payload);
         }
 
         // Check if we already have a constructor (double-check for race conditions)
         if self.constructor.lock().is_some() {
+            // CBD: Checkpoint RKT-1b
+            log::info!(target: "citadel", "[CBD-RKT-1b] Client {} already has constructor, returning payload: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
             log::debug!(target: "citadel", "Client {} already has a constructor, not triggering new rekey", self.cid);
             return Ok(attached_payload);
         }
+
+        // CBD: Checkpoint RKT-2
+        log::info!(target: "citadel", "[CBD-RKT-2] Client {} getting constructor: elapsed={}ms",
+            self.cid, rkt_start.elapsed().as_millis());
 
         let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
             let constructor = self.session_crypto_state.get_next_constructor();
@@ -319,6 +333,10 @@ where
             )
         };
 
+        // CBD: Checkpoint RKT-3
+        log::info!(target: "citadel", "[CBD-RKT-3] Client {} got constructor (is_some={}): elapsed={}ms",
+            self.cid, constructor.is_some(), rkt_start.elapsed().as_millis());
+
         if let Some(constructor) = constructor {
             // Offload stage0_alice + serialize
             let (constructor, payload) = citadel_io::tokio::task::spawn_blocking(move || {
@@ -334,6 +352,10 @@ where
 
             let metadata = self.get_rekey_metadata();
 
+            // CBD: Checkpoint RKT-4
+            log::info!(target: "citadel", "[CBD-RKT-4] Client {} sending AliceToBob: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
+
             self.sender
                 .lock()
                 .await
@@ -346,6 +368,10 @@ where
                 })
                 .await
                 .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
+
+            // CBD: Checkpoint RKT-5
+            log::info!(target: "citadel", "[CBD-RKT-5] Client {} sent AliceToBob: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
             log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
 
             // Store constructor atomically
@@ -355,8 +381,15 @@ where
             }
 
             if !wait_for_completion {
+                // CBD: Checkpoint RKT-FINAL (no-wait path)
+                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait: elapsed={}ms",
+                    self.cid, rkt_start.elapsed().as_millis());
                 return Ok(None);
             }
+
+            // CBD: Checkpoint RKT-6
+            log::info!(target: "citadel", "[CBD-RKT-6] Client {} registering listener and waiting: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
 
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
 
@@ -369,8 +402,15 @@ where
                 CryptError::RekeyUpdateError("Failed to wait for local listener".to_string())
             })?;
 
+            // CBD: Checkpoint RKT-FINAL
+            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
+
             Ok(None)
         } else {
+            // CBD: Checkpoint RKT-7 (constructor=None path)
+            log::info!(target: "citadel", "[CBD-RKT-7] Client {} constructor is None, returning payload: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
             Ok(attached_payload)
         }
     }

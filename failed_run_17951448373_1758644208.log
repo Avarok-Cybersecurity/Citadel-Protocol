@@ -1,0 +1,26 @@
+Ratchet Stability Test	Run ratchet stability test	﻿2025-09-23T15:43:00.3174890Z ##[group]Run cargo make ratchet-stability-test
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3175850Z [36;1mcargo make ratchet-stability-test[0m
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3246630Z shell: /bin/bash -e {0}
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3246850Z env:
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3247000Z   CARGO_TERM_COLOR: always
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3247170Z   RUST_BACKTRACE: full
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3247340Z   RUST_MIN_STACK: 40971520
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3247510Z   RUST_LOG: citadel=warn
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3247700Z   OPENSSL_ROOT_DIR: /usr/local/opt/openssl@1.1
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3247940Z   CARGO_HOME: /Users/runner/.cargo
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3248160Z   CARGO_INCREMENTAL: 0
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.3248310Z ##[endgroup]
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:00.4558360Z [cargo-make] INFO - cargo make 0.37.24
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4484140Z [cargo-make] INFO - 
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4488350Z [cargo-make] INFO - Build File: Makefile.toml
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4488880Z [cargo-make] INFO - Task: ratchet-stability-test
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4494110Z [cargo-make] INFO - Profile: development
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4501970Z [cargo-make] INFO - Running Task: ratchet-stability-test
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4607460Z Running ratchet stability test for 10 iterations... 
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4610420Z Test timeout per iteration: 4 minutes 
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4612150Z Total test timeout: 60 minutes 
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4614970Z 
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4615750Z [1758642192460] Starting iteration 1/10... 
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4628110Z [cargo-make] ERROR - Error while running duckscript: Source: Unknown Line: 24 - No such file or directory (os error 2)
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4628770Z [cargo-make] WARN - Build Failed.
+Ratchet Stability Test	Run ratchet stability test	2025-09-23T15:43:12.4674290Z ##[error]Process completed with exit code 1.
