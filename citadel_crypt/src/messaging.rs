@@ -476,7 +476,7 @@ mod tests {
 
     fn generate_delay(delay: Option<Duration>) -> (Option<Duration>, Option<Duration>) {
         if let Some(delay) = delay {
-            if rand::random::<u8>() % 2 == 0 {
+            if rand::random::<u8>().is_multiple_of(2) {
                 (Some(delay), None)
             } else {
                 (None, Some(delay))

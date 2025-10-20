@@ -1199,7 +1199,7 @@ pub(crate) mod tests {
 
         // Randomly assign a delay to Alice or Bob, if applicable
         let (alice_skips, bob_skips) = {
-            if rand::random::<usize>() % 2 == 0 {
+            if rand::random::<usize>().is_multiple_of(2) {
                 (true, false)
             } else {
                 (false, true)
