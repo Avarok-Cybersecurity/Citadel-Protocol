@@ -323,12 +323,12 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Allows shared interior access
-    pub fn read(&self) -> RwLockReadGuard<AccountState> {
+    pub fn read(&self) -> RwLockReadGuard<'_, AccountState> {
         self.inner.peer_state.read()
     }
 
     /// Allows exclusive interior access
-    pub fn write(&self) -> RwLockWriteGuard<AccountState> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, AccountState> {
         self.inner.peer_state.write()
     }
 

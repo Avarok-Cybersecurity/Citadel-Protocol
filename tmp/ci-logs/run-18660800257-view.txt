@@ -1,0 +1,100 @@
+
+* stability-improvements Execute Pipeline Avarok-Cybersecurity/Citadel-Protocol#236 · 18660800257
+Triggered via pull_request about 11 minutes ago
+
+JOBS
+* Validate PR / core_libs (macos-latest) (ID 53200584283)
+* Validate PR / nat (macos-latest) (ID 53200584287)
+* Validate PR / citadel_sdk (macos-latest) (ID 53200584290)
+* Validate PR / Ratchet Stability Test (ID 53200584292)
+* Validate PR / citadel_sdk (ubuntu-latest) (ID 53200584301)
+✓ Validate PR / nat (ubuntu-latest) in 7m26s (ID 53200584302)
+* Validate PR / core_libs (ubuntu-latest) (ID 53200584304)
+* Validate PR / citadel_sdk (windows-latest) (ID 53200584305)
+* Validate PR / core_libs (windows-latest) (ID 53200584306)
+* Validate PR / nat (windows-latest) (ID 53200584308)
+* Validate PR / citadel_sdk_release (ubuntu-latest) (ID 53200584585)
+X Validate PR / miscellaneous in 10m46s (ID 53200584586)
+  ✓ Set up job
+  ✓ Run Avarok-Cybersecurity/gh-actions-deps@master
+  ✓ Run cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
+  ✓ Run cargo install --locked cargo-deny && cargo deny check all
+  ✓ Run rustup component add clippy-preview
+  X Run cargo clippy --features=webrtc,sql,redis,multi-threaded -- -D warnings
+  - Run cargo clippy --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
+  - Run cargo clippy --features=webrtc,sql,redis -- -D warnings
+  - Run cargo clippy --features=webrtc,sql,redis --release -- -D warnings
+  - Run cargo clippy --tests --examples -- -D warnings
+  - Run cargo fmt --check
+  - Run RUSTDOCFLAGS="-D warnings" cargo make docs
+  - Run cargo test --doc
+  ✓ Post Run Avarok-Cybersecurity/gh-actions-deps@master
+  ✓ Complete job
+* Validate PR / docker_nat_client_server (full_cone) (ID 53200584599)
+* Validate PR / coverage (ID 53200584610)
+* Validate PR / docker_nat_client_server (address_restricted) (ID 53200584624)
+✓ Validate PR / docker_nat_client_server (symmetric) in 6m53s (ID 53200584636)
+X Validate PR / docker_nat_p2p (full_cone, address_restricted) in 0s (ID 53200584651)
+X Validate PR / docker_nat_p2p (full_cone, port_restricted) in 0s (ID 53200584652)
+* Validate PR / docker_nat_client_server (port_restricted) (ID 53200584656)
+* Validate PR / docker_nat_p2p (full_cone, full_cone) (ID 53200584668)
+* Validate PR / docker_nat_p2p (full_cone, symmetric) (ID 53200584774)
+X Validate PR / docker_nat_p2p (address_restricted, full_cone) in 11m20s (ID 53200584804)
+* Validate PR / docker_nat_p2p (address_restricted, port_restricted) (ID 53200584819)
+X Validate PR / docker_nat_p2p (address_restricted, address_restricted) in 0s (ID 53200584822)
+X Validate PR / docker_nat_p2p (address_restricted, symmetric) in 10m5s (ID 53200584853)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Maximize build space
+  X Run docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+X Validate PR / docker_nat_p2p (port_restricted, full_cone) in 0s (ID 53200584861)
+X Validate PR / docker_nat_p2p (port_restricted, port_restricted) in 11m20s (ID 53200584868)
+* Validate PR / docker_nat_p2p (port_restricted, address_restricted) (ID 53200584893)
+* Validate PR / docker_nat_p2p (port_restricted, symmetric) (ID 53200584896)
+X Validate PR / docker_nat_p2p (symmetric, full_cone) in 0s (ID 53200584903)
+X Validate PR / docker_nat_p2p (symmetric, address_restricted) in 0s (ID 53200584957)
+X Validate PR / docker_nat_p2p (symmetric, port_restricted) in 11m20s (ID 53200585061)
+X Validate PR / docker_nat_p2p (symmetric, symmetric) in 0s (ID 53200585084)
+
+ANNOTATIONS
+X Process completed with exit code 101.
+Validate PR / miscellaneous: .github#385
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (full_cone, address_restricted): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (full_cone, port_restricted): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (address_restricted, full_cone): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (address_restricted, address_restricted): .github#1
+
+X Process completed with exit code 1.
+Validate PR / docker_nat_p2p (address_restricted, symmetric): .github#105
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (port_restricted, full_cone): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (port_restricted, port_restricted): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (symmetric, full_cone): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (symmetric, address_restricted): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (symmetric, port_restricted): .github#1
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.address_restricted_symmet" failed
+Validate PR / docker_nat_p2p (symmetric, symmetric): .github#1
+
+
+For more information about a job, try: gh run view --job=<job-id>
+View this run on GitHub: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/18660800257
