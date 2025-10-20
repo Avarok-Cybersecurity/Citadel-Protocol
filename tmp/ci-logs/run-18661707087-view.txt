@@ -1,0 +1,64 @@
+
+* stability-improvements Execute Pipeline Avarok-Cybersecurity/Citadel-Protocol#236 · 18661707087
+Triggered via pull_request about 4 minutes ago
+
+JOBS
+* Validate PR / Ratchet Stability Test (ID 53203500461)
+* Validate PR / core_libs (ubuntu-latest) (ID 53203500462)
+* Validate PR / core_libs (windows-latest) (ID 53203500466)
+* Validate PR / nat (ubuntu-latest) (ID 53203500467)
+* Validate PR / core_libs (macos-latest) (ID 53203500469)
+* Validate PR / nat (windows-latest) (ID 53203500482)
+* Validate PR / citadel_sdk (windows-latest) (ID 53203500484)
+* Validate PR / nat (macos-latest) (ID 53203500485)
+X Validate PR / citadel_sdk (macos-latest) in 4m4s (ID 53203500486)
+  ✓ Set up job
+  ✓ Run Avarok-Cybersecurity/gh-actions-deps@master
+  ✓ Run taiki-e/install-action@nextest
+  X Single-threaded testing
+  - Single-threaded testing (windows only)
+  - Multi-threaded testing (windows only)
+  - Multi-threaded testing
+  ✓ Post Run Avarok-Cybersecurity/gh-actions-deps@master
+  ✓ Complete job
+* Validate PR / citadel_sdk (ubuntu-latest) (ID 53203500497)
+* Validate PR / miscellaneous (ID 53203500707)
+* Validate PR / docker_nat_client_server (full_cone) (ID 53203500712)
+* Validate PR / coverage (ID 53203500714)
+* Validate PR / citadel_sdk_release (ubuntu-latest) (ID 53203500724)
+* Validate PR / docker_nat_client_server (symmetric) (ID 53203500747)
+* Validate PR / docker_nat_p2p (full_cone, port_restricted) (ID 53203500753)
+* Validate PR / docker_nat_client_server (port_restricted) (ID 53203500755)
+* Validate PR / docker_nat_client_server (address_restricted) (ID 53203500762)
+* Validate PR / docker_nat_p2p (full_cone, address_restricted) (ID 53203500774)
+* Validate PR / docker_nat_p2p (full_cone, full_cone) (ID 53203500893)
+* Validate PR / docker_nat_p2p (address_restricted, full_cone) (ID 53203500926)
+* Validate PR / docker_nat_p2p (address_restricted, port_restricted) (ID 53203500939)
+* Validate PR / docker_nat_p2p (address_restricted, address_restricted) (ID 53203500940)
+* Validate PR / docker_nat_p2p (full_cone, symmetric) (ID 53203500941)
+* Validate PR / docker_nat_p2p (port_restricted, full_cone) (ID 53203500957)
+* Validate PR / docker_nat_p2p (port_restricted, port_restricted) (ID 53203500967)
+* Validate PR / docker_nat_p2p (address_restricted, symmetric) (ID 53203500969)
+* Validate PR / docker_nat_p2p (port_restricted, symmetric) (ID 53203500977)
+* Validate PR / docker_nat_p2p (port_restricted, address_restricted) (ID 53203500982)
+* Validate PR / docker_nat_p2p (symmetric, full_cone) (ID 53203501130)
+* Validate PR / docker_nat_p2p (symmetric, symmetric) (ID 53203501134)
+* Validate PR / docker_nat_p2p (symmetric, address_restricted) (ID 53203501150)
+* Validate PR / docker_nat_p2p (symmetric, port_restricted) (ID 53203501193)
+
+ANNOTATIONS
+X The strategy configuration was canceled because "workflow.citadel_sdk.macos-latest" failed
+Validate PR / citadel_sdk (windows-latest): .github#1
+
+X The operation was canceled.
+Validate PR / citadel_sdk (windows-latest): .github#1214
+
+! The `set-output` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+Validate PR / citadel_sdk (windows-latest): .github#21
+
+X Process completed with exit code 101.
+Validate PR / citadel_sdk (macos-latest): .github#696
+
+
+For more information about a job, try: gh run view --job=<job-id>
+View this run on GitHub: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/18661707087

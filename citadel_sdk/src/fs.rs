@@ -133,8 +133,12 @@ mod tests {
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
     use crate::prefabs::client::peer_connection::FileTransferHandleRx;
+    #[cfg(feature = "localhost-testing")]
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prelude::*;
+    #[cfg(feature = "localhost-testing")]
+    use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
     use futures::StreamExt;
     use rstest::rstest;
