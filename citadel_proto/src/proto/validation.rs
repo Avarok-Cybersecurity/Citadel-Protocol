@@ -57,7 +57,7 @@ pub(crate) mod do_connect {
 
     pub(crate) fn validate_final_status_packet(
         payload: &[u8],
-    ) -> Option<DoConnectFinalStatusPacket> {
+    ) -> Option<DoConnectFinalStatusPacket<'_>> {
         DoConnectFinalStatusPacket::deserialize_from_vector(payload).ok()
     }
 }

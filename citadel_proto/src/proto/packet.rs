@@ -242,7 +242,7 @@ impl<B: HdpBuffer> HdpPacket<B> {
     }
 
     /// Parses the zerocopy header
-    pub fn parse(&self) -> Option<ParsedPacket> {
+    pub fn parse(&self) -> Option<ParsedPacket<'_>> {
         Ref::new_from_prefix(self.packet.as_ref())
     }
 
