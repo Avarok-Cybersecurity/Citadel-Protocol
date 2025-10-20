@@ -216,14 +216,14 @@ pub trait EndpointHolePunchExt {
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
-    ) -> UdpHolePuncher;
+    ) -> UdpHolePuncher<'_>;
 }
 
 impl EndpointHolePunchExt for NetworkEndpoint {
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
-    ) -> UdpHolePuncher {
+    ) -> UdpHolePuncher<'_> {
         UdpHolePuncher::new(self, encrypted_config_container)
     }
 }
