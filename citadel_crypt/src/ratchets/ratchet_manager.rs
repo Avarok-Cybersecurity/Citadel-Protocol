@@ -93,6 +93,8 @@ where
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     /// Semaphore to serialize trigger_rekey calls (only 1 permit)
     rekey_trigger_semaphore: Arc<Semaphore>,
+    /// Notifier for when BobToAlice response is received (used to keep semaphore held)
+    bob_response_notifier: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
@@ -116,6 +118,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             local_listener: self.local_listener.clone(),
             shutdown_tx: self.shutdown_tx.clone(),
             rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
+            bob_response_notifier: self.bob_response_notifier.clone(),
         }
     }
 }
@@ -252,6 +255,7 @@ where
             local_listener: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
             rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
+            bob_response_notifier: Arc::new(Mutex::new(None)),
         };
 
         this.clone()
@@ -302,7 +306,8 @@ where
 
         let _permit = self
             .rekey_trigger_semaphore
-            .acquire()
+            .clone()
+            .acquire_owned()
             .await
             .map_err(|_| CryptError::RekeyUpdateError("Semaphore closed".to_string()))?;
 
@@ -403,9 +408,45 @@ where
                 // This can happen in race conditions - the rekey is already in progress
             }
 
+            // Create channel to wait for BobToAlice response
+            // This prevents constructor from being overwritten by concurrent rekey
+            let (bob_response_tx, bob_response_rx) = tokio::sync::oneshot::channel();
+            if self
+                .bob_response_notifier
+                .lock()
+                .replace(bob_response_tx)
+                .is_some()
+            {
+                log::warn!(target: "citadel", "Replaced bob_response_notifier; overlapping rekey");
+            }
+
+            // Spawn background task to hold semaphore until BobToAlice is received
+            // This prevents new trigger_rekey calls from overwriting the constructor
+            // The permit is moved into this task, keeping the semaphore locked until BobToAlice arrives
+            let cid = self.cid;
+            let _ = tokio::spawn(async move {
+                log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {} holding semaphore permit until BobToAlice", cid);
+                // Wait for BobToAlice with timeout to prevent infinite blocking
+                let timeout = Duration::from_secs(60);
+                match tokio::time::timeout(timeout, bob_response_rx).await {
+                    Ok(Ok(())) => {
+                        log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {} releasing semaphore permit after BobToAlice", cid);
+                    }
+                    Ok(Err(_)) => {
+                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {} BobToAlice notifier dropped, releasing permit", cid);
+                    }
+                    Err(_) => {
+                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {} timeout waiting for BobToAlice, releasing permit", cid);
+                    }
+                }
+                drop(_permit); // Explicitly drop to release semaphore
+            });
+
+            // For wait_for_completion=false, return immediately after spawning the permit holder
+            // The semaphore will be released when BobToAlice is received
             if !wait_for_completion {
                 // CBD: Checkpoint RKT-FINAL (no-wait path)
-                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait: elapsed={}ms",
+                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait (semaphore held until BobToAlice): elapsed={}ms",
                     self.cid, rkt_start.elapsed().as_millis());
                 return Ok(None);
             }
@@ -744,6 +785,12 @@ where
                         })??;
 
                         let truncation_required = status.requires_truncation();
+
+                        // Signal that BobToAlice has been processed (releases semaphore permit)
+                        if let Some(notifier) = self.bob_response_notifier.lock().take() {
+                            let _ = notifier.send(());
+                            log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {} signaled BobToAlice completion", self.cid);
+                        }
 
                         // CBD: Version snapshot after BobToAlice processing
                         let after_latest = self.session_crypto_state.latest_usable_version();
