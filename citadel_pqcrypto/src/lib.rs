@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, deprecated)]
 #![forbid(unsafe_code)]
 //! Post-quantum cryptographic library for secure communication.
 //!

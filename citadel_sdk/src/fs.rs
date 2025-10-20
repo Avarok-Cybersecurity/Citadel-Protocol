@@ -132,10 +132,9 @@ mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
-    use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
+    use crate::prefabs::client::peer_connection::FileTransferHandleRx;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prelude::*;
-    use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
     use futures::StreamExt;
     use rstest::rstest;
@@ -386,9 +385,9 @@ mod tests {
     #[rstest]
     #[case(SecrecyMode::BestEffort)]
     #[timeout(Duration::from_secs(60))]
-#[cfg(feature = "localhost-testing")]
-#[citadel_io::tokio::test(flavor = "multi_thread")]
-async fn test_p2p_file_transfer_revfs(
+    #[cfg(feature = "localhost-testing")]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
         #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
@@ -539,6 +538,7 @@ async fn test_p2p_file_transfer_revfs(
         assert!(client1_success.load(Ordering::Relaxed));
     }
 
+    #[allow(dead_code)]
     fn accept_all(mut rx: FileTransferHandleRx) -> citadel_io::tokio::task::JoinHandle<()> {
         citadel_io::tokio::task::spawn(async move {
             while let Some(mut handle) = rx.recv().await {
@@ -553,6 +553,7 @@ async fn test_p2p_file_transfer_revfs(
         })
     }
 
+    #[allow(dead_code)]
     async fn exhaust_file_transfer_async(mut handle: ObjectTransferHandler) {
         while let Some(evt) = handle.next().await {
             log::info!(target: "citadel", "File Transfer Event: {evt:?}");

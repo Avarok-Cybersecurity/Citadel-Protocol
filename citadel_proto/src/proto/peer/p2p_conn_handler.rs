@@ -53,13 +53,13 @@ use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
-use std::fmt::Formatter;
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 pub struct DirectP2PRemote {

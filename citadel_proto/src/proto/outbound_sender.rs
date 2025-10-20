@@ -39,9 +39,9 @@ use bytes::BytesMut;
 pub use citadel_io::tokio::sync::mpsc::{
     error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
-use std::fmt::Formatter;
 use futures::task::{Context, Poll};
 use futures::Sink;
+use std::fmt::Formatter;
 use std::net::SocketAddr;
 use std::pin::Pin;
 

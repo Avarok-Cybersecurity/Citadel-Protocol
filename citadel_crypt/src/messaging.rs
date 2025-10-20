@@ -459,10 +459,10 @@ mod tests {
                         let expected = P::from(x);
                         log::trace!(target: "citadel", "[Messenger {cid}] recv: {received:?} | {received:?} must be equal to expected {expected:?}");
                         assert_eq!(received, expected);
-                    },
+                    }
                     None => {
                         log::error!(target: "citadel", "[Messenger {cid}] Stream ended prematurely at message {x}/100");
-                        panic!("Stream ended prematurely at message {}/100", x);
+                        panic!("Stream ended prematurely at message {x}/100");
                     }
                 }
             }

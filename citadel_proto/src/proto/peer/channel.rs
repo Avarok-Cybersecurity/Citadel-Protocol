@@ -65,10 +65,10 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
-use std::fmt::Formatter;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
