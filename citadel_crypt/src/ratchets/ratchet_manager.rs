@@ -70,6 +70,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::Semaphore;
 
 pub struct RatchetManager<S, I, R, P: AttachedPayload = ()>
 where
@@ -90,6 +91,8 @@ where
     state: Arc<Atomic<RekeyState>>,
     local_listener: LocalListener<R>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    /// Semaphore to serialize trigger_rekey calls (only 1 permit)
+    rekey_trigger_semaphore: Arc<Semaphore>,
 }
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
@@ -112,6 +115,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             state: self.state.clone(),
             local_listener: self.local_listener.clone(),
             shutdown_tx: self.shutdown_tx.clone(),
+            rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
         }
     }
 }
@@ -247,6 +251,7 @@ where
             state: Arc::new(Atomic::new(RekeyState::Idle)),
             local_listener: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
+            rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
         };
 
         this.clone()
@@ -290,6 +295,20 @@ where
         log::info!(target: "citadel", "[CBD-RKT-0] Client {} entry: wait_for_completion={}, role={:?}, state={:?}, elapsed=0ms",
             self.cid, wait_for_completion, self.role(), self.state());
         log::info!(target: "citadel", "Client {} manually triggering rekey", self.cid);
+
+        // CBD: Checkpoint RKT-0a - Attempting to acquire rekey trigger semaphore
+        log::info!(target: "citadel", "[CBD-RKT-0a] Client {} attempting to acquire rekey trigger semaphore: elapsed={}ms",
+            self.cid, rkt_start.elapsed().as_millis());
+
+        let _permit = self
+            .rekey_trigger_semaphore
+            .acquire()
+            .await
+            .map_err(|_| CryptError::RekeyUpdateError("Semaphore closed".to_string()))?;
+
+        // CBD: Checkpoint RKT-0b - Semaphore acquired
+        log::info!(target: "citadel", "[CBD-RKT-0b] Client {} acquired rekey trigger semaphore: elapsed={}ms",
+            self.cid, rkt_start.elapsed().as_millis());
         let state = self.state();
         if state == RekeyState::Halted {
             return Err(CryptError::RekeyUpdateError(
