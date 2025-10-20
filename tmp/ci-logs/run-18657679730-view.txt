@@ -1,0 +1,70 @@
+
+* stability-improvements Execute Pipeline Avarok-Cybersecurity/Citadel-Protocol#236 · 18657679730
+Triggered via pull_request about 22 minutes ago
+
+JOBS
+✓ Validate PR / core_libs (macos-latest) in 13m24s (ID 53190671166)
+* Validate PR / core_libs (windows-latest) (ID 53190671173)
+* Validate PR / Ratchet Stability Test (ID 53190671175)
+✓ Validate PR / nat (macos-latest) in 5m24s (ID 53190671177)
+✓ Validate PR / core_libs (ubuntu-latest) in 18m36s (ID 53190671186)
+✓ Validate PR / nat (ubuntu-latest) in 7m17s (ID 53190671192)
+* Validate PR / citadel_sdk (ubuntu-latest) (ID 53190671225)
+✓ Validate PR / citadel_sdk (macos-latest) in 14m54s (ID 53190671226)
+* Validate PR / citadel_sdk (windows-latest) (ID 53190671237)
+✓ Validate PR / nat (windows-latest) in 15m55s (ID 53190671244)
+* Validate PR / miscellaneous (ID 53190671493)
+✓ Validate PR / docker_nat_client_server (symmetric) in 13m10s (ID 53190671494)
+* Validate PR / citadel_sdk_release (ubuntu-latest) (ID 53190671497)
+✓ Validate PR / docker_nat_client_server (address_restricted) in 13m30s (ID 53190671504)
+* Validate PR / coverage (ID 53190671506)
+✓ Validate PR / docker_nat_client_server (port_restricted) in 7m47s (ID 53190671514)
+* Validate PR / docker_nat_p2p (full_cone, full_cone) (ID 53190671525)
+✓ Validate PR / docker_nat_client_server (full_cone) in 17m52s (ID 53190671555)
+✓ Validate PR / docker_nat_p2p (full_cone, address_restricted) in 17m55s (ID 53190671597)
+X Validate PR / docker_nat_p2p (full_cone, port_restricted) in 10m29s (ID 53190671635)
+X Validate PR / docker_nat_p2p (full_cone, symmetric) in 9m47s (ID 53190671703)
+  ✓ Set up job
+  ✓ Run actions/checkout@v4
+  ✓ Maximize build space
+  X Run docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+  ✓ Post Run actions/checkout@v4
+  ✓ Complete job
+* Validate PR / docker_nat_p2p (address_restricted, full_cone) (ID 53190671720)
+* Validate PR / docker_nat_p2p (address_restricted, symmetric) (ID 53190671727)
+X Validate PR / docker_nat_p2p (address_restricted, port_restricted) in 9m1s (ID 53190671732)
+✓ Validate PR / docker_nat_p2p (address_restricted, address_restricted) in 15m22s (ID 53190671733)
+✓ Validate PR / docker_nat_p2p (port_restricted, port_restricted) in 12m50s (ID 53190671756)
+✓ Validate PR / docker_nat_p2p (port_restricted, address_restricted) in 7m59s (ID 53190671760)
+* Validate PR / docker_nat_p2p (port_restricted, full_cone) (ID 53190671776)
+* Validate PR / docker_nat_p2p (port_restricted, symmetric) (ID 53190671788)
+✓ Validate PR / docker_nat_p2p (symmetric, full_cone) in 11m46s (ID 53190671836)
+* Validate PR / docker_nat_p2p (symmetric, address_restricted) (ID 53190671930)
+✓ Validate PR / docker_nat_p2p (symmetric, port_restricted) in 11m42s (ID 53190671951)
+* Validate PR / docker_nat_p2p (symmetric, symmetric) (ID 53190671952)
+
+ANNOTATIONS
+! The `set-output` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+Validate PR / nat (windows-latest): .github#21
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.full_cone_symmetric" failed
+Validate PR / docker_nat_p2p (full_cone, port_restricted): .github#1
+
+X Process completed with exit code 1.
+Validate PR / docker_nat_p2p (full_cone, symmetric): .github#167
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.full_cone_symmetric" failed
+Validate PR / docker_nat_p2p (address_restricted, port_restricted): .github#1
+
+X Process completed with exit code 1.
+Validate PR / docker_nat_p2p (address_restricted, port_restricted): .github#185
+
+X The strategy configuration was canceled because "workflow.docker_nat_p2p.full_cone_symmetric" failed
+Validate PR / docker_nat_p2p (port_restricted, full_cone): .github#1
+
+X The operation was canceled.
+Validate PR / docker_nat_p2p (port_restricted, full_cone): .github#271
+
+
+For more information about a job, try: gh run view --job=<job-id>
+View this run on GitHub: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/18657679730
