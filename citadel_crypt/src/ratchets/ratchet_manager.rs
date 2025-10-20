@@ -333,6 +333,10 @@ where
             )
         };
 
+        // CBD: Version snapshot before sending AliceToBob
+        log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} local snapshot before AliceToBob: earliest={}, latest={}, role={:?}, state={:?}",
+            self.cid, earliest_ratchet_version, latest_ratchet_version, self.role(), self.state());
+
         // CBD: Checkpoint RKT-3
         log::info!(target: "citadel", "[CBD-RKT-3] Client {} got constructor (is_some={}): elapsed={}ms",
             self.cid, constructor.is_some(), rkt_start.elapsed().as_millis());
@@ -567,10 +571,16 @@ where
                             )
                         };
 
+                        // CBD: Version snapshot upon receiving AliceToBob
+                        log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} recv AliceToBob: peer_earliest={}, peer_latest={}, local_earliest={}, local_latest={}, role={:?}, state={:?}",
+                            self.cid, earliest_ratchet_version, latest_ratchet_version, local_earliest_ratchet_version, local_latest_ratchet_version, self.role(), self.state());
+
                         // Validate against our barrier. We only care about the latest version, since the
                         // earliest version may still be syncing
                         if latest_ratchet_version != local_latest_ratchet_version {
                             // Request resynchronization
+                            log::warn!(target: "citadel", "[CBD-RKT-BARRIER] Client {} mismatch: peer=({}-{}), local=({}-{}), role={:?}, state={:?}",
+                                self.cid, earliest_ratchet_version, latest_ratchet_version, local_earliest_ratchet_version, local_latest_ratchet_version, self.role(), self.state());
                             return Err(CryptError::RekeyUpdateError(
                                 format!(
                                     "Rekey barrier mismatch (earliest/latest). Peer: ({earliest_ratchet_version}-{latest_ratchet_version}) != Local: ({local_earliest_ratchet_version}-{local_latest_ratchet_version})"
@@ -716,6 +726,16 @@ where
 
                         let truncation_required = status.requires_truncation();
 
+                        // CBD: Version snapshot after BobToAlice processing
+                        let after_latest = self.session_crypto_state.latest_usable_version();
+                        let after_earliest = self
+                            .session_crypto_state
+                            .toolset()
+                            .read()
+                            .get_oldest_ratchet_version();
+                        log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} after BobToAlice: earliest={}, latest={}, truncation_required={:?}, role={:?}",
+                            self.cid, after_earliest, after_latest, truncation_required, self.role());
+
                         let expected_status = matches!(
                             status,
                             KemTransferStatus::StatusNoTransfer(..) | KemTransferStatus::Contended
@@ -760,6 +780,15 @@ where
                 }
 
                 Some(RatchetMessage::Truncate(version_to_truncate)) => {
+                    // CBD: Truncate pre-snapshot
+                    let pre_latest = self.session_crypto_state.latest_usable_version();
+                    let pre_earliest = self
+                        .session_crypto_state
+                        .toolset()
+                        .read()
+                        .get_oldest_ratchet_version();
+                    log::info!(target: "citadel", "[CBD-RKT-TRUNCATE] Client {} BEFORE truncate: earliest={}, latest={}, requested_truncate={}",
+                        self.cid, pre_earliest, pre_latest, version_to_truncate);
                     let role = self.role();
                     // Allow Loser if contention, or Idle if no contention
                     log::debug!(target: "citadel", "Client {} received Truncate", self.cid);
@@ -777,6 +806,16 @@ where
                     };
 
                     completed_as_loser = true;
+
+                    // CBD: Truncate post-snapshot
+                    let post_latest = self.session_crypto_state.latest_usable_version();
+                    let post_earliest = self
+                        .session_crypto_state
+                        .toolset()
+                        .read()
+                        .get_oldest_ratchet_version();
+                    log::info!(target: "citadel", "[CBD-RKT-TRUNCATE] Client {} AFTER truncate: earliest={}, latest={}, role={:?}",
+                        self.cid, post_earliest, post_latest, self.role());
 
                     self.sender
                         .lock()
@@ -800,6 +839,16 @@ where
 
                     log::debug!(target: "citadel", "Client {} received LoserCanFinish", self.cid);
 
+                    // CBD: Version snapshot before LoserCanFinish processing
+                    let pre_latest = self.session_crypto_state.latest_usable_version();
+                    let pre_earliest = self
+                        .session_crypto_state
+                        .toolset()
+                        .read()
+                        .get_oldest_ratchet_version();
+                    log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} BEFORE LoserCanFinish: earliest={}, latest={}, role={:?}",
+                        self.cid, pre_earliest, pre_latest, self.role());
+
                     let latest_version = {
                         let container = &self.session_crypto_state;
                         container.post_alice_stage1_or_post_stage1_bob();
@@ -807,6 +856,16 @@ where
                     };
 
                     completed_as_loser = true;
+
+                    // CBD: Version snapshot after LoserCanFinish processing
+                    let post_latest = self.session_crypto_state.latest_usable_version();
+                    let post_earliest = self
+                        .session_crypto_state
+                        .toolset()
+                        .read()
+                        .get_oldest_ratchet_version();
+                    log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} AFTER LoserCanFinish: earliest={}, latest={}, version_sent={}, role={:?}",
+                        self.cid, post_earliest, post_latest, latest_version, self.role());
 
                     // Send a LeaderCanFinish to unlock them
                     self.sender
@@ -853,10 +912,24 @@ where
                         )));
                     }
 
+                    // CBD: Version snapshot before LeaderCanFinish processing
+                    let pre_latest = self.session_crypto_state.latest_usable_version();
+                    let pre_earliest = self
+                        .session_crypto_state
+                        .toolset()
+                        .read()
+                        .get_oldest_ratchet_version();
+                    log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} BEFORE LeaderCanFinish: earliest={}, latest={}, peer_version={}, role={:?}",
+                        self.cid, pre_earliest, pre_latest, version, self.role());
+
                     // Apply the update
                     let container = &self.session_crypto_state;
                     container.post_alice_stage1_or_post_stage1_bob();
                     let latest_declared_version = container.latest_usable_version();
+
+                    // CBD: Version snapshot after LeaderCanFinish processing
+                    log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} AFTER LeaderCanFinish: latest_declared={}, peer_version={}, role={:?}",
+                        self.cid, latest_declared_version, version, self.role());
 
                     // Validate that we're in sync with the peer
                     if latest_declared_version != version {
