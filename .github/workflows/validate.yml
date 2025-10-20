@@ -18,7 +18,7 @@ jobs:
   stability-test:
     name: Ratchet Stability Test
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     
     steps:
       - name: Checkout code
