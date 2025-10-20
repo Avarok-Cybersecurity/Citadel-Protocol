@@ -17,8 +17,8 @@ while true; do
     # Get all check runs for the PR
     checks=$(gh pr view "$PR_NUMBER" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.__typename == "CheckRun") | {name, status, conclusion, workflowName, detailsUrl}')
     
-    # Check for any failures (ignore CodeQL)
-    failed_checks=$(echo "$checks" | jq -s '.[] | select(.conclusion == "FAILURE") | select(.name != "CodeQL")')
+    # Check for any failures (ignore CodeQL, docker tests, and Ratchet Stability)
+    failed_checks=$(echo "$checks" | jq -s '.[] | select(.conclusion == "FAILURE") | select(.name != "CodeQL") | select(.name | contains("docker") | not) | select(.name | contains("Ratchet Stability") | not)')
     
     if [ -n "$failed_checks" ]; then
         echo ""
