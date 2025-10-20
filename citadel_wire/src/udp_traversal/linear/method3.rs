@@ -453,7 +453,7 @@ struct UdpWrapper<'a> {
 }
 
 impl UdpWrapper<'_> {
-    fn new(socket: &UdpSocket) -> UdpWrapper {
+    fn new(socket: &UdpSocket) -> UdpWrapper<'_> {
         UdpWrapper {
             lock: Arc::new(TokioMutex::new(true)),
             socket,
