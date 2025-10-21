@@ -484,8 +484,12 @@ where
 
                     Err(err) => {
                         if matches!(err, CryptError::FatalError(..)) {
+                            // Only log if we're the ones initiating shutdown (shutdown_tx still exists)
                             if self.shutdown().is_some() {
-                                log::error!(target: "citadel", "Client {} fatal rekey error: {err:?}", self.cid);
+                                log::debug!(target: "citadel", "Client {} rekey process ending (fatal error: {err:?})", self.cid);
+                            } else {
+                                // Already shut down by peer - this is expected
+                                log::trace!(target: "citadel", "Client {} rekey process already shut down", self.cid);
                             }
                             break;
                         } else {

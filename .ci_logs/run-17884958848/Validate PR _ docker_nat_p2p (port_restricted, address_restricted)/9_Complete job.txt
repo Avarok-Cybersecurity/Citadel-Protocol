@@ -1,4 +1,0 @@
-﻿2025-09-20T21:27:50.8243222Z Cleaning up orphan processes
-2025-09-20T21:27:50.8810817Z Terminate orphan process: pid (89446) (docker)
-2025-09-20T21:27:50.8886037Z Terminate orphan process: pid (89462) (docker-compose)
-2025-09-20T21:27:50.8925889Z Terminate orphan process: pid (89515) (docker-buildx)

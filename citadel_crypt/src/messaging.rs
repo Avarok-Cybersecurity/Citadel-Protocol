@@ -78,6 +78,7 @@ where
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let manager_for_shutdown = manager_clone.clone();
         let background_task = async move {
             // Each time a rekey finishes, we should check the local queue for any enqueued messages
             // to poll and send
@@ -173,6 +174,8 @@ where
 
             log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): background task ending");
             is_active_bg.store(false, ORDERING);
+            // Shutdown the ratchet manager after flushing
+            let _ = manager_for_shutdown.shutdown();
         };
 
         drop(tokio::task::spawn(background_task));
@@ -302,8 +305,9 @@ where
     P: AttachedPayload,
 {
     fn drop(&mut self) {
+        // Only mark inactive, let background task finish naturally
         self.is_active.store(false, ORDERING);
-        let _ = self.manager.shutdown();
+        // Don't call shutdown() immediately - let queued messages flush
     }
 }
 
@@ -314,8 +318,9 @@ where
     P: AttachedPayload,
 {
     fn drop(&mut self) {
+        // Only mark inactive, let background task finish naturally
         self.is_active.store(false, ORDERING);
-        let _ = self.manager.shutdown();
+        // Don't call shutdown() immediately - let queued messages flush
     }
 }
 
@@ -384,8 +389,14 @@ mod tests {
     ) {
         alice_messenger_tx.send(payload.clone()).await.unwrap();
         bob_messenger_tx.send(payload.clone()).await.unwrap();
-        let alice_message_from_bob = alice_messenger_rx.next().await.unwrap();
-        let bob_message_from_alice = bob_messenger_rx.next().await.unwrap();
+        let alice_message_from_bob = alice_messenger_rx
+            .next()
+            .await
+            .expect("Alice stream ended prematurely");
+        let bob_message_from_alice = bob_messenger_rx
+            .next()
+            .await
+            .expect("Bob stream ended prematurely");
         assert_eq!(alice_message_from_bob, payload.clone());
         assert_eq!(bob_message_from_alice, payload);
     }
@@ -415,7 +426,7 @@ mod tests {
                 let payload = P::from(x);
                 messenger_tx.send(payload.clone()).await.unwrap();
 
-                let recv_payload = messenger_rx.next().await.unwrap();
+                let recv_payload = messenger_rx.next().await.expect("Stream ended prematurely");
                 assert_eq!(recv_payload, payload);
             }
         };

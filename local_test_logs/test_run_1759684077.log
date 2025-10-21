@@ -1,5 +1,0 @@
-   Compiling citadel_crypt v0.13.0 (/Volumes/nvme/Development/avarok/Citadel-Protocol/citadel_crypt)
-    Finished `release` profile [optimized] target(s) in 4.15s
-────────────
- Nextest run ID 99f49afd-72d9-4827-bb49-739be294e4e6 with nextest profile: default
-    Starting 20 tests across 2 binaries (67 tests skipped)
