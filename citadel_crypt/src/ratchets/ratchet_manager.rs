@@ -542,7 +542,7 @@ where
         let mut completed_as_leader = false;
         let mut completed_as_loser = false;
         let mut stale_message_count = 0;
-        const MAX_STALE_MESSAGES: u32 = 5; // Allow some stale messages, but not infinite
+        const MAX_STALE_MESSAGES: u32 = 20; // Allow stale messages for high-contention scenarios, but not infinite
 
         loop {
             let msg = receiver.next().await;
