@@ -594,7 +594,16 @@ where
                         // Validate against our barrier. We only care about the latest version, since the
                         // earliest version may still be syncing
                         if latest_ratchet_version != local_latest_ratchet_version {
-                            // Request resynchronization
+                            // Check if this is a stale message from a previous round (peer is behind)
+                            if latest_ratchet_version < local_latest_ratchet_version {
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob: peer_latest={}, local_latest={}",
+                                    self.cid, latest_ratchet_version, local_latest_ratchet_version);
+                                // Clean up any constructor for this stale version
+                                let _ =
+                                    self.constructors.lock().remove(&peer_metadata.next_version);
+                                continue; // Skip this stale message
+                            }
+                            // Peer is ahead - this is a real desync error
                             log::warn!(target: "citadel", "[CBD-RKT-BARRIER] Client {} mismatch: peer=({}-{}), local=({}-{}), role={:?}, state={:?}",
                                 self.cid, earliest_ratchet_version, latest_ratchet_version, local_earliest_ratchet_version, local_latest_ratchet_version, self.role(), self.state());
                             return Err(CryptError::RekeyUpdateError(
@@ -606,6 +615,15 @@ where
 
                         // Validate metadata
                         if peer_metadata != metadata {
+                            // Check if this is a stale message (peer is behind by 1 version)
+                            if peer_metadata.current_version + 1 == metadata.current_version {
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob metadata: peer={:?}, local={:?}",
+                                    self.cid, peer_metadata, metadata);
+                                // Clean up any constructor for this stale version
+                                let _ =
+                                    self.constructors.lock().remove(&peer_metadata.next_version);
+                                continue; // Skip this stale message
+                            }
                             return Err(CryptError::RekeyUpdateError(
                                 format!("Metadata mismatch (AliceToBob). Peer: {peer_metadata:?} != Local: {metadata:?}"),
                             ));
@@ -688,8 +706,16 @@ where
 
                     // Validate metadata
                     if peer_metadata != local_metadata {
+                        // Check if this is a stale BobToAlice (peer is behind by 1 version)
+                        if peer_metadata.current_version + 1 == local_metadata.current_version {
+                            log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale BobToAlice metadata: peer={:?}, local={:?}",
+                                self.cid, peer_metadata, local_metadata);
+                            // Clean up any constructor for this stale version
+                            let _ = self.constructors.lock().remove(&peer_metadata.next_version);
+                            continue; // Skip this stale message
+                        }
                         return Err(CryptError::RekeyUpdateError(
-                            format!("Metadata mismatch (AliceToBob). Peer: {peer_metadata:?} != Local: {metadata:?}"),
+                            format!("Metadata mismatch (BobToAlice). Peer: {peer_metadata:?} != Local: {local_metadata:?}"),
                         ));
                     }
 
