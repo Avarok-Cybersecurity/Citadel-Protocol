@@ -65,6 +65,7 @@ use citadel_io::{tokio, Mutex};
 use futures::{Sink, SinkExt, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -86,15 +87,13 @@ where
     cid: u64,
     psks: Arc<Vec<Vec<u8>>>,
     role: Arc<Atomic<RekeyRole>>,
-    constructor: Arc<Mutex<Option<R::Constructor>>>,
+    constructors: Arc<Mutex<HashMap<u32, R::Constructor>>>,
     is_initiator: bool,
     state: Arc<Atomic<RekeyState>>,
     local_listener: LocalListener<R>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     /// Semaphore to serialize trigger_rekey calls (only 1 permit)
     rekey_trigger_semaphore: Arc<Semaphore>,
-    /// Notifier for when BobToAlice response is received (used to keep semaphore held)
-    bob_response_notifier: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
@@ -111,14 +110,13 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             attached_payload_tx: self.attached_payload_tx.clone(),
             attached_payload_rx: self.attached_payload_rx.clone(),
             rekey_done_notifier: self.rekey_done_notifier.clone(),
-            constructor: self.constructor.clone(),
+            constructors: self.constructors.clone(),
             is_initiator: self.is_initiator,
             last_received_message: self.last_received_message.clone(),
             state: self.state.clone(),
             local_listener: self.local_listener.clone(),
             shutdown_tx: self.shutdown_tx.clone(),
             rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
-            bob_response_notifier: self.bob_response_notifier.clone(),
         }
     }
 }
@@ -245,7 +243,7 @@ where
             session_crypto_state: container,
             cid,
             is_initiator,
-            constructor: Arc::new(Mutex::new(None)),
+            constructors: Arc::new(Mutex::new(HashMap::new())),
             attached_payload_tx,
             attached_payload_rx: Arc::new(Mutex::new(Some(attached_payload_rx))),
             rekey_done_notifier,
@@ -255,7 +253,6 @@ where
             local_listener: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
             rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
-            bob_response_notifier: Arc::new(Mutex::new(None)),
         };
 
         this.clone()
@@ -321,26 +318,20 @@ where
             ));
         }
 
-        if self.is_rekeying() {
-            // CBD: Checkpoint RKT-1a
-            log::info!(target: "citadel", "[CBD-RKT-1a] Client {} already rekeying, returning payload: elapsed={}ms",
-                self.cid, rkt_start.elapsed().as_millis());
-            // We are already in a rekey process
-            return Ok(attached_payload);
-        }
-
-        // Check if we already have a constructor (double-check for race conditions)
-        if self.constructor.lock().is_some() {
-            // CBD: Checkpoint RKT-1b
-            log::info!(target: "citadel", "[CBD-RKT-1b] Client {} already has constructor, returning payload: elapsed={}ms",
-                self.cid, rkt_start.elapsed().as_millis());
-            log::debug!(target: "citadel", "Client {} already has a constructor, not triggering new rekey", self.cid);
-            return Ok(attached_payload);
-        }
-
         // CBD: Checkpoint RKT-2
         log::info!(target: "citadel", "[CBD-RKT-2] Client {} getting constructor: elapsed={}ms",
             self.cid, rkt_start.elapsed().as_millis());
+
+        // Determine target next version and deduplicate if one is already in flight
+        let metadata = self.get_rekey_metadata();
+        let next_version = metadata.next_version;
+        {
+            let constructors = self.constructors.lock();
+            if constructors.contains_key(&next_version) {
+                log::info!(target: "citadel", "[CBD-RKT-2a] Client {} constructor for next_version {} already in-flight; returning payload", self.cid, next_version);
+                return Ok(attached_payload);
+            }
+        }
 
         let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
             let constructor = self.session_crypto_state.get_next_constructor();
@@ -378,8 +369,6 @@ where
             .await
             .map_err(|_| CryptError::RekeyUpdateError("Join error on stage0_alice".into()))??;
 
-            let metadata = self.get_rekey_metadata();
-
             // CBD: Checkpoint RKT-4
             log::info!(target: "citadel", "[CBD-RKT-4] Client {} sending AliceToBob: elapsed={}ms",
                 self.cid, rkt_start.elapsed().as_millis());
@@ -402,51 +391,18 @@ where
                 self.cid, rkt_start.elapsed().as_millis());
             log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
 
-            // Store constructor atomically
-            if self.constructor.lock().replace(constructor).is_some() {
-                log::warn!(target: "citadel", "Replaced constructor; concurrent rekey attempt detected");
-                // This can happen in race conditions - the rekey is already in progress
-            }
-
-            // Create channel to wait for BobToAlice response
-            // This prevents constructor from being overwritten by concurrent rekey
-            let (bob_response_tx, bob_response_rx) = tokio::sync::oneshot::channel();
-            if self
-                .bob_response_notifier
-                .lock()
-                .replace(bob_response_tx)
-                .is_some()
+            // Store constructor keyed by next_version
             {
-                log::warn!(target: "citadel", "Replaced bob_response_notifier; overlapping rekey");
+                let mut constructors = self.constructors.lock();
+                if constructors.insert(next_version, constructor).is_some() {
+                    log::warn!(target: "citadel", "Replaced constructor for next_version={next_version}; concurrent rekey attempt detected");
+                }
             }
 
-            // Spawn background task to hold semaphore until BobToAlice is received
-            // This prevents new trigger_rekey calls from overwriting the constructor
-            // The permit is moved into this task, keeping the semaphore locked until BobToAlice arrives
-            let cid = self.cid;
-            drop(tokio::spawn(async move {
-                log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} holding semaphore permit until BobToAlice");
-                // Wait for BobToAlice with timeout to prevent infinite blocking
-                let timeout = Duration::from_secs(60);
-                match tokio::time::timeout(timeout, bob_response_rx).await {
-                    Ok(Ok(())) => {
-                        log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} releasing semaphore permit after BobToAlice");
-                    }
-                    Ok(Err(_)) => {
-                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} BobToAlice notifier dropped, releasing permit");
-                    }
-                    Err(_) => {
-                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} timeout waiting for BobToAlice, releasing permit");
-                    }
-                }
-                drop(_permit); // Explicitly drop to release semaphore
-            }));
-
-            // For wait_for_completion=false, return immediately after spawning the permit holder
-            // The semaphore will be released when BobToAlice is received
+            // For wait_for_completion=false, return immediately
             if !wait_for_completion {
                 // CBD: Checkpoint RKT-FINAL (no-wait path)
-                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait (semaphore held until BobToAlice): elapsed={}ms",
+                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait: elapsed={}ms",
                     self.cid, rkt_start.elapsed().as_millis());
                 return Ok(None);
             }
@@ -682,8 +638,8 @@ where
                             let serialized = bincode::serialize(&transfer)
                                 .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
 
-                            // Remove the local constructor, if existent, since it won't be used
-                            let _ = self.constructor.lock().take();
+                            // Remove any local constructor for this in-flight version, if existent, since it won't be used
+                            let _ = self.constructors.lock().remove(&peer_metadata.next_version);
                             let _ = self
                                 .session_crypto_state
                                 .update_in_progress
@@ -765,8 +721,9 @@ where
                     }
 
                     // Now process the transfer data
-                    let constructor = { self.constructor.lock().take() };
-                    if let Some(mut alice_constructor) = constructor {
+                    let mut constructor =
+                        { self.constructors.lock().remove(&peer_metadata.next_version) };
+                    if let Some(mut alice_constructor) = constructor.take() {
                         let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
                             CryptError::RekeyUpdateError(format!(
                                 "Failed to deserialize transfer: {e}"
@@ -785,12 +742,6 @@ where
                         })??;
 
                         let truncation_required = status.requires_truncation();
-
-                        // Signal that BobToAlice has been processed (releases semaphore permit)
-                        if let Some(notifier) = self.bob_response_notifier.lock().take() {
-                            let _ = notifier.send(());
-                            log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {} signaled BobToAlice completion", self.cid);
-                        }
 
                         // CBD: Version snapshot after BobToAlice processing
                         let after_latest = self.session_crypto_state.latest_usable_version();
@@ -839,8 +790,10 @@ where
                         }
                     } else {
                         return Err(CryptError::RekeyUpdateError(
-                            "Unexpected BobToAlice message with no loaded local constructor"
-                                .to_string(),
+                            format!(
+                                "Unexpected BobToAlice message with no loaded local constructor for next_version {}",
+                                peer_metadata.next_version
+                            ),
                         ));
                     }
                 }
@@ -1039,8 +992,8 @@ where
 
         log::debug!(target: "citadel", "*** Client {} rekey completed ***", self.cid);
 
-        // Clear the constructor to allow future rekeys
-        let _ = self.constructor.lock().take();
+        // Clear any leftover constructors to allow future rekeys
+        self.constructors.lock().clear();
 
         // Reset role to Idle to allow future rekeys
         self.set_role(RekeyRole::Idle);
