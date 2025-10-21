@@ -600,12 +600,16 @@ where
                         if latest_ratchet_version != local_latest_ratchet_version {
                             // Check if this is a stale message from a previous round (peer is behind)
                             if latest_ratchet_version < local_latest_ratchet_version {
-                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob: peer_latest={}, local_latest={}",
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob (barrier): peer_latest={}, local_latest={} - breaking to resync",
                                     self.cid, latest_ratchet_version, local_latest_ratchet_version);
                                 // Clean up any constructor for this stale version
                                 let _ =
                                     self.constructors.lock().remove(&peer_metadata.next_version);
-                                continue; // Skip this stale message
+                                // Break out to allow resynchronization - continuing would cause infinite loop
+                                // if both peers are skipping each other's stale messages
+                                return Err(CryptError::RekeyUpdateError(
+                                    format!("Stale AliceToBob detected, resynchronization needed. Peer: {latest_ratchet_version}, Local: {local_latest_ratchet_version}")
+                                ));
                             }
                             // Peer is ahead - this is a real desync error
                             log::warn!(target: "citadel", "[CBD-RKT-BARRIER] Client {} mismatch: peer=({}-{}), local=({}-{}), role={:?}, state={:?}",
@@ -621,12 +625,15 @@ where
                         if peer_metadata != metadata {
                             // Check if this is a stale message (peer is behind by 1 version)
                             if peer_metadata.current_version + 1 == metadata.current_version {
-                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob metadata: peer={:?}, local={:?}",
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob (metadata): peer={:?}, local={:?} - breaking to resync",
                                     self.cid, peer_metadata, metadata);
                                 // Clean up any constructor for this stale version
                                 let _ =
                                     self.constructors.lock().remove(&peer_metadata.next_version);
-                                continue; // Skip this stale message
+                                // Break out to allow resynchronization
+                                return Err(CryptError::RekeyUpdateError(
+                                    format!("Stale AliceToBob metadata detected, resynchronization needed. Peer: {peer_metadata:?}, Local: {metadata:?}")
+                                ));
                             }
                             return Err(CryptError::RekeyUpdateError(
                                 format!("Metadata mismatch (AliceToBob). Peer: {peer_metadata:?} != Local: {metadata:?}"),
@@ -712,11 +719,14 @@ where
                     if peer_metadata != local_metadata {
                         // Check if this is a stale BobToAlice (peer is behind by 1 version)
                         if peer_metadata.current_version + 1 == local_metadata.current_version {
-                            log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale BobToAlice metadata: peer={:?}, local={:?}",
+                            log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale BobToAlice metadata: peer={:?}, local={:?} - breaking to resync",
                                 self.cid, peer_metadata, local_metadata);
                             // Clean up any constructor for this stale version
                             let _ = self.constructors.lock().remove(&peer_metadata.next_version);
-                            continue; // Skip this stale message
+                            // Break out to allow resynchronization
+                            return Err(CryptError::RekeyUpdateError(
+                                format!("Stale BobToAlice metadata detected, resynchronization needed. Peer: {peer_metadata:?}, Local: {local_metadata:?}")
+                            ));
                         }
                         return Err(CryptError::RekeyUpdateError(
                             format!("Metadata mismatch (BobToAlice). Peer: {peer_metadata:?} != Local: {local_metadata:?}"),
