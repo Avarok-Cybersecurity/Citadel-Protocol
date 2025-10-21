@@ -40,7 +40,8 @@ pub struct RatchetManagerMessengerLayerTx<E: Send + Sync + 'static, R: Ratchet, 
 
 pub struct RatchetManagerMessengerLayerRx<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload>
 {
-    manager: DefaultRatchetManager<E, R, MessengerLayerOrderedMessage<P>>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) manager: DefaultRatchetManager<E, R, MessengerLayerOrderedMessage<P>>,
     rx: UnboundedReceiver<P>,
     is_active: Arc<AtomicBool>,
 }
