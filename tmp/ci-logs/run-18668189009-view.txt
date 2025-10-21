@@ -1,0 +1,64 @@
+
+* stability-improvements Execute Pipeline Avarok-Cybersecurity/Citadel-Protocol#236 · 18668189009
+Triggered via pull_request about 21 minutes ago
+
+JOBS
+* Validate PR / Ratchet Stability Test (ID 53223734025)
+* Validate PR / core_libs (ubuntu-latest) (ID 53223734062)
+* Validate PR / core_libs (macos-latest) (ID 53223734068)
+✓ Validate PR / docker_nat_client_server (symmetric) in 11m24s (ID 53223734080)
+* Validate PR / core_libs (windows-latest) (ID 53223734083)
+✓ Validate PR / docker_nat_client_server (full_cone) in 14m9s (ID 53223734084)
+✓ Validate PR / docker_nat_client_server (address_restricted) in 11m55s (ID 53223734085)
+✓ Validate PR / nat (ubuntu-latest) in 7m28s (ID 53223734091)
+✓ Validate PR / docker_nat_client_server (port_restricted) in 6m29s (ID 53223734096)
+* Validate PR / citadel_sdk (ubuntu-latest) (ID 53223734100)
+* Validate PR / citadel_sdk (macos-latest) (ID 53223734102)
+✓ Validate PR / nat (windows-latest) in 16m32s (ID 53223734103)
+* Validate PR / citadel_sdk (windows-latest) (ID 53223734110)
+X Validate PR / miscellaneous in 9m50s (ID 53223734111)
+  ✓ Set up job
+  ✓ Run Avarok-Cybersecurity/gh-actions-deps@master
+  ✓ Run cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
+  ✓ Run cargo install --locked cargo-deny && cargo deny check all
+  ✓ Run rustup component add clippy-preview
+  X Run cargo clippy --features=webrtc,sql,redis,multi-threaded -- -D warnings
+  - Run cargo clippy --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
+  - Run cargo clippy --features=webrtc,sql,redis -- -D warnings
+  - Run cargo clippy --features=webrtc,sql,redis --release -- -D warnings
+  - Run cargo clippy --tests --examples -- -D warnings
+  - Run cargo fmt --check
+  - Run RUSTDOCFLAGS="-D warnings" cargo make docs
+  - Run cargo test --doc
+  ✓ Post Run Avarok-Cybersecurity/gh-actions-deps@master
+  ✓ Complete job
+✓ Validate PR / nat (macos-latest) in 4m21s (ID 53223734118)
+* Validate PR / coverage (ID 53223734120)
+* Validate PR / citadel_sdk_release (ubuntu-latest) (ID 53223734125)
+✓ Validate PR / docker_nat_p2p (full_cone, address_restricted) in 11m31s (ID 53223734133)
+* Validate PR / docker_nat_p2p (full_cone, full_cone) (ID 53223734135)
+* Validate PR / docker_nat_p2p (address_restricted, port_restricted) (ID 53223734136)
+* Validate PR / docker_nat_p2p (port_restricted, port_restricted) (ID 53223734137)
+* Validate PR / docker_nat_p2p (address_restricted, symmetric) (ID 53223734141)
+✓ Validate PR / docker_nat_p2p (port_restricted, full_cone) in 8m3s (ID 53223734142)
+✓ Validate PR / docker_nat_p2p (full_cone, symmetric) in 11m56s (ID 53223734148)
+✓ Validate PR / docker_nat_p2p (full_cone, port_restricted) in 13m30s (ID 53223734149)
+✓ Validate PR / docker_nat_p2p (symmetric, full_cone) in 6m51s (ID 53223734150)
+* Validate PR / docker_nat_p2p (address_restricted, address_restricted) (ID 53223734154)
+✓ Validate PR / docker_nat_p2p (symmetric, address_restricted) in 12m6s (ID 53223734156)
+✓ Validate PR / docker_nat_p2p (port_restricted, symmetric) in 12m22s (ID 53223734158)
+✓ Validate PR / docker_nat_p2p (symmetric, port_restricted) in 16m1s (ID 53223734159)
+* Validate PR / docker_nat_p2p (port_restricted, address_restricted) (ID 53223734167)
+* Validate PR / docker_nat_p2p (symmetric, symmetric) (ID 53223734196)
+* Validate PR / docker_nat_p2p (address_restricted, full_cone) (ID 53223734198)
+
+ANNOTATIONS
+! The `set-output` command is deprecated and will be disabled soon. Please upgrade to using Environment Files. For more information see: https://github.blog/changelog/2022-10-11-github-actions-deprecating-save-state-and-set-output-commands/
+Validate PR / nat (windows-latest): .github#21
+
+X Process completed with exit code 101.
+Validate PR / miscellaneous: .github#352
+
+
+For more information about a job, try: gh run view --job=<job-id>
+View this run on GitHub: https://github.com/Avarok-Cybersecurity/Citadel-Protocol/actions/runs/18668189009

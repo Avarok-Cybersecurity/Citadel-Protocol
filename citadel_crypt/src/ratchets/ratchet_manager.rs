@@ -424,23 +424,23 @@ where
             // This prevents new trigger_rekey calls from overwriting the constructor
             // The permit is moved into this task, keeping the semaphore locked until BobToAlice arrives
             let cid = self.cid;
-            let _ = tokio::spawn(async move {
-                log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {} holding semaphore permit until BobToAlice", cid);
+            drop(tokio::spawn(async move {
+                log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} holding semaphore permit until BobToAlice");
                 // Wait for BobToAlice with timeout to prevent infinite blocking
                 let timeout = Duration::from_secs(60);
                 match tokio::time::timeout(timeout, bob_response_rx).await {
                     Ok(Ok(())) => {
-                        log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {} releasing semaphore permit after BobToAlice", cid);
+                        log::trace!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} releasing semaphore permit after BobToAlice");
                     }
                     Ok(Err(_)) => {
-                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {} BobToAlice notifier dropped, releasing permit", cid);
+                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} BobToAlice notifier dropped, releasing permit");
                     }
                     Err(_) => {
-                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {} timeout waiting for BobToAlice, releasing permit", cid);
+                        log::warn!(target: "citadel", "[CBD-RKT-PERMIT] Client {cid} timeout waiting for BobToAlice, releasing permit");
                     }
                 }
                 drop(_permit); // Explicitly drop to release semaphore
-            });
+            }));
 
             // For wait_for_completion=false, return immediately after spawning the permit holder
             // The semaphore will be released when BobToAlice is received
