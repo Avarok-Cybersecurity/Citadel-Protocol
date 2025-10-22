@@ -57,5 +57,8 @@ rstest = { workspace = true }
 lazy_static = { workspace = true }
 #tokio = { workspace = true, features = ["rt-multi-thread"] }
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+
 [lib]
 doctest = false
