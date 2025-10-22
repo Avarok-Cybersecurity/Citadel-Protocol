@@ -1491,9 +1491,14 @@ pub(crate) mod tests {
 
         // With random delays, we should see significant progress
         // With min_delay=0, contention is high, so we might see fewer successful rekeys
-        let expected_min_progress = if min_delay == 0 { 10 } else { 50 };
+        // Scale expected progress based on ROUNDS (50% for high delay, 10% for zero delay)
+        let expected_min_progress = if min_delay == 0 {
+            ROUNDS / 10
+        } else {
+            ROUNDS / 2
+        };
         assert!(
-            final_version >= expected_min_progress,
+            final_version >= expected_min_progress as u32,
             "Expected at least {expected_min_progress} successful rekeys out of {ROUNDS}, but only got {final_version}"
         );
 
