@@ -1430,6 +1430,10 @@ pub(crate) mod tests {
     async fn test_ratchet_manager_racy_contentious() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
+        // Reduce rounds in coverage mode due to 2-5x instrumentation overhead
+        #[cfg(coverage)]
+        const ROUNDS: usize = 20;
+        #[cfg(not(coverage))]
         const ROUNDS: usize = 100;
         for _ in 0..ROUNDS {
             run_round_racy(alice_manager.clone(), bob_manager.clone(), None).await;
@@ -1466,6 +1470,10 @@ pub(crate) mod tests {
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
+        // Reduce rounds in coverage mode due to 2-5x instrumentation overhead
+        #[cfg(coverage)]
+        const ROUNDS: usize = 20;
+        #[cfg(not(coverage))]
         const ROUNDS: usize = 100;
         for _ in 0..ROUNDS {
             let delay = rand::random::<u64>() % 5;
@@ -1502,6 +1510,10 @@ pub(crate) mod tests {
     async fn test_ratchet_manager_one_at_a_time() {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
+        // Reduce rounds in coverage mode due to 2-5x instrumentation overhead
+        #[cfg(coverage)]
+        const ROUNDS: usize = 20;
+        #[cfg(not(coverage))]
         const ROUNDS: usize = 100;
         for _ in 0..ROUNDS {
             run_round_one_node_only(alice_manager.clone(), bob_manager.clone()).await;
