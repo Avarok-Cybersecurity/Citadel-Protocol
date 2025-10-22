@@ -392,7 +392,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -473,7 +473,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -574,7 +574,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -657,7 +657,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -711,7 +711,7 @@ mod tests {
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
