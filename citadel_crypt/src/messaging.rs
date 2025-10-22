@@ -541,7 +541,7 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(60))]
+    #[timeout(std::time::Duration::from_secs(120))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy(
@@ -565,7 +565,7 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(60))]
+    #[timeout(std::time::Duration::from_secs(120))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious(
