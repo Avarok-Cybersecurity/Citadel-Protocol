@@ -476,6 +476,7 @@ where
             };
 
             let mut listener = { self.receiver.lock().take().unwrap() };
+            let mut timeout_count = 0u32;
             loop {
                 self.set_state(RekeyState::Running);
 
@@ -485,9 +486,12 @@ where
                 let result = match result {
                     Ok(inner) => inner,
                     Err(_elapsed) => {
-                        // Watchdog fired: clear any in-flight constructors to allow a clean retry
-                        log::warn!(target: "citadel", "Client {} rekey round timed out; clearing in-flight constructors and retrying", self.cid);
+                        // Watchdog fired: clear any in-flight constructors and apply backoff
+                        timeout_count += 1;
+                        let backoff_ms = std::cmp::min(100 * (1 << timeout_count), 5000);
+                        log::warn!(target: "citadel", "Client {} rekey round timed out (count={}); clearing in-flight constructors and backing off {}ms", self.cid, timeout_count, backoff_ms);
                         self.constructors.lock().clear();
+                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                         Err(CryptError::RekeyUpdateError("Rekey round timed out".into()))
                     }
                 };
@@ -497,6 +501,9 @@ where
 
                 match result {
                     Ok(latest_ratchet) => {
+                        // Reset timeout count on success
+                        timeout_count = 0;
+
                         // Alert any local callers waiting for rekeying to finish
                         if let Err(_err) = rekey_done_notifier_tx.send(latest_ratchet.clone()) {
                             log::warn!(target: "citadel", "Failed to send rekey done notification");
