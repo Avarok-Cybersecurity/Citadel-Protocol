@@ -478,7 +478,20 @@ where
             let mut listener = { self.receiver.lock().take().unwrap() };
             loop {
                 self.set_state(RekeyState::Running);
-                let result = self.rekey(&mut listener).await;
+
+                // Add a watchdog around a single rekey round to avoid potential livelock
+                let result =
+                    tokio::time::timeout(Duration::from_secs(15), self.rekey(&mut listener)).await;
+                let result = match result {
+                    Ok(inner) => inner,
+                    Err(_elapsed) => {
+                        // Watchdog fired: clear any in-flight constructors to allow a clean retry
+                        log::warn!(target: "citadel", "Client {} rekey round timed out; clearing in-flight constructors and retrying", self.cid);
+                        self.constructors.lock().clear();
+                        Err(CryptError::RekeyUpdateError("Rekey round timed out".into()))
+                    }
+                };
+
                 self.set_state(RekeyState::Idle);
                 self.set_role(RekeyRole::Idle);
 
