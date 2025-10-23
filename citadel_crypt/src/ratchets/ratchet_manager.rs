@@ -311,6 +311,12 @@ where
         // CBD: Checkpoint RKT-0b - Semaphore acquired
         log::info!(target: "citadel", "[CBD-RKT-0b] Client {} acquired rekey trigger semaphore: elapsed={}ms",
             self.cid, rkt_start.elapsed().as_millis());
+
+        // Snapshot the current version BEFORE doing any work
+        let version_at_entry = self.session_crypto_state.latest_usable_version();
+        log::info!(target: "citadel", "[CBD-RKT-0c] Client {} version_at_entry={}: elapsed={}ms",
+            self.cid, version_at_entry, rkt_start.elapsed().as_millis());
+
         let state = self.state();
         if state == RekeyState::Halted {
             return Err(CryptError::RekeyUpdateError(
@@ -334,6 +340,14 @@ where
         }
 
         let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
+            // Check if the version has already advanced (background loop completed a rekey)
+            let current_version = self.session_crypto_state.latest_usable_version();
+            if current_version > version_at_entry {
+                log::info!(target: "citadel", "[CBD-RKT-2b] Client {} version already advanced from {} to {}; rekey not needed, returning payload",
+                    self.cid, version_at_entry, current_version);
+                return Ok(attached_payload);
+            }
+
             let constructor = self.session_crypto_state.get_next_constructor();
             let earliest_ratchet_version = self
                 .session_crypto_state
