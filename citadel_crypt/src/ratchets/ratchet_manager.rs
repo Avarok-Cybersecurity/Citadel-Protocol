@@ -324,6 +324,14 @@ where
             ));
         }
 
+        // Don't start a new rekey if one is already in progress in the background loop
+        let role = self.role();
+        if role != RekeyRole::Idle {
+            log::debug!(target: "citadel", "[CBD-RKT-0d] Client {} rekey already in progress (role={:?}); returning payload",
+                self.cid, role);
+            return Ok(attached_payload);
+        }
+
         // CBD: Checkpoint RKT-2
         log::info!(target: "citadel", "[CBD-RKT-2] Client {} getting constructor: elapsed={}ms",
             self.cid, rkt_start.elapsed().as_millis());
