@@ -98,7 +98,7 @@ pub async fn process_preconnect<R: Ratchet>(
                     .await;
                 let account_manager = session.account_manager.clone();
 
-                if can_proceed_with_connection {
+                if !can_proceed_with_connection {
                     const REASON: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
                     return send_error_and_end_session(&header, None, REASON);
                 }
@@ -158,6 +158,7 @@ pub async fn process_preconnect<R: Ratchet>(
                                 sc.keep_alive_timeout_ns = kat;
                                 sc.udp_mode = udp_mode;
                                 sc.cnac = Some(cnac);
+                                session.session_cid.set(Some(header.session_cid.get()));
                                 sc.session_security_settings = Some(session_security_settings);
                             }
                             session

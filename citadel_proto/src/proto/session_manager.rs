@@ -155,7 +155,12 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let await_for_drop_rx = {
             let this = inner!(self);
 
-            if let Some((_, sess)) = this.sessions.get(&cid) {
+            if let Some(sess) = this.sessions.get(&cid).map(|(_, sess)| sess).or_else(|| {
+                this.provisional_connections
+                    .values()
+                    .find(|(_, _, sess)| sess.session_cid.get().unwrap_or_default() == cid)
+                    .map(|(_, _, sess)| sess)
+            }) {
                 let current_state = sess.state.get();
                 if current_state == SessionState::Connected {
                     citadel_logging::warn!(target: "citadel", "Session {cid} is already connected");
