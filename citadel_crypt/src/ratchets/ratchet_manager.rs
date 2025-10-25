@@ -327,9 +327,24 @@ where
         // Don't start a new rekey if one is already in progress in the background loop
         let role = self.role();
         if role != RekeyRole::Idle {
-            log::debug!(target: "citadel", "[CBD-RKT-0d] Client {} rekey already in progress (role={:?}); returning payload",
+            log::debug!(target: "citadel", "[CBD-RKT-0d] Client {} rekey already in progress (role={:?})",
                 self.cid, role);
-            return Ok(attached_payload);
+
+            // If wait_for_completion=false, return immediately with payload
+            if !wait_for_completion {
+                return Ok(attached_payload);
+            }
+
+            // If wait_for_completion=true, register a listener and wait for the ongoing rekey to finish
+            log::debug!(target: "citadel", "[CBD-RKT-0e] Client {} waiting for ongoing rekey to complete", self.cid);
+            let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
+            if self.local_listener.lock().replace(tx).is_some() {
+                log::warn!(target: "citadel", "Replaced local listener while waiting for ongoing rekey");
+            }
+            let _res = rx.await.map_err(|_| {
+                CryptError::RekeyUpdateError("Failed to wait for ongoing rekey".to_string())
+            })?;
+            return Ok(None);
         }
 
         // CBD: Checkpoint RKT-2
@@ -484,34 +499,14 @@ where
             };
 
             let mut listener = { self.receiver.lock().take().unwrap() };
-            let mut timeout_count = 0u32;
             loop {
                 self.set_state(RekeyState::Running);
-
-                // Add a watchdog around a single rekey round to avoid potential livelock
-                let result =
-                    tokio::time::timeout(Duration::from_secs(15), self.rekey(&mut listener)).await;
-                let result = match result {
-                    Ok(inner) => inner,
-                    Err(_elapsed) => {
-                        // Watchdog fired: clear any in-flight constructors and apply backoff
-                        timeout_count += 1;
-                        let backoff_ms = std::cmp::min(100 * (1 << timeout_count), 5000);
-                        log::warn!(target: "citadel", "Client {} rekey round timed out (count={}); clearing in-flight constructors and backing off {}ms", self.cid, timeout_count, backoff_ms);
-                        self.constructors.lock().clear();
-                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-                        Err(CryptError::RekeyUpdateError("Rekey round timed out".into()))
-                    }
-                };
-
+                let result = self.rekey(&mut listener).await;
                 self.set_state(RekeyState::Idle);
                 self.set_role(RekeyRole::Idle);
 
                 match result {
                     Ok(latest_ratchet) => {
-                        // Reset timeout count on success
-                        timeout_count = 0;
-
                         // Alert any local callers waiting for rekeying to finish
                         if let Err(_err) = rekey_done_notifier_tx.send(latest_ratchet.clone()) {
                             log::warn!(target: "citadel", "Failed to send rekey done notification");
