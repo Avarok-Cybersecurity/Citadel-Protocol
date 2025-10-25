@@ -351,16 +351,9 @@ where
         log::info!(target: "citadel", "[CBD-RKT-2] Client {} getting constructor: elapsed={}ms",
             self.cid, rkt_start.elapsed().as_millis());
 
-        // Determine target next version and deduplicate if one is already in flight
+        // Get metadata for the rekey
         let metadata = self.get_rekey_metadata();
         let next_version = metadata.next_version;
-        {
-            let constructors = self.constructors.lock();
-            if constructors.contains_key(&next_version) {
-                log::info!(target: "citadel", "[CBD-RKT-2a] Client {} constructor for next_version {} already in-flight; returning payload", self.cid, next_version);
-                return Ok(attached_payload);
-            }
-        }
 
         let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
             // Check if the version has already advanced (background loop completed a rekey)
