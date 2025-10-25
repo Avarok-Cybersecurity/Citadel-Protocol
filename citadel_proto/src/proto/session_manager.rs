@@ -71,7 +71,7 @@ use crate::proto::peer::peer_layer::{
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
-    ServerOnlySessionInitSettings, SessionInitParams,
+    ServerOnlySessionInitSettings, SessionInitParams, SessionState,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
@@ -151,9 +151,69 @@ impl<R: Ratchet> CitadelSessionManager<R> {
     }
 
     /// Determines if `cid` is connected
-    pub fn session_active(&self, cid: u64) -> bool {
-        let this = inner!(self);
-        this.sessions.contains_key(&cid)
+    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64) -> bool {
+        let await_for_drop_rx = {
+            let this = inner!(self);
+
+            if let Some((_, sess)) = this.sessions.get(&cid) {
+                let current_state = sess.state.get();
+                if current_state == SessionState::Connected {
+                    citadel_logging::warn!(target: "citadel", "Session {cid} is already connected");
+                    // Session is firmly connected, and not in the process of disconnecting
+                    return false;
+                }
+
+                // If the session is not connected (implied per above), and, the session is not disconnecting, it is in the process of connecting
+                if current_state != SessionState::Disconnecting {
+                    citadel_logging::warn!(target: "citadel", "Session {cid} is already in the process of connecting (i.e., provisional)");
+                    return false;
+                }
+
+                // If the drop listener is already some, that means the session is in the process of disconnecting,
+                // AND, another connection attempt is in progress. Since we were not the first to initiate the connection
+                // we must yield to the earlier connection attempt and not allow this session to proceed.
+                //
+                // Note: Must not have a TOCTOU race condition here
+                let (await_for_drop_tx, await_for_drop_rx) =
+                    citadel_io::tokio::sync::oneshot::channel();
+                if sess
+                    .drop_listener
+                    .atomic_set_if_none(await_for_drop_tx)
+                    .is_some()
+                {
+                    citadel_logging::warn!(target: "citadel", "Session {cid} is already in the process of disconnecting, however, must yield to earlier connection attempt");
+                    return false;
+                }
+
+                await_for_drop_rx
+            } else {
+                // No session exists, so we can proceed with the connection attempt
+                return true;
+            }
+        };
+
+        // Session exists, but, if it's in the process of disconnecting, we wait for it to disconnect by polling and/or waiting for the drop listener to be dropped
+        let wait_for_drop = async move {
+            citadel_logging::debug!(target: "citadel", "🔄 Session attempt for {cid} is awaiting for clean disconnection of prior connection");
+            let _ = await_for_drop_rx.await;
+        };
+
+        // Timeout after 5s to ensure we don't wait indefinitely. We brute force disconnect the session if it doesn't disconnect within the timeout.
+        let timeout = async move {
+            citadel_io::tokio::time::sleep(Duration::from_secs(5)).await;
+        };
+
+        // Wait for the session to disconnect or timeout
+        citadel_io::tokio::select! {
+            _ = wait_for_drop => true,
+            _ = timeout => {
+                citadel_logging::warn!(target: "citadel", "Session attempt for {cid} failed to disconnect within the timeout. Force clearing");
+                let mut this = inner_mut!(self);
+                this.sessions.remove(&cid);
+                this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
+                true
+            },
+        }
     }
 
     /// Called by the higher-level [CitadelNode] async writer loop
@@ -393,6 +453,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let mut err = None;
         let init_time = new_session.init_time;
         let res = new_session.execute(tcp_stream, peer_addr).await;
+        new_session.state.set(SessionState::Disconnecting);
 
         match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
@@ -496,6 +557,8 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             //sess.queue_worker.signal_shutdown();
             state_container.end_connections();
         }
+
+        sess.drop_listener.set(None);
 
         if let Some(err) = err {
             Err(err)

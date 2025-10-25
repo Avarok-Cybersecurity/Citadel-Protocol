@@ -76,6 +76,54 @@ impl<T: ContextRequirements> DualRwLock<T> {
     }
 }
 
+#[cfg(feature = "multi-threaded")]
+impl<T: ContextRequirements> DualRwLock<Option<T>> {
+    #[allow(dead_code)]
+    pub fn is_some(&self) -> bool {
+        self.inner.read().is_some()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_none(&self) -> bool {
+        self.inner.read().is_none()
+    }
+
+    /// Sets the value if it is currently None, otherwise returns the value that was passed to the function.
+    pub fn atomic_set_if_none(&self, t: T) -> Option<T> {
+        let mut inner = self.inner.write();
+        if inner.is_none() {
+            *inner = Some(t);
+            None
+        } else {
+            Some(t)
+        }
+    }
+}
+
+#[cfg(not(feature = "multi-threaded"))]
+impl<T: ContextRequirements> DualRwLock<Option<T>> {
+    #[allow(dead_code)]
+    pub fn is_some(&self) -> bool {
+        self.inner.borrow().is_some()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_none(&self) -> bool {
+        self.inner.borrow().is_none()
+    }
+
+    /// Sets the value if it is currently None, otherwise returns the value that was passed to the function.
+    pub fn atomic_set_if_none(&self, t: T) -> Option<T> {
+        let mut inner = self.inner.borrow_mut();
+        if inner.is_none() {
+            *inner = Some(t);
+            None
+        } else {
+            Some(t)
+        }
+    }
+}
+
 impl<T: ContextRequirements> From<T> for DualRwLock<T> {
     fn from(inner: T) -> Self {
         #[cfg(not(feature = "multi-threaded"))]

@@ -235,7 +235,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
         } = &mut *self;
 
         let mut state_container = inner_mut_state!(state_container.as_ref().unwrap());
-        if state_container.state.get() != SessionState::Disconnected {
+        if state_container.state.get() != SessionState::Disconnecting {
             while let Some(res) = futures::ready!(expirations.poll_expired(cx)) {
                 let entry: QueueWorkerTicket = res.into_inner();
                 //log::trace!(target: "citadel", "POLL_EXPIRED: {:?}", &entry);

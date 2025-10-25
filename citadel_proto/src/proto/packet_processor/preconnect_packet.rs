@@ -92,13 +92,14 @@ pub async fn process_preconnect<R: Ratchet>(
                     // TODO: protocol translations for inter-version compatibility
                 }
                 // first make sure the cid isn't already connected
-                let session_already_active = session
+                let can_proceed_with_connection = session
                     .session_manager
-                    .session_active(header.session_cid.get());
+                    .can_proceed_with_new_incoming_connection(header.session_cid.get())
+                    .await;
                 let account_manager = session.account_manager.clone();
 
-                if session_already_active {
-                    const REASON: &str = "Session Already Connected";
+                if can_proceed_with_connection {
+                    const REASON: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
                     return send_error_and_end_session(&header, None, REASON);
                 }
 
@@ -120,7 +121,6 @@ pub async fn process_preconnect<R: Ratchet>(
                     match validation::pre_connect::validate_syn(
                         &cnac,
                         packet,
-                        &session.session_manager,
                         &session.session_password,
                     ) {
                         Ok((

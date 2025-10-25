@@ -234,6 +234,10 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
     pub(super) header_obfuscator_settings: HeaderObfuscatorSettings,
+    // An incoming connection may be attempting to connect create a new session while the current session is dropping. In this case,
+    // the (only first!) incoming connection places a sender with the intent that its sender gets awaited and returns once the session
+    // drops along with the drop_listener. This is to stop race conditions when higher-level applications try to connect right after disconnecting.
+    pub(super) drop_listener: DualRwLock<Option<citadel_io::tokio::sync::oneshot::Sender<()>>>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -254,8 +258,8 @@ pub enum SessionState {
     ConnectionProcess,
     /// The hypernode is connected to the remote peer, and can now send information
     Connected,
-    /// The hypernode is disconnected. Data cannot flow through
-    Disconnected,
+    /// The hypernode is in the process of disconnecting. Allows incoming connections for this session wait for the session to be closed
+    Disconnecting,
 }
 
 #[derive(Debug, Clone)]
@@ -434,6 +438,7 @@ impl<R: Ratchet> CitadelSession<R> {
             stun_servers,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
+            drop_listener: DualRwLock::from(None),
             session_password,
         };
 
@@ -2491,7 +2496,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     /// Stops the future from running
     pub fn shutdown(&self) {
-        self.state.set(SessionState::Disconnected);
+        self.state.set(SessionState::Disconnecting);
         let _ = inner!(self.stopper_tx).send(());
     }
 
@@ -2518,12 +2523,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     pub(crate) fn is_provisional(&self) -> bool {
         let state = self.state.get();
-        //self.session_cid.is_none()
-        // SocketJustOpened is only the state for a session created from an incoming connection
-        state == SessionState::SocketJustOpened
-            || state == SessionState::NeedsConnect
-            || state == SessionState::ConnectionProcess
-            || state == SessionState::NeedsRegister
+        state != SessionState::Connected && state != SessionState::Disconnecting
     }
 
     pub(crate) fn send_session_dc_signal<T: Into<String>>(
@@ -2537,6 +2537,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
                 .session_cid
                 .get()
                 .map(|session_cid| VirtualConnectionType::LocalGroupServer { session_cid });
+            self.state.set(SessionState::Disconnecting);
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
                 cid_opt: self.session_cid.get(),
