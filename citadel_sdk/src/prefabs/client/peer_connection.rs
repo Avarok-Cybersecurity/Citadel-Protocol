@@ -452,7 +452,7 @@ where
         }
 
         let remote = connect_success.clone();
-        let (ref tx, rx) = citadel_io::tokio::sync::mpsc::channel(peers_to_connect.len());
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::channel(peers_to_connect.len());
         let requests = FuturesUnordered::new();
 
         for (mutually_registered, peer_to_connect) in
@@ -461,6 +461,7 @@ where
             // Each task will be responsible for possibly registering to and connecting
             // with the desired peer
             let remote = remote.clone();
+            let tx = tx.clone();
             let PeerConnectionSettings {
                 id,
                 session_security_settings,
@@ -564,9 +565,17 @@ where
         }
 
         // TODO: What should be done if a peer conn fails? No room for error here
-        let collection_task = async move { requests.try_collect::<()>().await };
+        // Drop the original tx so channel closes after all tasks complete
+        drop(tx);
 
-        citadel_io::tokio::try_join!(collection_task, f(rx, connect_success)).map(|_| ())
+        // Use join! not try_join! to ensure both branches complete even if one errors
+        // This prevents premature cancellation of the user callback
+        let (collection_result, user_result) =
+            citadel_io::tokio::join!(requests.try_collect::<()>(), f(rx, connect_success));
+
+        // Return first error, or success if both succeeded
+        collection_result?;
+        user_result
     }
 
     fn construct(kernel: Box<dyn NetKernel<R> + 'a>) -> Self {
