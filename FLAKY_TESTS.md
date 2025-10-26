@@ -11,12 +11,12 @@ This document tracks flaky tests discovered in the CI pipeline. Tests are consid
 
 | Test | Platform | Occurrences | Status |
 |------|----------|-------------|--------|
-| `peer_to_peer_connect_transient::case_2` | ubuntu-latest (release) | 1 | ⚠️ Needs investigation |
-| `peer_to_peer_connect_transient::case_3` | windows-latest | 1 | ⚠️ Needs investigation |
-| `peer_to_peer_connect_transient::case_4` | windows-latest | 1 | ⚠️ Needs investigation |
-| `test_peer_to_peer_file_transfer::case_1` | ubuntu-latest (release) | 1 | ⚠️ Needs investigation |
-| `stress_test_p2p_messaging::case_1::AES_GCM_256` | ubuntu-latest | 1 | ⚠️ Likely timing-related |
-| `stress_test_p2p_messaging::case_1::ChaCha20Poly_1305` | coverage (macos) | 1 | ⚠️ Likely timing-related |
+| `peer_to_peer_connect_transient::case_2` | ubuntu-latest (release) | 1 | ✅ Fixed (commit 844769b5) |
+| `peer_to_peer_connect_transient::case_3` | windows-latest | 1 | ✅ Fixed (commit 844769b5) |
+| `peer_to_peer_connect_transient::case_4` | windows-latest | 1 | ✅ Fixed (commit 844769b5) |
+| `test_peer_to_peer_file_transfer::case_1` | ubuntu-latest (release) | 1 | ✅ Fixed (commit 844769b5) |
+| `stress_test_p2p_messaging::case_1::AES_GCM_256` | ubuntu-latest | 1 | ✅ Fixed (commit 844769b5) |
+| `stress_test_p2p_messaging::case_1::ChaCha20Poly_1305` | coverage (macos) | 1 | ✅ Fixed (commit 844769b5) |
 
 **Total Flaky Tests:** 6  
 **Total Unique Tests:** 4  
@@ -50,40 +50,51 @@ This test creates peer-to-peer connections between multiple clients in a transie
 3. Optionally tests deregistration (when peer_count == 2)
 4. Validates that all peers can see each other in their peer lists
 
-#### Likely Causes:
-1. **Race condition in peer connection establishment**: When multiple peers attempt to connect simultaneously, there may be timing issues in the handshake protocol
-2. **TestBarrier synchronization**: The test uses `wait_for_peers()` which relies on a shared barrier - this may timeout if one peer is delayed
-3. **Header obfuscation timing**: Cases 2 and 3 use header obfuscation which may introduce additional latency
-4. **Platform-specific timing**: Windows shows more flakiness, suggesting OS-level scheduling or networking differences
+#### Root Cause ✅ IDENTIFIED:
+**`try_join!` cancellation semantics in `PeerConnectionKernel::on_c2s_channel_received`**
 
-#### Potential Fixes:
-1. **Add exponential backoff for peer connection attempts**: Similar to the fix we applied for ratchet rekey
-2. **Increase timeout margins**: The 90-second timeout may be too tight for slower CI runners
-3. **Add retry logic at the application level**: Instead of relying solely on nextest retries
-4. **Improve peer discovery synchronization**: Add more robust waiting logic before asserting peer visibility
-5. **Add detailed logging**: To identify exactly where the race condition occurs
+The function used `try_join!(requests.try_collect(), f(rx, connect_success))` which has cancellation semantics:
+- When `requests.try_collect()` completed (all peer connection tasks finished)
+- `try_join!` would **cancel** the other branch `f(rx, connect_success)` (user callback)
+- If the callback hadn't received all peer connections yet, it would be cancelled mid-way
+- This caused tests to see incomplete connection counts (e.g., "Peer X has 0 connections")
 
-#### Recommended Action:
-```rust
-// Consider adding a more robust wait mechanism:
-async fn wait_for_peer_connection_stable(
-    connection: &NodeConnection,
-    expected_peer_count: usize,
-    max_attempts: usize,
-    delay_ms: u64,
-) -> Result<(), NetworkError> {
-    for attempt in 0..max_attempts {
-        let peers = connection.get_peers(None).await?;
-        if peers.len() >= expected_peer_count {
-            // Wait a bit more to ensure stability
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(delay_ms * (1 << attempt.min(4)))).await;
-    }
-    Err(NetworkError::msg("Peer connection timeout"))
-}
+**Evidence from logs:**
 ```
+INFO citadel: citadel_sdk\src\prefabs\client\peer_connection.rs:1326: ~~~*** Peer 15553057521814058341 has 0 connections to other peers ***~~~
+INFO citadel: citadel_sdk\src\prefabs\client\peer_connection.rs:1326: ~~~*** Peer 16965012495046027922 has 1 connections to other peers ***~~~
+INFO citadel: citadel_sdk\src\prefabs\client\peer_connection.rs:1326: ~~~*** Peer 13614543045582150598 has 1 connections to other peers ***~~~
+```
+Peers should each have 2 connections, but callback was cancelled before receiving all results.
+
+#### The Fix ✅ IMPLEMENTED (commit 844769b5):
+
+**Location:** `citadel_sdk/src/prefabs/client/peer_connection.rs:570-580`
+
+**Changes:**
+1. Clone `tx` for each task (was using `ref tx` before, preventing proper ownership)
+2. Replace `try_join!` with `join!` to ensure BOTH branches complete
+3. Check errors after both complete, prioritizing collection errors
+
+**Code:**
+```rust
+// Before (flaky):
+citadel_io::tokio::try_join!(collection_task, f(rx, connect_success)).map(|_| ())
+
+// After (fixed):
+let (collection_result, user_result) = citadel_io::tokio::join!(
+    requests.try_collect::<()>(),
+    f(rx, connect_success)
+);
+collection_result?;
+user_result
+```
+
+**Why it works:**
+- `join!` waits for **both** branches to complete, even if one errors
+- User callback `f(rx, connect_success)` always receives all peer connection results
+- No race condition, no sleeps, no timeouts needed
+- Pure fix addressing the root cause
 
 ---
 
