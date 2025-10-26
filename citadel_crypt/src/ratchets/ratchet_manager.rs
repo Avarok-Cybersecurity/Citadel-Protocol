@@ -1078,8 +1078,13 @@ where
 
         log::debug!(target: "citadel", "*** Client {} rekey completed ***", self.cid);
 
-        // Clear any leftover constructors to allow future rekeys
-        self.constructors.lock().clear();
+        // Clear constructors for versions <= the just-completed version
+        // Keep constructors for future versions that may have been created by concurrent trigger_rekey() calls
+        let completed_version = latest_ratchet.version();
+        self.constructors
+            .lock()
+            .retain(|&version, _| version > completed_version);
+        log::trace!(target: "citadel", "Client {} cleared constructors for versions <= {}", self.cid, completed_version);
 
         // Reset role to Idle to allow future rekeys
         self.set_role(RekeyRole::Idle);
