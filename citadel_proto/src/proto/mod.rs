@@ -78,11 +78,9 @@ pub(crate) fn get_preferred_primary_stream<R: Ratchet>(
     state_container: &StateContainerInner<R>,
 ) -> Option<OutboundPrimaryStreamSender> {
     if header.target_cid.get() != 0 {
-        Some(
-            state_container
-                .get_preferred_stream(header.session_cid.get())
-                .clone(),
-        )
+        state_container
+            .get_preferred_stream(header.session_cid.get())
+            .cloned()
     } else {
         session.to_primary_stream.clone()
     }

@@ -1645,8 +1645,14 @@ impl<R: Ratchet> CitadelSession<R> {
                     .get_ratchet(None)
                     .unwrap();
 
-                let preferred_primary_stream =
-                    state_container.get_preferred_stream(target_cid).clone();
+                let preferred_primary_stream = state_container
+                    .get_preferred_stream(target_cid)
+                    .ok_or_else(|| {
+                        NetworkError::msg(
+                            "Connection unavailable (shutdown in progress or connection closed)",
+                        )
+                    })?
+                    .clone();
 
                 let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
                     source,
@@ -2004,8 +2010,19 @@ impl<R: Ratchet> CitadelSession<R> {
                     _other => (Ticket::default(), SecurityLevel::default()),
                 };
 
-                let preferred_stream =
-                    state_container.get_preferred_stream(v_conn.get_target_cid());
+                let preferred_stream = if let Some(stream) =
+                    state_container.get_preferred_stream(v_conn.get_target_cid())
+                {
+                    stream
+                } else {
+                    return Err((
+                        NetworkError::msg(
+                            "Connection unavailable (shutdown in progress or connection closed)",
+                        ),
+                        attributed_ticket,
+                        original_payload,
+                    ));
+                };
                 let endpoint_container = if let Some(ep) =
                     state_container.get_virtual_connection_crypto(v_conn.get_target_cid())
                 {

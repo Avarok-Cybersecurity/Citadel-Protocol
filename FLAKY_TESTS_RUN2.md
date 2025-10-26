@@ -72,7 +72,7 @@ Similar to the peer connection issue - may have a race between message processin
 
 ---
 
-### 3. Stress Tests - Still Flaky
+### 3. Stress Tests - Still Flaky ✅ ROOT CAUSE IDENTIFIED
 
 **Tests:**
 - `stress_test_p2p_messaging::case_1::AES_GCM_256` (3/3 - severe)
@@ -86,11 +86,64 @@ These tests send 100-500 messages under heavy load. The flakiness pattern shows:
 - Both P2P and C2S messaging affected
 - Coverage builds (with profiling overhead) show more flakiness
 
-**Likely Causes:**
-1. Rekey operations happening during high message throughput
-2. Message queue backpressure not handled properly
-3. Encryption/decryption contention under load
-4. Potential deadlock in message ordering guarantees
+**Root Cause ✅ IDENTIFIED:**
+**Panic during shutdown: "The C2S virtual connection should always exist"**
+
+**Location:** `citadel_proto/src/proto/state_container.rs:657`
+
+**The Bug:**
+The `get_preferred_stream()` method used `expect()` to assert the C2S connection always exists:
+```rust
+get_inner(self, peer_cid).unwrap_or_else(|| {
+    get_inner(self, C2S_IDENTITY_CID)
+        .expect("The C2S virtual connection should always exist")  // PANIC!
+})
+```
+
+During shutdown, the C2S connection is dropped before all P2P cleanup completes. When code tries to send messages or access streams during this cleanup, it panics.
+
+**Evidence from logs:**
+```
+WARN citadel: [SHUTDOWN TRIGGER] Client 14638777158011162540 shutting down rekey
+WARN citadel: Outbound ratchet task ended
+WARN citadel: Combined task ended
+ERROR citadel: Panic occurred: The C2S virtual connection should always exist
+```
+
+**Why tests timeout on retry:**
+After the panic, subsequent retry attempts may experience:
+- Incomplete peer connection establishment (stuck waiting)
+- 120-second timeout at `stress_tests.rs:530`
+- Test infrastructure in inconsistent state
+
+**The Fix ✅ IMPLEMENTED:**
+
+Changed `get_preferred_stream()` to return `Option` instead of panicking:
+```rust
+// Before (panics):
+pub fn get_preferred_stream(&self, peer_cid: u64) -> &OutboundPrimaryStreamSender {
+    get_inner(self, peer_cid).unwrap_or_else(|| {
+        get_inner(self, C2S_IDENTITY_CID)
+            .expect("The C2S virtual connection should always exist")
+    })
+}
+
+// After (graceful):
+pub fn get_preferred_stream(&self, peer_cid: u64) -> Option<&OutboundPrimaryStreamSender> {
+    get_inner(self, peer_cid).or_else(|| get_inner(self, C2S_IDENTITY_CID))
+}
+```
+
+Updated all call sites (3 locations) to handle `None`:
+1. File transfer: Return error "Connection unavailable (shutdown in progress)"
+2. Message sending: Return error with ticket for proper cleanup
+3. Preferred stream getter: Return None (already returns Option)
+
+**Why this fixes it:**
+- No more panics during shutdown
+- Graceful error handling when connections are closed
+- Proper cleanup and error propagation to test infrastructure
+- Tests can complete normally even if shutdown race occurs
 
 ---
 

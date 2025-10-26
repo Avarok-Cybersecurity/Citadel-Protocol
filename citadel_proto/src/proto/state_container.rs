@@ -634,7 +634,10 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// Attempts to find the direct p2p stream. If not found, will use the default
     /// to_server stream. Note: the underlying crypto is still the same
-    pub fn get_preferred_stream(&self, peer_cid: u64) -> &OutboundPrimaryStreamSender {
+    ///
+    /// Returns None if neither the peer connection nor the C2S connection exist,
+    /// which can happen during shutdown when connections are being torn down.
+    pub fn get_preferred_stream(&self, peer_cid: u64) -> Option<&OutboundPrimaryStreamSender> {
         fn get_inner<R: Ratchet>(
             this: &StateContainerInner<R>,
             peer_cid: u64,
@@ -651,11 +654,8 @@ impl<R: Ratchet> StateContainerInner<R> {
             )
         }
 
-        // On fallback
-        get_inner(self, peer_cid).unwrap_or_else(|| {
-            get_inner(self, C2S_IDENTITY_CID)
-                .expect("The C2S virtual connection should always exist")
-        })
+        // Try peer connection first, then fall back to C2S
+        get_inner(self, peer_cid).or_else(|| get_inner(self, C2S_IDENTITY_CID))
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
