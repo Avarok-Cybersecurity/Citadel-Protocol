@@ -399,6 +399,21 @@ where
             .await
             .map_err(|_| CryptError::RekeyUpdateError("Join error on stage0_alice".into()))??;
 
+            // For wait_for_completion=true, register listener BEFORE sending to avoid missing notification
+            let rx = if wait_for_completion {
+                // CBD: Checkpoint RKT-6
+                log::info!(target: "citadel", "[CBD-RKT-6] Client {} registering listener before sending: elapsed={}ms",
+                    self.cid, rkt_start.elapsed().as_millis());
+
+                let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
+                if self.local_listener.lock().replace(tx).is_some() {
+                    log::error!(target: "citadel", "Replaced local listener; this should not happen");
+                }
+                Some(rx)
+            } else {
+                None
+            };
+
             // CBD: Checkpoint RKT-4
             log::info!(target: "citadel", "[CBD-RKT-4] Client {} sending AliceToBob: elapsed={}ms",
                 self.cid, rkt_start.elapsed().as_millis());
@@ -437,18 +452,8 @@ where
                 return Ok(None);
             }
 
-            // CBD: Checkpoint RKT-6
-            log::info!(target: "citadel", "[CBD-RKT-6] Client {} registering listener and waiting: elapsed={}ms",
-                self.cid, rkt_start.elapsed().as_millis());
-
-            let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
-
-            if self.local_listener.lock().replace(tx).is_some() {
-                log::error!(target: "citadel", "Replaced local listener; this should not happen");
-            }
-
             // Block until the entire rekey is finished
-            let _res = rx.await.map_err(|_| {
+            let _res = rx.unwrap().await.map_err(|_| {
                 CryptError::RekeyUpdateError("Failed to wait for local listener".to_string())
             })?;
 
