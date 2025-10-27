@@ -643,6 +643,7 @@ where
                         // CBD: Version snapshot upon receiving AliceToBob
                         log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} recv AliceToBob: peer_earliest={}, peer_latest={}, local_earliest={}, local_latest={}, role={:?}, state={:?}",
                             self.cid, earliest_ratchet_version, latest_ratchet_version, local_earliest_ratchet_version, local_latest_ratchet_version, self.role(), self.state());
+                        log::debug!(target: "citadel", "[CBD-RKT-PROC-1] Client {} starting AliceToBob processing", self.cid);
 
                         // Validate against our barrier. We only care about the latest version, since the
                         // earliest version may still be syncing
@@ -722,6 +723,7 @@ where
                         }
 
                         // Create Bob constructor
+                        log::debug!(target: "citadel", "[CBD-RKT-PROC-2] Client {} creating Bob constructor", self.cid);
                         let bob_constructor =
                             <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                 self.cid, next_opts, transfer, &self.psks,
@@ -733,14 +735,23 @@ where
                             })?;
 
                         // Offload update_sync_safe
-                        citadel_io::tokio::task::spawn_blocking({
+                        log::debug!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking update_sync_safe", self.cid);
+                        let status_result = citadel_io::tokio::task::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
-                            move || session_crypto_state.update_sync_safe(bob_constructor, false)
+                            let cid = self.cid;
+                            move || {
+                                log::debug!(target: "citadel", "[CBD-RKT-PROC-4] Client {} inside spawn_blocking", cid);
+                                let result = session_crypto_state.update_sync_safe(bob_constructor, false);
+                                log::debug!(target: "citadel", "[CBD-RKT-PROC-5] Client {} spawn_blocking completed", cid);
+                                result
+                            }
                         })
                         .await
                         .map_err(|_| {
                             CryptError::RekeyUpdateError("Join error on update_sync_safe".into())
-                        })??
+                        })??;
+                        log::debug!(target: "citadel", "[CBD-RKT-PROC-6] Client {} update_sync_safe returned", self.cid);
+                        status_result
                     };
 
                     match status {
