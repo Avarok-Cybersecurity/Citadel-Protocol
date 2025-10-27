@@ -662,9 +662,10 @@ where
                             ));
                         }
 
-                        // If we're Leader and have no constructor for this message, it's likely a stale
-                        // AliceToBob from a simultaneous rekey attempt. We already transitioned to Leader,
-                        // sent Truncate, and are waiting for LeaderCanFinish. Skip this stale message.
+                        // If we're Leader and have no constructor, it's a stale AliceToBob from a
+                        // simultaneous rekey that was superseded. Skip it.
+                        // BUT: If we're Idle, lack of constructor is normal - the peer is initiating
+                        // a new rekey and we'll act as Bob. Only skip in Leader role.
                         if self.role() == RekeyRole::Leader {
                             let has_constructor = self
                                 .constructors
@@ -672,15 +673,15 @@ where
                                 .contains_key(&peer_metadata.next_version);
                             if !has_constructor {
                                 stale_message_count += 1;
-                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} (Leader) ignoring AliceToBob with no constructor (likely from superseded simultaneous rekey): stale_count={}/{}",
-                                    self.cid, stale_message_count, MAX_STALE_MESSAGES);
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} (Leader) ignoring AliceToBob with no constructor (from superseded simultaneous rekey): next_version={}, stale_count={}/{}",
+                                    self.cid, peer_metadata.next_version, stale_message_count, MAX_STALE_MESSAGES);
 
                                 if stale_message_count >= MAX_STALE_MESSAGES {
                                     return Err(CryptError::RekeyUpdateError(
                                         format!("Too many stale AliceToBob messages ({stale_message_count})")
                                     ));
                                 }
-                                continue; // Skip and wait for LeaderCanFinish
+                                continue; // Skip this stale message
                             }
                         }
 
@@ -949,6 +950,18 @@ where
                     log::info!(target: "citadel", "[CBD-RKT-TRUNCATE] Client {} AFTER truncate: earliest={}, latest={}, role={:?}",
                         self.cid, post_earliest, post_latest, self.role());
 
+                    // Clean up any unused Alice constructor that was created during simultaneous rekey
+                    // but was superseded when we became Loser. The Leader's rekey won, so our Alice
+                    // constructor (for next_version = latest_version + 1) should be removed to prevent
+                    // it from being used in future rekey attempts after this round completes.
+                    let unused_constructor_version = latest_version + 1;
+                    if let Some(_removed) =
+                        self.constructors.lock().remove(&unused_constructor_version)
+                    {
+                        log::debug!(target: "citadel", "[CBD-RKT-TRUNCATE] Client {} removed unused Alice constructor for version {}",
+                            self.cid, unused_constructor_version);
+                    }
+
                     self.sender
                         .lock()
                         .await
@@ -998,6 +1011,16 @@ where
                         .get_oldest_ratchet_version();
                     log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} AFTER LoserCanFinish: earliest={}, latest={}, version_sent={}, role={:?}",
                         self.cid, post_earliest, post_latest, latest_version, self.role());
+
+                    // Clean up any unused Alice constructor that was created during simultaneous rekey
+                    // Similar to Truncate path - if we became Loser, our Alice constructor is unused.
+                    let unused_constructor_version = latest_version + 1;
+                    if let Some(_removed) =
+                        self.constructors.lock().remove(&unused_constructor_version)
+                    {
+                        log::debug!(target: "citadel", "[CBD-RKT-LOSER] Client {} removed unused Alice constructor for version {}",
+                            self.cid, unused_constructor_version);
+                    }
 
                     // Send a LeaderCanFinish to unlock them
                     self.sender
