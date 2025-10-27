@@ -316,6 +316,74 @@ if self.role() == RekeyRole::Leader {
 
 ---
 
+## Fix #7: BobToAlice Stale Message Detection
+
+**Commit**: `ee10cad` - Add stale message detection for BobToAlice  
+**Date**: 2025-10-27  
+**Pipeline**: ⏳ **PENDING** (pushed, awaiting results)
+
+### Problem Discovered
+Ratchet Stability Test failed 1/10 iterations with a 360-second timeout:
+
+```
+Iteration 5/10 FAILED [ 360.169s]
+test_messenger_racy_with_random_start_lag::min_delay_2_1::secrecy_mode_2_SecrecyMode__Perfect
+
+WARN: Client 10 rekey error: Unexpected BobToAlice message with no loaded
+      local constructor for next_version 87
+```
+
+**Analysis**: During high-frequency rekey scenarios (87+ rounds!), the same stale message issue we fixed for `AliceToBob` (Fix #5) also applies to `BobToAlice` messages.
+
+**Scenario**:
+1. Both clients perform many simultaneous rekeys (reaching version 87)
+2. Leader wins a contentious rekey, removes its Alice constructor
+3. Leader receives stale `BobToAlice` from Loser's superseded attempt
+4. Leader tries to process it but has no constructor → error
+5. Error propagates, test times out after 6 minutes
+
+**Key Insight**: We fixed stale `AliceToBob` detection in Fix #5 but forgot the symmetric case—Leader can also receive stale `BobToAlice` messages from superseded simultaneous rekey attempts.
+
+### Solution Applied
+Apply the same stale detection logic to `BobToAlice` that we use for `AliceToBob`:
+
+```rust
+// Before processing BobToAlice, check if we have constructor
+let has_constructor = self.constructors.lock().contains_key(&peer_metadata.next_version);
+
+if !has_constructor && self.role() == RekeyRole::Leader {
+    stale_message_count += 1;
+    log::debug!("[CBD-RKT-STALE] Client {} (Leader) ignoring BobToAlice with no constructor", self.cid);
+    
+    if stale_message_count >= MAX_STALE_MESSAGES {
+        return Err(...);
+    }
+    continue; // Skip this stale message
+}
+```
+
+**Why this works**: Same reasoning as Fix #5—if Leader has no constructor for a `BobToAlice` message, it's from a cancelled/superseded simultaneous rekey. Skip it and wait for proper completion messages.
+
+### Code Changes
+- File: `citadel_crypt/src/ratchets/ratchet_manager.rs`
+- Lines: 837-856 (new stale detection for BobToAlice)
+- Pattern: Mirrors the AliceToBob stale detection logic
+
+### Tests Fixed (Locally)
+- ✅ `test_messenger_racy_with_random_start_lag::min_delay_2_1::secrecy_mode_2_SecrecyMode__Perfect`: 5/5 passes
+- ✅ All tests complete in <1s (vs 360s timeout)
+
+### Key Insights
+1. **Symmetry matters**: If one message type can be stale, its counterpart likely can too
+2. **High-frequency testing reveals edge cases**: 87 rekey rounds exposed issue that lower counts missed
+3. **Pattern replication**: Once we identified the fix pattern for AliceToBob, applying it to BobToAlice was straightforward
+4. **Stability tests are valuable**: Running 10 iterations catches low-probability races (10% failure rate)
+
+### Outcome
+⏳ Pending CI results - expecting Ratchet Stability Test to pass 10/10
+
+---
+
 ## Quick Reference
 
 ### All Commits in Order
@@ -325,18 +393,21 @@ if self.role() == RekeyRole::Leader {
 4. `28aab81` - Empty commit for analysis (FAILED - exposed deadlock)
 5. `f7dd436` - First deadlock fix (FAILED - incomplete)
 6. `5fb1afc` - Second deadlock fix (PENDING)
+7. `638adc5` - Documentation (Fix log creation)
+8. `ee10cad` - BobToAlice stale detection (PENDING)
 
 ### Test History
-- `min_delay_1_0`: Initially 0/3 → After Fix #5: 5/5 local → After Fix #6: 5/5 local
-- `min_delay_2_1`: Initially 0/3 → After Fix #5: 5/5 local → After Fix #6: 5/5 local
+- `min_delay_1_0`: Initially 0/3 → After Fix #5: 5/5 local → After Fix #6: 5/5 local → After Fix #7: N/A
+- `min_delay_2_1`: Initially 0/3 → After Fix #5: 5/5 local → After Fix #6: 5/5 local → After Fix #7: N/A
+- `test_messenger_racy...Perfect`: Initially 1/10 → After Fix #7: 5/5 local
 
 ### Key Files Modified
-- `citadel_crypt/src/ratchets/ratchet_manager.rs` (all fixes)
+- `citadel_crypt/src/ratchets/ratchet_manager.rs` (Fixes #1, #5, #6, #7)
 - `citadel_sdk/src/prelude/peer_connection.rs` (Fix #2)
 - `citadel_sdk/src/prefabs/client/single_connection.rs` (Fix #3)
 
 ---
 
 **Last Updated**: 2025-10-27  
-**Status**: Awaiting CI results for Fix #6  
-**Next Steps**: Monitor pipeline, append results when available
+**Status**: Awaiting CI results for Fix #6 and Fix #7  
+**Next Steps**: Monitor pipeline, especially Ratchet Stability Test (10 iterations)
