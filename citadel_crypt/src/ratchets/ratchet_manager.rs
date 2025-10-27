@@ -344,7 +344,19 @@ where
             let _res = rx.await.map_err(|_| {
                 CryptError::RekeyUpdateError("Failed to wait for ongoing rekey".to_string())
             })?;
-            return Ok(None);
+
+            // After waiting, check if version advanced. If so, rekey completed successfully.
+            let current_version = self.session_crypto_state.latest_usable_version();
+            if current_version > version_at_entry {
+                log::debug!(target: "citadel", "[CBD-RKT-0f] Client {} version advanced from {} to {} after waiting",
+                    self.cid, version_at_entry, current_version);
+                return Ok(None);
+            }
+
+            // Version didn't advance - the ongoing rekey might have been cancelled or failed.
+            // Fall through to start a new rekey.
+            log::debug!(target: "citadel", "[CBD-RKT-0g] Client {} version unchanged after waiting ({}); proceeding with new rekey",
+                self.cid, current_version);
         }
 
         // CBD: Checkpoint RKT-2
