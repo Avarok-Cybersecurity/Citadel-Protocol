@@ -834,6 +834,27 @@ where
                         )));
                     }
 
+                    // Check if we have a constructor for this BobToAlice message.
+                    // If we're Leader and don't have one, this is likely a stale message from
+                    // a superseded simultaneous rekey (similar to AliceToBob stale detection).
+                    let has_constructor = self
+                        .constructors
+                        .lock()
+                        .contains_key(&peer_metadata.next_version);
+
+                    if !has_constructor && self.role() == RekeyRole::Leader {
+                        stale_message_count += 1;
+                        log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} (Leader) ignoring BobToAlice with no constructor (from superseded simultaneous rekey): next_version={}, stale_count={}/{}",
+                            self.cid, peer_metadata.next_version, stale_message_count, MAX_STALE_MESSAGES);
+
+                        if stale_message_count >= MAX_STALE_MESSAGES {
+                            return Err(CryptError::RekeyUpdateError(format!(
+                                "Too many stale BobToAlice messages ({stale_message_count})"
+                            )));
+                        }
+                        continue; // Skip this stale message
+                    }
+
                     // Now process the transfer data
                     let mut constructor =
                         { self.constructors.lock().remove(&peer_metadata.next_version) };
