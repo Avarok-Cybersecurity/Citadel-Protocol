@@ -662,6 +662,28 @@ where
                             ));
                         }
 
+                        // If we're Leader and have no constructor for this message, it's likely a stale
+                        // AliceToBob from a simultaneous rekey attempt. We already transitioned to Leader,
+                        // sent Truncate, and are waiting for LeaderCanFinish. Skip this stale message.
+                        if self.role() == RekeyRole::Leader {
+                            let has_constructor = self
+                                .constructors
+                                .lock()
+                                .contains_key(&peer_metadata.next_version);
+                            if !has_constructor {
+                                stale_message_count += 1;
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} (Leader) ignoring AliceToBob with no constructor (likely from superseded simultaneous rekey): stale_count={}/{}",
+                                    self.cid, stale_message_count, MAX_STALE_MESSAGES);
+
+                                if stale_message_count >= MAX_STALE_MESSAGES {
+                                    return Err(CryptError::RekeyUpdateError(
+                                        format!("Too many stale AliceToBob messages ({stale_message_count})")
+                                    ));
+                                }
+                                continue; // Skip and wait for LeaderCanFinish
+                            }
+                        }
+
                         // Validate metadata
                         if peer_metadata != metadata {
                             // Check if this is a stale message (peer is behind by 1 version)
