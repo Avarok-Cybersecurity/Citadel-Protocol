@@ -1402,14 +1402,14 @@ pub(crate) mod tests {
         let container_1_task = task(container_1.clone(), None);
 
         // Add timeout to catch deadlocks
-        // Increased to 30s to accommodate slow machines with coverage instrumentation overhead
-        // and the MAX_STALE_MESSAGES=20 threshold which can take time to process
-        let timeout = tokio::time::sleep(Duration::from_secs(30));
+        // Increased to 60s to accommodate slow CI runners (especially macOS) with coverage
+        // instrumentation overhead and the MAX_STALE_MESSAGES threshold processing time
+        let timeout = tokio::time::sleep(Duration::from_secs(60));
         tokio::pin!(timeout);
 
         tokio::select! {
             _ = &mut timeout => {
-                log::error!(target: "citadel", "Rekey round timed out after 30 seconds");
+                log::error!(target: "citadel", "Rekey round timed out after 60 seconds");
                 let _ = container_0.shutdown();
                 let _ = container_1.shutdown();
                 panic!("Rekey round timed out - possible deadlock");

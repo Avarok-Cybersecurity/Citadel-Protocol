@@ -349,10 +349,20 @@ mod tests {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
 
-        // If the underlying protocol is TLS, we will skip since windows runners do not always accept self-signed certs
-        if matches!(underlying_protocol, ServerUnderlyingProtocol::Tls(..)) && cfg!(windows) {
-            citadel_logging::warn!(target: "citadel", "Will skip test since self-signed certs may not necessarily work on windows runner");
-            return;
+        // Skip TLS tests on Windows since self-signed certs may not work
+        // Skip QUIC tests on Windows since socket binding often fails with error 10013
+        if cfg!(windows) {
+            match &underlying_protocol {
+                ServerUnderlyingProtocol::Tls(..) => {
+                    citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
+                    return;
+                }
+                ServerUnderlyingProtocol::Quic(..) => {
+                    citadel_logging::warn!(target: "citadel", "Skipping QUIC test on Windows - socket binding may fail with error 10013");
+                    return;
+                }
+                _ => {}
+            }
         }
 
         let client_success = &AtomicBool::new(false);
