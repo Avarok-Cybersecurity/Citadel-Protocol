@@ -502,7 +502,6 @@ pub mod re_imports {
     pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
-    pub use citadel_wire::exports::rustls_pemfile;
     pub use citadel_wire::exports::ClientConfig as RustlsClientConfig;
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic::insecure;

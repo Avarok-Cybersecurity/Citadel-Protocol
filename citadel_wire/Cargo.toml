@@ -22,7 +22,6 @@ std = [
     "quinn/default",
     "serde/std",
     "async_ip/std",
-    "rustls-pemfile/std",
 ]
 localhost-testing = ["tracing"]
 wasm = ["citadel_io/wasm", "netbeam/wasm"]
@@ -53,7 +52,6 @@ rustls-native-certs = { workspace = true }
 igd = { workspace = true, features = ["aio"] }
 stun = { workspace = true }
 rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
-rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
