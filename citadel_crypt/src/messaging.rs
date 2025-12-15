@@ -422,9 +422,6 @@ mod tests {
             for x in 0..100u64 {
                 if let Some(delay) = delay {
                     tokio::time::sleep(delay).await;
-                } else {
-                    // Yield to scheduler to prevent deadlock in maximum contention scenarios
-                    tokio::task::yield_now().await;
                 }
 
                 let payload = P::from(x);
@@ -462,9 +459,6 @@ mod tests {
             for x in 0..100u64 {
                 if let Some(delay) = delay {
                     tokio::time::sleep(delay).await;
-                } else {
-                    // Yield to scheduler to prevent deadlock in maximum contention scenarios
-                    tokio::task::yield_now().await;
                 }
 
                 let payload = P::from(x);
@@ -562,9 +556,9 @@ mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_with_random_start_lag(
-        // Removed min_delay=0,1 because they create unrealistic maximum contention
-        // that causes flaky timeouts on slow CI runners (especially macOS).
-        #[values(10, 100)] min_delay: u64,
+        // Tests various levels of contention. ToggleGuard in ratchet_manager
+        // ensures proper cleanup on error paths.
+        #[values(0, 1, 10, 100)] min_delay: u64,
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
@@ -588,9 +582,9 @@ mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious_with_random_start_lag(
-        // Removed min_delay=0,1 because they create unrealistic maximum contention
-        // that causes flaky timeouts on slow CI runners (especially macOS).
-        #[values(10, 100)] min_delay: u64,
+        // Tests various levels of contention. ToggleGuard in ratchet_manager
+        // ensures proper cleanup on error paths.
+        #[values(0, 1, 10, 100)] min_delay: u64,
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();

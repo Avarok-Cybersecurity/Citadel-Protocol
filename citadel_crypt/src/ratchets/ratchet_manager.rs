@@ -57,6 +57,7 @@ use crate::endpoint_crypto_container::{
 use crate::misc::CryptError;
 use crate::prelude::Toolset;
 use crate::ratchets::Ratchet;
+use crate::sync_toggle::ToggleGuard;
 use atomic::Atomic;
 use bytemuck::NoUninit;
 use citadel_io::tokio::sync::Mutex as TokioMutex;
@@ -581,6 +582,12 @@ where
     /// to continuously be ready for re-keying.
     async fn rekey(&self, receiver: &mut I) -> Result<R, CryptError> {
         log::trace!(target: "citadel", "Client {} starting rekey with initial role {:?}", self.cid, self.role());
+
+        // Create a guard that will reset toggle_off() on early error returns.
+        // This ensures toggle is always reset even if we exit via an error path.
+        // The guard is armed immediately and disarmed only on successful completion.
+        let mut toggle_guard = ToggleGuard::new(&self.session_crypto_state.update_in_progress);
+        toggle_guard.arm();
 
         // First synchronize state with peer
         let metadata = self.get_rekey_metadata();
@@ -1183,6 +1190,10 @@ where
         // Reset role to Idle to allow future rekeys
         self.set_role(RekeyRole::Idle);
 
+        // Disarm the guard since we're completing successfully.
+        // The explicit toggle_off() below handles the reset.
+        toggle_guard.disarm();
+
         // Ensure update_in_progress is reset
         self.session_crypto_state.update_in_progress.toggle_off();
 
@@ -1595,10 +1606,10 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_with_random_start_lag(
-        // Removed min_delay=0,1 because they create unrealistic maximum contention
-        // that causes flaky timeouts on slow CI runners (especially macOS). Real-world
-        // scenarios always have some network latency (min_delay=10 still tests high contention).
-        #[values(10, 100, 500)] min_delay: u64,
+        // Tests various levels of contention from maximum (0ms) to minimal (500ms).
+        // The ToggleGuard ensures toggle is reset on error paths, fixing the deadlock
+        // that previously occurred under absolute contention (0ms/1ms delays).
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
