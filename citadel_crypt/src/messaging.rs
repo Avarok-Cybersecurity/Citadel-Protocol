@@ -422,6 +422,9 @@ mod tests {
             for x in 0..100u64 {
                 if let Some(delay) = delay {
                     tokio::time::sleep(delay).await;
+                } else {
+                    // Yield to scheduler to prevent deadlock in maximum contention scenarios
+                    tokio::task::yield_now().await;
                 }
 
                 let payload = P::from(x);
@@ -459,6 +462,9 @@ mod tests {
             for x in 0..100u64 {
                 if let Some(delay) = delay {
                     tokio::time::sleep(delay).await;
+                } else {
+                    // Yield to scheduler to prevent deadlock in maximum contention scenarios
+                    tokio::task::yield_now().await;
                 }
 
                 let payload = P::from(x);
