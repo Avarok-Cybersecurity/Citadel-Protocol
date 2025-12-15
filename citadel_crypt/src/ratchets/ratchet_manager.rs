@@ -338,15 +338,40 @@ where
 
             // If wait_for_completion=true, register a listener and wait for the ongoing rekey to finish
             log::debug!(target: "citadel", "[CBD-RKT-0e] Client {} waiting for ongoing rekey to complete", self.cid);
+
+            // Check version BEFORE registering listener to handle the race where rekey
+            // completed between the role check above and now.
+            let current_version = self.session_crypto_state.latest_usable_version();
+            if current_version > version_at_entry {
+                log::debug!(target: "citadel", "[CBD-RKT-0e2] Client {} version already advanced from {} to {} (race avoided)",
+                    self.cid, version_at_entry, current_version);
+                return Ok(None);
+            }
+
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
             if self.local_listener.lock().replace(tx).is_some() {
                 log::warn!(target: "citadel", "Replaced local listener while waiting for ongoing rekey");
             }
-            let _res = rx.await.map_err(|_| {
-                CryptError::RekeyUpdateError("Failed to wait for ongoing rekey".to_string())
-            })?;
 
-            // After waiting, check if version advanced. If so, rekey completed successfully.
+            // Use timeout to prevent infinite blocking if notification is missed
+            // (e.g., rekey completed between version check above and listener registration)
+            const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+            match tokio::time::timeout(WAIT_TIMEOUT, rx).await {
+                Ok(Ok(_)) => {
+                    // Notification received successfully
+                    log::debug!(target: "citadel", "[CBD-RKT-0e3] Client {} received rekey completion notification", self.cid);
+                }
+                Ok(Err(_)) => {
+                    // Sender dropped (rekey failed or error path)
+                    log::debug!(target: "citadel", "[CBD-RKT-0e4] Client {} listener sender dropped", self.cid);
+                }
+                Err(_) => {
+                    // Timeout - check version to see if rekey completed
+                    log::debug!(target: "citadel", "[CBD-RKT-0e5] Client {} wait timeout, checking version", self.cid);
+                }
+            }
+
+            // After waiting (or timeout), check if version advanced. If so, rekey completed successfully.
             let current_version = self.session_crypto_state.latest_usable_version();
             if current_version > version_at_entry {
                 log::debug!(target: "citadel", "[CBD-RKT-0f] Client {} version advanced from {} to {} after waiting",
@@ -531,6 +556,10 @@ where
                     }
 
                     Err(err) => {
+                        // Drop any pending listener so waiters don't block indefinitely.
+                        // The sender being dropped will cause rx.await to return Err.
+                        let _ = self.local_listener.lock().take();
+
                         if matches!(err, CryptError::FatalError(..)) {
                             // Only log if we're the ones initiating shutdown (shutdown_tx still exists)
                             if self.shutdown().is_some() {
@@ -1606,10 +1635,10 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_with_random_start_lag(
-        // Tests various levels of contention. 0ms/1ms cases are temporarily disabled
-        // while we investigate additional deadlock scenarios beyond toggle persistence.
-        // ToggleGuard ensures toggle reset on error paths, but other issues remain.
-        #[values(10, 100, 500)] min_delay: u64,
+        // Tests various levels of contention from maximum (0ms) to minimal (500ms).
+        // ToggleGuard ensures toggle reset on error paths, and notification race fix
+        // uses timeout + version check to prevent indefinite blocking.
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
