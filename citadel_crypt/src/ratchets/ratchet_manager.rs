@@ -736,11 +736,14 @@ where
 
                         // Validate metadata
                         if peer_metadata != metadata {
-                            // Check if this is a stale message (peer is behind by 1 version)
-                            if peer_metadata.current_version + 1 == metadata.current_version {
+                            // Check if this is a stale message (peer is behind us by any amount)
+                            // Under heavy contention (0ms delay), peers can fall multiple versions behind
+                            if peer_metadata.current_version < metadata.current_version {
                                 stale_message_count += 1;
-                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob (metadata): peer={:?}, local={:?}, stale_count={}/{}",
-                                    self.cid, peer_metadata, metadata, stale_message_count, MAX_STALE_MESSAGES);
+                                let versions_behind =
+                                    metadata.current_version - peer_metadata.current_version;
+                                log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale AliceToBob (metadata): peer={:?}, local={:?}, versions_behind={}, stale_count={}/{}",
+                                    self.cid, peer_metadata, metadata, versions_behind, stale_message_count, MAX_STALE_MESSAGES);
                                 // Clean up any constructor for this stale version
                                 let _ =
                                     self.constructors.lock().remove(&peer_metadata.next_version);
@@ -845,11 +848,14 @@ where
 
                     // Validate metadata
                     if peer_metadata != local_metadata {
-                        // Check if this is a stale BobToAlice (peer is behind by 1 version)
-                        if peer_metadata.current_version + 1 == local_metadata.current_version {
+                        // Check if this is a stale BobToAlice (peer is behind us by any amount)
+                        // Under heavy contention (0ms delay), peers can fall multiple versions behind
+                        if peer_metadata.current_version < local_metadata.current_version {
                             stale_message_count += 1;
-                            log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale BobToAlice metadata: peer={:?}, local={:?}, stale_count={}/{}",
-                                self.cid, peer_metadata, local_metadata, stale_message_count, MAX_STALE_MESSAGES);
+                            let versions_behind =
+                                local_metadata.current_version - peer_metadata.current_version;
+                            log::debug!(target: "citadel", "[CBD-RKT-STALE] Client {} ignoring stale BobToAlice metadata: peer={:?}, local={:?}, versions_behind={}, stale_count={}/{}",
+                                self.cid, peer_metadata, local_metadata, versions_behind, stale_message_count, MAX_STALE_MESSAGES);
                             // Clean up any constructor for this stale version
                             let _ = self.constructors.lock().remove(&peer_metadata.next_version);
 
@@ -876,6 +882,21 @@ where
                                 log::debug!(target: "citadel", "Client {} transitioning from Idle to Leader", self.cid);
                             }
                             RoleTransition::Invalid => {
+                                // Double-Loser scenario: Both sides became Loser simultaneously.
+                                // This happens under heavy contention when both peers send AliceToBob,
+                                // both become Loser, and both send BobToAlice to each other.
+                                // Skip this message - our rekey will complete when peer processes our BobToAlice.
+                                if initial_role == RekeyRole::Loser {
+                                    stale_message_count += 1;
+                                    log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (role={:?}) ignoring BobToAlice from double-Loser scenario, stale_count={}/{}",
+                                        self.cid, initial_role, stale_message_count, MAX_STALE_MESSAGES);
+                                    if stale_message_count >= MAX_STALE_MESSAGES {
+                                        return Err(CryptError::RekeyUpdateError(
+                                            format!("Too many double-Loser messages ({stale_message_count}), resynchronization needed")
+                                        ));
+                                    }
+                                    continue; // Skip this message, wait for our BobToAlice to be processed
+                                }
                                 log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
                                 return Err(CryptError::RekeyUpdateError(format!(
                                     "Invalid role transition from {initial_role:?} to Leader"
@@ -887,10 +908,18 @@ where
 
                     // Verify we're in a valid state to process the message
                     if self.role() == RekeyRole::Loser {
-                        return Err(CryptError::RekeyUpdateError(format!(
-                            "Unexpected BobToAlice message since our role is not Leader, but {:?}",
-                            self.role()
-                        )));
+                        // Double-Loser scenario: We're Loser and received a BobToAlice.
+                        // This is a contention scenario where both sides became Loser.
+                        // Skip this message - our rekey will complete when peer processes our BobToAlice.
+                        stale_message_count += 1;
+                        log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} still Loser after role check, ignoring BobToAlice, stale_count={}/{}",
+                            self.cid, stale_message_count, MAX_STALE_MESSAGES);
+                        if stale_message_count >= MAX_STALE_MESSAGES {
+                            return Err(CryptError::RekeyUpdateError(
+                                format!("Too many unexpected BobToAlice while Loser ({stale_message_count}), resynchronization needed")
+                            ));
+                        }
+                        continue; // Skip this message
                     }
 
                     // Check if we have a constructor for this BobToAlice message.
