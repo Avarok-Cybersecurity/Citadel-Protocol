@@ -1685,13 +1685,11 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_with_random_start_lag(
-        // Tests various levels of contention from maximum (10ms) to minimal (500ms).
+        // Tests various levels of contention from maximum (0ms) to minimal (500ms).
         // ToggleGuard ensures toggle reset on error paths, and notification race fix
         // uses timeout + version check to prevent indefinite blocking.
-        // Note: 0ms/1ms delays cause macOS CI timeouts due to scheduler behavior where
-        // generate_delay creates asymmetric yield patterns. The core contention fixes
-        // (metadata desync, double-Loser) are verified by test_ratchet_manager_racy_contentious.
-        #[values(10, 100, 500)] min_delay: u64,
+        // Re-enabled 0ms/1ms after 4 consecutive CI passes with double-Loser tiebreaker fix.
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
