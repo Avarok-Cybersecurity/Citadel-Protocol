@@ -798,8 +798,10 @@ where
                             let serialized = bincode::serialize(&transfer)
                                 .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
 
-                            // Remove any local constructor for this in-flight version, if existent, since it won't be used
-                            let _ = self.constructors.lock().remove(&peer_metadata.next_version);
+                            // DON'T remove constructor here - it may be needed in double-Loser scenario
+                            // where initiator promotes to Leader. Constructor will be properly removed
+                            // at line ~948 when processing BobToAlice.
+                            // Previously: let _ = self.constructors.lock().remove(&peer_metadata.next_version);
                             let _ = self
                                 .session_crypto_state
                                 .update_in_progress
@@ -885,22 +887,32 @@ where
                                 // Double-Loser scenario: Both sides became Loser simultaneously.
                                 // This happens under heavy contention when both peers send AliceToBob,
                                 // both become Loser, and both send BobToAlice to each other.
-                                // Skip this message - our rekey will complete when peer processes our BobToAlice.
+                                // Use local_is_initiator as tiebreaker to break the symmetry.
                                 if initial_role == RekeyRole::Loser {
-                                    stale_message_count += 1;
-                                    log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (role={:?}) ignoring BobToAlice from double-Loser scenario, stale_count={}/{}",
-                                        self.cid, initial_role, stale_message_count, MAX_STALE_MESSAGES);
-                                    if stale_message_count >= MAX_STALE_MESSAGES {
-                                        return Err(CryptError::RekeyUpdateError(
-                                            format!("Too many double-Loser messages ({stale_message_count}), resynchronization needed")
-                                        ));
+                                    if self.session_crypto_state.local_is_initiator() {
+                                        // Initiator wins the tiebreak - promote to Leader and process
+                                        self.set_role(RekeyRole::Leader);
+                                        log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (initiator) promoting to Leader to break deadlock",
+                                            self.cid);
+                                        // Fall through to process the BobToAlice
+                                    } else {
+                                        // Non-initiator yields - skip and wait for peer to become Leader
+                                        stale_message_count += 1;
+                                        log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (non-initiator) yielding, stale_count={}/{}",
+                                            self.cid, stale_message_count, MAX_STALE_MESSAGES);
+                                        if stale_message_count >= MAX_STALE_MESSAGES {
+                                            return Err(CryptError::RekeyUpdateError(
+                                                format!("Too many double-Loser messages ({stale_message_count}), resynchronization needed")
+                                            ));
+                                        }
+                                        continue; // Skip this message, peer will become Leader
                                     }
-                                    continue; // Skip this message, wait for our BobToAlice to be processed
+                                } else {
+                                    log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
+                                    return Err(CryptError::RekeyUpdateError(format!(
+                                        "Invalid role transition from {initial_role:?} to Leader"
+                                    )));
                                 }
-                                log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
-                                return Err(CryptError::RekeyUpdateError(format!(
-                                    "Invalid role transition from {initial_role:?} to Leader"
-                                )));
                             }
                             _ => {}
                         }
@@ -910,16 +922,25 @@ where
                     if self.role() == RekeyRole::Loser {
                         // Double-Loser scenario: We're Loser and received a BobToAlice.
                         // This is a contention scenario where both sides became Loser.
-                        // Skip this message - our rekey will complete when peer processes our BobToAlice.
-                        stale_message_count += 1;
-                        log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} still Loser after role check, ignoring BobToAlice, stale_count={}/{}",
-                            self.cid, stale_message_count, MAX_STALE_MESSAGES);
-                        if stale_message_count >= MAX_STALE_MESSAGES {
-                            return Err(CryptError::RekeyUpdateError(
-                                format!("Too many unexpected BobToAlice while Loser ({stale_message_count}), resynchronization needed")
-                            ));
+                        // Use local_is_initiator as tiebreaker to break the symmetry.
+                        if self.session_crypto_state.local_is_initiator() {
+                            // Initiator wins - promote to Leader and continue processing
+                            self.set_role(RekeyRole::Leader);
+                            log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (initiator) promoting to Leader (secondary check)",
+                                self.cid);
+                            // Fall through to process the BobToAlice
+                        } else {
+                            // Non-initiator yields
+                            stale_message_count += 1;
+                            log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (non-initiator) yielding (secondary check), stale_count={}/{}",
+                                self.cid, stale_message_count, MAX_STALE_MESSAGES);
+                            if stale_message_count >= MAX_STALE_MESSAGES {
+                                return Err(CryptError::RekeyUpdateError(
+                                    format!("Too many unexpected BobToAlice while Loser ({stale_message_count}), resynchronization needed")
+                                ));
+                            }
+                            continue; // Skip this message, peer will become Leader
                         }
-                        continue; // Skip this message
                     }
 
                     // Check if we have a constructor for this BobToAlice message.
