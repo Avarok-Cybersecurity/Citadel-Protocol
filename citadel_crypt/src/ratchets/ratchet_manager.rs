@@ -318,6 +318,15 @@ where
         log::info!(target: "citadel", "[CBD-RKT-0c] Client {} version_at_entry={}: elapsed={}ms",
             self.cid, version_at_entry, rkt_start.elapsed().as_millis());
 
+        // Check if a rekey is already pending (declared but not yet completed)
+        // This prevents overlapping rekeys from targeting the same version
+        let declared_version = self.session_crypto_state.declared_next_version();
+        if declared_version > version_at_entry {
+            log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}): returning payload",
+                self.cid, declared_version, version_at_entry);
+            return Ok(attached_payload);
+        }
+
         let state = self.state();
         if state == RekeyState::Halted {
             return Err(CryptError::RekeyUpdateError(
@@ -455,6 +464,11 @@ where
             // CBD: Checkpoint RKT-4
             log::info!(target: "citadel", "[CBD-RKT-4] Client {} sending AliceToBob: elapsed={}ms",
                 self.cid, rkt_start.elapsed().as_millis());
+
+            // Declare the next version BEFORE sending (ensures sequential targeting)
+            let declared_version = self.session_crypto_state.declare_next_version();
+            log::debug!(target: "citadel", "[CBD-RKT-VERSION] Client {} declared version {} before send",
+                self.cid, declared_version);
 
             self.sender
                 .lock()
@@ -1065,6 +1079,7 @@ where
                         let container = &self.session_crypto_state;
                         container.deregister_oldest_ratchet(version_to_truncate)?;
                         container.post_alice_stage1_or_post_stage1_bob();
+                        container.sync_declared_version();
                         container.latest_usable_version()
                     };
 
@@ -1127,6 +1142,7 @@ where
                     let latest_version = {
                         let container = &self.session_crypto_state;
                         container.post_alice_stage1_or_post_stage1_bob();
+                        container.sync_declared_version();
                         container.latest_usable_version()
                     };
 
@@ -1210,6 +1226,7 @@ where
                     // Apply the update
                     let container = &self.session_crypto_state;
                     container.post_alice_stage1_or_post_stage1_bob();
+                    container.sync_declared_version();
                     let latest_declared_version = container.latest_usable_version();
 
                     // CBD: Version snapshot after LeaderCanFinish processing
@@ -1334,6 +1351,8 @@ where
     }
 
     fn get_rekey_metadata(&self) -> RekeyMetadata {
+        // Use latest_usable_version only - declared_next_version is used
+        // at trigger_rekey() entry to prevent overlapping rekeys
         let latest_usable_version = self.session_crypto_state.latest_usable_version();
         RekeyMetadata {
             current_version: latest_usable_version,
@@ -1685,12 +1704,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_ratchet_manager_racy_with_random_start_lag(
-        // Tests various levels of contention from moderate (10ms) to minimal (500ms).
+        // Tests various levels of contention from extreme (0ms) to minimal (500ms).
         // ToggleGuard ensures toggle reset on error paths, and notification race fix
         // uses timeout + version check to prevent indefinite blocking.
-        // Note: 0ms/1ms still timeout on macOS CI due to scheduler timing.
-        // Core contention fixes verified by test_ratchet_manager_racy_contentious.
-        #[values(10, 100, 500)] min_delay: u64,
+        // Option C fix (declared_next_version) ensures sequential version targeting
+        // even with wait_for_completion=false and 0ms delay.
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();

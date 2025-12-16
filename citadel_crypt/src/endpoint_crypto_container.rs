@@ -85,6 +85,10 @@ pub struct PeerSessionCrypto<R: Ratchet> {
     /// Alice sends to Bob, then bob updates internally the toolset. However. Bob can't send packets to Alice quite yet using that newest version. He must first wait from Alice to commit on her end and wait for an ACK.
     /// If alice sends a packet using the latest version, that's okay since we already have that entropy_bank version on Bob's side; it's just that Bob can't send packets using the latest version until AFTER receiving the ACK
     pub latest_usable_version: Arc<AtomicU32>,
+    /// The next version that has been declared/reserved for an in-flight rekey.
+    /// This is incremented when a rekey starts (before semaphore release) to ensure
+    /// sequential version targeting even with wait_for_completion=false.
+    declared_next_version: Arc<AtomicU32>,
 }
 
 const ORDERING: Ordering = Ordering::SeqCst;
@@ -106,6 +110,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             incrementing_group_id_messaging: Arc::new(AtomicU64::new(0)),
             incrementing_group_id_file_transfer: Arc::new(AtomicU64::new(0)),
             latest_usable_version: Arc::new(AtomicU32::new(current_version)),
+            declared_next_version: Arc::new(AtomicU32::new(current_version)),
         }
     }
 
@@ -342,6 +347,27 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
     pub fn latest_usable_version(&self) -> u32 {
         self.latest_usable_version.load(ORDERING)
+    }
+
+    /// Gets the declared next version (for determining rekey target).
+    pub fn declared_next_version(&self) -> u32 {
+        self.declared_next_version.load(ORDERING)
+    }
+
+    /// Declares/reserves the next version for an in-flight rekey.
+    /// Returns the newly declared version.
+    pub fn declare_next_version(&self) -> u32 {
+        self.declared_next_version.fetch_add(1, ORDERING) + 1
+    }
+
+    /// Syncs declared version with latest usable version.
+    /// Call this when rekey completes successfully.
+    pub fn sync_declared_version(&self) {
+        let latest = self.latest_usable_version.load(ORDERING);
+        let declared = self.declared_next_version.load(ORDERING);
+        if declared < latest {
+            self.declared_next_version.store(latest, ORDERING);
+        }
     }
 
     pub fn cid(&self) -> u64 {
