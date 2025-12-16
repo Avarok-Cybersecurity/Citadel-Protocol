@@ -34,6 +34,8 @@ pub struct RatchetManagerMessengerLayerTx<E: Send + Sync + 'static, R: Ratchet, 
     manager: DefaultRatchetManager<E, R, MessengerLayerOrderedMessage<P>>,
     is_active: Arc<AtomicBool>,
     secrecy_mode: SecrecyMode,
+    // Used by background tasks through clones - Rust's dead code analysis doesn't track this
+    #[allow(dead_code)]
     enqueued_messages: Arc<tokio::sync::Mutex<VecDeque<MessengerLayerOrderedMessage<P>>>>,
     message_id: u64,
 }
