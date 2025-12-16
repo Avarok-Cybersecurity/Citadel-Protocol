@@ -255,19 +255,15 @@ where
             }
 
             SecrecyMode::Perfect => {
-                if let Some(message_not_sent) = self
+                // Wait for rekey completion - prevents overlapping rekeys
+                // With wait_for_completion=true:
+                // - Returns None on success (message sent with rekey)
+                // - Returns error if rekey failed
+                // - No queueing needed since we wait for completion
+                let _ = self
                     .manager
-                    .trigger_rekey_with_payload(Some(message), false)
-                    .await?
-                {
-                    // We need to enqueue
-                    self.enqueued_messages
-                        .lock()
-                        .await
-                        .push_back(message_not_sent);
-                } else {
-                    // Success; this message will trigger a simultaneous rekey w/o enqueuing
-                }
+                    .trigger_rekey_with_payload(Some(message), true)
+                    .await?;
 
                 Ok(())
             }
