@@ -108,8 +108,8 @@ dependencies = ["install-nextest", "install-llvm-cov"]
 script_runner = "@duckscript"
 description = "Run messenger tests multiple times to check for stability"
 script = '''
-# Number of iterations  
-iterations = set 10
+# Number of iterations (reduced from 10 to 5 due to wait_for_completion=true serializing sends)
+iterations = set 5
 
 # Initialize variables
 global_error_count = set 0
