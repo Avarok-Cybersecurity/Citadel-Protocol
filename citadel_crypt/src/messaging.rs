@@ -550,7 +550,9 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(360))]
+    // Increased from 360s to 900s due to wait_for_completion=true in SecrecyMode::Perfect
+    // which serializes rekey operations, making each message take longer
+    #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_with_random_start_lag(
@@ -578,7 +580,8 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(360))]
+    // Increased from 360s to 900s due to wait_for_completion=true in SecrecyMode::Perfect
+    #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious_with_random_start_lag(
