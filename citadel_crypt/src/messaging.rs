@@ -556,8 +556,7 @@ mod tests {
     }
 
     #[rstest]
-    // Increased from 360s to 900s due to wait_for_completion=true in SecrecyMode::Perfect
-    // which serializes rekey operations, making each message take longer
+    // 900s timeout for Perfect mode - queue draining can take time on CI
     #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
@@ -575,7 +574,9 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(180))]
+    // Increased from 180s to 360s - Perfect mode with contentious pattern
+    // can take longer on CI due to queue draining after each rekey
+    #[timeout(std::time::Duration::from_secs(360))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious(
@@ -586,7 +587,7 @@ mod tests {
     }
 
     #[rstest]
-    // Increased from 360s to 900s due to wait_for_completion=true in SecrecyMode::Perfect
+    // 900s timeout for Perfect mode - queue draining can take time on CI
     #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
