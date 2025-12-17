@@ -257,15 +257,21 @@ where
             }
 
             SecrecyMode::Perfect => {
-                // Wait for rekey completion - prevents overlapping rekeys
-                // With wait_for_completion=true:
-                // - Returns None on success (message sent with rekey)
-                // - Returns error if rekey failed
-                // - No queueing needed since we wait for completion
-                let _ = self
+                // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
+                // When a rekey is already in progress, queue the message to be sent later.
+                // The background task (lines 90-131) drains the queue after each rekey completes.
+                if let Some(message_not_sent) = self
                     .manager
-                    .trigger_rekey_with_payload(Some(message), true)
-                    .await?;
+                    .trigger_rekey_with_payload(Some(message), false)
+                    .await?
+                {
+                    // Constructor unavailable (rekey in progress), enqueue for later
+                    self.enqueued_messages
+                        .lock()
+                        .await
+                        .push_back(message_not_sent);
+                }
+                // Success: either message was sent with rekey, or it's enqueued
 
                 Ok(())
             }
