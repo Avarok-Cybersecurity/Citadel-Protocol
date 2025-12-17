@@ -10,7 +10,8 @@ retries = { backoff = "exponential", count = 2, delay = "5s" }
 # the string "num-cpus". Can be overridden through the `--test-threads` option.
 test-threads = 1
 
-slow-timeout = { period = "180s", terminate-after = 3, grace-period = "0s" }
+# Increased from 180s to 300s due to wait_for_completion=true making tests slower
+slow-timeout = { period = "300s", terminate-after = 3, grace-period = "0s" }
 
 # Show these test statuses in the output.
 #
