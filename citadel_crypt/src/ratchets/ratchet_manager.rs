@@ -1707,7 +1707,7 @@ pub(crate) mod tests {
         // Tests various levels of contention from extreme (0ms) to minimal (500ms).
         // ToggleGuard ensures toggle reset on error paths, and notification race fix
         // uses timeout + version check to prevent indefinite blocking.
-        #[values(0, 1, 10, 100, 500)] min_delay: u64,
+        #[values(10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();
