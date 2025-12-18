@@ -362,12 +362,12 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
     /// Syncs declared version with latest usable version.
     /// Call this when rekey completes successfully.
+    /// Always resets declared to latest - this handles contention scenarios where
+    /// we declared a higher version but then became Loser and the rekey completed
+    /// at a lower version than we declared.
     pub fn sync_declared_version(&self) {
         let latest = self.latest_usable_version.load(ORDERING);
-        let declared = self.declared_next_version.load(ORDERING);
-        if declared < latest {
-            self.declared_next_version.store(latest, ORDERING);
-        }
+        self.declared_next_version.store(latest, ORDERING);
     }
 
     pub fn cid(&self) -> u64 {
