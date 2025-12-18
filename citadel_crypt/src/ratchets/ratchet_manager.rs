@@ -557,9 +557,17 @@ where
 
                 match result {
                     Ok(latest_ratchet) => {
+                        // [DIAG-REKEY] Rekey completed, sending notifications
+                        log::info!(target: "citadel", "[DIAG-REKEY] Client {} rekey completed successfully, version={}, sending notification", self.cid, latest_ratchet.version());
+
                         // Alert any local callers waiting for rekeying to finish
                         if let Err(_err) = rekey_done_notifier_tx.send(latest_ratchet.clone()) {
                             log::warn!(target: "citadel", "Failed to send rekey done notification");
+                            // [DIAG-REKEY] Notification send failed (no receiver)
+                            log::info!(target: "citadel", "[DIAG-REKEY] Client {} rekey done notifier send failed (no receiver)", self.cid);
+                        } else {
+                            // [DIAG-REKEY] Notification sent successfully
+                            log::info!(target: "citadel", "[DIAG-REKEY] Client {} rekey done notifier sent successfully", self.cid);
                         }
 
                         // Alert any passive background listeners wanting to keep track of each
@@ -656,6 +664,8 @@ where
                     metadata: peer_metadata,
                 }) => {
                     if let Some(attached_payload) = attached_payload {
+                        // [DIAG-PAYLOAD] Delivering attached payload from AliceToBob
+                        log::info!(target: "citadel", "[DIAG-PAYLOAD] Client {} delivering attached payload from AliceToBob", self.cid);
                         let _ = self.attached_payload_tx.send(attached_payload);
                     }
 

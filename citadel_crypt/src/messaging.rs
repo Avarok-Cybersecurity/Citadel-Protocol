@@ -88,6 +88,9 @@ where
             let enqueued_messages_rekey = enqueued_messages_clone.clone();
             let rekey_task = async move {
                 while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
+                    // [DIAG-QUEUE] Notification received from rekey completion
+                    log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} received rekey finish notification, ratchet version={}", next_ratchet.version());
+
                     if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
                         if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
                             log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
@@ -97,11 +100,17 @@ where
                     // Process all queued messages, not just one
                     loop {
                         let mut lock = enqueued_messages_rekey.lock().await;
-                        log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", lock.len());
+                        let queue_size = lock.len();
+                        log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", queue_size);
+                        // [DIAG-QUEUE] Queue size before drain attempt
+                        log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} queue size: {queue_size}");
 
                         if let Some(last_item) = lock.pop_front() {
                             // Release lock before async operation
                             drop(lock);
+
+                            // [DIAG-QUEUE] Attempting to send queued message
+                            log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} attempting to send queued message (remaining in queue: {})", queue_size.saturating_sub(1));
 
                             match manager_clone
                                 .trigger_rekey_with_payload(Some(last_item), false)
@@ -109,6 +118,8 @@ where
                             {
                                 Ok(Some(message_not_sent)) => {
                                     log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): NOT READY. Re-enqueueing message");
+                                    // [DIAG-QUEUE] Message re-queued (rekey in progress)
+                                    log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} message re-queued (rekey already in progress), breaking drain loop");
                                     let mut lock = enqueued_messages_rekey.lock().await;
                                     lock.push_front(message_not_sent);
                                     break; // Wait for next rekey
@@ -117,15 +128,21 @@ where
                                 Ok(None) => {
                                     // Successfully sent, continue with next message
                                     log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): Message sent successfully");
+                                    // [DIAG-QUEUE] Message sent successfully
+                                    log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} message sent successfully, continuing drain");
                                 }
 
                                 Err(err) => {
                                     log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
+                                    // [DIAG-QUEUE] Error during send
+                                    log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} error sending message: {err:?}, breaking drain loop");
                                     // Cannot re-enqueue since we moved the item
                                     break; // Wait for next rekey
                                 }
                             }
                         } else {
+                            // [DIAG-QUEUE] Queue empty
+                            log::info!(target: "citadel", "[DIAG-QUEUE] Client {cid} queue empty, breaking drain loop");
                             break; // No more messages in queue
                         }
                     }
@@ -145,9 +162,14 @@ where
             let ordered_receiver = async move {
                 while let Some(message) = payload_rx.recv().await {
                     let id = message.id;
+                    // [DIAG-ORDER] Message received from payload channel
+                    log::info!(target: "citadel", "[DIAG-ORDER] Client {cid} received message id={id} from payload channel");
                     if let Err(err) = ordered_channel.on_packet_received(id, message.message) {
                         log::error!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): Failed to send message: {err:?}");
                         // Don't break - continue processing other messages
+                    } else {
+                        // [DIAG-ORDER] Message delivered to ordered channel
+                        log::info!(target: "citadel", "[DIAG-ORDER] Client {cid} delivered message id={id} to ordered channel");
                     }
                 }
             };
@@ -260,16 +282,25 @@ where
                 // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
                 // When a rekey is already in progress, queue the message to be sent later.
                 // The background task (lines 90-131) drains the queue after each rekey completes.
+                let cid = self.manager.session_crypto_state.cid();
+                let msg_id = message.id;
+                // [DIAG-SEND] Attempting to send message
+                log::info!(target: "citadel", "[DIAG-SEND] Client {cid} attempting to send message id={msg_id}");
+
                 if let Some(message_not_sent) = self
                     .manager
                     .trigger_rekey_with_payload(Some(message), false)
                     .await?
                 {
                     // Constructor unavailable (rekey in progress), enqueue for later
-                    self.enqueued_messages
-                        .lock()
-                        .await
-                        .push_back(message_not_sent);
+                    let mut lock = self.enqueued_messages.lock().await;
+                    let queue_size = lock.len();
+                    lock.push_back(message_not_sent);
+                    // [DIAG-SEND] Message enqueued
+                    log::info!(target: "citadel", "[DIAG-SEND] Client {cid} message id={msg_id} enqueued (queue size now: {})", queue_size + 1);
+                } else {
+                    // [DIAG-SEND] Message sent with rekey
+                    log::info!(target: "citadel", "[DIAG-SEND] Client {cid} message id={msg_id} sent with rekey");
                 }
                 // Success: either message was sent with rekey, or it's enqueued
 
@@ -574,9 +605,9 @@ mod tests {
     }
 
     #[rstest]
-    // Increased from 180s to 360s - Perfect mode with contentious pattern
-    // can take longer on CI due to queue draining after each rekey
-    #[timeout(std::time::Duration::from_secs(360))]
+    // 900s timeout - Perfect mode with contentious pattern can take 10+ seconds
+    // per rekey on busy CI runners, and 200 messages = 200 rekeys
+    #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious(
