@@ -470,6 +470,18 @@ where
             log::debug!(target: "citadel", "[CBD-RKT-VERSION] Client {} declared version {} before send",
                 self.cid, declared_version);
 
+            // CRITICAL: Store constructor BEFORE sending AliceToBob to prevent race condition.
+            // The spawn_rekey_process loop may receive the peer's BobToAlice response before
+            // this function stores the constructor. If we're Leader (got Contended from peer's
+            // AliceToBob), we'd skip the BobToAlice as "stale" due to missing constructor,
+            // causing a deadlock where we wait forever for another BobToAlice.
+            {
+                let mut constructors = self.constructors.lock();
+                if constructors.insert(next_version, constructor).is_some() {
+                    log::warn!(target: "citadel", "Replaced constructor for next_version={next_version}; concurrent rekey attempt detected");
+                }
+            }
+
             self.sender
                 .lock()
                 .await
@@ -487,14 +499,6 @@ where
             log::info!(target: "citadel", "[CBD-RKT-5] Client {} sent AliceToBob: elapsed={}ms",
                 self.cid, rkt_start.elapsed().as_millis());
             log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
-
-            // Store constructor keyed by next_version
-            {
-                let mut constructors = self.constructors.lock();
-                if constructors.insert(next_version, constructor).is_some() {
-                    log::warn!(target: "citadel", "Replaced constructor for next_version={next_version}; concurrent rekey attempt detected");
-                }
-            }
 
             // For wait_for_completion=false, return immediately
             if !wait_for_completion {
