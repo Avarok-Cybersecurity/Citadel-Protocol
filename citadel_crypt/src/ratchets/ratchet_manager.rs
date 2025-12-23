@@ -574,6 +574,12 @@ where
                         // The sender being dropped will cause rx.await to return Err.
                         let _ = self.local_listener.lock().take();
 
+                        // Reset declared_next_version to allow future rekey attempts.
+                        // Without this, declared_version stays ahead of latest_usable_version,
+                        // causing all future trigger_rekey calls to return immediately
+                        // with "rekey already pending" at the declared_version check.
+                        self.session_crypto_state.sync_declared_version();
+
                         if matches!(err, CryptError::FatalError(..)) {
                             // Only log if we're the ones initiating shutdown (shutdown_tx still exists)
                             if self.shutdown().is_some() {
@@ -1707,7 +1713,8 @@ pub(crate) mod tests {
         // Tests various levels of contention from extreme (0ms) to minimal (500ms).
         // ToggleGuard ensures toggle reset on error paths, and notification race fix
         // uses timeout + version check to prevent indefinite blocking.
-        #[values(10, 100, 500)] min_delay: u64,
+        // sync_declared_version fix ensures declared_next_version is reset on error.
+        #[values(0, 1, 10, 100, 500)] min_delay: u64,
     ) {
         citadel_logging::setup_log();
         let (alice_manager, bob_manager) = create_ratchet_managers::<StackedRatchet, ()>();

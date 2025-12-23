@@ -561,8 +561,9 @@ mod tests {
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_with_random_start_lag(
         // Tests various levels of contention. ToggleGuard in ratchet_manager
-        // ensures proper cleanup on error paths.
-        #[values(10, 100)] min_delay: u64,
+        // ensures proper cleanup on error paths. sync_declared_version fix
+        // ensures declared_next_version is reset on error, preventing queue starvation.
+        #[values(0, 1, 10, 100)] min_delay: u64,
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
@@ -590,8 +591,9 @@ mod tests {
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious_with_random_start_lag(
         // Tests various levels of contention. ToggleGuard in ratchet_manager
-        // ensures proper cleanup on error paths.
-        #[values(10, 100)] min_delay: u64,
+        // ensures proper cleanup on error paths. sync_declared_version fix
+        // ensures declared_next_version is reset on error, preventing queue starvation.
+        #[values(0, 1, 10, 100)] min_delay: u64,
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
