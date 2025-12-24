@@ -528,7 +528,12 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         // toolset AND the single entropy_bank
                                         let toolset = Toolset::new(this_cid, ratchet);
                                         // now, register the loaded PQC + toolset into the virtual conn
-                                        let peer_crypto = PeerSessionCrypto::new(toolset, true);
+                                        // Use CID comparison as deterministic tie-breaker for is_initiator
+                                        // This ensures consistent behavior even under race conditions
+                                        let local_is_initiator = this_cid > peer_cid;
+                                        log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
+                                        let peer_crypto =
+                                            PeerSessionCrypto::new(toolset, local_is_initiator);
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
                                             session_cid: this_cid,
                                             peer_cid,
@@ -720,7 +725,12 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             endpoint_ratchet.get_default_security_level();
                                         let toolset =
                                             Toolset::new(this_cid, endpoint_ratchet.clone());
-                                        let peer_crypto = PeerSessionCrypto::new(toolset, false);
+                                        // Use CID comparison as deterministic tie-breaker for is_initiator
+                                        // This ensures consistent behavior even under race conditions
+                                        let local_is_initiator = this_cid > peer_cid;
+                                        log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
+                                        let peer_crypto =
+                                            PeerSessionCrypto::new(toolset, local_is_initiator);
 
                                         // create an endpoint vconn
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
