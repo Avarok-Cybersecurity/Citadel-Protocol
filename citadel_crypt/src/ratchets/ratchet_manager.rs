@@ -696,8 +696,25 @@ where
         let mut stale_message_count = 0;
         const MAX_STALE_MESSAGES: u32 = 20; // Allow stale messages for high-contention scenarios, but not infinite
 
+        // Progress timeout: If no valid message is received within this duration,
+        // assume the rekey is stalled (e.g., due to message loss) and return an error.
+        // This allows sync_declared_version() to be called, unblocking future rekeys.
+        const REKEY_PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
+
         loop {
-            let msg = receiver.next().await;
+            let msg = match tokio::time::timeout(REKEY_PROGRESS_TIMEOUT, receiver.next()).await {
+                Ok(msg) => msg,
+                Err(_) => {
+                    // Timeout waiting for message - rekey is stalled
+                    log::warn!(target: "citadel", "[CBD-RKT-TIMEOUT] Client {} rekey stalled: no message received in {}s, role={:?}, declared_version={}",
+                        self.cid, REKEY_PROGRESS_TIMEOUT.as_secs(), self.role(),
+                        self.session_crypto_state.declared_next_version());
+                    return Err(CryptError::RekeyUpdateError(format!(
+                        "Rekey stalled: no message received in {}s",
+                        REKEY_PROGRESS_TIMEOUT.as_secs()
+                    )));
+                }
+            };
             self.last_received_message.store(
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
                 Ordering::Relaxed,
