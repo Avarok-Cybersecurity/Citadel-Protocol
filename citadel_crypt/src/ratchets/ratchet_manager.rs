@@ -521,14 +521,46 @@ where
                 return Ok(None);
             }
 
-            // Block until the entire rekey is finished
-            let _res = rx.unwrap().await.map_err(|_| {
-                CryptError::RekeyUpdateError("Failed to wait for local listener".to_string())
-            })?;
-
-            // CBD: Checkpoint RKT-FINAL
-            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
-                self.cid, rkt_start.elapsed().as_millis());
+            // Block until the entire rekey is finished, with timeout+version-check fallback.
+            // This prevents indefinite blocking if the listener notification is missed
+            // (e.g., due to stale message skipping or rare race conditions).
+            const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+            let mut rx = rx.unwrap();
+            loop {
+                match tokio::time::timeout(WAIT_TIMEOUT, &mut rx).await {
+                    Ok(Ok(_)) => {
+                        // Notification received successfully
+                        log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
+                            self.cid, rkt_start.elapsed().as_millis());
+                        break;
+                    }
+                    Ok(Err(_)) => {
+                        // Sender dropped - check if version advanced anyway
+                        let current_version = self.session_crypto_state.latest_usable_version();
+                        if current_version > version_at_entry {
+                            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} listener dropped but version advanced {} -> {}: elapsed={}ms",
+                                self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
+                            break;
+                        }
+                        return Err(CryptError::RekeyUpdateError(
+                            "Local listener dropped without version advance".to_string(),
+                        ));
+                    }
+                    Err(_) => {
+                        // Timeout - check if version advanced
+                        let current_version = self.session_crypto_state.latest_usable_version();
+                        if current_version > version_at_entry {
+                            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} timeout but version advanced {} -> {}: elapsed={}ms",
+                                self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
+                            break;
+                        }
+                        // Version unchanged after timeout - log and continue waiting
+                        log::debug!(target: "citadel", "[CBD-RKT-WAIT] Client {} waiting for listener, version unchanged at {}: elapsed={}ms",
+                            self.cid, current_version, rkt_start.elapsed().as_millis());
+                        // Continue looping - the rekey might still complete
+                    }
+                }
+            }
 
             Ok(None)
         } else {
