@@ -482,6 +482,19 @@ where
                 }
             }
 
+            // CRITICAL: Set update_in_progress toggle BEFORE sending AliceToBob.
+            // This ensures that if both peers call trigger_rekey simultaneously (0ms delay),
+            // when either receives the other's AliceToBob and calls update_sync_safe, the toggle
+            // will already be ON. The local_is_initiator tiebreaker in update_sync_safe will then
+            // correctly determine that only the initiator should commit (continue processing),
+            // while the non-initiator returns Contended and waits.
+            // Without this, both sides could commit the same version with different keys,
+            // leading to a version mismatch error and eventual timeout.
+            let _ = self
+                .session_crypto_state
+                .update_in_progress
+                .toggle_on_if_untoggled();
+
             self.sender
                 .lock()
                 .await
