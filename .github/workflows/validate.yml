@@ -64,15 +64,7 @@ jobs:
           redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - name: Run crypto tests (with retry for macOS)
-        if: startsWith(matrix.os, 'macos')
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 40
-          max_attempts: 2
-          command: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
       - name: Run crypto tests
-        if: ${{ !startsWith(matrix.os, 'macos') }}
         run: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
