@@ -331,6 +331,17 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                         }
                     }
 
+                    // Check if a session already exists for this CID (client-side check)
+                    // This prevents wasteful roundtrips where the server would reject with
+                    // "Session Already Connected"
+                    if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
+                        if this.sessions.contains_key(&cid) {
+                            return Err(NetworkError::Generic(format!(
+                                "Session for CID {cid} already exists. Disconnect first before reconnecting."
+                            )));
+                        }
+                    }
+
                     (
                         remote,
                         kernel_tx,
