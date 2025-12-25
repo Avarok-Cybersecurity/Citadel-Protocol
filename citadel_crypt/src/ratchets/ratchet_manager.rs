@@ -398,199 +398,220 @@ where
         log::info!(target: "citadel", "[CBD-RKT-2] Client {} getting constructor: elapsed={}ms",
             self.cid, rkt_start.elapsed().as_millis());
 
-        // Get metadata for the rekey
-        let metadata = self.get_rekey_metadata();
-        let next_version = metadata.next_version;
+        // Retry loop for handling stale version race condition.
+        // In high-contention scenarios, the version may advance between capturing the snapshot
+        // and sending AliceToBob. Rather than returning to caller (who may not retry properly),
+        // we loop here with a max retry count.
+        const MAX_STALE_VERSION_RETRIES: u32 = 5;
+        let mut stale_version_retry_count = 0u32;
 
-        let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
-            // Check if the version has already advanced (background loop completed a rekey)
-            let current_version = self.session_crypto_state.latest_usable_version();
-            if current_version > version_at_entry {
-                log::info!(target: "citadel", "[CBD-RKT-2b] Client {} version already advanced from {} to {}; rekey not needed, returning payload",
+        'rekey_attempt: loop {
+            if stale_version_retry_count >= MAX_STALE_VERSION_RETRIES {
+                log::warn!(target: "citadel", "[CBD-RKT-STALE-MAX] Client {} exceeded max stale version retries ({})",
+                    self.cid, MAX_STALE_VERSION_RETRIES);
+                return Err(CryptError::RekeyUpdateError(format!(
+                    "Exceeded max stale version retries ({})",
+                    MAX_STALE_VERSION_RETRIES
+                )));
+            }
+
+            // Get metadata for the rekey (refresh on each retry attempt)
+            let metadata = self.get_rekey_metadata();
+            let next_version = metadata.next_version;
+
+            let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
+                // Check if the version has already advanced (background loop completed a rekey)
+                let current_version = self.session_crypto_state.latest_usable_version();
+                if current_version > version_at_entry {
+                    log::info!(target: "citadel", "[CBD-RKT-2b] Client {} version already advanced from {} to {}; rekey not needed, returning payload",
                     self.cid, version_at_entry, current_version);
-                return Ok(attached_payload);
-            }
-
-            let constructor = self.session_crypto_state.get_next_constructor();
-            let earliest_ratchet_version = self
-                .session_crypto_state
-                .toolset()
-                .read()
-                .get_oldest_ratchet_version();
-            let latest_ratchet_version = self.session_crypto_state.latest_usable_version();
-            (
-                constructor,
-                earliest_ratchet_version,
-                latest_ratchet_version,
-            )
-        };
-
-        // CBD: Version snapshot before sending AliceToBob
-        log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} local snapshot before AliceToBob: earliest={}, latest={}, role={:?}, state={:?}",
-            self.cid, earliest_ratchet_version, latest_ratchet_version, self.role(), self.state());
-
-        // CBD: Checkpoint RKT-3
-        log::info!(target: "citadel", "[CBD-RKT-3] Client {} got constructor (is_some={}): elapsed={}ms",
-            self.cid, constructor.is_some(), rkt_start.elapsed().as_millis());
-
-        if let Some(constructor) = constructor {
-            // Offload stage0_alice + serialize
-            let (constructor, payload) = citadel_io::tokio::task::spawn_blocking(move || {
-                let transfer = constructor.stage0_alice().ok_or_else(|| {
-                    CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
-                })?;
-                let payload = bincode::serialize(&transfer)
-                    .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
-                Ok::<_, CryptError>((constructor, payload))
-            })
-            .await
-            .map_err(|_| CryptError::RekeyUpdateError("Join error on stage0_alice".into()))??;
-
-            // For wait_for_completion=true, register listener BEFORE sending to avoid missing notification
-            let rx = if wait_for_completion {
-                // CBD: Checkpoint RKT-6
-                log::info!(target: "citadel", "[CBD-RKT-6] Client {} registering listener before sending: elapsed={}ms",
-                    self.cid, rkt_start.elapsed().as_millis());
-
-                let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
-                if self.local_listener.lock().replace(tx).is_some() {
-                    log::error!(target: "citadel", "Replaced local listener; this should not happen");
+                    return Ok(attached_payload);
                 }
-                Some(rx)
-            } else {
-                None
-            };
 
-            // CBD: Checkpoint RKT-4
-            log::info!(target: "citadel", "[CBD-RKT-4] Client {} sending AliceToBob: elapsed={}ms",
-                self.cid, rkt_start.elapsed().as_millis());
-
-            // Declare the next version BEFORE sending (ensures sequential targeting)
-            let declared_version = self.session_crypto_state.declare_next_version();
-            log::debug!(target: "citadel", "[CBD-RKT-VERSION] Client {} declared version {} before send",
-                self.cid, declared_version);
-
-            // CRITICAL: Store constructor BEFORE sending AliceToBob to prevent race condition.
-            // The spawn_rekey_process loop may receive the peer's BobToAlice response before
-            // this function stores the constructor. If we're Leader (got Contended from peer's
-            // AliceToBob), we'd skip the BobToAlice as "stale" due to missing constructor,
-            // causing a deadlock where we wait forever for another BobToAlice.
-            {
-                let mut constructors = self.constructors.lock();
-                if constructors.insert(next_version, constructor).is_some() {
-                    log::warn!(target: "citadel", "Replaced constructor for next_version={next_version}; concurrent rekey attempt detected");
-                }
-            }
-
-            // CRITICAL: Set update_in_progress toggle BEFORE sending AliceToBob.
-            // This ensures that if both peers call trigger_rekey simultaneously (0ms delay),
-            // when either receives the other's AliceToBob and calls update_sync_safe, the toggle
-            // will already be ON. The local_is_initiator tiebreaker in update_sync_safe will then
-            // correctly determine that only the initiator should commit (continue processing),
-            // while the non-initiator returns Contended and waits.
-            // Without this, both sides could commit the same version with different keys,
-            // leading to a version mismatch error and eventual timeout.
-            let _ = self
-                .session_crypto_state
-                .update_in_progress
-                .toggle_on_if_untoggled();
-
-            // CRITICAL: Re-check version before sending AliceToBob.
-            // Between capturing latest_ratchet_version (line ~420) and now, other rekeys may have
-            // completed, advancing the version. If we send AliceToBob with stale version info,
-            // the receiver will skip it as stale and wait for a fresh message that will never come
-            // (since we already sent "our" message for this rekey attempt).
-            // Fix: Abort and let caller retry with fresh version info.
-            let current_version = self.session_crypto_state.latest_usable_version();
-            if current_version != latest_ratchet_version {
-                log::info!(target: "citadel", "[CBD-RKT-STALE-ABORT] Client {} aborting AliceToBob send: version changed {} -> {} during preparation",
-                    self.cid, latest_ratchet_version, current_version);
-                // Reset declared version so future trigger_rekey can proceed
-                self.session_crypto_state.sync_declared_version();
-                // Clean up the constructor we stored
-                let _ = self.constructors.lock().remove(&next_version);
-                // Reset toggle
-                self.session_crypto_state.update_in_progress.toggle_off();
-                // Clear listener if we registered one
-                let _ = self.local_listener.lock().take();
-                // Return payload for caller to retry
-                return Ok(attached_payload);
-            }
-
-            self.sender
-                .lock()
-                .await
-                .send(RatchetMessage::AliceToBob {
-                    payload,
+                let constructor = self.session_crypto_state.get_next_constructor();
+                let earliest_ratchet_version = self
+                    .session_crypto_state
+                    .toolset()
+                    .read()
+                    .get_oldest_ratchet_version();
+                let latest_ratchet_version = self.session_crypto_state.latest_usable_version();
+                (
+                    constructor,
                     earliest_ratchet_version,
                     latest_ratchet_version,
-                    attached_payload,
-                    metadata,
+                )
+            };
+
+            // CBD: Version snapshot before sending AliceToBob
+            log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} local snapshot before AliceToBob: earliest={}, latest={}, role={:?}, state={:?}",
+            self.cid, earliest_ratchet_version, latest_ratchet_version, self.role(), self.state());
+
+            // CBD: Checkpoint RKT-3
+            log::info!(target: "citadel", "[CBD-RKT-3] Client {} got constructor (is_some={}): elapsed={}ms",
+            self.cid, constructor.is_some(), rkt_start.elapsed().as_millis());
+
+            if let Some(constructor) = constructor {
+                // Offload stage0_alice + serialize
+                let (constructor, payload) = citadel_io::tokio::task::spawn_blocking(move || {
+                    let transfer = constructor.stage0_alice().ok_or_else(|| {
+                        CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
+                    })?;
+                    let payload = bincode::serialize(&transfer)
+                        .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                    Ok::<_, CryptError>((constructor, payload))
                 })
                 .await
-                .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
+                .map_err(|_| CryptError::RekeyUpdateError("Join error on stage0_alice".into()))??;
 
-            // CBD: Checkpoint RKT-5
-            log::info!(target: "citadel", "[CBD-RKT-5] Client {} sent AliceToBob: elapsed={}ms",
-                self.cid, rkt_start.elapsed().as_millis());
-            log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
-
-            // For wait_for_completion=false, return immediately
-            if !wait_for_completion {
-                // CBD: Checkpoint RKT-FINAL (no-wait path)
-                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait: elapsed={}ms",
+                // For wait_for_completion=true, register listener BEFORE sending to avoid missing notification
+                let rx = if wait_for_completion {
+                    // CBD: Checkpoint RKT-6
+                    log::info!(target: "citadel", "[CBD-RKT-6] Client {} registering listener before sending: elapsed={}ms",
                     self.cid, rkt_start.elapsed().as_millis());
-                return Ok(None);
-            }
 
-            // Block until the entire rekey is finished, with timeout+version-check fallback.
-            // This prevents indefinite blocking if the listener notification is missed
-            // (e.g., due to stale message skipping or rare race conditions).
-            const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
-            let mut rx = rx.unwrap();
-            loop {
-                match tokio::time::timeout(WAIT_TIMEOUT, &mut rx).await {
-                    Ok(Ok(_)) => {
-                        // Notification received successfully
-                        log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
-                            self.cid, rkt_start.elapsed().as_millis());
-                        break;
+                    let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
+                    if self.local_listener.lock().replace(tx).is_some() {
+                        log::error!(target: "citadel", "Replaced local listener; this should not happen");
                     }
-                    Ok(Err(_)) => {
-                        // Sender dropped - check if version advanced anyway
-                        let current_version = self.session_crypto_state.latest_usable_version();
-                        if current_version > version_at_entry {
-                            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} listener dropped but version advanced {} -> {}: elapsed={}ms",
-                                self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
-                            break;
-                        }
-                        return Err(CryptError::RekeyUpdateError(
-                            "Local listener dropped without version advance".to_string(),
-                        ));
-                    }
-                    Err(_) => {
-                        // Timeout - check if version advanced
-                        let current_version = self.session_crypto_state.latest_usable_version();
-                        if current_version > version_at_entry {
-                            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} timeout but version advanced {} -> {}: elapsed={}ms",
-                                self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
-                            break;
-                        }
-                        // Version unchanged after timeout - log and continue waiting
-                        log::debug!(target: "citadel", "[CBD-RKT-WAIT] Client {} waiting for listener, version unchanged at {}: elapsed={}ms",
-                            self.cid, current_version, rkt_start.elapsed().as_millis());
-                        // Continue looping - the rekey might still complete
+                    Some(rx)
+                } else {
+                    None
+                };
+
+                // CBD: Checkpoint RKT-4
+                log::info!(target: "citadel", "[CBD-RKT-4] Client {} sending AliceToBob: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
+
+                // Declare the next version BEFORE sending (ensures sequential targeting)
+                let declared_version = self.session_crypto_state.declare_next_version();
+                log::debug!(target: "citadel", "[CBD-RKT-VERSION] Client {} declared version {} before send",
+                self.cid, declared_version);
+
+                // CRITICAL: Store constructor BEFORE sending AliceToBob to prevent race condition.
+                // The spawn_rekey_process loop may receive the peer's BobToAlice response before
+                // this function stores the constructor. If we're Leader (got Contended from peer's
+                // AliceToBob), we'd skip the BobToAlice as "stale" due to missing constructor,
+                // causing a deadlock where we wait forever for another BobToAlice.
+                {
+                    let mut constructors = self.constructors.lock();
+                    if constructors.insert(next_version, constructor).is_some() {
+                        log::warn!(target: "citadel", "Replaced constructor for next_version={next_version}; concurrent rekey attempt detected");
                     }
                 }
-            }
 
-            Ok(None)
-        } else {
-            // CBD: Checkpoint RKT-7 (constructor=None path)
-            log::info!(target: "citadel", "[CBD-RKT-7] Client {} constructor is None, returning payload: elapsed={}ms",
+                // CRITICAL: Set update_in_progress toggle BEFORE sending AliceToBob.
+                // This ensures that if both peers call trigger_rekey simultaneously (0ms delay),
+                // when either receives the other's AliceToBob and calls update_sync_safe, the toggle
+                // will already be ON. The local_is_initiator tiebreaker in update_sync_safe will then
+                // correctly determine that only the initiator should commit (continue processing),
+                // while the non-initiator returns Contended and waits.
+                // Without this, both sides could commit the same version with different keys,
+                // leading to a version mismatch error and eventual timeout.
+                let _ = self
+                    .session_crypto_state
+                    .update_in_progress
+                    .toggle_on_if_untoggled();
+
+                // CRITICAL: Re-check version before sending AliceToBob.
+                // Between capturing latest_ratchet_version (line ~420) and now, other rekeys may have
+                // completed, advancing the version. If we send AliceToBob with stale version info,
+                // the receiver will skip it as stale and wait for a fresh message that will never come
+                // (since we already sent "our" message for this rekey attempt).
+                // Fix: Loop back and retry with fresh version info.
+                let current_version = self.session_crypto_state.latest_usable_version();
+                if current_version != latest_ratchet_version {
+                    log::info!(target: "citadel", "[CBD-RKT-STALE-RETRY] Client {} stale version detected ({} -> {}), retrying attempt {}/{}",
+                    self.cid, latest_ratchet_version, current_version, stale_version_retry_count + 1, MAX_STALE_VERSION_RETRIES);
+                    // Reset declared version so next loop iteration can proceed
+                    self.session_crypto_state.sync_declared_version();
+                    // Clean up the constructor we stored
+                    let _ = self.constructors.lock().remove(&next_version);
+                    // Reset toggle
+                    self.session_crypto_state.update_in_progress.toggle_off();
+                    // Clear listener if we registered one
+                    let _ = self.local_listener.lock().take();
+                    // Small delay to let concurrent rekeys settle
+                    citadel_io::tokio::time::sleep(Duration::from_millis(1)).await;
+                    // Increment retry counter and loop back
+                    stale_version_retry_count += 1;
+                    continue 'rekey_attempt;
+                }
+
+                self.sender
+                    .lock()
+                    .await
+                    .send(RatchetMessage::AliceToBob {
+                        payload,
+                        earliest_ratchet_version,
+                        latest_ratchet_version,
+                        attached_payload,
+                        metadata,
+                    })
+                    .await
+                    .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
+
+                // CBD: Checkpoint RKT-5
+                log::info!(target: "citadel", "[CBD-RKT-5] Client {} sent AliceToBob: elapsed={}ms",
                 self.cid, rkt_start.elapsed().as_millis());
-            Ok(attached_payload)
-        }
+                log::debug!(target: "citadel", "Client {} sent initial AliceToBob transfer", self.cid);
+
+                // For wait_for_completion=false, return immediately
+                if !wait_for_completion {
+                    // CBD: Checkpoint RKT-FINAL (no-wait path)
+                    log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait: elapsed={}ms",
+                    self.cid, rkt_start.elapsed().as_millis());
+                    return Ok(None);
+                }
+
+                // Block until the entire rekey is finished, with timeout+version-check fallback.
+                // This prevents indefinite blocking if the listener notification is missed
+                // (e.g., due to stale message skipping or rare race conditions).
+                const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+                let mut rx = rx.unwrap();
+                loop {
+                    match tokio::time::timeout(WAIT_TIMEOUT, &mut rx).await {
+                        Ok(Ok(_)) => {
+                            // Notification received successfully
+                            log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
+                            self.cid, rkt_start.elapsed().as_millis());
+                            break;
+                        }
+                        Ok(Err(_)) => {
+                            // Sender dropped - check if version advanced anyway
+                            let current_version = self.session_crypto_state.latest_usable_version();
+                            if current_version > version_at_entry {
+                                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} listener dropped but version advanced {} -> {}: elapsed={}ms",
+                                self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
+                                break;
+                            }
+                            return Err(CryptError::RekeyUpdateError(
+                                "Local listener dropped without version advance".to_string(),
+                            ));
+                        }
+                        Err(_) => {
+                            // Timeout - check if version advanced
+                            let current_version = self.session_crypto_state.latest_usable_version();
+                            if current_version > version_at_entry {
+                                log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} timeout but version advanced {} -> {}: elapsed={}ms",
+                                self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
+                                break;
+                            }
+                            // Version unchanged after timeout - log and continue waiting
+                            log::debug!(target: "citadel", "[CBD-RKT-WAIT] Client {} waiting for listener, version unchanged at {}: elapsed={}ms",
+                            self.cid, current_version, rkt_start.elapsed().as_millis());
+                            // Continue looping - the rekey might still complete
+                        }
+                    }
+                }
+
+                return Ok(None);
+            } else {
+                // CBD: Checkpoint RKT-7 (constructor=None path)
+                log::info!(target: "citadel", "[CBD-RKT-7] Client {} constructor is None, returning payload: elapsed={}ms",
+                self.cid, rkt_start.elapsed().as_millis());
+                return Ok(attached_payload);
+            }
+        } // end 'rekey_attempt loop
     }
 
     fn spawn_rekey_process(
