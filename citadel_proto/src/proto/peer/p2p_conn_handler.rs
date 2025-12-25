@@ -417,8 +417,21 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
         }
     };
 
-    if let Err(err) = process.await {
-        log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+    // Add timeout to prevent indefinite hang during P2P connection establishment.
+    // If the initiator fails to connect or the non-initiator's listener never receives
+    // a connection, we need to timeout rather than hang forever.
+    const P2P_CONN_TIMEOUT: Duration = Duration::from_secs(30);
+
+    match citadel_io::tokio::time::timeout(P2P_CONN_TIMEOUT, process).await {
+        Ok(Ok(())) => {
+            log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
+        }
+        Ok(Err(err)) => {
+            log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+        }
+        Err(_elapsed) => {
+            log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {}s", P2P_CONN_TIMEOUT.as_secs());
+        }
     }
 
     log::trace!(target: "citadel", "Sending channel to kernel");
