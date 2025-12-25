@@ -104,37 +104,6 @@ impl Drop for DirectP2PRemote {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn setup_listener_non_initiator<R: Ratchet>(
-    local_bind_addr: SocketAddr,
-    remote_addr: SocketAddr,
-    session: CitadelSession<R>,
-    v_conn: VirtualConnectionType,
-    hole_punched_addr: TargettedSocketAddr,
-    ticket: Ticket,
-    udp_mode: UdpMode,
-    session_security_settings: SessionSecuritySettings,
-) -> Result<(), NetworkError> {
-    // TODO: allow custom certs for p2p conns
-    let (listener, _) = CitadelNode::<R>::create_listen_socket(
-        ServerUnderlyingProtocol::new_quic_self_signed(),
-        None,
-        None,
-        local_bind_addr,
-    )?;
-    p2p_conn_handler(
-        listener,
-        session,
-        remote_addr,
-        v_conn,
-        hole_punched_addr,
-        ticket,
-        udp_mode,
-        session_security_settings,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
 async fn p2p_conn_handler<R: Ratchet>(
     mut p2p_listener: GenericNetworkListener,
     session: CitadelSession<R>,
@@ -373,13 +342,13 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
         let local_addr = hole_punched_socket.local_addr()?;
         log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {is_initiator}");
 
-        app.sync().await.map_err(generic_error)?;
-        // if local is NOT initiator, we setup a listener at the socket
-        // if local IS the initiator, then start connecting. It should work
+        // Sync point moved INTO the branches to ensure non-initiator's listener is ready
+        // before initiator attempts to connect. This eliminates the 200ms race condition.
         if is_initiator {
-            // give time for non-initiator to setup local bind
-            // TODO: Replace with biconn channel logic
-            citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
+            // Wait for non-initiator to create listener and signal ready
+            app.sync().await.map_err(generic_error)?;
+            log::trace!(target: "citadel", "Initiator: sync complete, non-initiator listener should be ready");
+
             let socket = hole_punched_socket.into_socket();
             let quic_endpoint = citadel_wire::quic::QuicClient::new_with_rustls_config(
                 socket,
@@ -409,11 +378,34 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
                 session_security_settings,
             )
         } else {
-            log::trace!(target: "citadel", "Non-initiator will begin listening immediately");
+            log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
             drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
-            setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket, udp_mode, session_security_settings)
-                .await
-                .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
+
+            // Create listener BEFORE sync to ensure it's ready when initiator connects
+            let (listener, _) = CitadelNode::<R>::create_listen_socket(
+                ServerUnderlyingProtocol::new_quic_self_signed(),
+                None,
+                None,
+                local_addr,
+            )?;
+            log::trace!(target: "citadel", "Non-initiator: listener created on {:?}, signaling ready", local_addr);
+
+            // Signal to initiator that listener is ready
+            app.sync().await.map_err(generic_error)?;
+
+            // Now accept the connection
+            p2p_conn_handler(
+                listener,
+                session.clone(),
+                remote_connect_addr,
+                v_conn,
+                addr,
+                ticket,
+                udp_mode,
+                session_security_settings,
+            )
+            .await
+            .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
         }
     };
 
