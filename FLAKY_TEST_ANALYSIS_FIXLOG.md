@@ -225,6 +225,63 @@ Dual-idle is only problematic when both sides **transition into** idle while exp
 
 ---
 
+## Fix #2: Stale Version Check Before Sending AliceToBob (2025-12-25)
+
+### Root Cause Analysis
+
+After removing the 30s timeout (Fix #1), `test_messenger_racy_contentious::secrecy_mode_2_SecrecyMode__Perfect`
+timed out after 900 seconds, revealing a race condition that the timeout was masking.
+
+**The Race Condition:**
+
+1. Client 10 at version 89 calls `trigger_rekey`, captures version snapshot (`latest_ratchet_version=89`)
+2. `spawn_blocking` for `stage0_alice` takes time
+3. During this time, background rekey processes complete, advancing version to 100
+4. AliceToBob is sent with stale version info (`peer_latest=90`)
+5. Client 10's `declared_version` becomes 101
+6. Client 20 (now at version 100) receives AliceToBob with `peer_latest=90`
+7. Client 20 sees stale message (`peer_latest=90 < local_latest=100`), skips it, waits for next
+8. **No next message comes** - the "fresh" AliceToBob for version 101 already contained stale data
+9. Both clients stuck: Client 10 keeps getting "rekey already pending", Client 20 waits indefinitely
+
+### The Fix
+
+**Location:** `citadel_crypt/src/ratchets/ratchet_manager.rs` (lines 498-518)
+
+**Change:** Re-check version immediately before sending AliceToBob. If version has changed since
+the snapshot was captured, abort the send and return the payload for the caller to retry.
+
+```rust
+// CRITICAL: Re-check version before sending AliceToBob.
+// Between capturing latest_ratchet_version (line ~420) and now, other rekeys may have
+// completed, advancing the version. If we send AliceToBob with stale version info,
+// the receiver will skip it as stale and wait for a fresh message that will never come.
+let current_version = self.session_crypto_state.latest_usable_version();
+if current_version != latest_ratchet_version {
+    log::info!(target: "citadel", "[CBD-RKT-STALE-ABORT] Client {} aborting AliceToBob send: version changed {} -> {} during preparation",
+        self.cid, latest_ratchet_version, current_version);
+    // Reset declared version so future trigger_rekey can proceed
+    self.session_crypto_state.sync_declared_version();
+    // Clean up the constructor we stored
+    let _ = self.constructors.lock().remove(&next_version);
+    // Reset toggle
+    self.session_crypto_state.update_in_progress.toggle_off();
+    // Clear listener if we registered one
+    let _ = self.local_listener.lock().take();
+    // Return payload for caller to retry
+    return Ok(attached_payload);
+}
+```
+
+### Test Results After Fix
+
+All ratchet and messenger tests pass:
+- `test_ratchet_manager_racy_contentious`: **0.71s**
+- `test_messenger_racy_contentious::secrecy_mode_2_SecrecyMode__Perfect`: **0.70s** (previously timed out at 900s)
+- All `test_messenger_racy_contentious_with_random_start_lag` variants: **PASS**
+
+---
+
 ## Appendix: Raw Log Excerpts
 
 ### stress_test_p2p_messaging_thin_ratchet Failure (Run 4, macos)

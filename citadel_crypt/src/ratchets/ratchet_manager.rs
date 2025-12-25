@@ -495,6 +495,28 @@ where
                 .update_in_progress
                 .toggle_on_if_untoggled();
 
+            // CRITICAL: Re-check version before sending AliceToBob.
+            // Between capturing latest_ratchet_version (line ~420) and now, other rekeys may have
+            // completed, advancing the version. If we send AliceToBob with stale version info,
+            // the receiver will skip it as stale and wait for a fresh message that will never come
+            // (since we already sent "our" message for this rekey attempt).
+            // Fix: Abort and let caller retry with fresh version info.
+            let current_version = self.session_crypto_state.latest_usable_version();
+            if current_version != latest_ratchet_version {
+                log::info!(target: "citadel", "[CBD-RKT-STALE-ABORT] Client {} aborting AliceToBob send: version changed {} -> {} during preparation",
+                    self.cid, latest_ratchet_version, current_version);
+                // Reset declared version so future trigger_rekey can proceed
+                self.session_crypto_state.sync_declared_version();
+                // Clean up the constructor we stored
+                let _ = self.constructors.lock().remove(&next_version);
+                // Reset toggle
+                self.session_crypto_state.update_in_progress.toggle_off();
+                // Clear listener if we registered one
+                let _ = self.local_listener.lock().take();
+                // Return payload for caller to retry
+                return Ok(attached_payload);
+            }
+
             self.sender
                 .lock()
                 .await
