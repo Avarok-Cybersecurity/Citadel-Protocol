@@ -808,6 +808,14 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         udp_mode: UdpMode,
         peer_session_password: Option<PreSharedKey>,
     ) -> Result<PeerConnectSuccess<R>, NetworkError> {
+        use std::time::Duration;
+
+        // Timeout for the entire P2P connection process.
+        // This prevents indefinite hangs when the server never responds with PeerChannelCreated.
+        // The timeout should be long enough for normal hole punching (which has its own 30s timeout)
+        // plus key exchange, but short enough to fail fast when something is stuck.
+        const P2P_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+
         let session_cid = self.user().get_session_cid();
         let peer_target = self.try_as_peer_connection().await?;
 
@@ -826,52 +834,62 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }))
             .await?;
 
-        while let Some(status) = stream.next().await {
-            match map_errors(status)? {
-                NodeResult::PeerChannelCreated(PeerChannelCreated {
-                    ticket: _,
-                    channel,
-                    udp_rx_opt,
-                }) => {
-                    let username = self.target_username().map(ToString::to_string);
-                    let remote = PeerRemote {
-                        inner: self.remote().clone(),
-                        peer: peer_target.as_virtual_connection(),
-                        username,
-                        session_security_settings,
-                    };
+        let connect_task = async {
+            while let Some(status) = stream.next().await {
+                match map_errors(status)? {
+                    NodeResult::PeerChannelCreated(PeerChannelCreated {
+                        ticket: _,
+                        channel,
+                        udp_rx_opt,
+                    }) => {
+                        let username = self.target_username().map(ToString::to_string);
+                        let remote = PeerRemote {
+                            inner: self.remote().clone(),
+                            peer: peer_target.as_virtual_connection(),
+                            username,
+                            session_security_settings,
+                        };
 
-                    return Ok(PeerConnectSuccess {
-                        remote,
-                        channel: *channel,
-                        udp_channel_rx: udp_rx_opt,
-                        incoming_object_transfer_handles: None,
-                    });
-                }
+                        return Ok(PeerConnectSuccess {
+                            remote,
+                            channel: *channel,
+                            udp_channel_rx: udp_rx_opt,
+                            incoming_object_transfer_handles: None,
+                        });
+                    }
 
-                NodeResult::PeerEvent(PeerEvent {
-                    event:
-                        PeerSignal::PostConnect {
-                            invitee_response, ..
-                        },
-                    ..
-                }) => match invitee_response {
-                    Some(PeerResponse::Timeout) => {
-                        return Err(NetworkError::msg("Peer did not respond in time"))
-                    }
-                    Some(PeerResponse::Decline) => {
-                        return Err(NetworkError::msg("Peer declined to connect"))
-                    }
+                    NodeResult::PeerEvent(PeerEvent {
+                        event:
+                            PeerSignal::PostConnect {
+                                invitee_response, ..
+                            },
+                        ..
+                    }) => match invitee_response {
+                        Some(PeerResponse::Timeout) => {
+                            return Err(NetworkError::msg("Peer did not respond in time"))
+                        }
+                        Some(PeerResponse::Decline) => {
+                            return Err(NetworkError::msg("Peer declined to connect"))
+                        }
+                        _ => {}
+                    },
+
                     _ => {}
-                },
-
-                _ => {}
+                }
             }
-        }
 
-        Err(NetworkError::InternalError(
-            "Internal kernel stream died (connect_to_peer_custom)",
-        ))
+            Err(NetworkError::InternalError(
+                "Internal kernel stream died (connect_to_peer_custom)",
+            ))
+        };
+
+        match citadel_io::tokio::time::timeout(P2P_CONNECT_TIMEOUT, connect_task).await {
+            Ok(result) => result,
+            Err(_elapsed) => Err(NetworkError::msg(format!(
+                "P2P connection timed out after {}s waiting for PeerChannelCreated",
+                P2P_CONNECT_TIMEOUT.as_secs()
+            ))),
+        }
     }
 
     /// Connects to the target peer with default settings
