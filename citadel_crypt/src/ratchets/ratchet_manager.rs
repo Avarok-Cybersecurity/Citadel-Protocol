@@ -696,110 +696,17 @@ where
         let mut stale_message_count = 0;
         const MAX_STALE_MESSAGES: u32 = 20; // Allow stale messages for high-contention scenarios, but not infinite
 
-        // Progress timeout: If no valid message is received within this duration,
-        // assume the rekey is stalled (e.g., due to message loss) and return an error.
-        // This allows sync_declared_version() to be called, unblocking future rekeys.
-        const REKEY_PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
+        // No timeout on message receipt. The RatchetManager waits indefinitely for:
+        // 1. trigger_rekey() calls from the application
+        // 2. RatchetMessage arrivals from the peer
+        // 3. Shutdown signal
+        //
+        // This is correct because both sides already have symmetric version 0 keys
+        // from the initial KEX before RatchetManager creation. The connection can
+        // remain idle indefinitely - there's no requirement for rekey activity.
 
         loop {
-            let msg = match tokio::time::timeout(REKEY_PROGRESS_TIMEOUT, receiver.next()).await {
-                Ok(msg) => msg,
-                Err(_) => {
-                    // Timeout waiting for message - rekey is stalled
-                    let current_role = self.role();
-                    log::warn!(target: "citadel", "[CBD-RKT-TIMEOUT] Client {} rekey stalled: no message received in {}s, role={:?}, declared_version={}, is_initiator={}",
-                        self.cid, REKEY_PROGRESS_TIMEOUT.as_secs(), current_role,
-                        self.session_crypto_state.declared_next_version(), is_initiator);
-
-                    // If we're Idle and we're the initiator (tie-breaker winner), send a fresh
-                    // AliceToBob to restart the conversation. This prevents dual-idle deadlock
-                    // where both clients are waiting for messages that never come.
-                    if current_role == RekeyRole::Idle && is_initiator {
-                        log::info!(target: "citadel", "[CBD-RKT-RESTART] Client {} is initiator in Idle state, sending fresh AliceToBob to break deadlock",
-                            self.cid);
-
-                        // Get fresh metadata and constructor
-                        let fresh_metadata = self.get_rekey_metadata();
-                        let next_version = fresh_metadata.next_version;
-
-                        if let Some(constructor) = self.session_crypto_state.get_next_constructor()
-                        {
-                            // Offload stage0_alice + serialize
-                            match citadel_io::tokio::task::spawn_blocking(move || {
-                                let transfer = constructor.stage0_alice().ok_or_else(|| {
-                                    CryptError::RekeyUpdateError(
-                                        "Failed to get initial transfer".to_string(),
-                                    )
-                                })?;
-                                let payload = bincode::serialize(&transfer).map_err(|err| {
-                                    CryptError::RekeyUpdateError(format!("{err:?}"))
-                                })?;
-                                Ok::<_, CryptError>((constructor, payload))
-                            })
-                            .await
-                            {
-                                Ok(Ok((constructor, payload))) => {
-                                    let earliest = self
-                                        .session_crypto_state
-                                        .toolset()
-                                        .read()
-                                        .get_oldest_ratchet_version();
-                                    let latest = self.session_crypto_state.latest_usable_version();
-
-                                    // Declare and store constructor before sending
-                                    let _declared =
-                                        self.session_crypto_state.declare_next_version();
-                                    let _ =
-                                        self.constructors.lock().insert(next_version, constructor);
-                                    let _ = self
-                                        .session_crypto_state
-                                        .update_in_progress
-                                        .toggle_on_if_untoggled();
-
-                                    // Send AliceToBob
-                                    if self
-                                        .sender
-                                        .lock()
-                                        .await
-                                        .send(RatchetMessage::AliceToBob {
-                                            payload,
-                                            earliest_ratchet_version: earliest,
-                                            latest_ratchet_version: latest,
-                                            attached_payload: None,
-                                            metadata: fresh_metadata,
-                                        })
-                                        .await
-                                        .is_err()
-                                    {
-                                        log::warn!(target: "citadel", "[CBD-RKT-RESTART] Client {} failed to send AliceToBob", self.cid);
-                                        return Err(CryptError::RekeyUpdateError(
-                                            "Failed to send restart AliceToBob".into(),
-                                        ));
-                                    }
-
-                                    log::info!(target: "citadel", "[CBD-RKT-RESTART] Client {} sent fresh AliceToBob, continuing to wait for response", self.cid);
-                                    // Continue the loop to wait for the response
-                                    continue;
-                                }
-                                Ok(Err(e)) => {
-                                    log::warn!(target: "citadel", "[CBD-RKT-RESTART] Client {} constructor error: {:?}", self.cid, e);
-                                }
-                                Err(e) => {
-                                    log::warn!(target: "citadel", "[CBD-RKT-RESTART] Client {} spawn error: {:?}", self.cid, e);
-                                }
-                            }
-                        } else {
-                            log::warn!(target: "citadel", "[CBD-RKT-RESTART] Client {} no constructor available", self.cid);
-                        }
-                    }
-
-                    // Not initiator or couldn't restart - return error as before
-                    return Err(CryptError::RekeyUpdateError(format!(
-                        "Rekey stalled: no message received in {}s",
-                        REKEY_PROGRESS_TIMEOUT.as_secs()
-                    )));
-                }
-            };
+            let msg = receiver.next().await;
             self.last_received_message.store(
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
                 Ordering::Relaxed,
