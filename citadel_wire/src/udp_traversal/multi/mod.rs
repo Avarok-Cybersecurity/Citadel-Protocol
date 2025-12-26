@@ -557,13 +557,6 @@ async fn drive(
         send(DualStackCandidateSignal::WinnerCanEnd, conn_tx).await?;
     }
 
-    // Sync both peers before exiting to prevent race condition where one peer
-    // drops their NetMutex (sending Halt) before the other has fully exited.
-    // Without this sync, the "loser" could exit and drop their mutex while the
-    // "winner" is still processing, causing "Halted from background" errors.
-    log::trace!(target: "citadel", "Final sync before mutex drop");
-    app.sync().await?;
-
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
 
     let sock = final_candidate_rx.await?;
