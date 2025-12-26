@@ -81,6 +81,7 @@ fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
 ///
 /// See: <https://docs.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls>
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn disable_windows_udp_connreset(socket: &Socket) -> Result<(), anyhow::Error> {
     use std::os::windows::io::AsRawSocket;
 

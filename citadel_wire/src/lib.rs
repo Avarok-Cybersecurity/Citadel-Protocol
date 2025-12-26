@@ -30,7 +30,7 @@
 //! - [`error`] - Error type definitions
 //!
 //! Tools for punching holes through the firewall and network. This enables functionality across residential NATs
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #[cfg(not(target_family = "wasm"))]
 pub mod exports {
     pub use openssl;
