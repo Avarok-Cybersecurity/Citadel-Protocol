@@ -330,6 +330,17 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     let kernel_tx = &kernel_tx;
     let v_conn = peer_connection_type.as_virtual_connection();
 
+    // Send signal IMMEDIATELY before attempting hole punch.
+    // This ensures the SDK receives PeerChannelCreated right away and can use the
+    // TURN path while hole punch runs. If hole punch succeeds, the connection is
+    // upgraded to direct P2P. If it fails, TURN continues working.
+    // This eliminates the race condition where both peers' hole punch attempts
+    // timeout simultaneously, causing neither to send the signal in time.
+    log::trace!(target: "citadel", "Sending channel to kernel before hole punch attempt");
+    kernel_tx
+        .unbounded_send(channel_signal)
+        .map_err(|_| generic_error("Unable to send signal to kernel"))?;
+
     let process = async move {
         citadel_io::tokio::time::sleep_until(sync_time).await;
 
@@ -425,13 +436,6 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
             log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {}s", P2P_CONN_TIMEOUT.as_secs());
         }
     }
-
-    log::trace!(target: "citadel", "Sending channel to kernel");
-    // TODO: Early send IF NAT traversal determined not to be possible, or ...
-    // early send anyways, and, upgrade the p2p channel in the state container automatically
-    kernel_tx
-        .unbounded_send(channel_signal)
-        .map_err(|_| generic_error("Unable to send signal to kernel"))?;
 
     Ok(())
 }
