@@ -169,7 +169,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
 
-    let addr = windows_check(addr);
+    let addr = localhost_testing_addr_fix(addr);
 
     log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() {
@@ -184,10 +184,12 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     Ok(tokio_socket)
 }
 
-fn windows_check(addr: SocketAddr) -> SocketAddr {
-    // if feature "localhost-testing" is enabled, and, we are not on mac, then, we will bind to 127.0.0.1
-    if cfg!(feature = "localhost-testing") && !cfg!(target_os = "macos") {
-        log::warn!(target: "citadel", "Localhost testing is enabled on non-mac OS. Will ensure bind is 127.0.0.1");
+fn localhost_testing_addr_fix(addr: SocketAddr) -> SocketAddr {
+    // In localhost-testing mode, bind to 127.0.0.1 instead of 0.0.0.0.
+    // This ensures socket.local_addr() returns 127.0.0.1 which peers can actually send to.
+    // Without this, macOS fails with "No route to host" when sending to 0.0.0.0.
+    if cfg!(feature = "localhost-testing") {
+        log::trace!(target: "citadel", "Localhost testing enabled, binding to localhost instead of {addr}");
         if addr.is_ipv4() {
             SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), addr.port())
         } else {
@@ -207,7 +209,7 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
 
-    let addr = windows_check(addr);
+    let addr = localhost_testing_addr_fix(addr);
 
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
 
