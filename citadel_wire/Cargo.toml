@@ -55,7 +55,7 @@ rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
 tokio-rustls = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_IO", "Win32_Networking_WinSock"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 
