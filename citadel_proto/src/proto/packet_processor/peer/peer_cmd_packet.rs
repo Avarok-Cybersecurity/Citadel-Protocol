@@ -471,6 +471,8 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         encrypted_config_container,
                                         local_outgoing_attempt_metadata,
                                         needs_turn,
+                                        kem_session_security_settings,
+                                        peer_cid,
                                     ) = {
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
@@ -623,6 +625,8 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             encrypted_config_container,
                                             local_outgoing_attempt_metadata,
                                             needs_turn,
+                                            session_security_settings,
+                                            peer_cid,
                                         )
                                     };
 
@@ -632,14 +636,21 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         UdpMode::Disabled
                                     };
 
-                                    let Some(OutgoingPeerConnectionAttempt {
-                                        ticket: init_ticket,
-                                        session_security_settings,
-                                    }) = local_outgoing_attempt_metadata
-                                    else {
-                                        // TODO: Send error
-                                        log::error!(target: "citadel", "Attempted to create a virtual connection, but could not find local outgoing attempt metadata");
-                                        return Ok(PrimaryProcessorResult::Void);
+                                    // For initiators: use ticket from outgoing_peer_connect_attempts
+                                    // For responders (shouldn't happen in Stage1, but for robustness): use fallback
+                                    let (init_ticket, session_security_settings) = if let Some(
+                                        OutgoingPeerConnectionAttempt {
+                                            ticket: stored_ticket,
+                                            session_security_settings: stored_settings,
+                                        },
+                                    ) =
+                                        local_outgoing_attempt_metadata
+                                    {
+                                        (stored_ticket, stored_settings)
+                                    } else {
+                                        // Fallback case: use packet header ticket and KEM state settings
+                                        log::trace!(target: "citadel", "Using fallback ticket for Stage1 (peer_cid: {peer_cid})");
+                                        (ticket, kem_session_security_settings)
                                     };
 
                                     let channel_signal =
@@ -705,6 +716,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         endpoint_ratchet,
                                         local_outgoing_connection_attempt_metadata,
                                         needs_turn,
+                                        kem_session_security_settings,
                                     ) = {
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
@@ -783,6 +795,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             endpoint_ratchet,
                                             local_outgoing_connection_attempt_metadata,
                                             needs_turn,
+                                            session_security_settings,
                                         )
                                     };
 
@@ -792,14 +805,21 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         UdpMode::Disabled
                                     };
 
-                                    let Some(OutgoingPeerConnectionAttempt {
-                                        ticket: init_ticket,
-                                        session_security_settings,
-                                    }) = local_outgoing_connection_attempt_metadata
-                                    else {
-                                        // TODO: Send error
-                                        log::error!(target: "citadel", "Attempted to create a virtual connection, but could not find local outgoing attempt metadata");
-                                        return Ok(PrimaryProcessorResult::Void);
+                                    // For initiators: use ticket from outgoing_peer_connect_attempts
+                                    // For responders: use ticket from packet header (they didn't initiate, so no entry exists)
+                                    let (init_ticket, session_security_settings) = if let Some(
+                                        OutgoingPeerConnectionAttempt {
+                                            ticket: stored_ticket,
+                                            session_security_settings: stored_settings,
+                                        },
+                                    ) =
+                                        local_outgoing_connection_attempt_metadata
+                                    {
+                                        (stored_ticket, stored_settings)
+                                    } else {
+                                        // Responder case: use packet header ticket and KEM state settings
+                                        log::trace!(target: "citadel", "Using fallback ticket for responder (peer_cid: {peer_cid})");
+                                        (ticket, kem_session_security_settings)
                                     };
 
                                     let channel_signal =
