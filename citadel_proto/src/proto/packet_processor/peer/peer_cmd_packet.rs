@@ -893,6 +893,76 @@ pub async fn process_peer_cmd<R: Ratchet>(
                             };
                         }
 
+                        // Client-side handling for incoming PostConnect request with no response.
+                        // This handles the race condition where both peers send PostConnect
+                        // simultaneously and the server-side simultaneous detection fails.
+                        // We use a CID-based tiebreaker: only the side with the lower CID auto-accepts.
+                        PeerSignal::PostConnect {
+                            peer_conn_type: conn,
+                            invitee_response: None,
+                            session_security_settings: endpoint_security_settings,
+                            udp_mode: udp_enabled,
+                            ..
+                        } => {
+                            let peer_cid = conn.get_original_session_cid();
+                            let has_outgoing = {
+                                let state_container = inner_state!(session.state_container);
+                                state_container
+                                    .outgoing_peer_connect_attempts
+                                    .contains_key(&peer_cid)
+                            };
+
+                            if has_outgoing {
+                                // Both sides are trying to connect to each other.
+                                // Use CID-based tiebreaker: lower CID auto-accepts.
+                                let we_are_lower = session_cid < peer_cid;
+                                if we_are_lower {
+                                    log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} auto-accepting incoming PostConnect from {peer_cid}");
+
+                                    // Store peer KEM state for the incoming connection
+                                    let mut state_container =
+                                        inner_mut_state!(session.state_container);
+                                    let session_password = state_container
+                                        .get_session_password(peer_cid)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    let peer_kem_state_container = PeerKemStateContainer::new(
+                                        *endpoint_security_settings,
+                                        *udp_enabled == UdpMode::Enabled,
+                                        session_password,
+                                    );
+                                    state_container
+                                        .peer_kem_states
+                                        .insert(peer_cid, peer_kem_state_container);
+                                    drop(state_container);
+
+                                    // Send Accept response back to server
+                                    let accept_signal = PeerSignal::PostConnect {
+                                        peer_conn_type: conn.reverse(),
+                                        ticket_opt: Some(ticket),
+                                        invitee_response: Some(PeerResponse::Accept(None)),
+                                        session_security_settings: *endpoint_security_settings,
+                                        udp_mode: *udp_enabled,
+                                        session_password: None,
+                                    };
+
+                                    let packet = packet_crafter::peer_cmd::craft_peer_signal(
+                                        &sess_ratchet,
+                                        accept_signal,
+                                        ticket,
+                                        timestamp,
+                                        security_level,
+                                    );
+                                    return Ok(PrimaryProcessorResult::ReplyToSender(packet));
+                                } else {
+                                    log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} deferring to {peer_cid} (lower CID)");
+                                    // Higher CID ignores - the lower CID side will handle it
+                                    return Ok(PrimaryProcessorResult::Void);
+                                }
+                            }
+                            // Not simultaneous connect - fall through to forward to kernel
+                        }
+
                         _ => {}
                     }
 
