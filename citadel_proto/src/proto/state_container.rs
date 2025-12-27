@@ -108,6 +108,7 @@ use citadel_types::proto::{
 use citadel_user::backend::utils::*;
 use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
+use citadel_wire::nat_identification::NatType;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 impl<R: Ratchet> Debug for StateContainer<R> {
@@ -241,6 +242,8 @@ pub struct VirtualConnection<R: Ratchet> {
     pub sender: Option<(Option<OutboundUdpSender>, OutboundPrimaryStreamSender)>,
     // this is None for server, Some for endpoints
     pub endpoint_container: Option<EndpointChannelContainer<R>>,
+    /// The NAT type of the adjacent peer (if known)
+    pub adjacent_nat_type: Option<NatType>,
 }
 
 impl<R: Ratchet> VirtualConnection<R> {
@@ -917,12 +920,17 @@ impl<R: Ratchet> StateContainerInner<R> {
             file_transfer_compatible,
         });
 
+        // For C2S connections, get the adjacent NAT type from the session
+        // For P2P connections, this will be updated later during hole punching
+        let adjacent_nat_type = (*sess.adjacent_nat_type).clone();
+
         let vconn = VirtualConnection {
             last_delivered_message_timestamp: DualRwLock::from(None),
             connection_type: virtual_connection_type,
             is_active,
             sender: None,
             endpoint_container,
+            adjacent_nat_type,
         };
 
         self.active_virtual_connections.insert(target_cid, vconn);
@@ -995,6 +1003,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             sender: Some((target_udp_sender, target_tcp_sender)),
             connection_type,
             is_active: Arc::new(AtomicBool::new(true)),
+            adjacent_nat_type: None, // Server doesn't have direct NAT info for clients
         };
         if self
             .active_virtual_connections

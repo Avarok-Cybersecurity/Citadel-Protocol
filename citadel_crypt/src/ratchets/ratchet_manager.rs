@@ -83,7 +83,7 @@ where
     pub(crate) session_crypto_state: PeerSessionCrypto<R>,
     attached_payload_tx: UnboundedSender<P>,
     attached_payload_rx: Arc<Mutex<Option<UnboundedReceiver<P>>>>,
-    rekey_done_notifier: Arc<Mutex<Option<UnboundedReceiver<R>>>>,
+    rekey_done_notifier: Arc<Mutex<Option<UnboundedReceiver<Option<R>>>>>,
     last_received_message: Arc<AtomicU64>,
     cid: u64,
     psks: Arc<Vec<Vec<u8>>>,
@@ -616,7 +616,7 @@ where
 
     fn spawn_rekey_process(
         self,
-        rekey_done_notifier_tx: tokio::sync::mpsc::UnboundedSender<R>,
+        rekey_done_notifier_tx: tokio::sync::mpsc::UnboundedSender<Option<R>>,
         shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     ) {
         struct DropWrapper {
@@ -650,7 +650,8 @@ where
                 match result {
                     Ok(latest_ratchet) => {
                         // Alert any local callers waiting for rekeying to finish
-                        if let Err(_err) = rekey_done_notifier_tx.send(latest_ratchet.clone()) {
+                        if let Err(_err) = rekey_done_notifier_tx.send(Some(latest_ratchet.clone()))
+                        {
                             log::warn!(target: "citadel", "Failed to send rekey done notification");
                         }
 
@@ -683,6 +684,17 @@ where
                             break;
                         } else {
                             log::warn!(target: "citadel", "Client {} rekey error: {err:?}", self.cid);
+
+                            // CRITICAL: Notify messenger layer that a rekey attempt failed.
+                            // This prevents deadlock in Perfect mode where:
+                            // 1. Messages are queued waiting for on_rekey_finish_listener.recv()
+                            // 2. Rekey fails with non-fatal error
+                            // 3. This loop waits for new messages on receiver.next().await
+                            // 4. No new trigger_rekey() is called (all messages are queued)
+                            // 5. Both wait for each other forever!
+                            //
+                            // By sending None, the messenger layer knows to retry sending queued messages.
+                            let _ = rekey_done_notifier_tx.send(None);
                         }
                     }
                 }
@@ -1407,7 +1419,7 @@ where
         self.attached_payload_rx.lock().take()
     }
 
-    pub fn take_on_rekey_finished_event_listener(&self) -> Option<UnboundedReceiver<R>> {
+    pub fn take_on_rekey_finished_event_listener(&self) -> Option<UnboundedReceiver<Option<R>>> {
         self.rekey_done_notifier.lock().take()
     }
 

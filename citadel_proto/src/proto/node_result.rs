@@ -36,6 +36,7 @@ use citadel_crypt::prelude::CryptError;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_user::backend::utils::ObjectTransferHandler;
+use citadel_wire::nat_identification::NatType;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -158,10 +159,34 @@ pub struct PeerChannelCreated<R: Ratchet> {
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    /// If None, this is a c2s connection. Else, a p2p connection.
+    pub peer_cid: Option<u64>,
+    /// The NAT type of the adjacent peer, if known
+    pub adjacent_nat_type: Option<NatType>,
+    pub connection_type: VirtualConnectionType,
+    pub connected: bool,
+    /// Returns effectively the number of re-keys in the session minus 1 (version starts at 0)
+    pub latest_ratchet_version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub cid: u64,
+    pub connections: Vec<ConnectionInfo>,
+}
+
+#[derive(Debug)]
+pub struct ActiveSessions {
+    pub sessions: Vec<SessionInfo>,
+    pub local_nat_type: NatType,
+}
+
 #[derive(Debug)]
 pub struct SessionList {
     pub ticket: Ticket,
-    pub sessions: Vec<u64>,
+    pub sessions: ActiveSessions,
 }
 
 #[derive(Debug)]

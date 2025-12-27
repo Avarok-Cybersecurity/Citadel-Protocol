@@ -1166,6 +1166,24 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         ))
     }
 
+    /// Lists all active sessions, including the local nat type. For each active session,
+    /// lists each connection info which includes the remote nat type, connection status,
+    /// peer id, and latest ratchet version.
+    async fn list_sessions(&self) -> Result<ActiveSessions, NetworkError> {
+        let request = NodeRequest::GetActiveSessions;
+        let mut subscription = self.remote().send_callback_subscription(request).await?;
+
+        if let Some(evt) = subscription.next().await {
+            if let NodeResult::SessionList(result) = evt {
+                return Ok(result.sessions);
+            }
+        }
+
+        Err(NetworkError::InternalError(
+            "List_sessions ended unexpectedly",
+        ))
+    }
+
     /// Begins a re-key, updating the container in the process.
     /// Returns the new key matrix version. Does not return the new key version
     /// if the rekey fails, or, if a current rekey is already executing

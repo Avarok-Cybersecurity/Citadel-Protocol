@@ -87,11 +87,18 @@ where
             // to poll and send
             let enqueued_messages_rekey = enqueued_messages_clone.clone();
             let rekey_task = async move {
-                while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
-                    if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
-                        if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
-                            log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
+                while let Some(rekey_result) = on_rekey_finish_listener.recv().await {
+                    // rekey_result is Option<R>:
+                    // - Some(ratchet): successful rekey, forward to listener
+                    // - None: failed rekey (non-fatal error), just retry draining queue
+                    if let Some(next_ratchet) = rekey_result {
+                        if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
+                            if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
+                                log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
+                            }
                         }
+                    } else {
+                        log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey failed, retrying queued messages");
                     }
 
                     // Process all queued messages, not just one

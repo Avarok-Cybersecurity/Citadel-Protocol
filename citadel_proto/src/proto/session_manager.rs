@@ -53,7 +53,7 @@ use crate::auth::AuthenticationRequest;
 use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::macros::{FutureRequirements, SyncContextRequirements};
-use crate::prelude::Disconnect;
+use crate::prelude::{ConnectionInfo, Disconnect, SessionInfo};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
@@ -812,9 +812,36 @@ impl<R: Ratchet> CitadelSessionManager<R> {
     }
 
     /// Returns a list of active sessions
-    pub fn get_active_sessions(&self) -> Vec<u64> {
+    pub fn get_active_sessions(&self) -> Vec<SessionInfo> {
         let this = inner!(self);
-        this.sessions.keys().copied().collect()
+        this.sessions
+            .iter()
+            .map(|(cid, session)| {
+                let state = inner!(session.1.state_container);
+                let connections = state
+                    .active_virtual_connections
+                    .iter()
+                    .map(|(cid, connection)| {
+                        let peer_cid = if *cid == 0 { None } else { Some(*cid) };
+                        ConnectionInfo {
+                            peer_cid,
+                            connection_type: connection.connection_type,
+                            latest_ratchet_version: connection
+                                .get_endpoint_ratchet(None)
+                                .map(|r| r.version())
+                                .unwrap_or(0),
+                            connected: connection.is_active.load(Ordering::Relaxed),
+                            adjacent_nat_type: connection.adjacent_nat_type.clone(),
+                        }
+                    })
+                    .collect();
+
+                SessionInfo {
+                    cid: *cid,
+                    connections,
+                }
+            })
+            .collect()
     }
 
     /// This upgrades a provisional connection to a full connection. Returns true if the upgrade

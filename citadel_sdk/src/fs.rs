@@ -196,6 +196,35 @@ mod tests {
             server_connection_settings,
             |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
+
+                // Test list_sessions() - verify we can list active sessions with correct data
+                let sessions = connection.remote.list_sessions().await?;
+                log::info!(target: "citadel", "***CLIENT list_sessions() returned {} sessions***", sessions.sessions.len());
+                assert!(
+                    !sessions.sessions.is_empty(),
+                    "Should have at least one active session"
+                );
+                // Find our session by CID
+                let our_session = sessions.sessions.iter().find(|s| s.cid == connection.cid);
+                assert!(our_session.is_some(), "Should find our session in the list");
+                let our_session = our_session.unwrap();
+                assert!(
+                    !our_session.connections.is_empty(),
+                    "Session should have at least one connection"
+                );
+                // For C2S, peer_cid should be None
+                let c2s_conn = our_session
+                    .connections
+                    .iter()
+                    .find(|c| c.peer_cid.is_none());
+                assert!(
+                    c2s_conn.is_some(),
+                    "Should have a C2S connection (peer_cid = None)"
+                );
+                let c2s_conn = c2s_conn.unwrap();
+                assert!(c2s_conn.connected, "C2S connection should be active");
+                log::info!(target: "citadel", "***CLIENT list_sessions() verification PASSED***");
+
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(

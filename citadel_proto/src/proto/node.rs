@@ -56,6 +56,7 @@ use crate::kernel::kernel_communicator::{
 };
 use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
+use crate::prelude::ActiveSessions;
 use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
@@ -935,7 +936,10 @@ impl<R: Ratchet> CitadelNode<R> {
                     if let Err(err) =
                         to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {
                             ticket: ticket_id,
-                            sessions: session_manager.get_active_sessions(),
+                            sessions: ActiveSessions {
+                                sessions: session_manager.get_active_sessions(),
+                                local_nat_type: local_nat_type.clone(),
+                            },
                         }))
                     {
                         send_error(
