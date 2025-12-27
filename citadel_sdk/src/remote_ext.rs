@@ -1173,10 +1173,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         let request = NodeRequest::GetActiveSessions;
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
-        if let Some(evt) = subscription.next().await {
-            if let NodeResult::SessionList(result) = evt {
-                return Ok(result.sessions);
-            }
+        if let Some(NodeResult::SessionList(result)) = subscription.next().await {
+            return Ok(result.sessions);
         }
 
         Err(NetworkError::InternalError(
