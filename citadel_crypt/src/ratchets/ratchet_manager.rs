@@ -812,7 +812,7 @@ where
                         // CBD: Version snapshot upon receiving AliceToBob
                         log::info!(target: "citadel", "[CBD-RKT-VERSION] Client {} recv AliceToBob: peer_earliest={}, peer_latest={}, local_earliest={}, local_latest={}, role={:?}, state={:?}",
                             self.cid, earliest_ratchet_version, latest_ratchet_version, local_earliest_ratchet_version, local_latest_ratchet_version, self.role(), self.state());
-                        log::debug!(target: "citadel", "[CBD-RKT-PROC-1] Client {} starting AliceToBob processing", self.cid);
+                        log::info!(target: "citadel", "[CBD-RKT-PROC-1] Client {} starting validation, peer_meta={:?}", self.cid, peer_metadata);
 
                         // Validate against our barrier. We only care about the latest version, since the
                         // earliest version may still be syncing
@@ -832,6 +832,7 @@ where
                                         format!("Too many stale AliceToBob messages ({stale_message_count}), resynchronization needed. Peer: {latest_ratchet_version}, Local: {local_latest_ratchet_version}")
                                     ));
                                 }
+                                log::info!(target: "citadel", "[CBD-RKT-SKIP-BARRIER] Client {} skipping stale AliceToBob (barrier mismatch), waiting for fresh message", self.cid);
                                 continue; // Skip this stale message and wait for fresh ones
                             }
                             // Peer is ahead - this is a real desync error
@@ -863,6 +864,7 @@ where
                                         format!("Too many stale AliceToBob messages ({stale_message_count})")
                                     ));
                                 }
+                                log::info!(target: "citadel", "[CBD-RKT-SKIP-LEADER] Client {} (Leader) skipping stale AliceToBob (no constructor)", self.cid);
                                 continue; // Skip this stale message
                             }
                         }
@@ -887,6 +889,7 @@ where
                                         format!("Too many stale AliceToBob messages ({stale_message_count}), resynchronization needed. Peer: {peer_metadata:?}, Local: {metadata:?}")
                                     ));
                                 }
+                                log::info!(target: "citadel", "[CBD-RKT-SKIP-META] Client {} skipping stale AliceToBob (metadata mismatch: peer={:?}, local={:?})", self.cid, peer_metadata, metadata);
                                 continue; // Skip this stale message and wait for fresh ones
                             }
                             return Err(CryptError::RekeyUpdateError(
@@ -894,8 +897,9 @@ where
                             ));
                         }
 
+                        log::info!(target: "citadel", "[CBD-RKT-PROC-1b] Client {} validation passed, local_meta={:?}", self.cid, metadata);
                         // Create Bob constructor
-                        log::debug!(target: "citadel", "[CBD-RKT-PROC-2] Client {} creating Bob constructor", self.cid);
+                        log::info!(target: "citadel", "[CBD-RKT-PROC-2] Client {} creating Bob constructor after validation", self.cid);
                         let bob_constructor =
                             <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                 self.cid, next_opts, transfer, &self.psks,
@@ -907,14 +911,14 @@ where
                             })?;
 
                         // Offload update_sync_safe
-                        log::debug!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking update_sync_safe", self.cid);
+                        log::info!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking for update_sync_safe", self.cid);
                         let status_result = citadel_io::tokio::task::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
                             let cid = self.cid;
                             move || {
-                                log::debug!(target: "citadel", "[CBD-RKT-PROC-4] Client {} inside spawn_blocking", cid);
+                                log::info!(target: "citadel", "[CBD-RKT-PROC-4] Client {} entered spawn_blocking thread", cid);
                                 let result = session_crypto_state.update_sync_safe(bob_constructor, false);
-                                log::debug!(target: "citadel", "[CBD-RKT-PROC-5] Client {} spawn_blocking completed", cid);
+                                log::info!(target: "citadel", "[CBD-RKT-PROC-5] Client {} update_sync_safe returned in spawn_blocking", cid);
                                 result
                             }
                         })
@@ -922,7 +926,7 @@ where
                         .map_err(|_| {
                             CryptError::RekeyUpdateError("Join error on update_sync_safe".into())
                         })??;
-                        log::debug!(target: "citadel", "[CBD-RKT-PROC-6] Client {} update_sync_safe returned", self.cid);
+                        log::info!(target: "citadel", "[CBD-RKT-PROC-6] Client {} update_sync_safe completed with status", self.cid);
                         status_result
                     };
 
@@ -941,7 +945,7 @@ where
                                 .toggle_on_if_untoggled();
                             self.set_role(RekeyRole::Loser);
 
-                            log::trace!(target: "citadel", "Client {} must send BobToAlice", self.cid);
+                            log::info!(target: "citadel", "[CBD-RKT-PROC-7] Client {} acquiring sender lock to send BobToAlice", self.cid);
 
                             self.sender
                                 .lock()
@@ -956,9 +960,9 @@ where
                                     CryptError::RekeyUpdateError("Sink send error".into())
                                 })?;
 
-                            log::debug!(
+                            log::info!(
                                 target: "citadel",
-                                "Client {} is {:?}. Sent BobToAlice",
+                                "[CBD-RKT-PROC-8] Client {} sent BobToAlice successfully, role={:?}",
                                 self.cid,
                                 self.role(),
                             );
@@ -967,7 +971,7 @@ where
                             // The package that we received did not result in a re-key. OUR package will result in a re-key.
                             // Therefore, we will wait for the adjacent node to drive us to completion so we both have the same ratchet
                             self.set_role(RekeyRole::Leader);
-                            log::debug!(target: "citadel", "[Contention] Client {} is {:?}. contention detected. We will wait for the adjacent node to drive us to completion", self.cid, RekeyRole::Leader);
+                            log::info!(target: "citadel", "[CBD-RKT-CONTEND] Client {} update_sync_safe returned Contended, becoming Leader", self.cid);
                         }
                         _ => {
                             log::warn!(target:"citadel", "Client {} unexpected status for AliceToBob Transfer: {status:?}", self.cid);

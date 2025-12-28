@@ -159,9 +159,11 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         ),
         CryptError,
     > {
+        log::info!(target: "citadel", "[CBD-CNRV-1] Client {} commit_next_ratchet_version entry, generate_next={}", local_cid, generate_next);
         // Minimize lock scope: read current version under read lock, compute outside, then commit under short write lock
         let cur_vers = self.toolset.read().get_most_recent_ratchet_version();
         let next_vers = cur_vers.wrapping_add(1);
+        log::info!(target: "citadel", "[CBD-CNRV-2] Client {} cur_vers={}, next_vers={}", local_cid, cur_vers, next_vers);
 
         // Update version before any stage operations
         newest_version.update_version(next_vers).ok_or_else(|| {
@@ -193,9 +195,11 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         }
 
         // Heavy: stage0_bob + finish — synchronous compute outside lock; callers should offload if needed
+        log::info!(target: "citadel", "[CBD-CNRV-3] Client {} calling stage0_bob", local_cid);
         let transfer = newest_version.stage0_bob().ok_or_else(|| {
             CryptError::RekeyUpdateError("Unable to progress past stage0_bob".to_string())
         })?;
+        log::info!(target: "citadel", "[CBD-CNRV-4] Client {} stage0_bob complete, calling finish_with_custom_cid", local_cid);
 
         let next_ratchet = newest_version
             .finish_with_custom_cid(local_cid)
@@ -204,15 +208,17 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
                     "Unable to progress past finish_with_custom_cid".to_string(),
                 )
             })?;
+        log::info!(target: "citadel", "[CBD-CNRV-5] Client {} finish_with_custom_cid complete, acquiring write lock", local_cid);
 
         // Short commit under write lock
         let status = {
             let mut toolset = self.toolset.write();
+            log::info!(target: "citadel", "[CBD-CNRV-6] Client {} write lock acquired, calling update_from", local_cid);
             toolset.update_from(next_ratchet).ok_or_else(|| {
                 CryptError::RekeyUpdateError("Unable to progress past update_from".to_string())
             })?
         };
-        log::trace!(target: "citadel", "[E2E] Client {local_cid} successfully updated Ratchet from v{cur_vers} to v{next_vers}");
+        log::info!(target: "citadel", "[CBD-CNRV-7] Client {} successfully updated Ratchet from v{cur_vers} to v{next_vers}", local_cid);
 
         Ok((Some(transfer), status))
     }
@@ -229,21 +235,24 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         triggered_by_bob_to_alice_transfer: bool,
     ) -> Result<KemTransferStatus<R>, CryptError> {
         let local_cid = self.cid;
+        log::info!(target: "citadel", "[CBD-USS-1] Client {} update_sync_safe entry, triggered_by_bob={}", local_cid, triggered_by_bob_to_alice_transfer);
         let update_in_progress =
             self.update_in_progress.toggle_on_if_untoggled() == CurrentToggleState::AlreadyToggled;
 
-        log::trace!(target: "citadel", "[E2E] Calling UPDATE (triggered by bob_to_alice tx: {triggered_by_bob_to_alice_transfer}. Update in progress: {update_in_progress})");
+        log::info!(target: "citadel", "[CBD-USS-2] Client {} update_in_progress={}, local_is_initiator={}", local_cid, update_in_progress, self.local_is_initiator);
 
         if update_in_progress && !triggered_by_bob_to_alice_transfer {
             // update is in progress. We only update if local is NOT the initiator (this implies the packet triggering this was sent by the initiator, which takes the preference as desired)
             // if local is initiator, then the packet was sent by the non-initiator, and as such, we don't update on local
             if !self.local_is_initiator {
+                log::info!(target: "citadel", "[CBD-USS-3] Client {} returning Contended (update in progress, not initiator)", local_cid);
                 return Ok(KemTransferStatus::Contended);
             }
         }
 
         // There is one last special possibility. Let's say the initiator spam sends a bunch of FastMessage packets. Since the initiator's local won't have the appropriate proposed version ID
         // we need to ensure that it gets the right version, The crypt container will take care of that for us
+        log::info!(target: "citadel", "[CBD-USS-4] Client {} calling commit_next_ratchet_version", local_cid);
         let result = self.commit_next_ratchet_version(
             constructor,
             local_cid,
@@ -251,9 +260,10 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         );
 
         if let Err(err) = &result {
-            log::error!(target: "citadel", "[E2E] Error during update: {err:?}");
+            log::error!(target: "citadel", "[CBD-USS-ERR] Client {} error during update: {err:?}", local_cid);
             self.update_in_progress.toggle_off();
         }
+        log::info!(target: "citadel", "[CBD-USS-5] Client {} commit_next_ratchet_version returned", local_cid);
 
         let (transfer, status) = result?;
 
