@@ -166,30 +166,39 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         log::info!(target: "citadel", "[CBD-CNRV-2] Client {} cur_vers={}, next_vers={}", local_cid, cur_vers, next_vers);
 
         // Update version before any stage operations
+        log::info!(target: "citadel", "[CBD-CNRV-2a] Client {} calling update_version({})", local_cid, next_vers);
         newest_version.update_version(next_vers).ok_or_else(|| {
+            log::error!(target: "citadel", "[CBD-CNRV-2a-ERR] Client {} update_version({}) returned None!", local_cid, next_vers);
             CryptError::RekeyUpdateError("Unable to progress past update_version".to_string())
         })?;
+        log::info!(target: "citadel", "[CBD-CNRV-2b] Client {} update_version({}) complete", local_cid, next_vers);
 
         if !generate_next {
             // Heavy: finish constructor — synchronous compute outside lock; callers should offload if needed
+            log::info!(target: "citadel", "[CBD-CNRV-ALICE-1] Client {} calling finish_with_custom_cid (Alice path)", local_cid);
             let latest_ratchet = newest_version
                 .finish_with_custom_cid(local_cid)
                 .ok_or_else(|| {
+                    log::error!(target: "citadel", "[CBD-CNRV-ALICE-ERR1] Client {} finish_with_custom_cid returned None!", local_cid);
                     CryptError::RekeyUpdateError(
                         "Unable to progress past finish_with_custom_cid for bob-to-alice trigger"
                             .to_string(),
                     )
                 })?;
+            log::info!(target: "citadel", "[CBD-CNRV-ALICE-2] Client {} finish_with_custom_cid complete, acquiring write lock", local_cid);
 
             // Commit with short write lock
             let status = {
                 let mut toolset = self.toolset.write();
+                log::info!(target: "citadel", "[CBD-CNRV-ALICE-3] Client {} write lock acquired, calling update_from", local_cid);
                 toolset.update_from(latest_ratchet).ok_or_else(|| {
+                    log::error!(target: "citadel", "[CBD-CNRV-ALICE-ERR2] Client {} update_from returned None!", local_cid);
                     CryptError::RekeyUpdateError(
                         "Unable to progress past update_from for bob-to-alice trigger".to_string(),
                     )
                 })?
             };
+            log::info!(target: "citadel", "[CBD-CNRV-ALICE-4] Client {} Alice path complete, updated from v{} to v{}", local_cid, cur_vers, next_vers);
 
             return Ok((None, status));
         }
