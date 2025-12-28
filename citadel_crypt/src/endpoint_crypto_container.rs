@@ -185,20 +185,23 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
                             .to_string(),
                     )
                 })?;
-            log::info!(target: "citadel", "[CBD-CNRV-ALICE-2] Client {} finish_with_custom_cid complete, acquiring write lock", local_cid);
+            let ratchet_version = latest_ratchet.version();
+            log::info!(target: "citadel", "[CBD-CNRV-ALICE-2] Client {} finish_with_custom_cid complete (ratchet_v={}), acquiring write lock", local_cid, ratchet_version);
 
             // Commit with short write lock
             let status = {
                 let mut toolset = self.toolset.write();
-                log::info!(target: "citadel", "[CBD-CNRV-ALICE-3] Client {} write lock acquired, calling update_from", local_cid);
+                let current_toolset_version = toolset.get_most_recent_ratchet_version();
+                log::info!(target: "citadel", "[CBD-CNRV-ALICE-3] Client {} write lock acquired, toolset_v={}, ratchet_v={}", local_cid, current_toolset_version, ratchet_version);
                 toolset.update_from(latest_ratchet).ok_or_else(|| {
-                    log::error!(target: "citadel", "[CBD-CNRV-ALICE-ERR2] Client {} update_from returned None!", local_cid);
+                    log::error!(target: "citadel", "[CBD-CNRV-ALICE-ERR2] Client {} update_from returned None! toolset_v={}, expected_v={}", local_cid, current_toolset_version, ratchet_version);
                     CryptError::RekeyUpdateError(
                         "Unable to progress past update_from for bob-to-alice trigger".to_string(),
                     )
                 })?
             };
-            log::info!(target: "citadel", "[CBD-CNRV-ALICE-4] Client {} Alice path complete, updated from v{} to v{}", local_cid, cur_vers, next_vers);
+            let final_version = self.toolset.read().get_most_recent_ratchet_version();
+            log::info!(target: "citadel", "[CBD-CNRV-ALICE-4] Client {} Alice path complete, toolset_v={}", local_cid, final_version);
 
             return Ok((None, status));
         }
