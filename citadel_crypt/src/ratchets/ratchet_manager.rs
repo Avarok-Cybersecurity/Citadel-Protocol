@@ -84,6 +84,9 @@ where
     attached_payload_tx: UnboundedSender<P>,
     attached_payload_rx: Arc<Mutex<Option<UnboundedReceiver<P>>>>,
     rekey_done_notifier: Arc<Mutex<Option<UnboundedReceiver<Option<R>>>>>,
+    /// Sender to notify messenger layer when rekey state changes (success/failure/early-return).
+    /// Used to prevent deadlock when trigger_rekey returns early due to "version already advanced".
+    rekey_done_notifier_tx: UnboundedSender<Option<R>>,
     last_received_message: Arc<AtomicU64>,
     cid: u64,
     psks: Arc<Vec<Vec<u8>>>,
@@ -111,6 +114,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             attached_payload_tx: self.attached_payload_tx.clone(),
             attached_payload_rx: self.attached_payload_rx.clone(),
             rekey_done_notifier: self.rekey_done_notifier.clone(),
+            rekey_done_notifier_tx: self.rekey_done_notifier_tx.clone(),
             constructors: self.constructors.clone(),
             is_initiator: self.is_initiator,
             last_received_message: self.last_received_message.clone(),
@@ -248,6 +252,7 @@ where
             attached_payload_tx,
             attached_payload_rx: Arc::new(Mutex::new(Some(attached_payload_rx))),
             rekey_done_notifier,
+            rekey_done_notifier_tx: rekey_done_notifier_tx.clone(),
             psks: Arc::new(psks.iter().map(|psk| psk.as_ref().to_vec()).collect()),
             role: Arc::new(Atomic::new(RekeyRole::Idle)),
             state: Arc::new(Atomic::new(RekeyState::Idle)),
@@ -324,6 +329,8 @@ where
         if declared_version > version_at_entry {
             log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}): returning payload",
                 self.cid, declared_version, version_at_entry);
+            // Notify messenger to check queue - a rekey is pending so queue will drain when it completes
+            let _ = self.rekey_done_notifier_tx.send(None);
             return Ok(attached_payload);
         }
 
@@ -342,6 +349,8 @@ where
 
             // If wait_for_completion=false, return immediately with payload
             if !wait_for_completion {
+                // Notify messenger to check queue - ongoing rekey will trigger completion notification
+                let _ = self.rekey_done_notifier_tx.send(None);
                 return Ok(attached_payload);
             }
 
@@ -425,6 +434,11 @@ where
                 if current_version > version_at_entry {
                     log::info!(target: "citadel", "[CBD-RKT-2b] Client {} version already advanced from {} to {}; rekey not needed, returning payload",
                     self.cid, version_at_entry, current_version);
+                    // CRITICAL: Notify messenger layer that a rekey completed (not by us, but by
+                    // receiving a peer's rekey). Without this, the messenger's background task may
+                    // be waiting on on_rekey_finish_listener.recv() while messages are queued,
+                    // causing deadlock. Send None to indicate "check queue" rather than success.
+                    let _ = self.rekey_done_notifier_tx.send(None);
                     return Ok(attached_payload);
                 }
 
