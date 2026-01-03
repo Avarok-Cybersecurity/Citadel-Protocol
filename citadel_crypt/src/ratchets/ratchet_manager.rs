@@ -335,21 +335,22 @@ where
             // Check for stale declared_version: if it's been pending for too long without
             // completing, the original rekey likely failed (e.g., BobToAlice never received).
             // In this case, reset declared_version and proceed with new rekey.
+            //
+            // Note: We don't check role here because in bidirectional scenarios (C2S stress tests),
+            // the role is constantly switching between Leader/Loser due to incoming rekeys from
+            // the peer. The 60s timeout is sufficient to determine something is stuck.
             const DECLARED_VERSION_STALENESS_TIMEOUT_SECS: u64 = 60;
             let now = UNIX_EPOCH.elapsed().unwrap_or_default().as_secs();
             let declared_at = self.declared_version_set_at.load(Ordering::Relaxed);
+            let age_secs = now.saturating_sub(declared_at);
             let role = self.role();
 
-            // Only consider stale if:
+            // Consider stale if:
             // 1. Enough time has passed since declared_version was set
-            // 2. Role is Idle (no active rekey in progress)
-            // 3. declared_at is non-zero (was actually set)
-            if declared_at > 0
-                && now.saturating_sub(declared_at) > DECLARED_VERSION_STALENESS_TIMEOUT_SECS
-                && role == RekeyRole::Idle
-            {
+            // 2. declared_at is non-zero (was actually set)
+            if declared_at > 0 && age_secs > DECLARED_VERSION_STALENESS_TIMEOUT_SECS {
                 log::warn!(target: "citadel", "[CBD-RKT-STALE-RECOVERY] Client {} resetting stale declared_version: declared={}, current={}, age={}s (> {}s threshold), role={:?}",
-                    self.cid, declared_version, version_at_entry, now.saturating_sub(declared_at), DECLARED_VERSION_STALENESS_TIMEOUT_SECS, role);
+                    self.cid, declared_version, version_at_entry, age_secs, DECLARED_VERSION_STALENESS_TIMEOUT_SECS, role);
 
                 // Reset declared_version to current_version to allow new rekeys
                 self.session_crypto_state.sync_declared_version();
@@ -357,8 +358,8 @@ where
 
                 // Fall through to proceed with new rekey instead of returning early
             } else {
-                log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}): returning payload",
-                    self.cid, declared_version, version_at_entry);
+                log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}, age={}s, role={:?}): returning payload",
+                    self.cid, declared_version, version_at_entry, age_secs, role);
                 // Notify messenger to check queue - a rekey is pending so queue will drain when it completes
                 let _ = self.rekey_done_notifier_tx.send(None);
                 return Ok(attached_payload);
