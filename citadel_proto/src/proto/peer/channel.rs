@@ -106,7 +106,7 @@ impl<R: Ratchet> PeerChannel<R> {
         let recv_half = PeerChannelRecvHalf {
             node_remote,
             receiver: ReceiverType::OrderedReliable {
-                rx: from_inbound_stream,
+                rx: Box::new(from_inbound_stream),
             },
             target_cid,
             vconn_type,
@@ -202,7 +202,7 @@ pub struct PeerChannelRecvHalf<R: Ratchet> {
 }
 
 enum ReceiverType<R: Ratchet> {
-    OrderedReliable { rx: ProtocolMessengerRx<R> },
+    OrderedReliable { rx: Box<ProtocolMessengerRx<R>> },
     UnorderedUnreliable { rx: UnboundedReceiver<SecBuffer> },
 }
 
@@ -212,7 +212,7 @@ impl<R: Ratchet> Stream for ReceiverType<R> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             ReceiverType::OrderedReliable { rx } => {
-                match futures::ready!(Pin::new(rx).poll_next(cx)) {
+                match futures::ready!(Pin::new(rx.as_mut()).poll_next(cx)) {
                     Some(data) => Poll::Ready(Some(data.packet)),
                     _ => {
                         log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for OrderedReliable");
