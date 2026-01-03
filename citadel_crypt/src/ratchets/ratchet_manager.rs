@@ -98,6 +98,9 @@ where
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     /// Semaphore to serialize trigger_rekey calls (only 1 permit)
     rekey_trigger_semaphore: Arc<Semaphore>,
+    /// Timestamp (seconds since UNIX_EPOCH) when declared_version was last incremented.
+    /// Used to detect stale declared_version that blocks new rekeys.
+    declared_version_set_at: Arc<AtomicU64>,
 }
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
@@ -122,6 +125,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             local_listener: self.local_listener.clone(),
             shutdown_tx: self.shutdown_tx.clone(),
             rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
+            declared_version_set_at: self.declared_version_set_at.clone(),
         }
     }
 }
@@ -259,6 +263,7 @@ where
             local_listener: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
             rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
+            declared_version_set_at: Arc::new(AtomicU64::new(0)),
         };
 
         this.clone()
@@ -327,11 +332,37 @@ where
         // This prevents overlapping rekeys from targeting the same version
         let declared_version = self.session_crypto_state.declared_next_version();
         if declared_version > version_at_entry {
-            log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}): returning payload",
-                self.cid, declared_version, version_at_entry);
-            // Notify messenger to check queue - a rekey is pending so queue will drain when it completes
-            let _ = self.rekey_done_notifier_tx.send(None);
-            return Ok(attached_payload);
+            // Check for stale declared_version: if it's been pending for too long without
+            // completing, the original rekey likely failed (e.g., BobToAlice never received).
+            // In this case, reset declared_version and proceed with new rekey.
+            const DECLARED_VERSION_STALENESS_TIMEOUT_SECS: u64 = 60;
+            let now = UNIX_EPOCH.elapsed().unwrap_or_default().as_secs();
+            let declared_at = self.declared_version_set_at.load(Ordering::Relaxed);
+            let role = self.role();
+
+            // Only consider stale if:
+            // 1. Enough time has passed since declared_version was set
+            // 2. Role is Idle (no active rekey in progress)
+            // 3. declared_at is non-zero (was actually set)
+            if declared_at > 0
+                && now.saturating_sub(declared_at) > DECLARED_VERSION_STALENESS_TIMEOUT_SECS
+                && role == RekeyRole::Idle
+            {
+                log::warn!(target: "citadel", "[CBD-RKT-STALE-RECOVERY] Client {} resetting stale declared_version: declared={}, current={}, age={}s (> {}s threshold), role={:?}",
+                    self.cid, declared_version, version_at_entry, now.saturating_sub(declared_at), DECLARED_VERSION_STALENESS_TIMEOUT_SECS, role);
+
+                // Reset declared_version to current_version to allow new rekeys
+                self.session_crypto_state.sync_declared_version();
+                self.declared_version_set_at.store(0, Ordering::Relaxed);
+
+                // Fall through to proceed with new rekey instead of returning early
+            } else {
+                log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}): returning payload",
+                    self.cid, declared_version, version_at_entry);
+                // Notify messenger to check queue - a rekey is pending so queue will drain when it completes
+                let _ = self.rekey_done_notifier_tx.send(None);
+                return Ok(attached_payload);
+            }
         }
 
         let state = self.state();
@@ -498,6 +529,11 @@ where
 
                 // Declare the next version BEFORE sending (ensures sequential targeting)
                 let declared_version = self.session_crypto_state.declare_next_version();
+                // Track when declared_version was set for staleness detection
+                self.declared_version_set_at.store(
+                    UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
+                    Ordering::Relaxed,
+                );
                 log::debug!(target: "citadel", "[CBD-RKT-VERSION] Client {} declared version {} before send",
                 self.cid, declared_version);
 
