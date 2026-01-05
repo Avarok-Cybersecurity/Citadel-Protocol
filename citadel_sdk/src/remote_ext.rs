@@ -251,7 +251,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
 
         let mut subscription = self.send_callback_subscription(register_request).await?;
         while let Some(status) = subscription.next().await {
-            match map_errors(status)? {
+            match status.into_result()? {
                 NodeResult::RegisterOkay(RegisterOkay { cid, .. }) => {
                     return Ok(RegisterSuccess { cid });
                 }
@@ -325,7 +325,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 "Internal kernel stream died (connect)",
             ))?;
 
-        return match map_errors(status)? {
+        return match status.into_result()? {
             NodeResult::ConnectSuccess(ConnectSuccess {
                 ticket: _,
                 session_cid: cid,
@@ -494,7 +494,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                     },
                 ticket: _,
                 ..
-            }) = map_errors(status)?
+            }) = status.into_result()?
             {
                 return Ok(peer_info
                     .into_iter()
@@ -541,7 +541,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                     },
                 ticket: _,
                 ..
-            }) = map_errors(status)?
+            }) = status.into_result()?
             {
                 return Ok(peer_info
                     .into_iter()
@@ -558,9 +558,37 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "Internal kernel stream died (get_local_group_mutual_peers)",
-        ))
+        Err(NetworkError::msg("Stream died"))
+    }
+
+    /// Returns all the active sessions in the protocol, including all P2P connections hierarchically placed as children to C2S
+    /// connections
+    async fn sessions(&self) -> Result<ActiveSessions, NetworkError> {
+        match self
+            .send_callback_subscription(NodeRequest::GetActiveSessions)
+            .await
+        {
+            Ok(mut stream) => {
+                while let Some(result) = stream.next().await {
+                    match result.into_result()? {
+                        NodeResult::SessionList(res) => return Ok(res.sessions),
+                        res => {
+                            citadel_logging::warn!("Received unexpected result: {res:?}");
+                        }
+                    }
+                }
+
+                citadel_logging::warn!("Failed to receive response from SDK (stream died)");
+                return Err(NetworkError::InternalError(
+                    "Internal kernel stream died (get_active_sessions)",
+                ));
+            }
+            Err(e) => {
+                citadel_logging::warn!(target: "citadel", "Failed to query SDK sessions: {e}");
+            }
+        }
+
+        Err(NetworkError::msg("Failed to query SDK sessions"))
     }
 
     #[doc(hidden)]
@@ -576,36 +604,6 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             .find_local_user_information(local_user)
             .await?
             .ok_or(NetworkError::InvalidRequest("User does not exist"))?)
-    }
-}
-
-pub fn map_errors<R: Ratchet>(result: NodeResult<R>) -> Result<NodeResult<R>, NetworkError> {
-    match result {
-        NodeResult::ConnectFail(ConnectFail {
-            ticket: _,
-            cid_opt: _,
-            error_message: err,
-        }) => Err(NetworkError::Generic(err)),
-        NodeResult::RegisterFailure(RegisterFailure {
-            ticket: _,
-            error_message: err,
-        }) => Err(NetworkError::Generic(err)),
-        NodeResult::InternalServerError(InternalServerError {
-            ticket_opt: _,
-            cid_opt: _,
-            message: err,
-        }) => Err(NetworkError::Generic(err)),
-        NodeResult::PeerEvent(PeerEvent {
-            event:
-                PeerSignal::SignalError {
-                    ticket: _,
-                    error: err,
-                    peer_connection_type: _,
-                },
-            ticket: _,
-            ..
-        }) => Err(NetworkError::Generic(err)),
-        res => Ok(res),
     }
 }
 
@@ -651,7 +649,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             .await?;
 
         while let Some(event) = stream.next().await {
-            match map_errors(event)? {
+            match event.into_result()? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
                     return handle
                         .transfer_file()
@@ -740,7 +738,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         let mut stream = self.remote().send_callback_subscription(request).await?;
 
         while let Some(event) = stream.next().await {
-            match map_errors(event)? {
+            match event.into_result()? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
                     return handle
                         .receive_file()
@@ -783,7 +781,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
 
         let mut stream = self.remote().send_callback_subscription(request).await?;
         while let Some(event) = stream.next().await {
-            match map_errors(event)? {
+            match event.into_result()? {
                 NodeResult::ReVFS(result) => {
                     return if let Some(error) = result.error_message {
                         Err(NetworkError::Generic(error))
@@ -836,7 +834,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
 
         let connect_task = async {
             while let Some(status) = stream.next().await {
-                match map_errors(status)? {
+                match status.into_result()? {
                     NodeResult::PeerChannelCreated(PeerChannelCreated {
                         ticket: _,
                         channel,
@@ -937,7 +935,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     },
                 ticket: _,
                 ..
-            }) = map_errors(status)?
+            }) = status.into_result()?
             {
                 match resp {
                     PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
@@ -974,7 +972,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     event: PeerSignal::DeregistrationSuccess { .. },
                     ticket: _,
                     ..
-                }) = map_errors(result)?
+                }) = result.into_result()?
                 {
                     return Ok(());
                 }
@@ -988,7 +986,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             });
             let mut subscription = self.remote().send_callback_subscription(request).await?;
             while let Some(result) = subscription.next().await {
-                match map_errors(result)? {
+                match result.into_result()? {
                     NodeResult::DeRegistration(DeRegistration {
                         session_cid: _,
                         ticket_opt: _,
@@ -1038,7 +1036,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                             },
                         ticket: _,
                         ..
-                    }) = map_errors(event)?
+                    }) = event.into_result()?
                     {
                         return Ok(());
                     }
@@ -1062,7 +1060,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             while let Some(event) = subscription.next().await {
                 if let NodeResult::Disconnect(Disconnect {
                     success, message, ..
-                }) = map_errors(event)?
+                }) = event.into_result()?
                 {
                     return if success {
                         Ok(())
@@ -1155,7 +1153,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 session_cid: _,
                 ticket: _,
                 event: GroupBroadcast::ListResponse { groups },
-            }) = map_errors(evt)?
+            }) = evt.into_result()?
             {
                 return Ok(groups);
             }
@@ -1418,7 +1416,7 @@ mod tests {
         async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
             log::trace!(target: "citadel", "SERVER received {:?}", message);
             if let NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) =
-                map_errors(message)?
+                message.into_result()?
             {
                 let mut path = None;
                 // accept the transfer

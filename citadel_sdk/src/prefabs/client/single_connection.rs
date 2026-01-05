@@ -472,6 +472,9 @@ mod tests {
                 let chan = connection.udp_channel_rx.take();
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, chan).await;
+                // Before disconnecting, test the sessions() fucnction
+                let sessions = connection.remote.sessions().await?;
+                assert!(!sessions.sessions.is_empty());
                 connection.disconnect().await?;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;

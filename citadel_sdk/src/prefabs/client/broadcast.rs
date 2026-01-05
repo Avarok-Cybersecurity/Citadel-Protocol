@@ -343,7 +343,7 @@ where
         let mut lock = subscription.lock().await;
         let subscription = lock.as_mut().unwrap();
         while let Some(event) = subscription.next().await {
-            match map_errors(event)? {
+            match event.into_result()? {
                 NodeResult::PeerEvent(PeerEvent {
                     event: ref ps @ PeerSignal::PostRegister { .. },
                     ticket: _,

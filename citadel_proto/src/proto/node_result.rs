@@ -26,6 +26,7 @@
 //! - `PeerChannel`: Handles peer communication channels
 //! - `GroupChannel`: Manages group communication channels
 //!
+use crate::error::NetworkError;
 use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpChannel};
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
@@ -237,6 +238,42 @@ pub enum NodeResult<R: Ratchet> {
 }
 
 impl<R: Ratchet> NodeResult<R> {
+    /// Used to map error result types into hard errors
+    pub fn into_result(self) -> Result<NodeResult<R>, NetworkError> {
+        match self {
+            NodeResult::ConnectFail(ConnectFail {
+                ticket: _,
+                cid_opt: _,
+                error_message: err,
+            }) => Err(NetworkError::Generic(err)),
+            NodeResult::RegisterFailure(RegisterFailure {
+                ticket: _,
+                error_message: err,
+            }) => Err(NetworkError::Generic(err)),
+            NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::Generic(format!(
+                "Outbound request rejected: {:?}",
+                String::from_utf8(reason.message_opt.unwrap_or_default())
+                    .unwrap_or_else(|_| "Bad request".into())
+            ))),
+            NodeResult::InternalServerError(InternalServerError {
+                ticket_opt: _,
+                cid_opt: _,
+                message: err,
+            }) => Err(NetworkError::Generic(err)),
+            NodeResult::PeerEvent(PeerEvent {
+                event:
+                    PeerSignal::SignalError {
+                        ticket: _,
+                        error: err,
+                        peer_connection_type: _,
+                    },
+                ticket: _,
+                ..
+            }) => Err(NetworkError::Generic(err)),
+            res => Ok(res),
+        }
+    }
+
     pub fn is_connect_success_type(&self) -> bool {
         matches!(self, NodeResult::ConnectSuccess(ConnectSuccess { .. }))
     }
