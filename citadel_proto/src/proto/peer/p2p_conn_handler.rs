@@ -45,13 +45,16 @@ use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_sender::{unbounded, OutboundPrimaryStreamReceiver, UnboundedSender};
 use crate::proto::packet::HeaderObfuscator;
+use crate::proto::packet_crafter;
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
-use crate::proto::peer::peer_layer::PeerConnectionType;
+use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
-use crate::proto::state_container::VirtualConnectionType;
+use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
@@ -190,6 +193,9 @@ fn handle_p2p_stream<R: Ratchet>(
     let peer_cid = v_conn.get_target_cid();
 
     let (stopper_tx, stopper_rx) = channel();
+    // Clone before passing to P2PInboundHandle since we need these for disconnect notification
+    let session_cid_for_dc = session_cid.clone();
+    let kernel_tx_for_dc = kernel_tx.clone();
     let p2p_handle = P2PInboundHandle::new(
         remote_peer,
         local_bind_addr.port(),
@@ -213,12 +219,17 @@ fn handle_p2p_stream<R: Ratchet>(
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
     let sess = session;
+
+    // Create oneshot channel for P2P disconnect notification (bidirectional disconnect propagation)
+    // Uses .take() pattern for exactly-once semantics - when VirtualConnection drops, it triggers the notifier
+    let (p2p_dc_tx, p2p_dc_rx) = channel::<P2PDisconnectSignal>();
+
     let mut state_container = inner_mut_state!(sess.state_container);
     // if this is called from a client-side connection, forcibly upgrade since the client asserts its connection is what will be used
 
     // call upgrade, and, load udp socket
     state_container
-        .insert_direct_p2p_connection(direct_p2p_remote, v_conn.get_target_cid())
+        .insert_direct_p2p_connection(direct_p2p_remote, v_conn.get_target_cid(), Some(p2p_dc_tx))
         .map_err(|err| generic_error(err.into_string()))?;
 
     if udp_mode == UdpMode::Enabled {
@@ -233,6 +244,75 @@ fn handle_p2p_stream<R: Ratchet>(
     }
 
     drop(state_container);
+
+    // Spawn task to handle P2P disconnect notification (bidirectional disconnect propagation)
+    // When the vconn is dropped (stream ends or explicit disconnect), this task receives
+    // the signal and:
+    // 1. Sends PeerSignal::Disconnect via C2S to notify the remote peer
+    // 2. Sends NodeResult::Disconnect to local kernel
+    // One disconnect signal per peer session via oneshot .take() pattern.
+    let sess_for_dc = sess.clone();
+    spawn!(async move {
+        if let Ok(signal) = p2p_dc_rx.await {
+            log::trace!(target: "citadel", "P2P disconnect notification received for peer {}: {:?}", signal.peer_cid, signal.reason);
+
+            // 1. Send PeerSignal::Disconnect via C2S to notify remote peer
+            if let Some(session_cid) = session_cid_for_dc.get() {
+                let peer_signal = PeerSignal::Disconnect {
+                    peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                        session_cid,
+                        peer_cid: signal.peer_cid,
+                    },
+                    disconnect_response: Some(PeerResponse::Disconnected(format!(
+                        "P2P disconnect: {:?}",
+                        signal.reason
+                    ))),
+                };
+
+                // Get C2S ratchet and send via primary stream
+                if let Some(to_primary_stream) = sess_for_dc.to_primary_stream.as_ref() {
+                    let state_container = inner_state!(sess_for_dc.state_container);
+                    if let Ok(c2s_container) =
+                        state_container.get_endpoint_container(C2S_IDENTITY_CID)
+                    {
+                        if let Some(ratchet) = c2s_container.ratchet_manager.get_ratchet(None) {
+                            let timestamp = sess_for_dc.time_tracker.get_global_time_ns();
+                            let security_level = state_container
+                                .session_security_settings
+                                .map(|s| s.security_level)
+                                .unwrap_or(SecurityLevel::Standard);
+
+                            let packet = packet_crafter::peer_cmd::craft_peer_signal(
+                                &ratchet,
+                                peer_signal,
+                                signal.ticket.unwrap_or(Ticket(0)),
+                                timestamp,
+                                security_level,
+                            );
+                            if let Err(err) = to_primary_stream.unbounded_send(packet) {
+                                log::warn!(target: "citadel", "Failed to send P2P disconnect signal via C2S: {err:?}");
+                            } else {
+                                log::trace!(target: "citadel", "Sent PeerSignal::Disconnect via C2S for peer {}", signal.peer_cid);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Send NodeResult::Disconnect to local kernel
+            let disconnect_result = NodeResult::Disconnect(crate::proto::node_result::Disconnect {
+                ticket: signal.ticket.unwrap_or(Ticket(0)),
+                cid_opt: session_cid_for_dc.get(),
+                success: true,
+                v_conn_type: Some(VirtualConnectionType::LocalGroupPeer {
+                    session_cid: session_cid_for_dc.get().unwrap_or(0),
+                    peer_cid: signal.peer_cid,
+                }),
+                message: format!("P2P disconnect: {:?}", signal.reason),
+            });
+            let _ = kernel_tx_for_dc.unbounded_send(disconnect_result);
+        }
+    });
 
     let future = async move {
         let res = citadel_io::tokio::select! {

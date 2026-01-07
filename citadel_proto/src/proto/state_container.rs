@@ -232,6 +232,29 @@ impl FileKey {
     }
 }
 
+/// Signal for P2P disconnect, used for bidirectional disconnect propagation.
+/// Includes ticket so disconnect initiator knows when operation completed.
+#[derive(Debug, Clone)]
+pub struct P2PDisconnectSignal {
+    pub peer_cid: u64,
+    pub reason: P2PDisconnectReason,
+    /// Preserved for disconnect initiator to know when operation completed.
+    /// Some when ExplicitDisconnect, None for automatic disconnects.
+    pub ticket: Option<Ticket>,
+}
+
+/// Reason for P2P disconnect
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // StreamEnded and ExplicitDisconnect will be used for granular disconnect handling
+pub enum P2PDisconnectReason {
+    /// I/O stream died (network failure)
+    StreamEnded,
+    /// User called disconnect explicitly
+    ExplicitDisconnect,
+    /// C2S session is ending (hard disconnect)
+    SessionShutdown,
+}
+
 /// For keeping track of connections
 pub struct VirtualConnection<R: Ratchet> {
     /// For determining the type of connection
@@ -263,6 +286,10 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     // for UDP
     pub(crate) to_unordered_local_channel: Option<UnorderedChannelContainer>,
     pub(crate) file_transfer_compatible: bool,
+    /// Oneshot sender for P2P disconnect notification - uses `.take()` for exactly-once semantics.
+    /// Sends P2PDisconnectSignal which includes the ticket for disconnect initiator.
+    pub(crate) p2p_disconnect_notifier:
+        Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>>,
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -274,6 +301,14 @@ impl<R: Ratchet> EndpointChannelContainer<R> {
     pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
         Some(&self.direct_p2p_remote.as_ref()?.p2p_primary_stream)
     }
+
+    /// Takes the P2P disconnect notifier using Option::take() for exactly-once semantics.
+    /// If None, the notifier was already taken (disconnect signal already sent).
+    pub fn take_p2p_disconnect_notifier(
+        &mut self,
+    ) -> Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>> {
+        self.p2p_disconnect_notifier.take()
+    }
 }
 
 impl<R: Ratchet> Drop for VirtualConnection<R> {
@@ -281,6 +316,19 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
         self.is_active.store(false, Ordering::SeqCst);
         if let Some(endpoint_container) = self.endpoint_container.as_mut() {
             let _ = endpoint_container.ratchet_manager.shutdown();
+            // Trigger P2P disconnect notification if not already triggered (exactly-once via .take())
+            if let Some(notifier) = endpoint_container.take_p2p_disconnect_notifier() {
+                let peer_cid = self.connection_type.get_target_cid();
+                log::trace!(target: "citadel", "VirtualConnection drop: sending P2P disconnect notification (SessionShutdown) for peer {peer_cid}");
+                let signal = P2PDisconnectSignal {
+                    peer_cid,
+                    reason: P2PDisconnectReason::SessionShutdown,
+                    ticket: None, // No ticket for automatic disconnects (Drop)
+                };
+                let _ = notifier.send(signal);
+            } else {
+                log::trace!(target: "citadel", "VirtualConnection drop: P2P disconnect notifier already taken");
+            }
         }
     }
 }
@@ -754,10 +802,17 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
     /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
+    ///
+    /// `p2p_disconnect_notifier`: Optional oneshot sender for disconnect notification.
+    /// When the P2P connection ends, this sender will be triggered, allowing the receiver
+    /// to forward the disconnect signal to the kernel. Pass None for C2S connections.
     pub(crate) fn insert_direct_p2p_connection(
         &mut self,
         provisional: DirectP2PRemote,
         peer_cid: u64,
+        p2p_disconnect_notifier: Option<
+            citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>,
+        >,
     ) -> Result<(), NetworkError> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
@@ -772,6 +827,14 @@ impl<R: Ratchet> StateContainerInner<R> {
                     .is_some()
                 {
                     log::warn!(target: "citadel", "Dropped previous p2p remote during upgrade process");
+                }
+
+                // Set the P2P disconnect notifier for bidirectional disconnect propagation (P2P only)
+                if let Some(notifier) = p2p_disconnect_notifier {
+                    if endpoint_container.p2p_disconnect_notifier.is_some() {
+                        log::warn!(target: "citadel", "Replacing existing P2P disconnect notifier for peer {peer_cid}");
+                    }
+                    endpoint_container.p2p_disconnect_notifier = Some(notifier);
                 }
 
                 return Ok(());
@@ -918,6 +981,9 @@ impl<R: Ratchet> StateContainerInner<R> {
             to_ordered_local_channel: to_channel,
             to_unordered_local_channel: None,
             file_transfer_compatible,
+            // P2P disconnect notifier - set to None initially, will be populated
+            // by p2p_conn_handler when P2P stream is established
+            p2p_disconnect_notifier: None,
         });
 
         // For C2S connections, get the adjacent NAT type from the session
@@ -972,7 +1038,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             from_listener: false,
         };
 
-        self.insert_direct_p2p_connection(p2p_remote, C2S_IDENTITY_CID)
+        self.insert_direct_p2p_connection(p2p_remote, C2S_IDENTITY_CID, None)
             .expect("C2S insertion should not fail");
 
         if let Some(udp_alerter) = self.tcp_loaded_status.take() {
