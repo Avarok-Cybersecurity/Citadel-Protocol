@@ -307,10 +307,12 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         ProposedCredentials::new_connect(full_name, username, password_raw, settings).await
     }
 
-    /// Replaces the internal toolset. This should ONLY be called (if absolutely necessary) during the PRE_CONNECT stage
-    /// if synchronization is required
+    /// Replaces the internal toolset and resets version tracking.
+    /// This should ONLY be called during the PRE_CONNECT stage for session initialization.
+    /// Properly resets latest_usable_version and declared_next_version to match the new toolset,
+    /// preventing version mismatch bugs on reconnection.
     pub fn on_session_init(&self, toolset: Toolset<R>) {
-        *self.get_session_crypto().toolset().write() = toolset;
+        self.get_session_crypto().replace_toolset_and_reset(toolset);
     }
 
     /// This should ONLY be used for recovery mode

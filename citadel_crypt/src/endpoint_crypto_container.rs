@@ -352,6 +352,25 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         self.incrementing_group_id_file_transfer.store(0, ORDERING);
     }
 
+    /// Replaces the toolset and resets all version tracking to match the new toolset.
+    /// This should be called during session initialization/reconnection to ensure
+    /// version counters are in sync with the fresh toolset.
+    pub fn replace_toolset_and_reset(&self, new_toolset: Toolset<R>) {
+        let new_version = new_toolset.get_most_recent_ratchet_version();
+        log::trace!(target: "citadel", "replace_toolset_and_reset for {}: resetting versions from {} to {}",
+            self.cid, self.latest_usable_version.load(ORDERING), new_version);
+
+        // Replace the toolset
+        *self.toolset.write() = new_toolset;
+
+        // Reset version counters to match the new toolset
+        self.latest_usable_version.store(new_version, ORDERING);
+        self.declared_next_version.store(new_version, ORDERING);
+
+        // Also refresh other state
+        self.refresh_state();
+    }
+
     /// Gets the parameters used at registrations
     pub fn get_default_params(&self) -> CryptoParameters {
         self.toolset
