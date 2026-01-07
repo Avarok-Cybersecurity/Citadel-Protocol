@@ -1017,6 +1017,8 @@ impl<R: Ratchet> CitadelSession<R> {
                     let return_packet = match result {
                         Ok(PrimaryProcessorResult::ReplyToSender(packet)) => packet,
                         Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(packet, err)) => {
+                            // Set state to Disconnecting immediately so new connection attempts can wait
+                            session.state.set(SessionState::Disconnecting);
                             session_closing_error = Some(err.to_string());
                             packet
                         }
@@ -1039,10 +1041,14 @@ impl<R: Ratchet> CitadelSession<R> {
                 }
 
                 Err(reason) => {
+                    // Set state to Disconnecting immediately so new connection attempts can wait
+                    session.state.set(SessionState::Disconnecting);
                     session_closing_error = Some(reason.to_string());
                 }
 
                 Ok(PrimaryProcessorResult::EndSession(reason)) => {
+                    // Set state to Disconnecting immediately so new connection attempts can wait
+                    session.state.set(SessionState::Disconnecting);
                     session_closing_error = Some(reason.to_string());
                 }
 
