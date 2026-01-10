@@ -208,22 +208,10 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
                 Ok(())
             }
 
-            NodeResult::Disconnect(Disconnect {
-                ticket: _,
-                cid_opt: _,
-                success: _,
-                v_conn_type: Some(v_conn),
-                ..
-            }) => {
-                if let Some(v_conn) = v_conn.try_as_peer_connection() {
-                    let mut active_peers = self.shared.active_peer_conns.lock();
-                    let _ = active_peers.remove(&v_conn);
-                }
-
-                Ok(())
-            }
-
-            unprocessed => {
+            // Note: NodeResult::Disconnect is for C2S connections only.
+            // P2P disconnects are handled via NodeResult::PeerEvent(PeerSignal::Disconnect).
+            // C2S disconnects don't require removing from active_peer_conns.
+            unprocessed @ NodeResult::Disconnect(..) | unprocessed => {
                 // pass any unprocessed events to the lower kernel
                 self.inner_kernel.on_node_event_received(unprocessed).await
             }

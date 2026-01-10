@@ -81,7 +81,8 @@ use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{
-    GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions, UdpMode,
+    ClientConnectionType, GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
+    UdpMode,
 };
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
@@ -895,7 +896,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     ticket,
                     cid_opt: Some(session_cid),
                     success: true,
-                    v_conn_type: Some(VirtualConnectionType::LocalGroupServer { session_cid }),
+                    conn_type: Some(ClientConnectionType::Server { session_cid }),
                     message: "Already disconnected".to_string(),
                 }))?;
         }

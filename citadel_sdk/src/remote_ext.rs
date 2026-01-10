@@ -476,7 +476,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         let command = NodeRequest::PeerCommand(PeerCommand {
             session_cid: local_cid,
             command: PeerSignal::GetRegisteredPeers {
-                peer_conn_type: NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
+                peer_conn_type: ClientConnectionType::Server {
+                    session_cid: local_cid,
+                },
                 response: None,
                 limit: limit.map(|r| r as i32),
             },
@@ -525,7 +527,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         let command = NodeRequest::PeerCommand(PeerCommand {
             session_cid: local_cid,
             command: PeerSignal::GetMutuals {
-                v_conn_type: NodeConnectionType::LocalGroupPeerToLocalGroupServer(local_cid),
+                v_conn_type: ClientConnectionType::Server {
+                    session_cid: local_cid,
+                },
                 response: None,
             },
         });

@@ -42,7 +42,7 @@ use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::proto::UdpMode;
+use citadel_types::proto::{ClientConnectionType, UdpMode};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::client_account::ClientNetworkAccount;
@@ -83,7 +83,7 @@ use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
-use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerSignal};
+use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::session_queue_handler::{
@@ -1087,26 +1087,36 @@ impl<R: Ratchet> CitadelSession<R> {
                 SessionShutdownReason::ProperShutdown
             } else {
                 let session_cid = session.session_cid.get().unwrap_or_default();
-                let v_conn_type = if let Some(peer_cid) = peer_cid {
-                    VirtualConnectionType::LocalGroupPeer {
+
+                if let Some(peer_cid) = peer_cid {
+                    // P2P disconnect - use PeerEvent
+                    if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                        event: PeerSignal::Disconnect {
+                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                                session_cid,
+                                peer_cid,
+                            },
+                            disconnect_response: Some(PeerResponse::Disconnected(
+                                err_string.clone(),
+                            )),
+                        },
+                        ticket: session.kernel_ticket.get(),
                         session_cid,
-                        peer_cid,
+                    })) {
+                        log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
                     }
                 } else {
-                    VirtualConnectionType::LocalGroupServer { session_cid }
-                };
+                    // C2S disconnect - use NodeResult::Disconnect
+                    if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
+                        ticket: session.kernel_ticket.get(),
+                        cid_opt: session.session_cid.get(),
+                        success: false,
+                        conn_type: Some(ClientConnectionType::Server { session_cid }),
+                        message: err_string.clone(),
+                    })) {
+                        log::error!(target: "citadel", "Error sending C2S disconnect signal to kernel: {err:?}");
+                    }
 
-                if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
-                    ticket: session.kernel_ticket.get(),
-                    cid_opt: session.session_cid.get(),
-                    success: false,
-                    v_conn_type: Some(v_conn_type),
-                    message: err_string.clone(),
-                })) {
-                    log::error!(target: "citadel", "Error sending disconnect signal to kernel: {err:?}");
-                }
-
-                if peer_cid.is_none() {
                     // If this is a c2s connection, close the session
                     session.send_session_dc_signal(
                         Some(session.kernel_ticket.get()),
@@ -2556,16 +2566,16 @@ impl<R: Ratchet> CitadelSessionInner<R> {
         msg: T,
     ) {
         if let Some(tx) = self.dc_signal_sender.take() {
-            let v_conn_type = self
+            let conn_type = self
                 .session_cid
                 .get()
-                .map(|session_cid| VirtualConnectionType::LocalGroupServer { session_cid });
+                .map(|session_cid| ClientConnectionType::Server { session_cid });
             self.state.set(SessionState::Disconnecting);
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
                 cid_opt: self.session_cid.get(),
                 success: disconnect_success,
-                v_conn_type,
+                conn_type,
                 message: msg.into(),
             }));
         }

@@ -35,7 +35,7 @@ use crate::proto::state_container::VirtualConnectionType;
 use crate::kernel::kernel_communicator::CallbackKey;
 use citadel_crypt::prelude::CryptError;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::proto::SessionSecuritySettings;
+use citadel_types::proto::{ClientConnectionType, SessionSecuritySettings};
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_wire::nat_identification::NatType;
 use std::net::SocketAddr;
@@ -137,12 +137,16 @@ pub struct GroupEvent {
     pub event: GroupBroadcast,
 }
 
+// ClientConnectionType is imported from citadel_types::proto
+
 #[derive(Debug)]
 pub struct Disconnect {
     pub ticket: Ticket,
     pub cid_opt: Option<u64>,
     pub success: bool,
-    pub v_conn_type: Option<VirtualConnectionType>,
+    /// The type of client connection being disconnected.
+    /// None only for provisional connections that never fully established.
+    pub conn_type: Option<ClientConnectionType>,
     pub message: String,
 }
 
@@ -343,7 +347,7 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: t,
                 cid_opt,
                 success: _,
-                v_conn_type: _,
+                conn_type: _,
                 message: _,
             }) => Some(CallbackKey {
                 ticket: *t,

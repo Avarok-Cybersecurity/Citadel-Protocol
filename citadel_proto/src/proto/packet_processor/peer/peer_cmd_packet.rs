@@ -59,7 +59,7 @@ use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStre
 use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
-    CitadelNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
+    CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
@@ -1507,7 +1507,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
             limit,
         } => {
             match hypernode_conn_type {
-                NodeConnectionType::LocalGroupPeerToLocalGroupServer(_session_cid) => {
+                ClientConnectionType::Server { session_cid: _ } => {
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
@@ -1551,7 +1551,10 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     )
                 }
 
-                NodeConnectionType::LocalGroupPeerToExternalGroupServer(_session_cid, _icid) => {
+                ClientConnectionType::Extended {
+                    session_cid: _,
+                    interserver_cid: _,
+                } => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
                     Ok(PrimaryProcessorResult::Void)
                 }
@@ -1562,7 +1565,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
             v_conn_type: hypernode_conn_type,
             response: _resp_opt,
         } => match hypernode_conn_type {
-            NodeConnectionType::LocalGroupPeerToLocalGroupServer(session_cid) => {
+            ClientConnectionType::Server { session_cid } => {
                 let account_manager = session.account_manager.clone();
                 let session_manager = session.session_manager.clone();
 
@@ -1599,7 +1602,10 @@ async fn process_signal_command_as_server<R: Ratchet>(
                 )
             }
 
-            NodeConnectionType::LocalGroupPeerToExternalGroupServer(_session_cid, _icid) => {
+            ClientConnectionType::Extended {
+                session_cid: _,
+                interserver_cid: _,
+            } => {
                 log::error!(target: "citadel", "HyperWAN functionality not implemented");
                 Ok(PrimaryProcessorResult::Void)
             }

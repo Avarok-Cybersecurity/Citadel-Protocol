@@ -41,7 +41,7 @@ use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
 use crate::proto::node::CitadelNode;
-use crate::proto::node_result::NodeResult;
+use crate::proto::node_result::{NodeResult, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_sender::{unbounded, OutboundPrimaryStreamReceiver, UnboundedSender};
 use crate::proto::packet::HeaderObfuscator;
@@ -299,16 +299,21 @@ fn handle_p2p_stream<R: Ratchet>(
                 }
             }
 
-            // 2. Send NodeResult::Disconnect to local kernel
-            let disconnect_result = NodeResult::Disconnect(crate::proto::node_result::Disconnect {
+            // 2. Send NodeResult::PeerEvent(Disconnect) to local kernel
+            // NOTE: NodeResult::Disconnect is for C2S only; P2P uses PeerEvent
+            let disconnect_result = NodeResult::PeerEvent(PeerEvent {
+                event: PeerSignal::Disconnect {
+                    peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                        session_cid: session_cid_for_dc.get().unwrap_or(0),
+                        peer_cid: signal.peer_cid,
+                    },
+                    disconnect_response: Some(PeerResponse::Disconnected(format!(
+                        "P2P disconnect: {:?}",
+                        signal.reason
+                    ))),
+                },
                 ticket: signal.ticket.unwrap_or(Ticket(0)),
-                cid_opt: session_cid_for_dc.get(),
-                success: true,
-                v_conn_type: Some(VirtualConnectionType::LocalGroupPeer {
-                    session_cid: session_cid_for_dc.get().unwrap_or(0),
-                    peer_cid: signal.peer_cid,
-                }),
-                message: format!("P2P disconnect: {:?}", signal.reason),
+                session_cid: session_cid_for_dc.get().unwrap_or(0),
             });
             let _ = kernel_tx_for_dc.unbounded_send(disconnect_result);
         }

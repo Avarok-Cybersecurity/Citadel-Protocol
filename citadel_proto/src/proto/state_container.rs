@@ -38,12 +38,11 @@
 //! - File transfers are encrypted end-to-end
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
-use serde::{Deserialize, Serialize};
 
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
 use zerocopy::Ref;
@@ -68,7 +67,6 @@ use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
 use crate::proto::packet::HdpHeader;
-use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_crafter::ObjectTransmitter;
 use crate::proto::packet_processor::includes::{CitadelSession, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -76,7 +74,6 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::channel::{PeerChannel, UdpChannel};
 use crate::proto::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
 use crate::proto::peer::p2p_conn_handler::DirectP2PRemote;
-use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{SessionRequest, SessionState, UserMessage};
 use crate::proto::session_queue_handler::SessionQueueWorkerHandle;
@@ -105,9 +102,9 @@ use citadel_types::proto::{
     MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
     TransferType, UdpMode, VirtualObjectMetadata,
 };
+pub use citadel_types::proto::{VirtualConnectionType, VirtualTargetType, C2S_IDENTITY_CID};
 use citadel_user::backend::utils::*;
 use citadel_user::backend::PersistenceHandler;
-use citadel_user::serialization::SyncIO;
 use citadel_wire::nat_identification::NatType;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -333,196 +330,7 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
     }
 }
 
-/// For determining the nature of a [VirtualConnection]
-#[derive(Eq, PartialEq, Copy, Clone, Debug, Hash, Serialize, Deserialize)]
-pub enum VirtualConnectionType {
-    LocalGroupPeer {
-        session_cid: u64,
-        peer_cid: u64,
-    },
-    ExternalGroupPeer {
-        session_cid: u64,
-        interserver_cid: u64,
-        peer_cid: u64,
-    },
-    LocalGroupServer {
-        session_cid: u64,
-    },
-    ExternalGroupServer {
-        session_cid: u64,
-        interserver_cid: u64,
-    },
-}
-
-/// For readability
-pub type VirtualTargetType = VirtualConnectionType;
-impl VirtualConnectionType {
-    pub fn serialize(&self) -> Vec<u8> {
-        Self::serialize_to_vector(self).unwrap()
-    }
-
-    pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
-        Self::deserialize_from_vector(this.as_ref()).ok()
-    }
-
-    /// Gets the target cid, agnostic to type
-    pub fn get_target_cid(&self) -> u64 {
-        match self {
-            VirtualConnectionType::LocalGroupServer { session_cid: _cid } => {
-                // by rule of the network, the target CID is zero if a C2S connection
-                C2S_IDENTITY_CID
-            }
-
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid: _session_cid,
-                peer_cid: target_cid,
-            } => *target_cid,
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid: _session_cid,
-                interserver_cid: _icid,
-                peer_cid: target_cid,
-            } => *target_cid,
-
-            VirtualConnectionType::ExternalGroupServer {
-                session_cid: _session_cid,
-                interserver_cid: icid,
-            } => *icid,
-        }
-    }
-
-    /// Gets the target cid, agnostic to type
-    pub fn get_session_cid(&self) -> u64 {
-        match self {
-            VirtualConnectionType::LocalGroupServer { session_cid: cid } => *cid,
-
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: _target_cid,
-            } => *session_cid,
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: _icid,
-                peer_cid: _target_cid,
-            } => *session_cid,
-
-            VirtualConnectionType::ExternalGroupServer {
-                session_cid,
-                interserver_cid: _icid,
-            } => *session_cid,
-        }
-    }
-
-    pub fn is_local_group(&self) -> bool {
-        matches!(
-            self,
-            VirtualConnectionType::LocalGroupPeer { .. }
-                | VirtualConnectionType::LocalGroupServer { .. }
-        )
-    }
-
-    pub fn is_external_group(&self) -> bool {
-        !self.is_local_group()
-    }
-
-    pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
-        match self {
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid,
-            } => Some(PeerConnectionType::LocalGroupPeer {
-                session_cid: *session_cid,
-                peer_cid: *peer_cid,
-            }),
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid,
-            } => Some(PeerConnectionType::ExternalGroupPeer {
-                session_cid: *session_cid,
-                interserver_cid: *icid,
-                peer_cid: *peer_cid,
-            }),
-
-            _ => None,
-        }
-    }
-
-    pub fn set_target_cid(&mut self, target_cid: u64) {
-        match self {
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid: _,
-                peer_cid,
-            }
-            | VirtualConnectionType::ExternalGroupPeer {
-                session_cid: _,
-                interserver_cid: _,
-                peer_cid,
-            } => *peer_cid = target_cid,
-
-            _ => {}
-        }
-    }
-
-    pub fn set_session_cid(&mut self, cid: u64) {
-        match self {
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: _,
-            }
-            | VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: _,
-                peer_cid: _,
-            } => *session_cid = cid,
-
-            _ => {}
-        }
-    }
-}
-
-impl Display for VirtualConnectionType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VirtualConnectionType::LocalGroupServer { session_cid: cid } => {
-                write!(f, "Local Group Peer to Local Group Server ({cid})")
-            }
-
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            } => {
-                write!(
-                    f,
-                    "Local Group Peer to Local Group Peer ({session_cid} -> {target_cid})"
-                )
-            }
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid: target_cid,
-            } => {
-                write!(
-                    f,
-                    "Local Group Peer to External Group Peer ({session_cid} -> {icid} -> {target_cid})"
-                )
-            }
-
-            VirtualConnectionType::ExternalGroupServer {
-                session_cid,
-                interserver_cid: icid,
-            } => {
-                write!(
-                    f,
-                    "Local Group Peer to External Group Server ({session_cid} -> {icid})"
-                )
-            }
-        }
-    }
-}
+// VirtualConnectionType and VirtualTargetType are re-exported from citadel_types::proto
 
 #[derive(Default)]
 pub(super) struct NetworkStats {

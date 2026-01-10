@@ -112,28 +112,11 @@ impl NodeState {
                     .fetch_add(1, Ordering::SeqCst);
             }
 
-            // Disconnect event - could be C2S or P2P based on v_conn_type
-            // NodeResult::Disconnect is used for both C2S and P2P disconnects.
-            // Check v_conn_type to determine which type of disconnect this is.
-            NodeResult::Disconnect(Disconnect { v_conn_type, .. }) => {
-                match v_conn_type {
-                    Some(VirtualTargetType::LocalGroupServer { .. })
-                    | Some(VirtualTargetType::ExternalGroupServer { .. })
-                    | None => {
-                        // C2S disconnect
-                        log::trace!("NodeState: C2S Disconnect received (unsolicited)");
-                        self.c2s_disconnect_count.fetch_add(1, Ordering::SeqCst);
-                    }
-                    Some(VirtualTargetType::LocalGroupPeer { .. })
-                    | Some(VirtualTargetType::ExternalGroupPeer { .. }) => {
-                        // P2P disconnect - count as p2p_disconnect_received
-                        log::trace!(
-                            "NodeState: P2P Disconnect received via NodeResult::Disconnect"
-                        );
-                        self.p2p_disconnect_received_count
-                            .fetch_add(1, Ordering::SeqCst);
-                    }
-                }
+            // C2S Disconnect event - NodeResult::Disconnect is for C2S only
+            // P2P disconnects come via NodeResult::PeerEvent(PeerSignal::Disconnect)
+            NodeResult::Disconnect(Disconnect { .. }) => {
+                log::trace!("NodeState: C2S Disconnect received (unsolicited)");
+                self.c2s_disconnect_count.fetch_add(1, Ordering::SeqCst);
             }
 
             // P2P Channel Created - typically intercepted by connect_to_peer()
@@ -143,18 +126,14 @@ impl NodeState {
                     .fetch_add(1, Ordering::SeqCst);
             }
 
-            // NOTE: P2P Disconnect notifications come via NodeResult::Disconnect
-            // with v_conn_type = LocalGroupPeer/ExternalGroupPeer (handled above).
-            // PeerEvent::Disconnect is an additional notification that we don't
-            // need to count separately to avoid double-counting.
+            // P2P Disconnect - NodeResult::PeerEvent(PeerSignal::Disconnect) is for P2P
             NodeResult::PeerEvent(PeerEvent {
                 event: PeerSignal::Disconnect { .. },
                 ..
             }) => {
-                log::trace!(
-                    "NodeState: PeerEvent(Disconnect) received - ignoring (counted via NodeResult::Disconnect)"
-                );
-                // Do not increment - this would double-count with NodeResult::Disconnect
+                log::trace!("NodeState: P2P Disconnect received via PeerEvent");
+                self.p2p_disconnect_received_count
+                    .fetch_add(1, Ordering::SeqCst);
             }
 
             // Rekey result - typically intercepted by rekey() subscription

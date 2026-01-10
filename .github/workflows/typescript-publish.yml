@@ -1,0 +1,76 @@
+name: Publish TypeScript Types
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'citadel-protocol-types-ts/**'
+      - 'citadel_types/src/**'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: citadel-protocol-types-ts
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: citadel-protocol-types-ts
+        run: npm run build
+
+      - name: Run tests
+        working-directory: citadel-protocol-types-ts
+        run: npm test
+
+      - name: Get package version
+        id: version
+        working-directory: citadel-protocol-types-ts
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Check if version exists on npm
+        id: check
+        working-directory: citadel-protocol-types-ts
+        run: |
+          if npm view @avarok/citadel-protocol-types@${{ steps.version.outputs.version }} version 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Publish to npm
+        if: steps.check.outputs.exists != 'true'
+        working-directory: citadel-protocol-types-ts
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_JS_CITADEL_TYPES }}
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ts-v${{ steps.version.outputs.version }}
+          name: TypeScript Types v${{ steps.version.outputs.version }}
+          body: |
+            TypeScript type definitions for Citadel Protocol v${{ steps.version.outputs.version }}
+
+            ## Installation
+            ```bash
+            npm install @avarok/citadel-protocol-types@${{ steps.version.outputs.version }}
+            ```
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
