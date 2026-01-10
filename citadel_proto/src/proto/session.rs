@@ -557,6 +557,8 @@ impl<R: Ratchet> CitadelSession<R> {
 
                 log::trace!(target: "citadel", "Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
 
+                log::warn!(target: "citadel", "[DC_SIGNAL:execute] C2S session ending | cid: {:?} | ticket: {} | reason: {} | strong_count: {} | is_provisional: {}",
+                    cid, ticket.0, reason.as_str(), this_close.strong_count(), this_close.is_provisional());
                 this_close.send_session_dc_signal(Some(ticket), false, "Inbound stream ending");
 
                 Err((err, cid))
@@ -1118,6 +1120,8 @@ impl<R: Ratchet> CitadelSession<R> {
                     }
 
                     // If this is a c2s connection, close the session
+                    log::warn!(target: "citadel", "[DC_SIGNAL:handle_session_terminating_error] C2S terminating | session_cid: {} | reason: {} | strong_count: {} | is_provisional: {}",
+                        session_cid, err_string.as_str(), session.strong_count(), session.is_provisional());
                     session.send_session_dc_signal(
                         Some(session.kernel_ticket.get()),
                         false,
@@ -2594,6 +2598,8 @@ impl<R: Ratchet> Drop for CitadelSession<R> {
                 log::trace!(target: "citadel", "Provisional session dropped, will not send D/C signal");
                 self.disable_dc_signal();
             } else {
+                log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | strong_count: {} | is_provisional: {}",
+                    self.session_cid.get(), self.strong_count(), self.is_provisional());
                 self.send_session_dc_signal(None, false, "Session dropped");
             }
 
