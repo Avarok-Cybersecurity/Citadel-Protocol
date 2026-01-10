@@ -2569,15 +2569,20 @@ impl<R: Ratchet> CitadelSessionInner<R> {
         disconnect_success: bool,
         msg: T,
     ) {
+        // Only send disconnect signal if we have a valid session CID
+        // Sessions without a CID were never connected, so no disconnect is needed
+        let Some(session_cid) = self.session_cid.get() else {
+            log::trace!(target: "citadel", "Skipping D/C signal - no session CID");
+            let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
+            return;
+        };
+
         if let Some(tx) = self.dc_signal_sender.take() {
-            let conn_type = self
-                .session_cid
-                .get()
-                .map(|session_cid| ClientConnectionType::Server { session_cid });
+            let conn_type = Some(ClientConnectionType::Server { session_cid });
             self.state.set(SessionState::Disconnecting);
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
-                cid_opt: self.session_cid.get(),
+                cid_opt: Some(session_cid),
                 success: disconnect_success,
                 conn_type,
                 message: msg.into(),
@@ -2594,8 +2599,11 @@ impl<R: Ratchet> Drop for CitadelSession<R> {
     fn drop(&mut self) {
         if self.strong_count() == 1 {
             log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
-            if self.is_provisional() {
-                log::trace!(target: "citadel", "Provisional session dropped, will not send D/C signal");
+            // Only send disconnect signal for sessions that were actually connected (have a CID)
+            // and are not provisional
+            if self.is_provisional() || self.session_cid.get().is_none() {
+                log::trace!(target: "citadel", "Session dropped without D/C signal | provisional: {} | has_cid: {}",
+                    self.is_provisional(), self.session_cid.get().is_some());
                 self.disable_dc_signal();
             } else {
                 log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | strong_count: {} | is_provisional: {}",
