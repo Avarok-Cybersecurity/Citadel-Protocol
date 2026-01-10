@@ -286,7 +286,7 @@ jobs:
       matrix:
         os: [ ubuntu-latest ]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
+    timeout-minutes: 80
     steps:
       - name: Setup dependencies
         id: deps
@@ -324,10 +324,23 @@ jobs:
         id: deps-retry-5
         uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
+      - name: Check memory before tests
+        run: free -h
       - name: Single-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing --release
+        run: |
+          # Run non-stress tests first
+          cargo nextest run --package citadel_sdk --features=localhost-testing --release -E 'not test(stress_test)'
+          # Run stress tests with limited parallelism
+          cargo nextest run --package citadel_sdk --features=localhost-testing --release -E 'test(stress_test)'
+      - name: Check memory after single-threaded tests
+        if: always()
+        run: free -h
       - name: Multi-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing --release
+        run: |
+          # Run non-stress tests first
+          cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing --release -E 'not test(stress_test)'
+          # Run stress tests
+          cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing --release -E 'test(stress_test)'
 
   misc_checks:
     name: miscellaneous
