@@ -1,6 +1,6 @@
 [package]
 name = "citadel_user"
-version = "0.13.0"
+version = "0.13.1"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "User backend library for the Citadel Protocol"
 edition = "2021"

@@ -149,6 +149,7 @@ impl NodeState {
     }
 
     /// Assert final state matches expected values.
+    #[allow(clippy::too_many_arguments)]
     pub fn assert_final_state(
         &self,
         name: &str,
@@ -217,6 +218,7 @@ impl NodeState {
 
     /// Assert final state with minimum P2P disconnect count.
     /// Use this when cleanup disconnects cause non-deterministic counts.
+    #[allow(clippy::too_many_arguments)]
     pub fn assert_final_state_with_min_p2p_disconnect(
         &self,
         name: &str,
