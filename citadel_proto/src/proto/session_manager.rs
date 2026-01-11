@@ -54,6 +54,7 @@ use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::macros::{FutureRequirements, SyncContextRequirements};
 use crate::prelude::{ConnectionInfo, Disconnect, SessionInfo};
+use crate::proto::disconnect_tracker::DisconnectSignalTracker;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
@@ -108,6 +109,8 @@ pub struct HdpSessionManagerInner<R: Ratchet> {
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: Arc<rustls::ClientConfig>,
     stun_servers: Option<Vec<String>>,
+    /// Tracks disconnect signals to ensure at most 1 per session/peer
+    disconnect_tracker: DisconnectSignalTracker,
 }
 
 impl<R: Ratchet> CitadelSessionManager<R> {
@@ -138,6 +141,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             time_tracker,
             client_config,
             stun_servers,
+            disconnect_tracker: DisconnectSignalTracker::new(),
         };
 
         Self::from(inner)
@@ -149,6 +153,12 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let mut this = inner_mut!(self);
         this.server_remote = Some(server_remote);
         this.time_tracker
+    }
+
+    /// Returns the disconnect signal tracker for ensuring at most 1 disconnect signal
+    /// per unique session/peer combination.
+    pub(crate) fn disconnect_tracker(&self) -> DisconnectSignalTracker {
+        inner!(self).disconnect_tracker.clone()
     }
 
     /// Determines if `cid` is connected

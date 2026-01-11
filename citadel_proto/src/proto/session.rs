@@ -2577,11 +2577,26 @@ impl<R: Ratchet> CitadelSessionInner<R> {
             return;
         };
 
+        // Get the unique session identifier for tracking
+        let session_ticket = self.kernel_ticket.get();
+
+        // Check if we've already sent a disconnect signal for this unique session.
+        // This prevents duplicate signals from multiple code paths (Drop, explicit disconnect, etc.)
+        if !self
+            .session_manager
+            .disconnect_tracker()
+            .try_c2s_disconnect(session_ticket)
+        {
+            log::trace!(target: "citadel", "Skipping D/C signal - already sent for session {:?}", session_ticket);
+            let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
+            return;
+        }
+
         if let Some(tx) = self.dc_signal_sender.take() {
             let conn_type = Some(ClientConnectionType::Server { session_cid });
             self.state.set(SessionState::Disconnecting);
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
-                ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
+                ticket: ticket.unwrap_or(session_ticket),
                 cid_opt: Some(session_cid),
                 success: disconnect_success,
                 conn_type,

@@ -41,6 +41,8 @@ use citadel_crypt::ratchets::Ratchet;
 
 /// For the custom BytesCodec that doesn't overflow
 pub(crate) mod codec;
+/// Tracks disconnect signals to ensure at most 1 per session/peer
+pub(crate) mod disconnect_tracker;
 pub(crate) mod endpoint_crypto_accessor;
 pub(crate) mod misc;
 /// Used at each HyperNode
