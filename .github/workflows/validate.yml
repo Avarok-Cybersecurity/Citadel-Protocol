@@ -286,10 +286,7 @@ jobs:
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
 
   citadel_sdk_release:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     timeout-minutes: 80
     steps:
       - name: Setup dependencies
