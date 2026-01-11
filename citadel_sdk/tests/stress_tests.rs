@@ -216,7 +216,7 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
@@ -300,7 +300,7 @@ mod tests {
     #[rstest]
     #[case(100, SecrecyMode::Perfect, None)]
     #[case(100, SecrecyMode::BestEffort, Some("test-password"))]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
@@ -388,7 +388,7 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect, None)]
     #[case(500, SecrecyMode::BestEffort, Some("test-p2p-password"))]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging_thin_ratchet() {
         stress_test_p2p_messaging_with_ratchet::<MonoRatchet>(

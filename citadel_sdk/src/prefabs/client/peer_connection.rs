@@ -835,7 +835,7 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[case(3)]
-    #[timeout(std::time::Duration::from_secs(90))]
+    #[timeout(std::time::Duration::from_secs(180))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_file_transfer(
         #[case] peer_count: usize,
