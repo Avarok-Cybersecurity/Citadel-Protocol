@@ -68,6 +68,7 @@ use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 //use futures_codec::Framed;
+use crate::proto::disconnect_tracker::DisconnectSignalTracker;
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::outbound_sender::{
     channel, unbounded, SendError, UnboundedReceiver, UnboundedSender,
@@ -239,6 +240,9 @@ pub struct CitadelSessionInner<R: Ratchet> {
     // drops along with the drop_listener. This is to stop race conditions when higher-level applications try to connect right after disconnecting.
     pub(super) drop_listener: DualRwLock<Option<citadel_io::tokio::sync::oneshot::Sender<()>>>,
     on_drop: UnboundedSender<()>,
+    /// Disconnect signal tracker - cloned from session_manager at construction time
+    /// to avoid needing to lock session_manager during Drop (which would cause deadlock)
+    pub(super) disconnect_tracker: DisconnectSignalTracker,
 }
 
 /// allows each session worker to check the state of the session
@@ -289,6 +293,8 @@ pub(crate) struct SessionInitParams<R: Ratchet> {
     pub init_time: Instant,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+    /// Disconnect signal tracker - passed in to avoid needing to lock session_manager during construction
+    pub disconnect_tracker: DisconnectSignalTracker,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings<R: Ratchet> {
@@ -395,6 +401,9 @@ impl<R: Ratchet> CitadelSession<R> {
         let stun_servers = session_init_params.stun_servers;
         let init_time = session_init_params.init_time;
         let session_password = session_init_params.session_password;
+        // Use disconnect_tracker passed in through params to avoid needing to lock
+        // session_manager during construction (which would cause RefCell double-borrow panic)
+        let disconnect_tracker = session_init_params.disconnect_tracker;
 
         let mut inner = CitadelSessionInner {
             header_obfuscator_settings,
@@ -440,6 +449,7 @@ impl<R: Ratchet> CitadelSession<R> {
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),
             session_password,
+            disconnect_tracker,
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -2582,11 +2592,9 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
         // Check if we've already sent a disconnect signal for this unique session.
         // This prevents duplicate signals from multiple code paths (Drop, explicit disconnect, etc.)
-        if !self
-            .session_manager
-            .disconnect_tracker()
-            .try_c2s_disconnect(session_ticket)
-        {
+        // NOTE: Use self.disconnect_tracker directly (not through session_manager) to avoid
+        // deadlock when called from Drop while session_manager lock is held.
+        if !self.disconnect_tracker.try_c2s_disconnect(session_ticket) {
             log::trace!(target: "citadel", "Skipping D/C signal - already sent for session {:?}", session_ticket);
             let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
             return;

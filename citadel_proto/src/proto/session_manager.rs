@@ -253,6 +253,9 @@ impl<R: Ratchet> CitadelSessionManager<R> {
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
+            // Clone disconnect_tracker BEFORE acquiring inner lock to avoid
+            // RefCell double-borrow panic during session construction
+            let disconnect_tracker = self.disconnect_tracker();
 
             let (
                 remote,
@@ -430,6 +433,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 init_time,
                 session_password,
                 server_only_session_init_settings: None,
+                disconnect_tracker,
             };
 
             let (stopper, new_session) = CitadelSession::new(session_init_params)?;
@@ -613,6 +617,9 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let this_dc = self.clone();
+        // Clone disconnect_tracker BEFORE acquiring inner lock to avoid
+        // RefCell double-borrow panic during session construction
+        let disconnect_tracker = self.disconnect_tracker();
         let mut this = inner_mut!(self);
         let on_drop = this.clean_shutdown_tracker_tx.clone();
         let remote = this.server_remote.clone().unwrap();
@@ -650,6 +657,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                 .clone()
                 .unwrap_or_default(),
             server_only_session_init_settings: Some(server_only_session_init_settings),
+            disconnect_tracker,
         };
 
         let (stopper, new_session) = CitadelSession::new(session_init_params)?;
