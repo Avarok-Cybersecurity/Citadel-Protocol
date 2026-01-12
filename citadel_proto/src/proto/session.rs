@@ -558,8 +558,11 @@ impl<R: Ratchet> CitadelSession<R> {
         let res = citadel_io::tokio::select! {
             res = session_future => res.map_err(|err| (NetworkError::Generic(err.to_string()), None))?,
             _ = queue_worker_handle => {
-                log::error!(target: "citadel", "Queue worker ended unexpectedly");
-                return Err((NetworkError::InternalError("Queue worker ended unexpectedly"), session_cid.get()));
+                // Queue worker ending is expected behavior when session is being cleaned up.
+                // The queue worker uses a Weak reference to the session - when it can't upgrade
+                // that reference (session dropped), it ends. This is the designed cleanup mechanism.
+                log::trace!(target: "citadel", "Queue worker ended, session cleanup in progress");
+                return Ok(session_cid.get());
             }
         };
 
