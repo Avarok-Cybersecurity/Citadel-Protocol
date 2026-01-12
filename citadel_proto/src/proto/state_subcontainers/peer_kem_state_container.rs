@@ -32,6 +32,7 @@ This module manages the state of peer-to-peer key exchange processes in the Cita
 
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::tokio::sync::oneshot;
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::proto::SessionSecuritySettings;
 
@@ -41,6 +42,11 @@ pub struct PeerKemStateContainer<R: Ratchet> {
     pub(crate) session_security_settings: SessionSecuritySettings,
     pub(crate) udp_channel_sender: UdpChannelSender<R>,
     pub(crate) session_password: PreSharedKey,
+    /// Cancellation signal for hole punch operations.
+    /// When this container is dropped (on disconnect or failure), the sender is dropped,
+    /// which cancels any in-progress hole punch operation. This prevents orphaned
+    /// hole punch operations from interfering with reconnection attempts.
+    pub(crate) hole_punch_cancel_tx: Option<oneshot::Sender<()>>,
 }
 
 impl<R: Ratchet> PeerKemStateContainer<R> {
@@ -59,6 +65,7 @@ impl<R: Ratchet> PeerKemStateContainer<R> {
             } else {
                 UdpChannelSender::empty()
             },
+            hole_punch_cancel_tx: None,
         }
     }
 }

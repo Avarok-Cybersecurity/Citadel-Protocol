@@ -65,6 +65,7 @@ use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::state_container::OutgoingPeerConnectionAttempt;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
+use citadel_io::tokio::sync::oneshot;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 
 #[allow(unused_results)]
@@ -473,6 +474,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         needs_turn,
                                         kem_session_security_settings,
                                         peer_cid,
+                                        hole_punch_cancel_rx,
                                     ) = {
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
@@ -564,7 +566,14 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         );
                                         // load the channel now that the keys have been exchanged
 
+                                        // Create cancellation channel for hole punch operation.
+                                        // The sender is stored in the KEM state - when the KEM state is
+                                        // dropped (on disconnect/failure), the sender drops and the
+                                        // receiver signals cancellation to the hole punch operation.
+                                        let (hole_punch_cancel_tx, hole_punch_cancel_rx) =
+                                            oneshot::channel();
                                         kem_state.local_is_initiator = true;
+                                        kem_state.hole_punch_cancel_tx = Some(hole_punch_cancel_tx);
                                         state_container.peer_kem_states.insert(peer_cid, kem_state);
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
 
@@ -627,6 +636,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             needs_turn,
                                             session_security_settings,
                                             peer_cid,
+                                            hole_punch_cancel_rx,
                                         )
                                     };
 
@@ -690,6 +700,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             client_config,
                                             udp_mode,
                                             session_security_settings,
+                                            Some(hole_punch_cancel_rx),
                                         )
                                         .await;
                                     }
@@ -717,12 +728,19 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         local_outgoing_connection_attempt_metadata,
                                         needs_turn,
                                         kem_session_security_settings,
+                                        hole_punch_cancel_rx,
                                     ) = {
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
                                         let kem = return_if_none!(state_container
                                             .peer_kem_states
                                             .get_mut(&peer_cid));
+                                        // Create cancellation channel for hole punch operation.
+                                        // When disconnect occurs, KEM state is dropped, which drops
+                                        // the sender and cancels any in-progress hole punch.
+                                        let (hole_punch_cancel_tx, hole_punch_cancel_rx) =
+                                            oneshot::channel();
+                                        kem.hole_punch_cancel_tx = Some(hole_punch_cancel_tx);
                                         let session_security_settings =
                                             kem.session_security_settings;
                                         // since the AES-GCM was a success, we can now entrust that the toolset is perfectly symmetric to the
@@ -796,6 +814,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             local_outgoing_connection_attempt_metadata,
                                             needs_turn,
                                             session_security_settings,
+                                            hole_punch_cancel_rx,
                                         )
                                     };
 
@@ -872,6 +891,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             client_config,
                                             udp_mode,
                                             session_security_settings,
+                                            Some(hole_punch_cancel_rx),
                                         )
                                         .await;
                                     }

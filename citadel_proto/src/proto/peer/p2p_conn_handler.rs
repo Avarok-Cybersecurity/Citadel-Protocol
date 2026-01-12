@@ -395,6 +395,11 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 }
 
 /// Both sides need to begin this process at `sync_time`
+///
+/// # Parameters
+/// - `cancel_rx`: Optional cancellation signal. When the sender is dropped (e.g., on session
+///   disconnect), the hole punch operation will be cancelled gracefully. This prevents orphaned
+///   hole punch operations from interfering with reconnection attempts.
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
     target = "citadel",
@@ -419,6 +424,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     client_config: Arc<rustls::ClientConfig>,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
+    cancel_rx: Option<Receiver<()>>,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
@@ -508,7 +514,24 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     // a connection, we need to timeout rather than hang forever.
     const P2P_CONN_TIMEOUT: Duration = Duration::from_secs(30);
 
-    match citadel_io::tokio::time::timeout(P2P_CONN_TIMEOUT, process).await {
+    // Wrap the process with timeout and optional cancellation signal.
+    // The cancellation signal allows graceful shutdown when the session disconnects,
+    // preventing orphaned hole punch operations from interfering with reconnection attempts.
+    let timed_process = citadel_io::tokio::time::timeout(P2P_CONN_TIMEOUT, process);
+
+    let result = if let Some(mut cancel_rx) = cancel_rx {
+        citadel_io::tokio::select! {
+            res = timed_process => res,
+            _ = &mut cancel_rx => {
+                log::info!(target: "citadel", "[Hole-punch/Cancelled] Hole punch cancelled by session shutdown");
+                return Ok(()); // Early return - cancelled, skip sending channel signal
+            }
+        }
+    } else {
+        timed_process.await
+    };
+
+    match result {
         Ok(Ok(())) => {
             log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
         }
