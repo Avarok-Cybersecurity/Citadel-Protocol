@@ -135,7 +135,10 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
 
     socket.set_nonblocking(true)?;
 
-    if addr.is_ipv6() {
+    // On non-Windows platforms, enable dual-stack mode for IPv6 sockets.
+    // Windows is excluded because enabling dual-stack mode causes WSAEINVAL (error 10022)
+    // when Quinn creates QUIC endpoints - Windows IPv6 sockets work better in IPv6-only mode.
+    if !cfg!(windows) && addr.is_ipv6() {
         socket.set_only_v6(false)?;
     }
 
