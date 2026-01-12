@@ -482,7 +482,7 @@ impl<R: Ratchet> CitadelSession<R> {
         let this_queue_worker = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, session_cid) = {
+        let (session_future, handle_zero_state, session_cid, queue_worker_handle) = {
             let quic_conn_opt = primary_stream.take_quic_connection();
             let (writer, reader) = misc::net::safe_split_stream(primary_stream);
 
@@ -539,9 +539,14 @@ impl<R: Ratchet> CitadelSession<R> {
             // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
             // separate task, we solve the issue of re-entrancing of mutex
-            spawn!(queue_worker_future);
+            let queue_worker_handle = spawn_handle!(queue_worker_future);
 
-            (session_future, handle_zero_state, session_cid)
+            (
+                session_future,
+                handle_zero_state,
+                session_cid,
+                queue_worker_handle,
+            )
         };
 
         if let Err(err) = handle_zero_state.await {
@@ -550,9 +555,13 @@ impl<R: Ratchet> CitadelSession<R> {
             return Err((NetworkError::Generic(err), session_cid.get()));
         }
 
-        let res = session_future
-            .await
-            .map_err(|err| (NetworkError::Generic(err.to_string()), None))?;
+        let res = citadel_io::tokio::select! {
+            res = session_future => res.map_err(|err| (NetworkError::Generic(err.to_string()), None))?,
+            _ = queue_worker_handle => {
+                log::error!(target: "citadel", "Queue worker ended unexpectedly");
+                return Err((NetworkError::InternalError("Queue worker ended unexpectedly".into()), session_cid.get()));
+            }
+        };
 
         match res {
             Ok(_) => {
