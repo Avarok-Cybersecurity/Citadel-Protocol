@@ -559,7 +559,7 @@ impl<R: Ratchet> CitadelSession<R> {
             res = session_future => res.map_err(|err| (NetworkError::Generic(err.to_string()), None))?,
             _ = queue_worker_handle => {
                 log::error!(target: "citadel", "Queue worker ended unexpectedly");
-                return Err((NetworkError::InternalError("Queue worker ended unexpectedly".into()), session_cid.get()));
+                return Err((NetworkError::InternalError("Queue worker ended unexpectedly"), session_cid.get()));
             }
         };
 
