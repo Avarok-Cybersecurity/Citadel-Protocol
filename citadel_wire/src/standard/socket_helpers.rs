@@ -135,7 +135,7 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
 
     socket.set_nonblocking(true)?;
 
-    if !cfg!(windows) && addr.is_ipv6() {
+    if addr.is_ipv6() {
         socket.set_only_v6(false)?;
     }
 
