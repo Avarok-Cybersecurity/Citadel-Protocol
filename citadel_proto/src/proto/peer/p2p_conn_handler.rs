@@ -350,6 +350,9 @@ fn handle_p2p_stream<R: Ratchet>(
         }
 
         let mut state_container = inner_mut_state!(sess.state_container);
+        // Stop UDP task BEFORE removing vconn to prevent race condition where
+        // UDP packets arrive but vconn lookup fails (causing "closed by peer: 0")
+        state_container.remove_udp_channel(peer_cid);
         state_container.active_virtual_connections.remove(&peer_cid);
         state_container
             .outgoing_peer_connect_attempts
