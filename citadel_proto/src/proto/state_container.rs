@@ -611,13 +611,17 @@ impl<R: Ratchet> StateContainerInner<R> {
     /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
     /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
     ///
+    /// `implcid`: Local CID for deterministic tie-breaker when simultaneous connections occur.
+    /// Pass 0 for C2S connections (no tie-breaking needed).
+    ///
     /// `p2p_disconnect_notifier`: Optional oneshot sender for disconnect notification.
     /// When the P2P connection ends, this sender will be triggered, allowing the receiver
     /// to forward the disconnect signal to the kernel. Pass None for C2S connections.
     pub(crate) fn insert_direct_p2p_connection(
         &mut self,
-        provisional: DirectP2PRemote,
+        mut provisional: DirectP2PRemote,
         peer_cid: u64,
+        implcid: u64,
         p2p_disconnect_notifier: Option<
             citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>,
         >,
@@ -625,17 +629,59 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                 log::trace!(target: "citadel", "UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
+
+                // CID-based tie-breaker for simultaneous P2P connections (defense-in-depth).
+                // Rule: Keep connection where the higher-CID peer is the client.
+                // This ensures both peers converge on the SAME underlying connection.
+                if let Some(existing) = endpoint_container.direct_p2p_remote.as_ref() {
+                    // Determine which connection type we should have based on CIDs
+                    // If implcid < peer_cid, we should be the listener (peer is client)
+                    let should_be_listener = implcid != 0 && implcid < peer_cid;
+
+                    if existing.from_listener == should_be_listener {
+                        // Existing connection is the correct type, discard provisional
+                        log::info!(target: "citadel",
+                            "P2P already has correct {} connection for peer {peer_cid}, discarding duplicate {} connection",
+                            existing.from_listener.if_eq(true, "listener").if_false("client"),
+                            provisional.from_listener.if_eq(true, "listener").if_false("client")
+                        );
+                        // Stop the provisional's handler cleanly
+                        if let Some(stopper) = provisional.stopper.take() {
+                            let _ = stopper.send(());
+                        }
+                        return Ok(());
+                    } else if provisional.from_listener == should_be_listener {
+                        // Provisional is the correct type, replace existing
+                        log::info!(target: "citadel",
+                            "Replacing {} with correct {} P2P connection for peer {peer_cid} (CID tie-breaker: implcid={}, peer={})",
+                            existing.from_listener.if_eq(true, "listener").if_false("client"),
+                            provisional.from_listener.if_eq(true, "listener").if_false("client"),
+                            implcid, peer_cid
+                        );
+                        // Stop the existing handler cleanly before replacing
+                        if let Some(mut old) = endpoint_container.direct_p2p_remote.take() {
+                            if let Some(stopper) = old.stopper.take() {
+                                let _ = stopper.send(());
+                            }
+                        }
+                    } else {
+                        // Neither matches expected type (edge case) - keep existing
+                        log::warn!(target: "citadel",
+                            "Neither connection matches expected type for peer {peer_cid}, keeping existing {} (expected {})",
+                            existing.from_listener.if_eq(true, "listener").if_false("client"),
+                            should_be_listener.if_eq(true, "listener").if_false("client")
+                        );
+                        if let Some(stopper) = provisional.stopper.take() {
+                            let _ = stopper.send(());
+                        }
+                        return Ok(());
+                    }
+                }
+
                 // By setting the below value, all outbound packets will use
                 // this direct conn over the proxied TURN-like connection
                 vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
-
-                if endpoint_container
-                    .direct_p2p_remote
-                    .replace(provisional)
-                    .is_some()
-                {
-                    log::warn!(target: "citadel", "Dropped previous p2p remote during upgrade process");
-                }
+                endpoint_container.direct_p2p_remote = Some(provisional);
 
                 // Set the P2P disconnect notifier for bidirectional disconnect propagation (P2P only)
                 if let Some(notifier) = p2p_disconnect_notifier {
@@ -846,7 +892,8 @@ impl<R: Ratchet> StateContainerInner<R> {
             from_listener: false,
         };
 
-        self.insert_direct_p2p_connection(p2p_remote, C2S_IDENTITY_CID, None)
+        // C2S connections don't have simultaneous connect races, so pass implcid=0
+        self.insert_direct_p2p_connection(p2p_remote, C2S_IDENTITY_CID, 0, None)
             .expect("C2S insertion should not fail");
 
         if let Some(udp_alerter) = self.tcp_loaded_status.take() {

@@ -1409,9 +1409,10 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 .await?;
                             Ok(PrimaryProcessorResult::Void)
                         } else {
-                            // Drop the write lock before awaiting routing to avoid holding across await
-                            drop(peer_layer);
-                            route_signal_and_register_ticket_forwards_unlocked(
+                            // Keep the lock held to ensure atomic check-and-insert for simultaneous connect detection.
+                            // This prevents a race where two PostConnects slip through before either is registered.
+                            route_signal_and_register_ticket_forwards_with_lock(
+                                &mut peer_layer,
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
@@ -1429,7 +1430,6 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 &sess_mgr,
                                 &sess_ratchet,
                                 security_level,
-                                &peer_layer_arc,
                             )
                             .await
                         }
@@ -1823,9 +1823,13 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
     }
 }
 
-// @human-review: Introduced unlocked variant to avoid holding peer_layer write lock across await. Semantics unchanged; routing still occurs with a short-lived write lock.
+/// Routes a signal to a peer and registers a tracked posting for the ticket.
+/// Accepts an already-held write lock guard to ensure atomic check-and-insert
+/// for simultaneous connect detection. This prevents a race where two PostConnects
+/// slip through before either is registered in the peer_layer.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_and_register_ticket_forwards_unlocked<R: Ratchet>(
+pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratchet>(
+    peer_layer: &mut CitadelNodePeerLayerInner<R>,
     signal: PeerSignal,
     timeout: Duration,
     session_cid: u64,
@@ -1836,17 +1840,13 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_unlocked<R: Ratche
     sess_mgr: &CitadelSessionManager<R>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-    peer_layer_arc: &std::sync::Arc<citadel_io::tokio::sync::RwLock<CitadelNodePeerLayerInner<R>>>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
-    // Acquire write lock only during the routing operation
-    let mut peer_layer = peer_layer_arc.write().await;
-
     let res = sess_mgr
         .route_signal_primary(
-            &mut *peer_layer,
+            peer_layer,
             session_cid,
             target_cid,
             ticket,
@@ -1874,8 +1874,6 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_unlocked<R: Ratche
             },
         )
         .await;
-
-    drop(peer_layer);
 
     if let Err(err) = res {
         reply_to_sender_err(

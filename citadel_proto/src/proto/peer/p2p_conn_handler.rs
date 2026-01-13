@@ -195,6 +195,8 @@ fn handle_p2p_stream<R: Ratchet>(
     let (stopper_tx, stopper_rx) = channel();
     // Clone before passing to P2PInboundHandle since we need these for disconnect notification
     let session_cid_for_dc = session_cid.clone();
+    // Get local CID for deterministic tie-breaker before session_cid is moved
+    let implcid = session_cid.get().unwrap_or(0);
     let kernel_tx_for_dc = kernel_tx.clone();
     let p2p_handle = P2PInboundHandle::new(
         remote_peer,
@@ -229,7 +231,12 @@ fn handle_p2p_stream<R: Ratchet>(
 
     // call upgrade, and, load udp socket
     state_container
-        .insert_direct_p2p_connection(direct_p2p_remote, v_conn.get_target_cid(), Some(p2p_dc_tx))
+        .insert_direct_p2p_connection(
+            direct_p2p_remote,
+            v_conn.get_target_cid(),
+            implcid,
+            Some(p2p_dc_tx),
+        )
         .map_err(|err| generic_error(err.into_string()))?;
 
     if udp_mode == UdpMode::Enabled {
