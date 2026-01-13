@@ -450,6 +450,8 @@ where
             if stale_version_retry_count >= MAX_STALE_VERSION_RETRIES {
                 log::warn!(target: "citadel", "[CBD-RKT-STALE-MAX] Client {} exceeded max stale version retries ({})",
                     self.cid, MAX_STALE_VERSION_RETRIES);
+                // Notify messenger layer before returning error to prevent deadlock
+                let _ = self.rekey_done_notifier_tx.send(None);
                 return Err(CryptError::RekeyUpdateError(format!(
                     "Exceeded max stale version retries ({})",
                     MAX_STALE_VERSION_RETRIES
@@ -660,6 +662,10 @@ where
                 // CBD: Checkpoint RKT-7 (constructor=None path)
                 log::info!(target: "citadel", "[CBD-RKT-7] Client {} constructor is None, returning payload: elapsed={}ms",
                 self.cid, rkt_start.elapsed().as_millis());
+                // CRITICAL: Notify messenger layer to retry queue draining.
+                // Without this, the background task waits forever on recv() while
+                // messages sit in the queue, causing a deadlock in Perfect mode.
+                let _ = self.rekey_done_notifier_tx.send(None);
                 return Ok(attached_payload);
             }
         } // end 'rekey_attempt loop
