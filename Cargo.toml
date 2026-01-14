@@ -118,7 +118,7 @@ atomic = { default-features = false, version = "0.6.0" }
 bytemuck = { default-features = false, version = "1.23.1" }
 either = { default-features = false, version = "1.8.0" }
 once_cell = { default-features = false, version = "1.17.0" }
-webrtc-util = { version = "0.11.0" }
+webrtc-util = { version = "0.12.0" }
 embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
 sha256 = { version = "1.5.0" }
