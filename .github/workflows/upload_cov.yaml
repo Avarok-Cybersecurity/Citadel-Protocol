@@ -19,7 +19,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust
         run: rustup toolchain install stable --component llvm-tools-preview
       - uses: taiki-e/install-action@nextest
