@@ -151,12 +151,16 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                 .map(|_| vconn.get_original_session_cid())
                                 .unwrap_or_else(|| vconn.get_original_target_cid());
                             let mut state_container = inner_mut_state!(session.state_container);
+                            // Stop UDP task before removing vconn to prevent race condition
+                            state_container.remove_udp_channel(target);
                             if let Some(v_conn) =
                                 state_container.active_virtual_connections.remove(&target)
                             {
                                 v_conn.is_active.store(false, Ordering::SeqCst);
                                 //prevent further messages from being sent from this node
                             }
+                            // Remove KEM state to allow clean reconnection
+                            state_container.peer_kem_states.remove(&target);
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,
@@ -1457,11 +1461,15 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     peer_cid: target_cid,
                 } => {
                     let mut state_container = inner_mut_state!(session.state_container);
+                    // Stop UDP task before removing vconn to prevent race condition
+                    state_container.remove_udp_channel(target_cid);
                     if state_container
                         .active_virtual_connections
                         .remove(&target_cid)
                         .is_some()
                     {
+                        // Remove KEM state to allow clean reconnection
+                        state_container.peer_kem_states.remove(&target_cid);
                         // note: this is w.r.t the server.
                         log::trace!(target: "citadel", "[Peer Vconn @ Server] will drop the virtual connection");
                         let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(

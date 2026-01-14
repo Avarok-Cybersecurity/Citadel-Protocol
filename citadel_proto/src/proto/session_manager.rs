@@ -547,6 +547,18 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     .map(|r| r.security_level)
                     .unwrap_or(SecurityLevel::Standard);
 
+                // Stop all UDP tasks before draining vconns to prevent race conditions
+                for peer_id in state_container
+                    .active_virtual_connections
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                {
+                    state_container.remove_udp_channel(peer_id);
+                }
+                // Clear all KEM states to allow clean reconnection
+                state_container.peer_kem_states.clear();
+
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
                     let peer_cid = peer_id;
                     // toggling this off ensures that any higher-level channels are disabled
@@ -573,6 +585,9 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                 if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
                                     let peer_sess = &peer_sess.1;
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
+                                    // Stop peer's UDP task and remove their KEM state for this session
+                                    peer_state_container.remove_udp_channel(session_cid);
+                                    peer_state_container.peer_kem_states.remove(&session_cid);
                                     if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
                                         log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
                                     }
@@ -1205,10 +1220,14 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
             accessor
                 .borrow_hr(None, |hr, state_container| {
+                    // Stop UDP task before removing vconn to prevent race condition
+                    state_container.remove_udp_channel(session_cid);
                     let removed = state_container
                         .active_virtual_connections
                         .remove(&session_cid);
                     if removed.is_some() {
+                        // Remove KEM state to allow clean reconnection
+                        state_container.peer_kem_states.remove(&session_cid);
                         let packet = on_internal_disconnect(hr);
                         to_primary
                             .unbounded_send(packet)
