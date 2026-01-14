@@ -1,0 +1,37 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Internal Service Communication Layer"><title>citadel_sdk::prefabs::shared::internal_service - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="citadel_sdk" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-263c88ec.css"></noscript><link rel="icon" href="favicon.png"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module internal_service</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><a class="logo-container" href="../../../../citadel_sdk/index.html"><img src="avarok.png" alt="logo"></a><h2><a href="../../../../citadel_sdk/index.html">citadel_<wbr>sdk</a><span class="version">0.13.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module internal_<wbr>service</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#features" title="Features">Features</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#important-notes" title="Important Notes">Important Notes</a></li><li><a href="#related-components" title="Related Components">Related Components</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In citadel_<wbr>sdk::<wbr>prefabs::<wbr>shared</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../../index.html">citadel_sdk</a>::<wbr><a href="../../index.html">prefabs</a>::<wbr><a href="../index.html">shared</a></div><h1>Module <span>internal_<wbr>service</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../../src/citadel_sdk/prefabs/shared/internal_service.rs.html#1-154">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Internal Service Communication Layer</p>
+<p>This module provides the core functionality for integrating internal services
+within the Citadel Protocol network. It enables bidirectional communication
+between network services and the protocol layer.</p>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<ul>
+<li>Asynchronous communication channels</li>
+<li>Bidirectional message passing</li>
+<li>Automatic protocol conversion</li>
+<li>Error propagation</li>
+<li>Resource cleanup on shutdown</li>
+<li>Stream-based I/O interface</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>citadel_sdk::prelude::<span class="kw-2">*</span>;
+<span class="kw">use </span>citadel_sdk::prefabs::shared::internal_service::InternalServerCommunicator;
+<span class="kw">use </span>futures::Future;
+
+<span class="kw">async fn </span>my_service(comm: InternalServerCommunicator) -&gt; <span class="prelude-ty">Result</span>&lt;(), NetworkError&gt; {
+    <span class="comment">// Service implementation
+    </span><span class="prelude-val">Ok</span>(())
+}</code></pre></div><h2 id="important-notes"><a class="doc-anchor" href="#important-notes">§</a>Important Notes</h2>
+<ul>
+<li>Services run in isolated contexts</li>
+<li>Communication is fully asynchronous</li>
+<li>Implements AsyncRead and AsyncWrite</li>
+<li>Automatic cleanup on drop</li>
+<li>Thread-safe message passing</li>
+</ul>
+<h2 id="related-components"><a class="doc-anchor" href="#related-components">§</a>Related Components</h2>
+<ul>
+<li><a href="../../../remote_ext/struct.CitadelClientServerConnection.html" title="struct citadel_sdk::remote_ext::CitadelClientServerConnection"><code>CitadelClientServerConnection</code></a>: Connection event data</li>
+<li><a href="../../../prelude/trait.TargetLockedRemote.html" title="trait citadel_sdk::prelude::TargetLockedRemote"><code>TargetLockedRemote</code></a>: Remote target interface</li>
+<li><a href="../../../prelude/enum.NetworkError.html" title="enum citadel_sdk::prelude::NetworkError"><code>NetworkError</code></a>: Error handling</li>
+<li><a href="../../../prelude/struct.SecBuffer.html" title="struct citadel_sdk::prelude::SecBuffer"><code>SecBuffer</code></a>: Secure data handling</li>
+</ul>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.InternalServerCommunicator.html" title="struct citadel_sdk::prefabs::shared::internal_service::InternalServerCommunicator">Internal<wbr>Server<wbr>Communicator</a></dt></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.internal_service.html" title="fn citadel_sdk::prefabs::shared::internal_service::internal_service">internal_<wbr>service</a></dt></dl></section></div></main></body></html>

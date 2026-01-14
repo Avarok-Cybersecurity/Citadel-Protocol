@@ -1,0 +1,61 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="A kernel that assists in creating and/or connecting to a group Group Broadcasting and Management"><title>citadel_sdk::prefabs::client::broadcast - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="citadel_sdk" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-263c88ec.css"></noscript><link rel="icon" href="favicon.png"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module broadcast</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><a class="logo-container" href="../../../../citadel_sdk/index.html"><img src="avarok.png" alt="logo"></a><h2><a href="../../../../citadel_sdk/index.html">citadel_<wbr>sdk</a><span class="version">0.13.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module broadcast</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#features" title="Features">Features</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#important-notes" title="Important Notes">Important Notes</a></li><li><a href="#related-components" title="Related Components">Related Components</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In citadel_<wbr>sdk::<wbr>prefabs::<wbr>client</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../../index.html">citadel_sdk</a>::<wbr><a href="../../index.html">prefabs</a>::<wbr><a href="../index.html">client</a></div><h1>Module <span>broadcast</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../../src/citadel_sdk/prefabs/client/broadcast.rs.html#1-656">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>A kernel that assists in creating and/or connecting to a group
+Group Broadcasting and Management</p>
+<p>This module provides functionality for creating and managing group-based communication
+channels in the Citadel Protocol. It implements an owner-based trust model where one
+peer acts as the group administrator and trust anchor.</p>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<ul>
+<li>Group creation and management</li>
+<li>Owner-based trust model</li>
+<li>Public and private group support</li>
+<li>Automatic member registration</li>
+<li>Group invitation system</li>
+<li>Dynamic peer discovery</li>
+<li>Concurrent group participation</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>citadel_sdk::prelude::<span class="kw-2">*</span>;
+<span class="kw">use </span>citadel_sdk::prefabs::client::broadcast::{BroadcastKernel, GroupInitRequestType};
+<span class="kw">use </span>uuid::Uuid;
+
+<span class="kw">async fn </span>create_group(local_user: UserIdentifier) -&gt; <span class="prelude-ty">Result</span>&lt;(), NetworkError&gt; {
+    <span class="kw">let </span>request = GroupInitRequestType::Create {
+        local_user,
+        invite_list: <span class="macro">vec!</span>[],
+        group_id: Uuid::new_v4(),
+        accept_registrations: <span class="bool-val">true</span>,
+    };
+
+    <span class="kw">let </span>settings = DefaultServerConnectionSettingsBuilder::transient(<span class="string">"127.0.0.1:25021"</span>)
+        .build()<span class="question-mark">?</span>;
+
+    <span class="kw">let </span>kernel = BroadcastKernel::new(
+        settings,
+        request,
+        |group, _remote| <span class="kw">async move </span>{
+            <span class="macro">println!</span>(<span class="string">"Group created with ID: {}"</span>, group.cid());
+            <span class="prelude-val">Ok</span>(())
+        },
+    );
+
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div><h2 id="important-notes"><a class="doc-anchor" href="#important-notes">§</a>Important Notes</h2>
+<ul>
+<li>Each group must have exactly one owner</li>
+<li>Members must be registered with the owner</li>
+<li>Trust flows transitively through the owner</li>
+<li>Group IDs must be unique per owner</li>
+<li>Public groups allow automatic registration</li>
+</ul>
+<h2 id="related-components"><a class="doc-anchor" href="#related-components">§</a>Related Components</h2>
+<ul>
+<li><a href="../../../prelude/struct.GroupChannel.html" title="struct citadel_sdk::prelude::GroupChannel"><code>GroupChannel</code></a>: Group communication channel</li>
+<li><a href="../../../prelude/enum.UserIdentifier.html" title="enum citadel_sdk::prelude::UserIdentifier"><code>UserIdentifier</code></a>: User identification</li>
+<li><a href="enum.GroupInitRequestType.html" title="enum citadel_sdk::prefabs::client::broadcast::GroupInitRequestType"><code>GroupInitRequestType</code></a>: Group initialization</li>
+</ul>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.BroadcastKernel.html" title="struct citadel_sdk::prefabs::client::broadcast::BroadcastKernel">Broadcast<wbr>Kernel</a></dt><dd>A kernel that streamlines creating, connecting, and interacting with groups
+Each group has a single owner, and, each connecting peer must at least be registered
+to the owner alone. The owner thus serves as an “axis of consent”, where each member
+trusts the owner, and through this trust, transitivity of trust flows to all other
+future members that connect to the group.</dd><dt><a class="struct" href="struct.BroadcastShared.html" title="struct citadel_sdk::prefabs::client::broadcast::BroadcastShared">Broadcast<wbr>Shared</a></dt></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.GroupInitRequestType.html" title="enum citadel_sdk::prefabs::client::broadcast::GroupInitRequestType">Group<wbr>Init<wbr>Request<wbr>Type</a></dt><dd>Before running the <a href="struct.BroadcastKernel.html" title="struct citadel_sdk::prefabs::client::broadcast::BroadcastKernel"><code>BroadcastKernel</code></a>, each peer must send this request
+to the protocol. One peer can create a group, allowing others to join the group.</dd></dl></section></div></main></body></html>

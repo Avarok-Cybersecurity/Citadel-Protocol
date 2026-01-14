@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Store data to the backend using this library Connection-Specific Key-Value Storage"><title>citadel_sdk::backend_kv_store - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="citadel_sdk" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-263c88ec.css"></noscript><link rel="icon" href="favicon.png"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module backend_kv_store</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><a class="logo-container" href="../../citadel_sdk/index.html"><img src="avarok.png" alt="logo"></a><h2><a href="../../citadel_sdk/index.html">citadel_<wbr>sdk</a><span class="version">0.13.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module backend_<wbr>kv_<wbr>store</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#features" title="Features">Features</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#important-notes" title="Important Notes">Important Notes</a></li><li><a href="#related-components" title="Related Components">Related Components</a></li></ul><h3><a href="#traits">Module Items</a></h3><ul class="block"><li><a href="#traits" title="Traits">Traits</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate citadel_<wbr>sdk</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">citadel_sdk</a></div><h1>Module <span>backend_<wbr>kv_<wbr>store</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/citadel_sdk/backend_kv_store.rs.html#1-108">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Store data to the backend using this library
+Connection-Specific Key-Value Storage</p>
+<p>This module provides a trait for persistent key-value storage that is unique to each
+connection in the Citadel Protocol. It allows applications to store and retrieve
+arbitrary data associated with specific peer connections.</p>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<ul>
+<li>Connection-scoped storage (unique per session and peer)</li>
+<li>Basic key-value operations (get, set, remove)</li>
+<li>Bulk operations for managing multiple key-value pairs</li>
+<li>Automatic error handling and conversion</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>citadel_sdk::prelude::<span class="kw-2">*</span>;
+
+<span class="kw">async fn </span>store_data&lt;T: BackendHandler&lt;R&gt;, R: Ratchet&gt;(handler: <span class="kw-2">&amp;</span>T) -&gt; <span class="prelude-ty">Result</span>&lt;(), NetworkError&gt; {
+    <span class="comment">// Store a value
+    </span>handler.set(<span class="string">"my_key"</span>, <span class="string">b"my_value"</span>.to_vec()).<span class="kw">await</span><span class="question-mark">?</span>;
+
+    <span class="comment">// Retrieve the value
+    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(value) = handler.get(<span class="string">"my_key"</span>).<span class="kw">await</span><span class="question-mark">? </span>{
+        <span class="macro">println!</span>(<span class="string">"Retrieved value: {:?}"</span>, value);
+    }
+     
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div><h2 id="important-notes"><a class="doc-anchor" href="#important-notes">§</a>Important Notes</h2>
+<ul>
+<li>Storage is tied to the connection’s session and peer IDs</li>
+<li>All operations are asynchronous and may fail</li>
+<li>Values are stored as raw bytes (Vec<u8>)</li>
+</ul>
+<h2 id="related-components"><a class="doc-anchor" href="#related-components">§</a>Related Components</h2>
+<ul>
+<li><a href="../prelude/trait.TargetLockedRemote.html" title="trait citadel_sdk::prelude::TargetLockedRemote"><code>TargetLockedRemote</code></a>: Trait for accessing connection-specific information</li>
+<li><a href="../prelude/struct.PersistenceHandler.html" title="struct citadel_sdk::prelude::PersistenceHandler"><code>PersistenceHandler</code></a>: Backend storage implementation</li>
+</ul>
+</div></details><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.BackendHandler.html" title="trait citadel_sdk::backend_kv_store::BackendHandler">Backend<wbr>Handler</a></dt><dd>Contains a trait for persisting application-level data in a K,V store that is unique
+for this particular connection</dd></dl></section></div></main></body></html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="For internal services (e.g., a Hyper webserver) Internal Service Integration"><title>citadel_sdk::prefabs::server::internal_service - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="citadel_sdk" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-263c88ec.css"></noscript><link rel="icon" href="favicon.png"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module internal_service</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><a class="logo-container" href="../../../../citadel_sdk/index.html"><img src="avarok.png" alt="logo"></a><h2><a href="../../../../citadel_sdk/index.html">citadel_<wbr>sdk</a><span class="version">0.13.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module internal_<wbr>service</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#features" title="Features">Features</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#important-notes" title="Important Notes">Important Notes</a></li><li><a href="#related-components" title="Related Components">Related Components</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In citadel_<wbr>sdk::<wbr>prefabs::<wbr>server</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../../index.html">citadel_sdk</a>::<wbr><a href="../../index.html">prefabs</a>::<wbr><a href="../index.html">server</a></div><h1>Module <span>internal_<wbr>service</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../../src/citadel_sdk/prefabs/server/internal_service.rs.html#1-363">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>For internal services (e.g., a Hyper webserver)
+Internal Service Integration</p>
+<p>This module provides a network kernel that enables integration of internal services,
+such as HTTP servers, within the Citadel Protocol network. It’s particularly useful
+for implementing web services that need to communicate over secure Citadel channels.</p>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<ul>
+<li>Internal service integration</li>
+<li>HTTP server support</li>
+<li>Custom service handlers</li>
+<li>Asynchronous processing</li>
+<li>Type-safe communication</li>
+<li>Automatic channel management</li>
+<li>Service lifecycle handling</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>std::convert::Infallible;
+<span class="kw">use </span>std::net::SocketAddr;
+<span class="kw">use </span>citadel_sdk::prelude::<span class="kw-2">*</span>;
+<span class="kw">use </span>hyper::{Response, Body, Server, Request};
+<span class="kw">use </span>hyper::server::conn::AddrStream;
+<span class="kw">use </span>hyper::service::{make_service_fn, service_fn};
+<span class="kw">use </span>citadel_sdk::prefabs::server::internal_service::InternalServiceKernel;
+
+<span class="comment">// Create a kernel with an HTTP server
+</span><span class="kw">let </span>kernel = InternalServiceKernel::&lt;<span class="kw">_</span>, <span class="kw">_</span>, StackedRatchet&gt;::new(|comm| <span class="kw">async move </span>{
+
+    <span class="kw">let </span>make_svc = make_service_fn(|socket: <span class="kw-2">&amp;</span>AddrStream| {
+        <span class="kw">let </span>remote_addr = socket.remote_addr();
+        <span class="kw">async move </span>{
+            <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, Infallible&gt;(service_fn(<span class="kw">move </span>|<span class="kw">_</span>: Request&lt;Body&gt;| <span class="kw">async move </span>{
+                <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, Infallible&gt;(
+                    Response::new(Body::from(<span class="macro">format!</span>(<span class="string">"Hello, {}!"</span>, remote_addr)))
+                )
+            }))
+        }
+    });
+
+    <span class="comment">// Start the HTTP server
+    </span><span class="kw">let </span>addr = SocketAddr::from(([<span class="number">127</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>], <span class="number">3000</span>));
+    <span class="kw">let </span>server = Server::bind(<span class="kw-2">&amp;</span>addr).serve(make_svc);
+    <span class="comment">// Run this server indefinitely
+    </span><span class="kw">if let </span><span class="prelude-val">Err</span>(e) = server.<span class="kw">await </span>{
+        <span class="macro">eprintln!</span>(<span class="string">"server error: {}"</span>, e);
+    }
+
+   <span class="prelude-val">Ok</span>(())
+});</code></pre></div><h2 id="important-notes"><a class="doc-anchor" href="#important-notes">§</a>Important Notes</h2>
+<ul>
+<li>Services run in isolated contexts</li>
+<li>Communication is bidirectional</li>
+<li>Supports HTTP/1.1 and HTTP/2</li>
+<li>Automatic error handling</li>
+<li>Resource cleanup on shutdown</li>
+</ul>
+<h2 id="related-components"><a class="doc-anchor" href="#related-components">§</a>Related Components</h2>
+<ul>
+<li><a href="../../../prelude/trait.NetKernel.html" title="trait citadel_sdk::prelude::NetKernel"><code>NetKernel</code></a>: Base trait for network kernels</li>
+<li><a href="../../shared/internal_service/struct.InternalServerCommunicator.html" title="struct citadel_sdk::prefabs::shared::internal_service::InternalServerCommunicator"><code>InternalServerCommunicator</code></a>: Service communication</li>
+<li><a href="../client_connect_listener/struct.ClientConnectListenerKernel.html" title="struct citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel"><code>ClientConnectListenerKernel</code></a>: Connection handling</li>
+<li><a href="../../../prelude/enum.NodeResult.html" title="enum citadel_sdk::prelude::NodeResult"><code>NodeResult</code></a>: Network event handling</li>
+</ul>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.InternalServiceKernel.html" title="struct citadel_sdk::prefabs::server::internal_service::InternalServiceKernel">Internal<wbr>Service<wbr>Kernel</a></dt></dl></section></div></main></body></html>

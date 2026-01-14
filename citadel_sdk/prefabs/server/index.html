@@ -1,0 +1,65 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Kernels for servers Server-Side Network Components"><title>citadel_sdk::prefabs::server - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="citadel_sdk" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-263c88ec.css"></noscript><link rel="icon" href="favicon.png"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module server</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><a class="logo-container" href="../../../citadel_sdk/index.html"><img src="avarok.png" alt="logo"></a><h2><a href="../../../citadel_sdk/index.html">citadel_<wbr>sdk</a><span class="version">0.13.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module server</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#features" title="Features">Features</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#important-notes" title="Important Notes">Important Notes</a></li><li><a href="#related-components" title="Related Components">Related Components</a></li></ul><h3><a href="#modules">Module Items</a></h3><ul class="block"><li><a href="#modules" title="Modules">Modules</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In citadel_<wbr>sdk::<wbr>prefabs</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">citadel_sdk</a>::<wbr><a href="../index.html">prefabs</a></div><h1>Module <span>server</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/citadel_sdk/prefabs/server/mod.rs.html#1-78">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Kernels for servers
+Server-Side Network Components</p>
+<p>This module provides pre-built server-side networking components for the Citadel Protocol.
+It includes implementations for common server tasks such as file transfer handling,
+client connection management, and internal service integration.</p>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<ul>
+<li>File transfer acceptance</li>
+<li>Client connection handling</li>
+<li>Internal service support</li>
+<li>Minimal processing kernels</li>
+<li>Event-driven architecture</li>
+<li>Automatic resource management</li>
+<li>Service integration patterns</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>citadel_sdk::prelude::<span class="kw-2">*</span>;
+<span class="kw">use </span>citadel_sdk::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
+<span class="kw">use </span>citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
+<span class="kw">use </span>citadel_sdk::prefabs::server::empty::EmptyKernel;
+<span class="kw">use </span>citadel_sdk::prefabs::server::internal_service::InternalServiceKernel;
+<span class="kw">use </span>citadel_io::tokio;
+<span class="kw">use </span>hyper::service::service_fn;
+<span class="kw">use </span>hyper::{Body, Request, Response};
+<span class="kw">use </span>std::convert::Infallible;
+
+<span class="comment">// Create a basic server with file transfer support
+</span><span class="kw">let </span>kernel = Box::new(AcceptFileTransferKernel::&lt;StackedRatchet&gt;::default());
+
+<span class="comment">// Create a server that listens for client connections
+</span><span class="kw">let </span>kernel = Box::new(ClientConnectListenerKernel::&lt;<span class="kw">_</span>, <span class="kw">_</span>, StackedRatchet&gt;::new(|conn| <span class="kw">async move </span>{
+    <span class="macro">println!</span>(<span class="string">"Client connected!"</span>);
+    <span class="prelude-val">Ok</span>(())
+}));
+
+<span class="comment">// Create a minimal server with no additional processing
+</span><span class="kw">let </span>kernel = Box::new(EmptyKernel::&lt;StackedRatchet&gt;::default());
+
+<span class="comment">// Create a server with internal service support (e.g., HTTP server)
+</span><span class="kw">let </span>kernel = Box::new(InternalServiceKernel::&lt;<span class="kw">_</span>, <span class="kw">_</span>, StackedRatchet&gt;::new(|_comm| <span class="kw">async move </span>{
+    <span class="kw">let </span>service = service_fn(|_req: Request&lt;Body&gt;| <span class="kw">async move </span>{
+        <span class="prelude-val">Ok</span>::&lt;<span class="kw">_</span>, Infallible&gt;(Response::new(Body::empty()))
+    });
+    <span class="prelude-val">Ok</span>(())
+}));</code></pre></div><h2 id="important-notes"><a class="doc-anchor" href="#important-notes">§</a>Important Notes</h2>
+<ul>
+<li>Kernels are composable components</li>
+<li>Each kernel serves a specific purpose</li>
+<li>Resource cleanup is automatic</li>
+<li>Event handling is asynchronous</li>
+</ul>
+<h2 id="related-components"><a class="doc-anchor" href="#related-components">§</a>Related Components</h2>
+<ul>
+<li><a href="accept_file_transfer_kernel/index.html" title="mod citadel_sdk::prefabs::server::accept_file_transfer_kernel"><code>accept_file_transfer_kernel</code></a>: File transfer handling</li>
+<li><a href="client_connect_listener/index.html" title="mod citadel_sdk::prefabs::server::client_connect_listener"><code>client_connect_listener</code></a>: Client connection management</li>
+<li><a href="internal_service/index.html" title="mod citadel_sdk::prefabs::server::internal_service"><code>internal_service</code></a>: Internal service support</li>
+<li><a href="empty/index.html" title="mod citadel_sdk::prefabs::server::empty"><code>empty</code></a>: Minimal processing kernel</li>
+</ul>
+</div></details><h2 id="modules" class="section-header">Modules<a href="#modules" class="anchor">§</a></h2><dl class="item-table"><dt><a class="mod" href="accept_file_transfer_kernel/index.html" title="mod citadel_sdk::prefabs::server::accept_file_transfer_kernel">accept_<wbr>file_<wbr>transfer_<wbr>kernel</a></dt><dd>A kernel that accepts all inbound file transfer requests for basic file transfers
+AND RE-VFS transfers
+Automatic File Transfer Acceptance</dd><dt><a class="mod" href="client_connect_listener/index.html" title="mod citadel_sdk::prefabs::server::client_connect_listener">client_<wbr>connect_<wbr>listener</a></dt><dd>A kernel that reacts to new channels created, allowing communication with new clients.
+Useful for when a server needs to send messages to clients
+Client Connection Event Handler</dd><dt><a class="mod" href="empty/index.html" title="mod citadel_sdk::prefabs::server::empty">empty</a></dt><dd>A non-reactive kernel that does no additional processing on top of the protocol
+Minimal Network Kernel</dd><dt><a class="mod" href="internal_service/index.html" title="mod citadel_sdk::prefabs::server::internal_service">internal_<wbr>service</a></dt><dd>For internal services (e.g., a Hyper webserver)
+Internal Service Integration</dd></dl></section></div></main></body></html>

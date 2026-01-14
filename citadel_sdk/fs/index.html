@@ -1,0 +1,44 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS) Remote Encrypted Virtual Filesystem (RE-VFS)"><title>citadel_sdk::fs - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="citadel_sdk" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-263c88ec.css"></noscript><link rel="icon" href="favicon.png"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module fs</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><a class="logo-container" href="../../citadel_sdk/index.html"><img src="avarok.png" alt="logo"></a><h2><a href="../../citadel_sdk/index.html">citadel_<wbr>sdk</a><span class="version">0.13.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module fs</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#features" title="Features">Features</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#important-notes" title="Important Notes">Important Notes</a></li><li><a href="#related-components" title="Related Components">Related Components</a></li></ul><h3><a href="#functions">Module Items</a></h3><ul class="block"><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate citadel_<wbr>sdk</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">citadel_sdk</a></div><h1>Module <span>fs</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/citadel_sdk/fs.rs.html#1-603">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)
+Remote Encrypted Virtual Filesystem (RE-VFS)</p>
+<p>This module provides high-level operations for interacting with the Remote Encrypted
+Virtual Filesystem in the Citadel Protocol. RE-VFS enables secure storage and
+retrieval of files with end-to-end encryption.</p>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<ul>
+<li>Secure file storage and retrieval</li>
+<li>Configurable security levels</li>
+<li>Automatic encryption handling</li>
+<li>Virtual path management</li>
+<li>File deletion support</li>
+<li>Take operations for atomic reads</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>citadel_sdk::prelude::<span class="kw-2">*</span>;
+<span class="kw">use </span>citadel_sdk::fs;
+
+<span class="kw">async fn </span>store_file&lt;R: Ratchet&gt;(remote: <span class="kw-2">&amp;</span><span class="kw">impl </span>TargetLockedRemote&lt;R&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;(), NetworkError&gt; {
+    <span class="comment">// Write a file to RE-VFS
+    </span>fs::write(remote, <span class="string">"/local/file.txt"</span>, <span class="string">"/virtual/file.txt"</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+
+    <span class="comment">// Read the file back
+    </span><span class="kw">let </span>local_path = fs::read(remote, <span class="string">"/virtual/file.txt"</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+
+    <span class="comment">// Delete the file
+    </span>fs::delete(remote, <span class="string">"/virtual/file.txt"</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div><h2 id="important-notes"><a class="doc-anchor" href="#important-notes">§</a>Important Notes</h2>
+<ul>
+<li>All operations are end-to-end encrypted</li>
+<li>Security levels are configurable per operation</li>
+<li>Take operations atomically read and delete</li>
+<li>Virtual paths are independent of local paths</li>
+</ul>
+<h2 id="related-components"><a class="doc-anchor" href="#related-components">§</a>Related Components</h2>
+<ul>
+<li><a href="../prelude/trait.TargetLockedRemote.html" title="trait citadel_sdk::prelude::TargetLockedRemote"><code>TargetLockedRemote</code></a>: Remote connection interface</li>
+<li><a href="../prelude/enum.SecurityLevel.html" title="enum citadel_sdk::prelude::SecurityLevel"><code>SecurityLevel</code></a>: Encryption strength configuration</li>
+<li><a href="../prelude/trait.ObjectSource.html" title="trait citadel_sdk::prelude::ObjectSource"><code>ObjectSource</code></a>: File source abstraction</li>
+<li><a href="../prelude/enum.NetworkError.html" title="enum citadel_sdk::prelude::NetworkError"><code>NetworkError</code></a>: Error handling</li>
+</ul>
+</div></details><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.delete.html" title="fn citadel_sdk::fs::delete">delete</a></dt><dd>Deletes a file from the Remote Encrypted Virtual Filesystem</dd><dt><a class="fn" href="fn.read.html" title="fn citadel_sdk::fs::read">read</a></dt><dd>Reads a file from the Remote Encrypted Virtual Filesystem</dd><dt><a class="fn" href="fn.read_with_security_level.html" title="fn citadel_sdk::fs::read_with_security_level">read_<wbr>with_<wbr>security_<wbr>level</a></dt><dd>Reads a file from the Remote Encrypted Virtual Filesystem with a custom transport security level</dd><dt><a class="fn" href="fn.take.html" title="fn citadel_sdk::fs::take">take</a></dt><dd>Takes a file from the Remote Encrypted Virtual Filesystem</dd><dt><a class="fn" href="fn.take_with_security_level.html" title="fn citadel_sdk::fs::take_with_security_level">take_<wbr>with_<wbr>security_<wbr>level</a></dt><dd>Takes a file from the Remote Encrypted Virtual Filesystem with a custom security level.</dd><dt><a class="fn" href="fn.write.html" title="fn citadel_sdk::fs::write">write</a></dt><dd>Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem</dd><dt><a class="fn" href="fn.write_with_security_level.html" title="fn citadel_sdk::fs::write_with_security_level">write_<wbr>with_<wbr>security_<wbr>level</a></dt><dd>Writes a file or BytesSource to the Remote Encrypted Virtual Filesystem with a custom security level.</dd></dl></section></div></main></body></html>
