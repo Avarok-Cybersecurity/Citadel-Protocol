@@ -158,9 +158,11 @@ pub async fn process_peer_cmd<R: Ratchet>(
                             {
                                 v_conn.is_active.store(false, Ordering::SeqCst);
                                 //prevent further messages from being sent from this node
+                                // Only remove KEM state if vconn existed - this prevents
+                                // accidentally removing KEM state for a new reconnection
+                                // that's already in progress
+                                state_container.peer_kem_states.remove(&target);
                             }
-                            // Remove KEM state to allow clean reconnection
-                            state_container.peer_kem_states.remove(&target);
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,

@@ -585,10 +585,13 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                 if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
                                     let peer_sess = &peer_sess.1;
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
-                                    // Stop peer's UDP task and remove their KEM state for this session
+                                    // Stop peer's UDP task before removing vconn
                                     peer_state_container.remove_udp_channel(session_cid);
-                                    peer_state_container.peer_kem_states.remove(&session_cid);
-                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
+                                    // Only remove KEM state if vconn existed - prevents removing
+                                    // KEM state for a new reconnection in progress
+                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_some() {
+                                        peer_state_container.peer_kem_states.remove(&session_cid);
+                                    } else {
                                         log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
                                     }
                                 }
