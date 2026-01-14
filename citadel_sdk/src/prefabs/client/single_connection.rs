@@ -297,7 +297,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
@@ -349,10 +349,20 @@ mod tests {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
 
-        // If the underlying protocol is TLS, we will skip since windows runners do not always accept self-signed certs
-        if matches!(underlying_protocol, ServerUnderlyingProtocol::Tls(..)) && cfg!(windows) {
-            citadel_logging::warn!(target: "citadel", "Will skip test since self-signed certs may not necessarily work on windows runner");
-            return;
+        // Skip TLS tests on Windows since self-signed certs may not work
+        // Skip QUIC tests on Windows since socket binding often fails with error 10013
+        if cfg!(windows) {
+            match &underlying_protocol {
+                ServerUnderlyingProtocol::Tls(..) => {
+                    citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
+                    return;
+                }
+                ServerUnderlyingProtocol::Quic(..) => {
+                    citadel_logging::warn!(target: "citadel", "Skipping QUIC test on Windows - socket binding may fail with error 10013");
+                    return;
+                }
+                _ => {}
+            }
         }
 
         let client_success = &AtomicBool::new(false);
@@ -392,7 +402,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -462,6 +472,9 @@ mod tests {
                 let chan = connection.udp_channel_rx.take();
                 wait_for_peers().await;
                 crate::test_common::udp_mode_assertions(udp_mode, chan).await;
+                // Before disconnecting, test the sessions() fucnction
+                let sessions = connection.remote.sessions().await?;
+                assert!(!sessions.sessions.is_empty());
                 connection.disconnect().await?;
                 client_success.store(true, Ordering::Relaxed);
                 wait_for_peers().await;
@@ -473,7 +486,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -574,7 +587,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -657,7 +670,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -711,7 +724,7 @@ mod tests {
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.unwrap();
+        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));

@@ -165,7 +165,14 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetMutex<T, S> {
         let _ = stop_tx.send(());
 
         if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
-            rt.spawn(async move { conn.send_serialized(UpdatePacket::Halt).await });
+            // Delay the Halt packet to allow the peer time to finish naturally.
+            // This prevents race conditions where dropping the mutex immediately
+            // sends Halt before the peer has completed its operations (similar
+            // to TCP's TIME_WAIT state for graceful connection closure).
+            rt.spawn(async move {
+                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let _ = conn.send_serialized(UpdatePacket::Halt).await;
+            });
         }
     }
 }

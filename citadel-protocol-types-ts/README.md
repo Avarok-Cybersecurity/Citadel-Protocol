@@ -1,5 +1,7 @@
 # @avarok/citadel-protocol-types
 
+[![npm version](https://badge.fury.io/js/%40avarok%2Fcitadel-protocol-types.svg)](https://www.npmjs.com/package/@avarok/citadel-protocol-types)
+
 TypeScript type definitions for the Citadel Protocol, automatically generated from Rust types.
 
 ## Installation
@@ -8,16 +10,30 @@ TypeScript type definitions for the Citadel Protocol, automatically generated fr
 npm install @avarok/citadel-protocol-types
 ```
 
+## Version Functions
+
+Get the protocol and SDK versions programmatically:
+
+```typescript
+import { protocol_version, sdk_version } from '@avarok/citadel-protocol-types';
+
+console.log(`Protocol version: ${protocol_version()}`);  // e.g., "0.9.0"
+console.log(`SDK version: ${sdk_version()}`);            // e.g., "0.13.0"
+```
+
 ## Usage
 
 ```typescript
-import { 
-  ConnectMode, 
-  SecurityLevel, 
+import {
+  ConnectMode,
+  SecurityLevel,
   UserIdentifier,
-  MutualPeer, 
+  MutualPeer,
   CryptoParameters,
-  Error as CitadelError 
+  ClientConnectionType,
+  PeerConnectionType,
+  VirtualConnectionType,
+  Error as CitadelError
 } from '@avarok/citadel-protocol-types';
 
 // Use the types in your TypeScript code
@@ -28,14 +44,32 @@ const peer: MutualPeer = {
 };
 
 const securityLevel: SecurityLevel = "High";
+
+// Connection types for C2S and P2P connections
+const c2sConnection: ClientConnectionType = {
+  Server: { session_cid: 12345n }
+};
+
+const p2pConnection: PeerConnectionType = {
+  LocalGroupPeer: { session_cid: 12345n, peer_cid: 67890n }
+};
 ```
 
 ## Available Types
+
+### Version Functions
+- `protocol_version()` - Returns the Citadel Protocol version
+- `sdk_version()` - Returns the Citadel SDK version
 
 ### User Types
 - `MutualPeer`
 - `PeerInfo`
 - `UserIdentifier`
+
+### Connection Types
+- `ClientConnectionType` - C2S connection variants (Server, Extended)
+- `PeerConnectionType` - P2P connection variants (LocalGroupPeer, ExternalGroupPeer)
+- `VirtualConnectionType` - Unified connection type for routing
 
 ### Protocol Types
 - `ConnectMode`
@@ -79,3 +113,12 @@ Then rebuild the TypeScript library:
 ```bash
 npm run build
 ```
+
+## Links
+
+- [Citadel Protocol GitHub](https://github.com/Avarok-Cybersecurity/Citadel-Protocol)
+- [Avarok Cybersecurity](https://avarok.net/)
+
+## License
+
+MIT OR Apache-2.0

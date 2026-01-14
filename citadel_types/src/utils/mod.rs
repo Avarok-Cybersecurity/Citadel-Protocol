@@ -33,7 +33,7 @@ fn can_print_progress(relative_group_id: usize, total_groups: usize) -> bool {
         // [r mod k == 0] <==> [r mod floor(n*v) == 0]
         // if total_groups < v, then each time a print-out occurs (except end points, per above condition)
         const V: f32 = 0.1;
-        relative_group_id % (total_groups as f32 * V).ceil() as usize == 0
+        relative_group_id.is_multiple_of((total_groups as f32 * V).ceil() as usize)
     } else {
         false
     }

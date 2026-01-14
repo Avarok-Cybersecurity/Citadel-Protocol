@@ -79,6 +79,13 @@ pub mod tests {
             return Ok(());
         }
 
+        // Skip IPv6 tests on Windows - Windows IPv6 sockets in dual-stack mode cause
+        // WSAEINVAL (error 10022) when Quinn creates QUIC endpoints
+        if cfg!(windows) && addr.is_ipv6() {
+            log::trace!(target: "citadel", "Skipping IPv6 test on Windows due to QUIC socket compatibility issues");
+            return Ok(());
+        }
+
         if !cfg!(feature = "multi-threaded") {
             log::warn!(target: "citadel", "Skipping test since only works on multi-threaded mode");
             return Ok(());

@@ -42,7 +42,7 @@ use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::proto::UdpMode;
+use citadel_types::proto::{ClientConnectionType, UdpMode};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::client_account::ClientNetworkAccount;
@@ -68,6 +68,7 @@ use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 //use futures_codec::Framed;
+use crate::proto::disconnect_tracker::DisconnectSignalTracker;
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::outbound_sender::{
     channel, unbounded, SendError, UnboundedReceiver, UnboundedSender,
@@ -83,7 +84,7 @@ use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
-use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerSignal};
+use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::session_queue_handler::{
@@ -234,7 +235,14 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
     pub(super) header_obfuscator_settings: HeaderObfuscatorSettings,
+    // An incoming connection may be attempting to connect create a new session while the current session is dropping. In this case,
+    // the (only first!) incoming connection places a sender with the intent that its sender gets awaited and returns once the session
+    // drops along with the drop_listener. This is to stop race conditions when higher-level applications try to connect right after disconnecting.
+    pub(super) drop_listener: DualRwLock<Option<citadel_io::tokio::sync::oneshot::Sender<()>>>,
     on_drop: UnboundedSender<()>,
+    /// Disconnect signal tracker - cloned from session_manager at construction time
+    /// to avoid needing to lock session_manager during Drop (which would cause deadlock)
+    pub(super) disconnect_tracker: DisconnectSignalTracker,
 }
 
 /// allows each session worker to check the state of the session
@@ -254,8 +262,8 @@ pub enum SessionState {
     ConnectionProcess,
     /// The hypernode is connected to the remote peer, and can now send information
     Connected,
-    /// The hypernode is disconnected. Data cannot flow through
-    Disconnected,
+    /// The hypernode is in the process of disconnecting. Allows incoming connections for this session wait for the session to be closed
+    Disconnecting,
 }
 
 #[derive(Debug, Clone)]
@@ -285,6 +293,8 @@ pub(crate) struct SessionInitParams<R: Ratchet> {
     pub init_time: Instant,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+    /// Disconnect signal tracker - passed in to avoid needing to lock session_manager during construction
+    pub disconnect_tracker: DisconnectSignalTracker,
 }
 
 pub(crate) struct ClientOnlySessionInitSettings<R: Ratchet> {
@@ -391,6 +401,9 @@ impl<R: Ratchet> CitadelSession<R> {
         let stun_servers = session_init_params.stun_servers;
         let init_time = session_init_params.init_time;
         let session_password = session_init_params.session_password;
+        // Use disconnect_tracker passed in through params to avoid needing to lock
+        // session_manager during construction (which would cause RefCell double-borrow panic)
+        let disconnect_tracker = session_init_params.disconnect_tracker;
 
         let mut inner = CitadelSessionInner {
             header_obfuscator_settings,
@@ -434,7 +447,9 @@ impl<R: Ratchet> CitadelSession<R> {
             stun_servers,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
+            drop_listener: DualRwLock::from(None),
             session_password,
+            disconnect_tracker,
         };
 
         if let Some(proposed_credentials) = session_init_params
@@ -467,7 +482,7 @@ impl<R: Ratchet> CitadelSession<R> {
         let this_queue_worker = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, session_cid) = {
+        let (session_future, handle_zero_state, session_cid, queue_worker_handle) = {
             let quic_conn_opt = primary_stream.take_quic_connection();
             let (writer, reader) = misc::net::safe_split_stream(primary_stream);
 
@@ -524,9 +539,14 @@ impl<R: Ratchet> CitadelSession<R> {
             // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
             // separate task, we solve the issue of re-entrancing of mutex
-            spawn!(queue_worker_future);
+            let queue_worker_handle = spawn_handle!(queue_worker_future);
 
-            (session_future, handle_zero_state, session_cid)
+            (
+                session_future,
+                handle_zero_state,
+                session_cid,
+                queue_worker_handle,
+            )
         };
 
         if let Err(err) = handle_zero_state.await {
@@ -535,9 +555,24 @@ impl<R: Ratchet> CitadelSession<R> {
             return Err((NetworkError::Generic(err), session_cid.get()));
         }
 
-        let res = session_future
-            .await
-            .map_err(|err| (NetworkError::Generic(err.to_string()), None))?;
+        let res = citadel_io::tokio::select! {
+            res = session_future => res.map_err(|err| (NetworkError::Generic(err.to_string()), None))?,
+            _ = queue_worker_handle => {
+                // Queue worker ending can be expected (cleanup) or unexpected (error).
+                // The queue worker uses a Weak reference to the session - when it can't upgrade
+                // that reference (session dropped), it ends. This is the designed cleanup mechanism.
+                // However, if strong_count > 1, the session is still actively held elsewhere,
+                // meaning this is an unexpected termination.
+                let strong_count = this_close.strong_count();
+                if strong_count > 1 {
+                    log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
+                    return Err((NetworkError::InternalError("Queue worker ended unexpectedly"), session_cid.get()));
+                } else {
+                    log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
+                    return Ok(session_cid.get());
+                }
+            }
+        };
 
         match res {
             Ok(_) => {
@@ -552,6 +587,8 @@ impl<R: Ratchet> CitadelSession<R> {
 
                 log::trace!(target: "citadel", "Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
 
+                log::warn!(target: "citadel", "[DC_SIGNAL:execute] C2S session ending | cid: {:?} | ticket: {} | reason: {} | strong_count: {} | is_provisional: {}",
+                    cid, ticket.0, reason.as_str(), this_close.strong_count(), this_close.is_provisional());
                 this_close.send_session_dc_signal(Some(ticket), false, "Inbound stream ending");
 
                 Err((err, cid))
@@ -1012,6 +1049,8 @@ impl<R: Ratchet> CitadelSession<R> {
                     let return_packet = match result {
                         Ok(PrimaryProcessorResult::ReplyToSender(packet)) => packet,
                         Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(packet, err)) => {
+                            // Set state to Disconnecting immediately so new connection attempts can wait
+                            session.state.set(SessionState::Disconnecting);
                             session_closing_error = Some(err.to_string());
                             packet
                         }
@@ -1034,10 +1073,14 @@ impl<R: Ratchet> CitadelSession<R> {
                 }
 
                 Err(reason) => {
+                    // Set state to Disconnecting immediately so new connection attempts can wait
+                    session.state.set(SessionState::Disconnecting);
                     session_closing_error = Some(reason.to_string());
                 }
 
                 Ok(PrimaryProcessorResult::EndSession(reason)) => {
+                    // Set state to Disconnecting immediately so new connection attempts can wait
+                    session.state.set(SessionState::Disconnecting);
                     session_closing_error = Some(reason.to_string());
                 }
 
@@ -1076,27 +1119,39 @@ impl<R: Ratchet> CitadelSession<R> {
                 SessionShutdownReason::ProperShutdown
             } else {
                 let session_cid = session.session_cid.get().unwrap_or_default();
-                let v_conn_type = if let Some(peer_cid) = peer_cid {
-                    VirtualConnectionType::LocalGroupPeer {
+
+                if let Some(peer_cid) = peer_cid {
+                    // P2P disconnect - use PeerEvent
+                    if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                        event: PeerSignal::Disconnect {
+                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                                session_cid,
+                                peer_cid,
+                            },
+                            disconnect_response: Some(PeerResponse::Disconnected(
+                                err_string.clone(),
+                            )),
+                        },
+                        ticket: session.kernel_ticket.get(),
                         session_cid,
-                        peer_cid,
+                    })) {
+                        log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
                     }
                 } else {
-                    VirtualConnectionType::LocalGroupServer { session_cid }
-                };
+                    // C2S disconnect - use NodeResult::Disconnect
+                    if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
+                        ticket: session.kernel_ticket.get(),
+                        cid_opt: session.session_cid.get(),
+                        success: false,
+                        conn_type: Some(ClientConnectionType::Server { session_cid }),
+                        message: err_string.clone(),
+                    })) {
+                        log::error!(target: "citadel", "Error sending C2S disconnect signal to kernel: {err:?}");
+                    }
 
-                if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
-                    ticket: session.kernel_ticket.get(),
-                    cid_opt: session.session_cid.get(),
-                    success: false,
-                    v_conn_type: Some(v_conn_type),
-                    message: err_string.clone(),
-                })) {
-                    log::error!(target: "citadel", "Error sending disconnect signal to kernel: {err:?}");
-                }
-
-                if peer_cid.is_none() {
                     // If this is a c2s connection, close the session
+                    log::warn!(target: "citadel", "[DC_SIGNAL:handle_session_terminating_error] C2S terminating | session_cid: {} | reason: {} | strong_count: {} | is_provisional: {}",
+                        session_cid, err_string.as_str(), session.strong_count(), session.is_provisional());
                     session.send_session_dc_signal(
                         Some(session.kernel_ticket.get()),
                         false,
@@ -1640,8 +1695,14 @@ impl<R: Ratchet> CitadelSession<R> {
                     .get_ratchet(None)
                     .unwrap();
 
-                let preferred_primary_stream =
-                    state_container.get_preferred_stream(target_cid).clone();
+                let preferred_primary_stream = state_container
+                    .get_preferred_stream(target_cid)
+                    .ok_or_else(|| {
+                        NetworkError::msg(
+                            "Connection unavailable (shutdown in progress or connection closed)",
+                        )
+                    })?
+                    .clone();
 
                 let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
                     source,
@@ -1943,126 +2004,191 @@ impl<R: Ratchet> CitadelSession<R> {
             let mut stopper_rx = inner!(this.stopper_tx).subscribe();
             let to_kernel_tx = &this.kernel_tx.clone();
 
-            let stopper = async move {
-                stopper_rx
-                    .recv()
-                    .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
-            };
-
-            let receiver = async move {
-                // The messages the messenger receives will automatically be sent to the user
-                // via the ProtocolMessengerRx handle
-                // However, when the user sends messages through the sink for the provided ProtocolMessengerTx,
-                // that sink sends items here. Thus, we need to receive those messages and process them outbound.
-                // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
-                // to forward these to.
-                fn send_ratchet_message<R: Ratchet>(
-                    state_container: &StateContainerInner<R>,
-                    ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
-                    v_conn: VirtualConnectionType,
-                ) -> Result<(), (NetworkError, Option<Ticket>)> {
-                    let mut attributed_ticket = None;
-
-                    let (ticket, security_level) = match &ratchet_message {
-                        RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
-                            message:
-                                UserMessage {
-                                    ticket,
-                                    security_level,
-                                    ..
-                                },
-                            ..
-                        }) => {
-                            attributed_ticket = Some(*ticket);
-                            (*ticket, *security_level)
-                        }
-                        _other => (Ticket::default(), SecurityLevel::default()),
-                    };
-
-                    let preferred_stream =
-                        state_container.get_preferred_stream(v_conn.get_target_cid());
-                    let endpoint_container = state_container
-                        .get_virtual_connection_crypto(v_conn.get_target_cid())
-                        .ok_or_else(|| {
-                            (
-                                NetworkError::Generic(
-                                    "Unable to get virtual connection crypto".to_string(),
-                                ),
-                                attributed_ticket,
-                            )
-                        })?;
-
-                    let ratchet = endpoint_container
-                        .get_ratchet(None)
-                        .expect("ratchet should exist");
-
-                    let object_id = endpoint_container.get_next_object_id();
-                    let group_id = endpoint_container.get_and_increment_group_id();
-                    let time_tracker = state_container.time_tracker;
-
-                    // TODO: micro-optimize this unnecessary cloning
-                    ObjectTransmitter::transmit_message(
-                        preferred_stream.clone(),
-                        object_id,
-                        ratchet,
-                        ratchet_message,
-                        security_level,
-                        group_id,
-                        ticket,
-                        time_tracker,
-                        v_conn,
-                    )
-                    .map_err(|err| (err, attributed_ticket))?;
-
-                    Ok(())
+            // Helper to extract the ticket and payload from a ratchet message, if present
+            fn extract_ticket_and_payload(
+                ratchet_message: &RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+            ) -> Option<(Ticket, SecBuffer)> {
+                match ratchet_message {
+                    RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
+                        message: UserMessage { ticket, packet, .. },
+                        ..
+                    }) => Some((*ticket, packet.clone())),
+                    _ => None,
                 }
+            }
 
-                while let Some(request) = rx_session_requests.recv().await {
-                    let state_container = inner_state!(this.state_container);
-                    match request {
-                        SessionRequest::SendMessage(other) => {
-                            if let Err((err, ticket_opt)) = send_ratchet_message(
-                                &state_container,
-                                other,
-                                virtual_connection_type,
-                            ) {
-                                to_kernel_tx
-                                    .unbounded_send(NodeResult::InternalServerError(
-                                        InternalServerError {
-                                            ticket_opt,
-                                            cid_opt: this.session_cid.get(),
-                                            message: err.into_string(),
-                                        },
-                                    ))
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?
+            // Send a rejection for any pending user messages
+            fn reject_pending_message<R: Ratchet>(
+                kernel_tx: &crate::proto::outbound_sender::UnboundedSender<NodeResult<R>>,
+                ticket: Ticket,
+                payload: Option<&SecBuffer>,
+            ) {
+                let _ = kernel_tx.unbounded_send(NodeResult::OutboundRequestRejected(
+                    crate::proto::node_result::OutboundRequestRejected {
+                        ticket,
+                        message_opt: payload.map(|p| p.as_ref().to_vec()),
+                    },
+                ));
+            }
+
+            // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
+            // to forward these to.
+            fn send_ratchet_message<R: Ratchet>(
+                session: &CitadelSession<R>,
+                state_container: &StateContainerInner<R>,
+                ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+                v_conn: VirtualConnectionType,
+            ) -> Result<(), (NetworkError, Option<Ticket>, Option<SecBuffer>)> {
+                let mut attributed_ticket = None;
+                let mut original_payload: Option<SecBuffer> = None;
+
+                let (ticket, security_level) = match &ratchet_message {
+                    RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
+                        message:
+                            UserMessage {
+                                ticket,
+                                security_level,
+                                packet,
+                                ..
+                            },
+                        ..
+                    }) => {
+                        attributed_ticket = Some(*ticket);
+                        original_payload = Some(packet.clone());
+                        (*ticket, *security_level)
+                    }
+                    _other => (Ticket::default(), SecurityLevel::default()),
+                };
+
+                let preferred_stream = if let Some(stream) =
+                    state_container.get_preferred_stream(v_conn.get_target_cid())
+                {
+                    stream
+                } else {
+                    return Err((
+                        NetworkError::msg(
+                            "Connection unavailable (shutdown in progress or connection closed)",
+                        ),
+                        attributed_ticket,
+                        original_payload,
+                    ));
+                };
+                let endpoint_container = if let Some(ep) =
+                    state_container.get_virtual_connection_crypto(v_conn.get_target_cid())
+                {
+                    ep
+                } else {
+                    return Err((
+                        NetworkError::Generic(
+                            "Unable to get virtual connection crypto".to_string(),
+                        ),
+                        attributed_ticket,
+                        original_payload,
+                    ));
+                };
+
+                let ratchet = match endpoint_container.get_ratchet(None) {
+                    Some(r) => r,
+                    None => {
+                        log::error!(target: "citadel", "Ratchet missing for v_conn {:?}. latest_usable_version={} but toolset does not contain that version; dropping send, shutting down session if C2S, and notifying kernel", v_conn, endpoint_container.latest_usable_version());
+                        // If this is a C2S virtual connection, shut down the primary session to prevent further interaction
+                        if matches!(v_conn, VirtualConnectionType::LocalGroupServer { .. }) {
+                            session.shutdown();
+                        }
+                        return Err((
+                            NetworkError::Generic("Ratchet missing for endpoint".to_string()),
+                            attributed_ticket,
+                            original_payload,
+                        ));
+                    }
+                };
+
+                let object_id = endpoint_container.get_next_object_id();
+                let group_id = endpoint_container.get_and_increment_group_id();
+                let time_tracker = state_container.time_tracker;
+
+                // TODO: micro-optimize this unnecessary cloning
+                ObjectTransmitter::transmit_message(
+                    preferred_stream.clone(),
+                    object_id,
+                    ratchet,
+                    ratchet_message,
+                    security_level,
+                    group_id,
+                    ticket,
+                    time_tracker,
+                    v_conn,
+                )
+                .map_err(|err| (err, attributed_ticket, original_payload))?;
+
+                Ok(())
+            }
+
+            // Drive both the stopper and the receiver in a single select loop to ensure
+            // we can drain any pending requests on shutdown.
+            loop {
+                citadel_io::tokio::select! {
+                    // Stopper fired: drain any remaining queued messages and notify kernel of rejections
+                    res = stopper_rx.recv() => {
+                        if res.is_ok() {
+                            // Drain all pending requests without awaiting
+                            while let Ok(request) = rx_session_requests.try_recv() {
+                                if let SessionRequest::SendMessage(rm) = request {
+                                    if let Some((ticket, payload)) = extract_ticket_and_payload(&rm) {
+                                        reject_pending_message(to_kernel_tx, ticket, Some(&payload));
+                                    }
+                                }
                             }
                         }
+                        break Ok::<(), NetworkError>(());
+                    }
 
-                        SessionRequest::Group(Group { ticket, broadcast }) => {
-                            if let Err(err) = state_container
-                                .process_outbound_broadcast_command(ticket, &broadcast)
-                            {
-                                to_kernel_tx
-                                    .unbounded_send(NodeResult::InternalServerError(
-                                        InternalServerError {
-                                            ticket_opt: Some(ticket),
-                                            cid_opt: this.session_cid.get(),
-                                            message: err.into_string(),
-                                        },
-                                    ))
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?
+                    maybe_request = rx_session_requests.recv() => {
+                        match maybe_request {
+                            Some(request) => {
+                                let state_container = inner_state!(this.state_container);
+                                match request {
+                                    SessionRequest::SendMessage(other) => {
+                                        if let Err((err, ticket_opt, payload_opt)) = send_ratchet_message(
+                                            this,
+                                            &state_container,
+                                            other,
+                                            virtual_connection_type,
+                                        ) {
+                                            if let Some(ticket) = ticket_opt {
+                                                reject_pending_message(to_kernel_tx, ticket, payload_opt.as_ref());
+                                            }
+
+                                            to_kernel_tx
+                                                .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                                    ticket_opt,
+                                                    cid_opt: this.session_cid.get(),
+                                                    message: err.into_string(),
+                                                }))
+                                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                        }
+                                    }
+
+                                    SessionRequest::Group(Group { ticket, broadcast }) => {
+                                        if let Err(err) = state_container.process_outbound_broadcast_command(ticket, &broadcast) {
+                                            to_kernel_tx
+                                                .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                                    ticket_opt: Some(ticket),
+                                                    cid_opt: this.session_cid.get(),
+                                                    message: err.into_string(),
+                                                }))
+                                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                        }
+                                    }
+                                }
+                            }
+                            None => {
+                                // Sender dropped; nothing more to process
+                                break Ok(());
                             }
                         }
                     }
                 }
-
-                Ok(())
-            };
-
-            citadel_io::tokio::select! {
-                res0 = stopper => res0,
-                res1 = receiver => res1
             }
         };
 
@@ -2081,7 +2207,8 @@ impl<R: Ratchet> CitadelSession<R> {
         let state = this.state.get();
 
         if state != SessionState::Connected {
-            log::warn!(target: "citadel", "Session is not connected (s={state:?}); will still attempt send peer command {peer_command:?}")
+            log::warn!(target: "citadel", "Session is not connected (s={state:?}); failing fast for peer command {peer_command:?}");
+            return Err(NetworkError::InvalidRequest("Session is not connected"));
         }
 
         let timestamp = this.time_tracker.get_global_time_ns();
@@ -2436,7 +2563,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     /// Stops the future from running
     pub fn shutdown(&self) {
-        self.state.set(SessionState::Disconnected);
+        self.state.set(SessionState::Disconnecting);
         let _ = inner!(self.stopper_tx).send(());
     }
 
@@ -2463,12 +2590,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
 
     pub(crate) fn is_provisional(&self) -> bool {
         let state = self.state.get();
-        //self.session_cid.is_none()
-        // SocketJustOpened is only the state for a session created from an incoming connection
-        state == SessionState::SocketJustOpened
-            || state == SessionState::NeedsConnect
-            || state == SessionState::ConnectionProcess
-            || state == SessionState::NeedsRegister
+        state != SessionState::Connected && state != SessionState::Disconnecting
     }
 
     pub(crate) fn send_session_dc_signal<T: Into<String>>(
@@ -2477,12 +2599,35 @@ impl<R: Ratchet> CitadelSessionInner<R> {
         disconnect_success: bool,
         msg: T,
     ) {
+        // Only send disconnect signal if we have a valid session CID
+        // Sessions without a CID were never connected, so no disconnect is needed
+        let Some(session_cid) = self.session_cid.get() else {
+            log::trace!(target: "citadel", "Skipping D/C signal - no session CID");
+            let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
+            return;
+        };
+
+        // Get the unique session identifier for tracking
+        let session_ticket = self.kernel_ticket.get();
+
+        // Check if we've already sent a disconnect signal for this unique session.
+        // This prevents duplicate signals from multiple code paths (Drop, explicit disconnect, etc.)
+        // NOTE: Use self.disconnect_tracker directly (not through session_manager) to avoid
+        // deadlock when called from Drop while session_manager lock is held.
+        if !self.disconnect_tracker.try_c2s_disconnect(session_ticket) {
+            log::trace!(target: "citadel", "Skipping D/C signal - already sent for session {:?}", session_ticket);
+            let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
+            return;
+        }
+
         if let Some(tx) = self.dc_signal_sender.take() {
+            let conn_type = Some(ClientConnectionType::Server { session_cid });
+            self.state.set(SessionState::Disconnecting);
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
-                ticket: ticket.unwrap_or_else(|| self.kernel_ticket.get()),
-                cid_opt: self.session_cid.get(),
+                ticket: ticket.unwrap_or(session_ticket),
+                cid_opt: Some(session_cid),
                 success: disconnect_success,
-                v_conn_type: None,
+                conn_type,
                 message: msg.into(),
             }));
         }
@@ -2497,10 +2642,15 @@ impl<R: Ratchet> Drop for CitadelSession<R> {
     fn drop(&mut self) {
         if self.strong_count() == 1 {
             log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
-            if self.is_provisional() {
-                log::trace!(target: "citadel", "Provisional session dropped, will not send D/C signal");
+            // Only send disconnect signal for sessions that were actually connected (have a CID)
+            // and are not provisional
+            if self.is_provisional() || self.session_cid.get().is_none() {
+                log::trace!(target: "citadel", "Session dropped without D/C signal | provisional: {} | has_cid: {}",
+                    self.is_provisional(), self.session_cid.get().is_some());
                 self.disable_dc_signal();
             } else {
+                log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | strong_count: {} | is_provisional: {}",
+                    self.session_cid.get(), self.strong_count(), self.is_provisional());
                 self.send_session_dc_signal(None, false, "Session dropped");
             }
 

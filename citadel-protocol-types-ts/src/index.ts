@@ -1,5 +1,8 @@
 // Export all types from citadel_types
 
+// Version functions
+export * from './versions';
+
 // User types
 export * from './MutualPeer';
 export * from './PeerInfo';
@@ -8,6 +11,11 @@ export * from './UserIdentifier';
 // Proto types
 export * from './ConnectMode';
 export * from './VirtualObjectMetadata';
+
+// Connection types
+export * from './ClientConnectionType';
+export * from './PeerConnectionType';
+export * from './VirtualConnectionType';
 export * from './ObjectId';
 export * from './ObjectTransferOrientation';
 export * from './ObjectTransferStatus';

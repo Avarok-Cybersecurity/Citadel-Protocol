@@ -208,22 +208,10 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
                 Ok(())
             }
 
-            NodeResult::Disconnect(Disconnect {
-                ticket: _,
-                cid_opt: _,
-                success: _,
-                v_conn_type: Some(v_conn),
-                ..
-            }) => {
-                if let Some(v_conn) = v_conn.try_as_peer_connection() {
-                    let mut active_peers = self.shared.active_peer_conns.lock();
-                    let _ = active_peers.remove(&v_conn);
-                }
-
-                Ok(())
-            }
-
-            unprocessed => {
+            // Note: NodeResult::Disconnect is for C2S connections only.
+            // P2P disconnects are handled via NodeResult::PeerEvent(PeerSignal::Disconnect).
+            // C2S disconnects don't require removing from active_peer_conns.
+            unprocessed @ NodeResult::Disconnect(..) | unprocessed => {
                 // pass any unprocessed events to the lower kernel
                 self.inner_kernel.on_node_event_received(unprocessed).await
             }
@@ -452,7 +440,7 @@ where
         }
 
         let remote = connect_success.clone();
-        let (ref tx, rx) = citadel_io::tokio::sync::mpsc::channel(peers_to_connect.len());
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::channel(peers_to_connect.len());
         let requests = FuturesUnordered::new();
 
         for (mutually_registered, peer_to_connect) in
@@ -461,6 +449,7 @@ where
             // Each task will be responsible for possibly registering to and connecting
             // with the desired peer
             let remote = remote.clone();
+            let tx = tx.clone();
             let PeerConnectionSettings {
                 id,
                 session_security_settings,
@@ -564,9 +553,17 @@ where
         }
 
         // TODO: What should be done if a peer conn fails? No room for error here
-        let collection_task = async move { requests.try_collect::<()>().await };
+        // Drop the original tx so channel closes after all tasks complete
+        drop(tx);
 
-        citadel_io::tokio::try_join!(collection_task, f(rx, connect_success)).map(|_| ())
+        // Use join! not try_join! to ensure both branches complete even if one errors
+        // This prevents premature cancellation of the user callback
+        let (collection_result, user_result) =
+            citadel_io::tokio::join!(requests.try_collect::<()>(), f(rx, connect_success));
+
+        // Return first error, or success if both succeeded
+        collection_result?;
+        user_result
     }
 
     fn construct(kernel: Box<dyn NetKernel<R> + 'a>) -> Self {
@@ -580,7 +577,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
@@ -838,7 +835,7 @@ mod tests {
     #[rstest]
     #[case(2)]
     #[case(3)]
-    #[timeout(std::time::Duration::from_secs(90))]
+    #[timeout(std::time::Duration::from_secs(180))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_peer_to_peer_file_transfer(
         #[case] peer_count: usize,

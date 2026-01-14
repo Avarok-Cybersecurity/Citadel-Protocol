@@ -1,6 +1,6 @@
 [package]
 name = "citadel_wire"
-version = "0.13.0"
+version = "0.13.1"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "NAT traversal and wire support for the Citadel Protocol"
 edition = "2021"
@@ -22,7 +22,6 @@ std = [
     "quinn/default",
     "serde/std",
     "async_ip/std",
-    "rustls-pemfile/std",
 ]
 localhost-testing = ["tracing"]
 wasm = ["citadel_io/wasm", "netbeam/wasm"]
@@ -53,8 +52,10 @@ rustls-native-certs = { workspace = true }
 igd = { workspace = true, features = ["aio"] }
 stun = { workspace = true }
 rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
-rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_IO", "Win32_Networking_WinSock"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 

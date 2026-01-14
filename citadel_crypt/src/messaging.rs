@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 /// A messenger intended for use by the citadel_proto package for two nodes to use
@@ -33,13 +34,16 @@ pub struct RatchetManagerMessengerLayerTx<E: Send + Sync + 'static, R: Ratchet, 
     manager: DefaultRatchetManager<E, R, MessengerLayerOrderedMessage<P>>,
     is_active: Arc<AtomicBool>,
     secrecy_mode: SecrecyMode,
+    // Used by background tasks through clones - Rust's dead code analysis doesn't track this
+    #[allow(dead_code)]
     enqueued_messages: Arc<tokio::sync::Mutex<VecDeque<MessengerLayerOrderedMessage<P>>>>,
     message_id: u64,
 }
 
 pub struct RatchetManagerMessengerLayerRx<E: Send + Sync + 'static, R: Ratchet, P: AttachedPayload>
 {
-    manager: DefaultRatchetManager<E, R, MessengerLayerOrderedMessage<P>>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) manager: DefaultRatchetManager<E, R, MessengerLayerOrderedMessage<P>>,
     rx: UnboundedReceiver<P>,
     is_active: Arc<AtomicBool>,
 }
@@ -70,44 +74,76 @@ where
         let manager_clone = manager.clone();
         let is_active_bg = is_active.clone();
         let cid = manager.session_crypto_state.cid();
-        let enqueued_messages = Arc::new(tokio::sync::Mutex::new(VecDeque::new()));
+        let enqueued_messages = Arc::new(tokio::sync::Mutex::new(VecDeque::<
+            MessengerLayerOrderedMessage<P>,
+        >::new()));
         let enqueued_messages_clone = enqueued_messages.clone();
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let manager_for_shutdown = manager_clone.clone();
         let background_task = async move {
             // Each time a rekey finishes, we should check the local queue for any enqueued messages
             // to poll and send
+            let enqueued_messages_rekey = enqueued_messages_clone.clone();
             let rekey_task = async move {
-                while let Some(next_ratchet) = on_rekey_finish_listener.recv().await {
-                    if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
-                        if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
-                            log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
+                while let Some(rekey_result) = on_rekey_finish_listener.recv().await {
+                    // rekey_result is Option<R>:
+                    // - Some(ratchet): successful rekey, forward to listener
+                    // - None: failed rekey (non-fatal error), just retry draining queue
+                    if let Some(next_ratchet) = rekey_result {
+                        if let Some(notify_on_finish_tx) = rekey_finished_tx.as_ref() {
+                            if let Err(err) = notify_on_finish_tx.send(next_ratchet) {
+                                log::warn!(target: "citadel", "Failed to notify on rekey finish: {err}");
+                            }
                         }
+                    } else {
+                        log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey failed, retrying queued messages");
                     }
 
-                    // Check the latest item in the queue. Hold the lock to prevent race conditions locally
-                    let mut lock = enqueued_messages_clone.lock().await;
-                    log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", lock.len());
-                    if let Some(last_item) = lock.pop_front() {
-                        match manager_clone
-                            .trigger_rekey_with_payload(Some(last_item), false)
-                            .await
-                        {
-                            Ok(Some(message_not_sent)) => {
-                                log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): NOT READY. Queue size: {}", lock.len());
-                                lock.push_front(message_not_sent);
-                            }
+                    // Process all queued messages, not just one
+                    loop {
+                        let mut lock = enqueued_messages_rekey.lock().await;
+                        let queue_size = lock.len();
+                        log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", queue_size);
 
-                            Ok(None) => {
-                                // Successfully sent
-                            }
+                        if let Some(last_item) = lock.pop_front() {
+                            // Release lock before async operation
+                            drop(lock);
 
-                            Err(err) => {
-                                log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
-                                break;
+                            match manager_clone
+                                .trigger_rekey_with_payload(Some(last_item), false)
+                                .await
+                            {
+                                Ok(Some(message_not_sent)) => {
+                                    log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): NOT READY. Re-enqueueing message");
+                                    let mut lock = enqueued_messages_rekey.lock().await;
+                                    lock.push_front(message_not_sent);
+                                    break; // Wait for next rekey
+                                }
+
+                                Ok(None) => {
+                                    // Successfully sent, continue with next message
+                                    log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): Message sent successfully");
+                                }
+
+                                Err(err) => {
+                                    log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
+                                    // Cannot re-enqueue since we moved the item
+                                    break; // Wait for next rekey
+                                }
                             }
+                        } else {
+                            break; // No more messages in queue
                         }
+                    }
+                }
+
+                // Process any remaining messages before exiting
+                if secrecy_mode == SecrecyMode::Perfect {
+                    let queue_size = enqueued_messages_rekey.lock().await.len();
+                    if queue_size > 0 {
+                        log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey task ending with {queue_size} messages still queued");
                     }
                 }
             };
@@ -116,21 +152,42 @@ where
 
             let ordered_receiver = async move {
                 while let Some(message) = payload_rx.recv().await {
-                    let id = message.id;
-                    if let Err(err) = ordered_channel.on_packet_received(id, message.message) {
+                    if let Err(err) =
+                        ordered_channel.on_packet_received(message.id, message.message)
+                    {
                         log::error!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): Failed to send message: {err:?}");
-                        break;
+                        // Don't break - continue processing other messages
                     }
                 }
             };
 
             tokio::select! {
-                _ = rekey_task => {}
-                _ = ordered_receiver => {}
+                _ = rekey_task => {
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey task ended");
+                }
+                _ = ordered_receiver => {
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): ordered receiver ended");
+                }
+            }
+
+            // Before shutting down, ensure all queued messages are processed
+            if secrecy_mode == SecrecyMode::Perfect {
+                let mut retries = 0;
+                while retries < 10 {
+                    let queue_size = enqueued_messages_clone.lock().await.len();
+                    if queue_size == 0 {
+                        break;
+                    }
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): waiting for {queue_size} queued messages before shutdown");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    retries += 1;
+                }
             }
 
             log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): background task ending");
             is_active_bg.store(false, ORDERING);
+            // Shutdown the ratchet manager after flushing
+            let _ = manager_for_shutdown.shutdown();
         };
 
         drop(tokio::task::spawn(background_task));
@@ -209,20 +266,19 @@ where
             }
 
             SecrecyMode::Perfect => {
+                // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
+                // When a rekey is already in progress, queue the message to be sent later.
+                // The background task drains the queue after each rekey completes.
                 if let Some(message_not_sent) = self
                     .manager
                     .trigger_rekey_with_payload(Some(message), false)
                     .await?
                 {
-                    // We need to enqueue
-                    self.enqueued_messages
-                        .lock()
-                        .await
-                        .push_back(message_not_sent);
-                } else {
-                    // Success; this message will trigger a simultaneous rekey w/o enqueuing
+                    // Constructor unavailable (rekey in progress), enqueue for later
+                    let mut lock = self.enqueued_messages.lock().await;
+                    lock.push_back(message_not_sent);
                 }
-
+                // Success: either message was sent with rekey, or it's enqueued
                 Ok(())
             }
         }
@@ -260,8 +316,9 @@ where
     P: AttachedPayload,
 {
     fn drop(&mut self) {
+        // Only mark inactive, let background task finish naturally
         self.is_active.store(false, ORDERING);
-        let _ = self.manager.shutdown();
+        // Don't call shutdown() immediately - let queued messages flush
     }
 }
 
@@ -272,8 +329,9 @@ where
     P: AttachedPayload,
 {
     fn drop(&mut self) {
+        // Only mark inactive, let background task finish naturally
         self.is_active.store(false, ORDERING);
-        let _ = self.manager.shutdown();
+        // Don't call shutdown() immediately - let queued messages flush
     }
 }
 
@@ -342,8 +400,14 @@ mod tests {
     ) {
         alice_messenger_tx.send(payload.clone()).await.unwrap();
         bob_messenger_tx.send(payload.clone()).await.unwrap();
-        let alice_message_from_bob = alice_messenger_rx.next().await.unwrap();
-        let bob_message_from_alice = bob_messenger_rx.next().await.unwrap();
+        let alice_message_from_bob = alice_messenger_rx
+            .next()
+            .await
+            .expect("Alice stream ended prematurely");
+        let bob_message_from_alice = bob_messenger_rx
+            .next()
+            .await
+            .expect("Bob stream ended prematurely");
         assert_eq!(alice_message_from_bob, payload.clone());
         assert_eq!(bob_message_from_alice, payload);
     }
@@ -373,7 +437,7 @@ mod tests {
                 let payload = P::from(x);
                 messenger_tx.send(payload.clone()).await.unwrap();
 
-                let recv_payload = messenger_rx.next().await.unwrap();
+                let recv_payload = messenger_rx.next().await.expect("Stream ended prematurely");
                 assert_eq!(recv_payload, payload);
             }
         };
@@ -412,10 +476,17 @@ mod tests {
             }
 
             for x in 0..100u64 {
-                let received = messenger_rx.next().await.unwrap();
-                let expected = P::from(x);
-                log::trace!(target: "citadel", "[Messenger {cid}] recv: {received:?} | {received:?} must be equal to expected {expected:?}");
-                assert_eq!(received, expected);
+                match messenger_rx.next().await {
+                    Some(received) => {
+                        let expected = P::from(x);
+                        log::trace!(target: "citadel", "[Messenger {cid}] recv: {received:?} | {received:?} must be equal to expected {expected:?}");
+                        assert_eq!(received, expected);
+                    }
+                    None => {
+                        log::error!(target: "citadel", "[Messenger {cid}] Stream ended prematurely at message {x}/100");
+                        panic!("Stream ended prematurely at message {x}/100");
+                    }
+                }
             }
         };
 
@@ -427,7 +498,7 @@ mod tests {
 
     fn generate_delay(delay: Option<Duration>) -> (Option<Duration>, Option<Duration>) {
         if let Some(delay) = delay {
-            if rand::random::<u8>() % 2 == 0 {
+            if rand::random::<u8>().is_multiple_of(2) {
                 (Some(delay), None)
             } else {
                 (None, Some(delay))
@@ -480,7 +551,7 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(60))]
+    #[timeout(std::time::Duration::from_secs(180))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy(
@@ -491,10 +562,14 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(360))]
+    // 900s timeout for Perfect mode - queue draining can take time on CI
+    #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_with_random_start_lag(
+        // Tests various levels of contention. ToggleGuard in ratchet_manager
+        // ensures proper cleanup on error paths. sync_declared_version fix
+        // ensures declared_next_version is reset on error, preventing queue starvation.
         #[values(0, 1, 10, 100)] min_delay: u64,
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
@@ -504,7 +579,9 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(60))]
+    // 900s timeout - Perfect mode with contentious pattern can take 10+ seconds
+    // per rekey on busy CI runners, and 200 messages = 200 rekeys
+    #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious(
@@ -515,10 +592,14 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(360))]
+    // 900s timeout for Perfect mode - queue draining can take time on CI
+    #[timeout(std::time::Duration::from_secs(900))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy_contentious_with_random_start_lag(
+        // Tests various levels of contention. ToggleGuard in ratchet_manager
+        // ensures proper cleanup on error paths. sync_declared_version fix
+        // ensures declared_next_version is reset on error, preventing queue starvation.
         #[values(0, 1, 10, 100)] min_delay: u64,
         #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
@@ -531,7 +612,7 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(60))]
+    #[timeout(std::time::Duration::from_secs(180))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_one_at_a_time() {

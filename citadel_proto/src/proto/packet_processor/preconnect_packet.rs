@@ -92,13 +92,14 @@ pub async fn process_preconnect<R: Ratchet>(
                     // TODO: protocol translations for inter-version compatibility
                 }
                 // first make sure the cid isn't already connected
-                let session_already_active = session
+                let can_proceed_with_connection = session
                     .session_manager
-                    .session_active(header.session_cid.get());
+                    .can_proceed_with_new_incoming_connection(header.session_cid.get())
+                    .await;
                 let account_manager = session.account_manager.clone();
 
-                if session_already_active {
-                    const REASON: &str = "Session Already Connected";
+                if !can_proceed_with_connection {
+                    const REASON: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
                     return send_error_and_end_session(&header, None, REASON);
                 }
 
@@ -106,13 +107,20 @@ pub async fn process_preconnect<R: Ratchet>(
                     .get_client_by_cid(header.session_cid.get())
                     .await?
                 {
-                    let mut state_container = inner_mut_state!(session.state_container);
-                    state_container
-                        .store_session_password(C2S_IDENTITY_CID, session.session_password.clone());
+                    // Phase: SYN — single commit lock
+                    // Store session password in a short, isolated lock
+                    {
+                        let mut sc = inner_mut_state!(session.state_container);
+                        sc.store_session_password(
+                            C2S_IDENTITY_CID,
+                            session.session_password.clone(),
+                        );
+                    }
+
+                    // Validate SYN without holding state lock
                     match validation::pre_connect::validate_syn(
                         &cnac,
                         packet,
-                        &session.session_manager,
                         &session.session_password,
                     ) {
                         Ok((
@@ -125,24 +133,12 @@ pub async fn process_preconnect<R: Ratchet>(
                             nat_type,
                             new_ratchet,
                         )) => {
+                            // Prepare response and set non-state items
                             session.adjacent_nat_type.set_once(Some(nat_type));
                             session.kernel_ticket.set(ticket);
-                            state_container.pre_connect_state.generated_ratchet = Some(new_ratchet);
-                            // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level();
-
                             log::trace!(target: "citadel", "Synchronizing toolsets. UDP mode: {udp_mode:?}. Session security level: {new_session_sec_lvl:?}");
-                            // TODO: Rate limiting to prevent SYN flooding
                             let timestamp = session.time_tracker.get_global_time_ns();
-
-                            state_container.pre_connect_state.on_packet_received();
-
-                            state_container.pre_connect_state.last_stage =
-                                packet_flags::cmd::aux::do_preconnect::SYN_ACK;
-                            state_container.keep_alive_timeout_ns = kat;
-
-                            // here, we also send the peer's external address to itself
-                            // Also, we use the security level that was created on init b/c the other side still uses the static aux ratchet
                             let syn_ack = packet_crafter::pre_connect::craft_syn_ack(
                                 &static_aux_ratchet,
                                 transfer,
@@ -152,10 +148,19 @@ pub async fn process_preconnect<R: Ratchet>(
                                 ticket,
                             );
 
-                            state_container.udp_mode = udp_mode;
-                            state_container.cnac = Some(cnac);
-                            state_container.session_security_settings =
-                                Some(session_security_settings);
+                            // Single lock for commit to state machine
+                            {
+                                let mut sc = inner_mut_state!(session.state_container);
+                                sc.pre_connect_state.generated_ratchet = Some(new_ratchet);
+                                sc.pre_connect_state.on_packet_received();
+                                sc.pre_connect_state.last_stage =
+                                    packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+                                sc.keep_alive_timeout_ns = kat;
+                                sc.udp_mode = udp_mode;
+                                sc.cnac = Some(cnac);
+                                session.session_cid.set(Some(header.session_cid.get()));
+                                sc.session_security_settings = Some(session_security_settings);
+                            }
                             session
                                 .peer_only_connect_protocol
                                 .set(Some(peer_only_connect_mode));

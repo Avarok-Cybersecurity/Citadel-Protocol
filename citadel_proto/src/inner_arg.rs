@@ -29,6 +29,7 @@
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
+#[allow(dead_code)]
 pub struct InnerParameterMut<'a, T: 'a, K> {
     inner: &'a mut T,
     _pd: PhantomData<K>,
@@ -85,6 +86,7 @@ where
     immutable version of above
 */
 
+#[allow(dead_code)]
 pub struct InnerParameter<'a, T: 'a + ?Sized, K> {
     inner: &'a T,
     _pd: PhantomData<K>,

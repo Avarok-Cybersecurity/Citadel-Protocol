@@ -25,7 +25,7 @@
 //!     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
 //!
 //!     // Create UDP socket with address reuse
-//!     let udp = socket_helpers::get_reuse_udp_socket(addr)?;
+//!     let udp = socket_helpers::get_udp_socket(addr)?;
 //!
 //!     // Create TCP listener with default options
 //!     let tcp = socket_helpers::get_tcp_listener(addr)?;
@@ -59,7 +59,64 @@ use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
-    Ok(socket2::Socket::new(domain, Type::DGRAM, None)?)
+    let socket = socket2::Socket::new(domain, Type::DGRAM, None)?;
+
+    // On Windows, disable the behavior where ICMP "port unreachable" messages
+    // cause WSAECONNRESET (10054) errors on UDP sockets. This is a well-known
+    // Windows-specific issue that can cause spurious connection reset errors
+    // during NAT traversal and hole punching.
+    #[cfg(windows)]
+    {
+        disable_windows_udp_connreset(&socket)?;
+    }
+
+    Ok(socket)
+}
+
+/// Disables Windows-specific behavior where ICMP "port unreachable" messages
+/// cause WSAECONNRESET (10054) errors on subsequent UDP recv calls.
+///
+/// This is critical for NAT traversal and hole punching where ICMP messages
+/// from failed connection attempts are expected and should be ignored.
+///
+/// See: <https://docs.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls>
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn disable_windows_udp_connreset(socket: &Socket) -> Result<(), anyhow::Error> {
+    use std::os::windows::io::AsRawSocket;
+
+    // SIO_UDP_CONNRESET = 0x9800000C
+    // When set to FALSE (0), this disables the connection reset behavior
+    const SIO_UDP_CONNRESET: u32 = 0x9800000C;
+    let disable: u32 = 0; // FALSE = disable connection reset reporting
+
+    // SAFETY: We're calling WSAIoctl with valid parameters on a valid socket.
+    // The socket is owned by us and the ioctl is a well-documented Windows API.
+    let result = unsafe {
+        let mut bytes_returned: u32 = 0;
+        windows_sys::Win32::Networking::WinSock::WSAIoctl(
+            socket.as_raw_socket() as usize,
+            SIO_UDP_CONNRESET,
+            std::ptr::addr_of!(disable) as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut bytes_returned,
+            std::ptr::null_mut(),
+            None,
+        )
+    };
+
+    if result != 0 {
+        let err = std::io::Error::last_os_error();
+        log::warn!(target: "citadel", "Failed to set SIO_UDP_CONNRESET: {err}");
+        // Don't fail socket creation, just log the warning
+        // The socket will still work, just may have spurious reset errors
+    } else {
+        log::trace!(target: "citadel", "Successfully disabled UDP connection reset reporting");
+    }
+
+    Ok(())
 }
 
 fn get_tcp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
@@ -78,6 +135,9 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
 
     socket.set_nonblocking(true)?;
 
+    // On non-Windows platforms, enable dual-stack mode for IPv6 sockets.
+    // Windows is excluded because enabling dual-stack mode causes WSAEINVAL (error 10022)
+    // when Quinn creates QUIC endpoints - Windows IPv6 sockets work better in IPv6-only mode.
     if !cfg!(windows) && addr.is_ipv6() {
         socket.set_only_v6(false)?;
     }
@@ -112,7 +172,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
 
-    let addr = windows_check(addr);
+    let addr = localhost_testing_addr_fix(addr);
 
     log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() {
@@ -127,10 +187,12 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
     Ok(tokio_socket)
 }
 
-fn windows_check(addr: SocketAddr) -> SocketAddr {
-    // if feature "localhost-testing" is enabled, and, we are not on mac, then, we will bind to 127.0.0.1
-    if cfg!(feature = "localhost-testing") && !cfg!(target_os = "macos") {
-        log::warn!(target: "citadel", "Localhost testing is enabled on non-mac OS. Will ensure bind is 127.0.0.1");
+fn localhost_testing_addr_fix(addr: SocketAddr) -> SocketAddr {
+    // In localhost-testing mode, bind to 127.0.0.1 instead of 0.0.0.0.
+    // This ensures socket.local_addr() returns 127.0.0.1 which peers can actually send to.
+    // Without this, macOS fails with "No route to host" when sending to 0.0.0.0.
+    if cfg!(feature = "localhost-testing") {
+        log::trace!(target: "citadel", "Localhost testing enabled, binding to localhost instead of {addr}");
         if addr.is_ipv4() {
             SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), addr.port())
         } else {
@@ -150,7 +212,7 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
 
-    let addr = windows_check(addr);
+    let addr = localhost_testing_addr_fix(addr);
 
     log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
 
@@ -186,25 +248,6 @@ async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
     };
     let socket = get_tcp_socket_builder(domain)?;
     setup_connect(addr, socket, timeout, true).await
-}
-
-pub fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(
-    addr: T,
-) -> Result<UdpSocket, anyhow::Error> {
-    get_udp_socket_inner(addr, true)
-}
-
-pub fn get_reuse_tcp_listener<T: std::net::ToSocketAddrs>(
-    addr: T,
-) -> Result<TcpListener, anyhow::Error> {
-    get_tcp_listener_inner(addr, true)
-}
-
-pub async fn get_reuse_tcp_stream<T: std::net::ToSocketAddrs>(
-    addr: T,
-    timeout: Duration,
-) -> Result<TcpStream, anyhow::Error> {
-    get_tcp_stream_inner(addr, timeout, true).await
 }
 
 pub fn get_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {

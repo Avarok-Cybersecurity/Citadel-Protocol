@@ -56,6 +56,7 @@ use crate::kernel::kernel_communicator::{
 };
 use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
+use crate::prelude::ActiveSessions;
 use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
@@ -439,30 +440,6 @@ impl<R: Ratchet> CitadelNode<R> {
 
         log::trace!(target: "citadel", "[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
         Ok(stream)
-    }
-
-    /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
-    /// This takes the local socket AND QuicNode instance
-    #[allow(dead_code)]
-    pub async fn create_p2p_quic_connect_socket<T: ToSocketAddrs>(
-        quic_endpoint: Endpoint,
-        remote: T,
-        tls_domain: TlsDomain,
-        timeout: Option<Duration>,
-        secure_client_config: Arc<ClientConfig>,
-    ) -> io::Result<GenericNetworkStream> {
-        let remote: SocketAddr = remote
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::quic_p2p_connect_defaults(
-            quic_endpoint,
-            timeout,
-            tls_domain,
-            remote,
-            secure_client_config,
-        )
-        .await
     }
 
     /// - force_use_default_config: if true, this will unconditionally use the default client config already present inside the quic_endpoint parameter
@@ -959,7 +936,10 @@ impl<R: Ratchet> CitadelNode<R> {
                     if let Err(err) =
                         to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {
                             ticket: ticket_id,
-                            sessions: session_manager.get_active_sessions(),
+                            sessions: ActiveSessions {
+                                sessions: session_manager.get_active_sessions(),
+                                local_nat_type: local_nat_type.clone(),
+                            },
                         }))
                     {
                         send_error(

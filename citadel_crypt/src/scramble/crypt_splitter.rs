@@ -231,7 +231,7 @@ where
     if empty_transfer {
         // In the case the plaintext is empty, we need to generate some random data to not give away the information
         // that the file is empty
-        let random_length = rand::random::<u8>();
+        let random_length = rand::random::<u8>().max(1);
         let mut entropy = vec![0u8; random_length as usize];
         rand::thread_rng().fill(&mut entropy[..]);
         plain_text = Cow::Owned(entropy);

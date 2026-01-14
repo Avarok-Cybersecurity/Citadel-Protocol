@@ -103,7 +103,7 @@ pub async fn process_connect<R: Ratchet>(
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
                         Ok(stage0_packet) => {
-                            let mut state_container = inner_mut_state!(session.state_container);
+                            // Compute inexpensive values and perform checks before taking the lock
                             let local_uses_file_system = matches!(
                                 session.account_manager.get_backend_type(),
                                 BackendType::Filesystem(..)
@@ -122,27 +122,29 @@ pub async fn process_connect<R: Ratchet>(
                                 return Ok(PrimaryProcessorResult::EndSession(REASON));
                             }
 
-                            state_container.connect_state.last_stage =
-                                packet_flags::cmd::aux::do_connect::SUCCESS;
-                            state_container.connect_state.fail_time = None;
-                            state_container.connect_state.on_connect_packet_received();
-                            let udp_channel_rx = state_container
-                                .pre_connect_state
-                                .udp_channel_oneshot_tx
-                                .rx
-                                .take();
-                            let channel = state_container.init_new_c2s_virtual_connection(
-                                &cnac,
-                                kernel_ticket,
-                                header.session_cid.get(),
-                                session,
-                            );
-
-                            let session_security_settings = state_container
-                                .session_security_settings
-                                .expect("Should be set");
-
-                            drop(state_container);
+                            // Acquire lock only for short, critical state updates; release before awaits
+                            let (udp_channel_rx, channel, session_security_settings) = {
+                                let mut state_container = inner_mut_state!(session.state_container);
+                                state_container.connect_state.last_stage =
+                                    packet_flags::cmd::aux::do_connect::SUCCESS;
+                                state_container.connect_state.fail_time = None;
+                                state_container.connect_state.on_connect_packet_received();
+                                let udp_channel_rx = state_container
+                                    .pre_connect_state
+                                    .udp_channel_oneshot_tx
+                                    .rx
+                                    .take();
+                                let channel = state_container.init_new_c2s_virtual_connection(
+                                    &cnac,
+                                    kernel_ticket,
+                                    header.session_cid.get(),
+                                    session,
+                                );
+                                let session_security_settings = state_container
+                                    .session_security_settings
+                                    .expect("Should be set");
+                                (udp_channel_rx, channel, session_security_settings)
+                            };
 
                             // Upgrade the connect BEFORE updating the CNAC
                             if !session.session_manager.upgrade_connection(addr, cid) {
@@ -203,11 +205,9 @@ pub async fn process_connect<R: Ratchet>(
                                     udp_rx_opt: udp_channel_rx,
                                     session_security_settings,
                                 });
-                                // safe unwrap. Store the signal
+                                // Store the signal (post-await), using a short-lived lock
                                 inner_mut_state!(session.state_container)
-                                    .get_endpoint_container_mut(C2S_IDENTITY_CID)
-                                    .as_mut()
-                                    .unwrap()
+                                    .get_endpoint_container_mut(C2S_IDENTITY_CID)?
                                     .channel_signal = Some(channel_signal);
                                 Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
                             }
@@ -275,8 +275,7 @@ pub async fn process_connect<R: Ratchet>(
                 log::trace!(target: "citadel", "STAGE SUCCESS CONNECT PACKET");
 
                 let task = {
-                    let mut state_container = inner_mut_state!(session.state_container);
-                    let last_stage = state_container.connect_state.last_stage;
+                    // Compute compatibility outside of lock
                     let remote_uses_filesystem = header.group.get() != 0;
                     let local_uses_file_system = matches!(
                         session.account_manager.get_backend_type(),
@@ -285,6 +284,9 @@ pub async fn process_connect<R: Ratchet>(
                     session
                         .file_transfer_compatible
                         .set_once(local_uses_file_system && remote_uses_filesystem);
+
+                    let mut state_container = inner_mut_state!(session.state_container);
+                    let last_stage = state_container.connect_state.last_stage;
 
                     if last_stage == packet_flags::cmd::aux::do_connect::STAGE1 {
                         if let Some(payload) =

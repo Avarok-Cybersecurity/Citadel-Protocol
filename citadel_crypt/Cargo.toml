@@ -1,6 +1,6 @@
 [package]
 name = "citadel_crypt"
-version = "0.13.0"
+version = "0.13.1"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Higher-level cryptographic library for the Citadel Protocol"
 edition = "2021"
@@ -37,7 +37,7 @@ arrayvec = { workspace = true, features = ["serde"] }
 citadel_pqcrypto = { workspace = true }
 citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
-rust-argon2 = { workspace = true, features = ["serde"] }
+rust-argon2 = { workspace = true, features = ["serde", "crossbeam-utils"] }
 sha3 = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
@@ -56,6 +56,9 @@ citadel_logging = { workspace = true }
 rstest = { workspace = true }
 lazy_static = { workspace = true }
 #tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
 [lib]
 doctest = false

@@ -502,7 +502,6 @@ pub mod re_imports {
     pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
-    pub use citadel_wire::exports::rustls_pemfile;
     pub use citadel_wire::exports::ClientConfig as RustlsClientConfig;
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic::insecure;
@@ -544,13 +543,13 @@ pub mod prelude {
     pub use crate::proto::peer::group_channel::{
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
-    pub use crate::proto::peer::peer_layer::NodeConnectionType;
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::re_imports::{async_trait, NodeType};
     pub use citadel_types::crypto::SecrecyMode;
+    pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;
     pub use citadel_types::proto::MessageGroupKey;
     pub use citadel_user::backend::utils::{ObjectTransferHandler, ObjectTransferHandlerInner};

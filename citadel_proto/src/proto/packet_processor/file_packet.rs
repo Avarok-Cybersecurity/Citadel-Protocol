@@ -61,19 +61,21 @@ pub fn process_file_packet<R: Ratchet>(
 
     let (header, payload, _, _) = packet.decompose();
 
-    let mut state_container = inner_mut_state!(session.state_container);
-    // get the proper pqc
+    // get the proper pqc without holding a mutable lock longer than necessary
     let header_bytes = &header[..];
     let header = return_if_none!(Ref::new(header_bytes), "Unable to validate header layout")
         as Ref<&[u8], HdpHeader>;
-    let ratchet = return_if_none!(
-        get_orientation_safe_ratchet(
-            header.entropy_bank_version.get(),
-            &state_container,
-            proxy_cid_info
-        ),
-        "Unable to get proper HR"
-    );
+    let ratchet = {
+        let state_container = inner_state!(session.state_container);
+        return_if_none!(
+            get_orientation_safe_ratchet(
+                header.entropy_bank_version.get(),
+                &state_container,
+                proxy_cid_info
+            ),
+            "Unable to get proper HR"
+        )
+    };
     let security_level = header.security_level.into();
     let ticket: Ticket = header.context_info.get().into();
     let ts = session.time_tracker.get_global_time_ns();
@@ -90,14 +92,17 @@ pub fn process_file_packet<R: Ratchet>(
                             let target_cid = header.session_cid.get();
                             let object_id = payload.object_id;
 
-                            if let Err(err) = state_container
-                                .notify_object_transfer_handle_failure_with(
-                                    target_cid,
-                                    object_id,
-                                    payload.error_message.clone(),
-                                )
                             {
-                                log::error!(target: "citadel", "Failed to notify object transfer handle failure: {err}");
+                                let mut state_container = inner_mut_state!(session.state_container);
+                                if let Err(err) = state_container
+                                    .notify_object_transfer_handle_failure_with(
+                                        target_cid,
+                                        object_id,
+                                        payload.error_message.clone(),
+                                    )
+                                {
+                                    log::error!(target: "citadel", "Failed to notify object transfer handle failure: {err}");
+                                }
                             }
 
                             session.send_to_kernel(NodeResult::InternalServerError(
@@ -147,23 +152,31 @@ pub fn process_file_packet<R: Ratchet>(
                                 }
                             };
 
-                            let preferred_primary_stream = return_if_none!(
-                                get_preferred_primary_stream(&header, session, &state_container)
-                            );
+                            let preferred_primary_stream = {
+                                let state_container = inner_state!(session.state_container);
+                                return_if_none!(get_preferred_primary_stream(
+                                    &header,
+                                    session,
+                                    &state_container
+                                ))
+                            };
 
-                            if !state_container.on_file_header_received(
-                                &header,
-                                v_target,
-                                vfm,
-                                session.account_manager.get_persistence_handler(),
-                                session.state_container.clone(),
-                                ratchet,
-                                target_cid,
-                                v_target_flipped,
-                                preferred_primary_stream,
-                                local_encryption_level,
-                            ) {
-                                log::warn!(target: "citadel", "Failed to run on_file_header_received");
+                            {
+                                let mut state_container = inner_mut_state!(session.state_container);
+                                if !state_container.on_file_header_received(
+                                    &header,
+                                    v_target,
+                                    vfm,
+                                    session.account_manager.get_persistence_handler(),
+                                    session.state_container.clone(),
+                                    ratchet,
+                                    target_cid,
+                                    v_target_flipped,
+                                    preferred_primary_stream,
+                                    local_encryption_level,
+                                ) {
+                                    log::warn!(target: "citadel", "Failed to run on_file_header_received");
+                                }
                             }
 
                             // We do not send a rebound signal until AFTER the local user
@@ -194,18 +207,21 @@ pub fn process_file_packet<R: Ratchet>(
                             };
                             //let session_cid = header.session_cid.get();
                             // conclude by passing this data into the state container
-                            if state_container
-                                .on_file_header_ack_received(
-                                    success,
-                                    session_cid,
-                                    header.context_info.get().into(),
-                                    object_id,
-                                    v_target,
-                                    payload.transfer_type,
-                                )
-                                .is_none()
                             {
-                                log::error!(target: "citadel", "on_file_header_ack_received failed. File transfer attempt invalidated");
+                                let mut state_container = inner_mut_state!(session.state_container);
+                                if state_container
+                                    .on_file_header_ack_received(
+                                        success,
+                                        session_cid,
+                                        header.context_info.get().into(),
+                                        object_id,
+                                        v_target,
+                                        payload.transfer_type,
+                                    )
+                                    .is_none()
+                                {
+                                    log::error!(target: "citadel", "on_file_header_ack_received failed. File transfer attempt invalidated");
+                                }
                             }
 
                             Ok(PrimaryProcessorResult::Void)
@@ -229,9 +245,14 @@ pub fn process_file_packet<R: Ratchet>(
                     match validation::file::validate_revfs_pull(&header, &payload) {
                         Some(packet) => {
                             let session = session.clone();
-                            let preferred_primary_stream = return_if_none!(
-                                get_preferred_primary_stream(&header, &session, &state_container)
-                            );
+                            let preferred_primary_stream = {
+                                let state_container = inner_state!(session.state_container);
+                                return_if_none!(get_preferred_primary_stream(
+                                    &header,
+                                    &session,
+                                    &state_container
+                                ))
+                            };
                             let virtual_target = header_to_response_vconn_type(&header);
                             let revfs_cid = header.session_cid.get();
                             let resp_target_cid = get_resp_target_cid_from_header(&header);
@@ -319,9 +340,14 @@ pub fn process_file_packet<R: Ratchet>(
                             let resp_target_cid = get_resp_target_cid_from_header(&header);
                             let pers = session.account_manager.get_persistence_handler().clone();
 
-                            let preferred_primary_stream = return_if_none!(
-                                get_preferred_primary_stream(&header, session, &state_container)
-                            );
+                            let preferred_primary_stream = {
+                                let state_container = inner_state!(session.state_container);
+                                return_if_none!(get_preferred_primary_stream(
+                                    &header,
+                                    session,
+                                    &state_container
+                                ))
+                            };
 
                             let task = async move {
                                 let err_opt = pers

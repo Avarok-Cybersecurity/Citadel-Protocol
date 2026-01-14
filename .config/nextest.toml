@@ -4,13 +4,15 @@
 # "retries" defines the number of times a test should be retried. If set to a
 # non-zero value, tests that succeed on a subsequent attempt will be marked as
 # non-flaky. Can be overridden through the `--retries` option.
-retries = { backoff = "exponential", count = 2, delay = "5s" }
+# Retries disabled - CI stability fixes have eliminated flaky tests
+retries = 0
 
 # The number of threads to run tests with. Supported values are either an integer or
 # the string "num-cpus". Can be overridden through the `--test-threads` option.
 test-threads = 1
 
-slow-timeout = { period = "80s", terminate-after = 3, grace-period = "0s" }
+# Increased from 180s to 300s due to wait_for_completion=true making tests slower
+slow-timeout = { period = "300s", terminate-after = 3, grace-period = "0s" }
 
 # Show these test statuses in the output.
 #

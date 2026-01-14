@@ -26,6 +26,7 @@
 //! - `PeerChannel`: Handles peer communication channels
 //! - `GroupChannel`: Manages group communication channels
 //!
+use crate::error::NetworkError;
 use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpChannel};
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
@@ -34,8 +35,9 @@ use crate::proto::state_container::VirtualConnectionType;
 use crate::kernel::kernel_communicator::CallbackKey;
 use citadel_crypt::prelude::CryptError;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::proto::SessionSecuritySettings;
+use citadel_types::proto::{ClientConnectionType, SessionSecuritySettings};
 use citadel_user::backend::utils::ObjectTransferHandler;
+use citadel_wire::nat_identification::NatType;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -135,12 +137,16 @@ pub struct GroupEvent {
     pub event: GroupBroadcast,
 }
 
+// ClientConnectionType is imported from citadel_types::proto
+
 #[derive(Debug)]
 pub struct Disconnect {
     pub ticket: Ticket,
     pub cid_opt: Option<u64>,
     pub success: bool,
-    pub v_conn_type: Option<VirtualConnectionType>,
+    /// The type of client connection being disconnected.
+    /// None only for provisional connections that never fully established.
+    pub conn_type: Option<ClientConnectionType>,
     pub message: String,
 }
 
@@ -158,10 +164,34 @@ pub struct PeerChannelCreated<R: Ratchet> {
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    /// If None, this is a c2s connection. Else, a p2p connection.
+    pub peer_cid: Option<u64>,
+    /// The NAT type of the adjacent peer, if known
+    pub adjacent_nat_type: Option<NatType>,
+    pub connection_type: VirtualConnectionType,
+    pub connected: bool,
+    /// Returns effectively the number of re-keys in the session minus 1 (version starts at 0)
+    pub latest_ratchet_version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub cid: u64,
+    pub connections: Vec<ConnectionInfo>,
+}
+
+#[derive(Debug)]
+pub struct ActiveSessions {
+    pub sessions: Vec<SessionInfo>,
+    pub local_nat_type: NatType,
+}
+
 #[derive(Debug)]
 pub struct SessionList {
     pub ticket: Ticket,
-    pub sessions: Vec<u64>,
+    pub sessions: ActiveSessions,
 }
 
 #[derive(Debug)]
@@ -212,6 +242,42 @@ pub enum NodeResult<R: Ratchet> {
 }
 
 impl<R: Ratchet> NodeResult<R> {
+    /// Used to map error result types into hard errors
+    pub fn into_result(self) -> Result<NodeResult<R>, NetworkError> {
+        match self {
+            NodeResult::ConnectFail(ConnectFail {
+                ticket: _,
+                cid_opt: _,
+                error_message: err,
+            }) => Err(NetworkError::Generic(err)),
+            NodeResult::RegisterFailure(RegisterFailure {
+                ticket: _,
+                error_message: err,
+            }) => Err(NetworkError::Generic(err)),
+            NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::Generic(format!(
+                "Outbound request rejected: {:?}",
+                String::from_utf8(reason.message_opt.unwrap_or_default())
+                    .unwrap_or_else(|_| "Bad request".into())
+            ))),
+            NodeResult::InternalServerError(InternalServerError {
+                ticket_opt: _,
+                cid_opt: _,
+                message: err,
+            }) => Err(NetworkError::Generic(err)),
+            NodeResult::PeerEvent(PeerEvent {
+                event:
+                    PeerSignal::SignalError {
+                        ticket: _,
+                        error: err,
+                        peer_connection_type: _,
+                    },
+                ticket: _,
+                ..
+            }) => Err(NetworkError::Generic(err)),
+            res => Ok(res),
+        }
+    }
+
     pub fn is_connect_success_type(&self) -> bool {
         matches!(self, NodeResult::ConnectSuccess(ConnectSuccess { .. }))
     }
@@ -281,7 +347,7 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: t,
                 cid_opt,
                 success: _,
-                v_conn_type: _,
+                conn_type: _,
                 message: _,
             }) => Some(CallbackKey {
                 ticket: *t,

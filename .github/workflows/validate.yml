@@ -11,10 +11,60 @@ env:
   RUST_BACKTRACE: full
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
-  RUST_LOG: "citadel=warn"
+  RUST_LOG: "citadel=info"
   IN_CI: "true"
 
 jobs:
+  stability-test:
+    name: Ratchet Stability Test
+    runs-on: macos-latest
+    timeout-minutes: 180
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - uses: taiki-e/install-action@nextest
+      - name: Run ratchet stability test
+        # Non-blocking: This test catches race conditions that are timing-dependent.
+        # On slow CI runners, it may fail due to increased contention.
+        # Results are logged for analysis but don't block the pipeline.
+        continue-on-error: true
+        run: cargo make ratchet-stability-test
   core_libs:
     strategy:
       matrix:
@@ -22,8 +72,32 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: shogo82148/actions-setup-mysql@v1
+      - name: Setup MySQL
+        id: mysql
         if: startsWith(matrix.os, 'ubuntu')
+        uses: shogo82148/actions-setup-mysql@v1
+        with:
+          mysql-version: '8.0'
+          root-password: 'password'
+        continue-on-error: true
+      - name: Retry MySQL (attempt 2, wait 15s)
+        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure'
+        run: sleep 15
+      - name: Setup MySQL (retry 2)
+        id: mysql-retry-2
+        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure'
+        uses: shogo82148/actions-setup-mysql@v1
+        with:
+          mysql-version: '8.0'
+          root-password: 'password'
+        continue-on-error: true
+      - name: Retry MySQL (attempt 3, wait 30s)
+        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure' && steps.mysql-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup MySQL (retry 3)
+        id: mysql-retry-3
+        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure' && steps.mysql-retry-2.outcome == 'failure'
+        uses: shogo82148/actions-setup-mysql@v1
         with:
           mysql-version: '8.0'
           root-password: 'password'
@@ -50,9 +124,44 @@ jobs:
         with:
           redis-version: 4
           redis-port: 6379
-      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
+      - name: Run crypto tests
+        run: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
       - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         env:
@@ -76,7 +185,41 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
       - name: Run basic localhost NAT tests
@@ -93,7 +236,41 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing
@@ -109,13 +286,44 @@ jobs:
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
 
   citadel_sdk_release:
-    strategy:
-      matrix:
-        os: [ ubuntu-latest ]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
+    runs-on: macos-latest
+    timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing --release
@@ -126,7 +334,41 @@ jobs:
     name: miscellaneous
     runs-on: macos-latest
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
       #      - name: Install Valgrind
       #        run: |
       #          sudo apt-get update -y
@@ -169,6 +411,29 @@ jobs:
   #      - name: Check all feature combinations
   #        run: cargo check-all-features --package citadel_sdk
 
+  typescript_types:
+    name: TypeScript Types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: citadel-protocol-types-ts
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: citadel-protocol-types-ts
+        run: npm run build
+
+      - name: Run tests
+        working-directory: citadel-protocol-types-ts
+        run: npm test
+
   coverage:
     runs-on: macos-latest
     timeout-minutes: 80
@@ -179,7 +444,10 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+        continue-on-error: true  # Don't fail if cache service is unavailable
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"

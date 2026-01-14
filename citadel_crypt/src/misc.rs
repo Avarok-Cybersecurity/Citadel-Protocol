@@ -58,6 +58,8 @@ pub enum CryptError<T = String> {
     Decrypt(T),
     /// Drill update error
     RekeyUpdateError(T),
+    /// When a ratchet has an issue
+    RatchetError(T),
     /// Out of bounds
     OutOfBoundsError,
     /// This occurs if the byte-valued security level desired does not correspond to an actual [SecurityLevel]
@@ -76,6 +78,7 @@ impl<T> CryptError<T> {
             CryptError::Encrypt(s) => s.into(),
             CryptError::Decrypt(s) => s.into(),
             CryptError::RekeyUpdateError(s) => s.into(),
+            CryptError::RatchetError(s) => s.into(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception".to_string(),
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string(),
             CryptError::FatalError(s) => s,
@@ -90,6 +93,7 @@ impl<T> CryptError<T> {
             CryptError::Encrypt(s) => s.as_ref(),
             CryptError::Decrypt(s) => s.as_ref(),
             CryptError::RekeyUpdateError(s) => s.as_ref(),
+            CryptError::RatchetError(s) => s.as_ref(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception",
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting",
             CryptError::FatalError(s) => s.as_ref(),

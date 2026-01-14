@@ -36,13 +36,13 @@ use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
-use crate::proto::state_container::VirtualConnectionType;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::time::error::Error;
 use citadel_io::tokio::time::Duration;
 use citadel_io::tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::prelude::PeerInfo;
+pub use citadel_types::proto::{ClientConnectionType, PeerConnectionType};
 use citadel_types::proto::{
     GroupType, MessageGroupKey, MessageGroupOptions, SessionSecuritySettings, UdpMode,
     VirtualObjectMetadata,
@@ -55,7 +55,6 @@ use futures::Stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 use std::pin::Pin;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -637,12 +636,12 @@ pub enum PeerSignal {
         ticket: Ticket,
     },
     GetRegisteredPeers {
-        peer_conn_type: NodeConnectionType,
+        peer_conn_type: ClientConnectionType,
         response: Option<PeerResponse>,
         limit: Option<i32>,
     },
     GetMutuals {
-        v_conn_type: NodeConnectionType,
+        v_conn_type: ClientConnectionType,
         response: Option<PeerResponse>,
     },
     SignalError {
@@ -668,130 +667,6 @@ pub enum PeerSignal {
 pub enum ChannelPacket {
     // payload
     Message(Vec<u8>),
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone, Eq, Hash)]
-pub enum PeerConnectionType {
-    // session_cid, target_cid
-    LocalGroupPeer {
-        session_cid: u64,
-        peer_cid: u64,
-    },
-    // session_cid, icid, target_cid
-    ExternalGroupPeer {
-        session_cid: u64,
-        interserver_cid: u64,
-        peer_cid: u64,
-    },
-}
-
-impl PeerConnectionType {
-    pub fn get_original_session_cid(&self) -> u64 {
-        match self {
-            PeerConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: _target_cid,
-            } => *session_cid,
-            PeerConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: _icid,
-                peer_cid: _target_cid,
-            } => *session_cid,
-        }
-    }
-
-    pub fn get_original_target_cid(&self) -> u64 {
-        match self {
-            PeerConnectionType::LocalGroupPeer {
-                session_cid: _session_cid,
-                peer_cid: target_cid,
-            } => *target_cid,
-            PeerConnectionType::ExternalGroupPeer {
-                session_cid: _session_cid,
-                interserver_cid: _icid,
-                peer_cid: target_cid,
-            } => *target_cid,
-        }
-    }
-
-    pub fn reverse(&self) -> PeerConnectionType {
-        match self {
-            PeerConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            } => PeerConnectionType::LocalGroupPeer {
-                session_cid: *target_cid,
-                peer_cid: *session_cid,
-            },
-            PeerConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid: target_cid,
-            } => PeerConnectionType::ExternalGroupPeer {
-                session_cid: *target_cid,
-                interserver_cid: *icid,
-                peer_cid: *session_cid,
-            },
-        }
-    }
-
-    pub fn as_virtual_connection(self) -> VirtualConnectionType {
-        match self {
-            PeerConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            } => VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            },
-            PeerConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid: target_cid,
-            } => VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid: target_cid,
-            },
-        }
-    }
-}
-
-impl Display for PeerConnectionType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PeerConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            } => {
-                write!(f, "hLAN {session_cid} <-> {target_cid}")
-            }
-            PeerConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid: target_cid,
-            } => {
-                write!(f, "hWAN {session_cid} <-> {icid} <-> {target_cid}")
-            }
-        }
-    }
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
-pub enum NodeConnectionType {
-    // session_cid
-    LocalGroupPeerToLocalGroupServer(u64),
-    // session_cid, icid
-    LocalGroupPeerToExternalGroupServer(u64, u64),
-}
-
-impl NodeConnectionType {
-    pub fn get_session_cid(&self) -> u64 {
-        match self {
-            NodeConnectionType::LocalGroupPeerToLocalGroupServer(session_cid) => *session_cid,
-            NodeConnectionType::LocalGroupPeerToExternalGroupServer(session_cid, _) => *session_cid,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -1,0 +1,33 @@
+Ensure every file in the repository has documentation in the top of the file in the following format:
+//! Title and description
+//! Features/functionality overview
+//! Usage examples where appropriate
+//! Important notes and considerations
+//! Cross-references to related components
+
+Make sure code examples can be compiled! If you're not confident, don't make an example. Do not make stuff up, do not AI hallucinate.
+
+DO NOT EDIT SOURCE CODE, ONLY ADD DOCUMENTATION!
+
+Start with non lib.rs files, that way you have a full understanding before making documentation for lib.rs that are compilable. Do not document lib.rs until every other file is documented first.
+
+While you're at it, you can simultaneously keep updating the local file ./context.ai.json, where you can store file-by-file important and distilled context as you add documentation to the top of each file, that way later on, whenever I or another needs your help, you can always reference that ./context.ai.json file. You can also keep updating ./suggestions.ai.json for a file list for suggestions we can visit later.
+
+For both of these .ai.json files, the format should be in json:
+
+[
+    {
+        file: "./citadel_*/src/lib.rs",
+        suggestions: ["suggestion1", "suggestion2", ...]
+    },
+]
+
+Note: for the context.ai.json file, the "suggestions" field would instead be called "context".
+
+If you're unsure what files you've covered, since you're adding content to ./context.ai.json, you can scan that to see what files you've parsed.
+
+Work on multiple files at a time, preferably mod by mod, starting with the deepest mod, ending with the root mod then finally lib.rs.
+
+If the currently opened file is not documented, you should document it first, and its module if not documented.
+
+Important: once you get to citadel_sdk, do not document lib.rs!

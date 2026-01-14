@@ -262,23 +262,32 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "[CryptError] Out of bounds exception")]
+    #[should_panic(
+        expected = "Requested security level: Some(Reinforced). Resolved: Reinforced. Only have max 0 security levels"
+    )]
     fn mono_ratchets_fail() {
         citadel_logging::should_panic_test();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 1..SecurityLevel::Extreme.value() {
-                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
+                let ratchet = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-                let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
-                    Some(sec.into()),
-                    &PRE_SHARED_KEYS,
-                    &PRE_SHARED_KEYS,
-                );
+
+                const MESSAGE: &[u8] = b"Hello, world!" as &[u8];
+                const HEADER_LEN: usize = 50;
+                let mut packet = BytesMut::with_capacity(MESSAGE.len() + HEADER_LEN);
+                packet.put(MESSAGE);
+
+                assert!(ratchet
+                    .protect_message_packet(
+                        Some(SecurityLevel::Custom(255)),
+                        HEADER_LEN,
+                        &mut packet
+                    )
+                    .is_err());
             }
         }
     }
@@ -294,11 +303,17 @@ mod tests {
                 &PRE_SHARED_KEYS,
             );
             for x in 0..sec {
-                assert!(ratchet.verify_level(Some(x.into())).is_ok())
+                ratchet
+                    .verify_level(Some(x.into()))
+                    .expect("Should not fail when not clamping");
             }
 
             for x in (sec + 1)..SecurityLevel::Custom(255).value() {
-                assert!(ratchet.verify_level(Some(x.into())).is_err())
+                // Should not error, just clamp
+                assert!(
+                    ratchet.verify_level(Some(x.into())).is_err(),
+                    "Should fail when clamping"
+                );
             }
         }
     }

@@ -132,9 +132,12 @@ mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
 
-    use crate::prefabs::client::peer_connection::{FileTransferHandleRx, PeerConnectionKernel};
+    use crate::prefabs::client::peer_connection::FileTransferHandleRx;
+    #[cfg(feature = "localhost-testing")]
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use crate::prelude::*;
+    #[cfg(feature = "localhost-testing")]
     use crate::test_common::wait_for_peers;
     use citadel_io::tokio;
     use futures::StreamExt;
@@ -193,6 +196,35 @@ mod tests {
             server_connection_settings,
             |connection| async move {
                 log::trace!(target: "citadel", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
+
+                // Test list_sessions() - verify we can list active sessions with correct data
+                let sessions = connection.remote.list_sessions().await?;
+                log::info!(target: "citadel", "***CLIENT list_sessions() returned {} sessions***", sessions.sessions.len());
+                assert!(
+                    !sessions.sessions.is_empty(),
+                    "Should have at least one active session"
+                );
+                // Find our session by CID
+                let our_session = sessions.sessions.iter().find(|s| s.cid == connection.cid);
+                assert!(our_session.is_some(), "Should find our session in the list");
+                let our_session = our_session.unwrap();
+                assert!(
+                    !our_session.connections.is_empty(),
+                    "Session should have at least one connection"
+                );
+                // For C2S, peer_cid should be None
+                let c2s_conn = our_session
+                    .connections
+                    .iter()
+                    .find(|c| c.peer_cid.is_none());
+                assert!(
+                    c2s_conn.is_some(),
+                    "Should have a C2S connection (peer_cid = None)"
+                );
+                let c2s_conn = c2s_conn.unwrap();
+                assert!(c2s_conn.connected, "C2S connection should be active");
+                log::info!(target: "citadel", "***CLIENT list_sessions() verification PASSED***");
+
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
                 // write to file to the RE-VFS
                 crate::fs::write_with_security_level(
@@ -386,6 +418,7 @@ mod tests {
     #[rstest]
     #[case(SecrecyMode::BestEffort)]
     #[timeout(Duration::from_secs(60))]
+    #[cfg(feature = "localhost-testing")]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
@@ -538,6 +571,7 @@ mod tests {
         assert!(client1_success.load(Ordering::Relaxed));
     }
 
+    #[allow(dead_code)]
     fn accept_all(mut rx: FileTransferHandleRx) -> citadel_io::tokio::task::JoinHandle<()> {
         citadel_io::tokio::task::spawn(async move {
             while let Some(mut handle) = rx.recv().await {
@@ -552,6 +586,7 @@ mod tests {
         })
     }
 
+    #[allow(dead_code)]
     async fn exhaust_file_transfer_async(mut handle: ObjectTransferHandler) {
         while let Some(evt) = handle.next().await {
             log::info!(target: "citadel", "File Transfer Event: {evt:?}");
