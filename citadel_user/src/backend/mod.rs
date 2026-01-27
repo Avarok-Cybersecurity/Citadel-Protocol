@@ -60,18 +60,26 @@ use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user;
 use citadel_types::user::MutualPeer;
 
-/// Implementation for the default filesystem backend
-#[cfg(feature = "filesystem")]
-pub mod filesystem_backend;
+/// Async file I/O abstraction trait
+pub mod file_io;
+/// File I/O backend implementation (supports filesystem and OPFS)
+#[cfg(any(feature = "filesystem", feature = "opfs"))]
+pub mod file_io_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
 pub mod memory;
+/// OPFS file I/O implementation
+#[cfg(feature = "opfs")]
+pub mod opfs_file_io;
 #[cfg(all(feature = "redis", not(coverage)))]
 /// Implementation for the redis backend
 pub mod redis_backend;
 #[cfg(all(feature = "sql", not(coverage)))]
 /// Implementation for the SQL backend
 pub mod sql_backend;
+/// Standard filesystem I/O implementation
+#[cfg(feature = "filesystem")]
+pub mod std_file_io;
 /// Utils for the backend trait
 #[allow(missing_docs)]
 pub mod utils;
@@ -87,6 +95,9 @@ pub enum BackendType {
     /// Synchronization will occur on the filesystem
     #[cfg(feature = "filesystem")]
     Filesystem(String),
+    /// Synchronization will occur via OPFS (Origin Private File System)
+    #[cfg(feature = "opfs")]
+    Opfs(String),
     #[cfg(all(feature = "sql", not(coverage)))]
     /// Synchronization will occur on a remote SQL database
     SQLDatabase(String, SqlConnectionOptions),
@@ -124,7 +135,14 @@ impl BackendType {
             }
         }
 
-        Err(AccountError::msg(format!("The addr '{addr}' is not a valid target (hint: ensure either 'redis', 'sql' or 'filesystem' features are enabled when compiling")))
+        #[cfg(feature = "opfs")]
+        {
+            if addr.starts_with("opfs://") {
+                return Ok(Self::opfs(addr));
+            }
+        }
+
+        Err(AccountError::msg(format!("The addr '{addr}' is not a valid target (hint: ensure either 'redis', 'sql', 'filesystem', or 'opfs' features are enabled when compiling")))
     }
 
     #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
@@ -132,6 +150,13 @@ impl BackendType {
     /// URL format: file:/path/to/directory (unix) or file:C\windows\dir (windows)
     pub fn filesystem<T: Into<String>>(path: T) -> Self {
         Self::Filesystem(path.into().replace("file:", ""))
+    }
+
+    #[cfg(feature = "opfs")]
+    /// For requesting the use of OPFS (Origin Private File System) as a backend.
+    /// URL format: opfs://path/to/directory
+    pub fn opfs<T: Into<String>>(path: T) -> Self {
+        Self::Opfs(path.into().replace("opfs://", ""))
     }
 
     #[cfg(all(feature = "redis", not(coverage)))]

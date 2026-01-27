@@ -283,7 +283,7 @@ where
 
     debug_assert_ne!(cfg.last_plaintext_wave_length, 0);
 
-    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::KyberHybrid
+    if msg_pqc.params.encryption_algorithm != EncryptionAlgorithm::MlKemHybrid
         && matches!(&transfer_type, TransferType::FileTransfer)
     {
         debug_assert_eq!(cfg.packets_needed, packets.len() as _);

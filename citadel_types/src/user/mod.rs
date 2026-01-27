@@ -10,8 +10,10 @@ use uuid::Uuid;
 #[cfg_attr(feature = "typescript", ts(export))]
 pub struct MutualPeer {
     /// The interserver cid to which `cid` belongs to
+    #[cfg_attr(feature = "typescript", ts(type = "bigint"))]
     pub parent_icid: u64,
     /// the client to which belongs within `parent_icid`
+    #[cfg_attr(feature = "typescript", ts(type = "bigint"))]
     pub cid: u64,
     /// The username of this peer
     pub username: Option<String>,
@@ -23,6 +25,7 @@ pub struct MutualPeer {
 #[cfg_attr(feature = "typescript", ts(export))]
 pub struct PeerInfo {
     /// the client to which belongs within `parent_icid`
+    #[cfg_attr(feature = "typescript", ts(type = "bigint"))]
     pub cid: u64,
     /// The username of this peer
     pub username: String,
@@ -51,7 +54,7 @@ pub fn username_to_cid(username: &str) -> u64 {
 #[cfg_attr(feature = "typescript", ts(export))]
 pub enum UserIdentifier {
     /// Raw user ID
-    ID(u64),
+    ID(#[cfg_attr(feature = "typescript", ts(type = "bigint"))] u64),
     /// Username connected by an unspecified ID
     Username(String),
 }

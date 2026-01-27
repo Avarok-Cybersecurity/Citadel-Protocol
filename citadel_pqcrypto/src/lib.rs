@@ -96,12 +96,8 @@ pub const fn get_approx_bytes_per_container() -> usize {
 }
 
 pub(crate) mod functions {
+    use citadel_types::crypto::SigAlgorithm;
     use citadel_types::errors::Error;
-    use ml_dsa::signature::{Signer, Verifier};
-    use ml_dsa::{
-        EncodedSignature, EncodedSigningKey, EncodedVerifyingKey, KeyGen, MlDsa65, Signature,
-        SigningKey, VerifyingKey,
-    };
     use zeroize::Zeroizing;
 
     pub type SecretKeyType = Zeroizing<Vec<u8>>;
@@ -110,69 +106,157 @@ pub(crate) mod functions {
     pub fn signature_sign(
         message: impl AsRef<[u8]>,
         secret_key: impl AsRef<[u8]>,
+        sig_alg: SigAlgorithm,
     ) -> Result<Vec<u8>, Error> {
-        log::trace!(target: "citadel", "signature_sign: message len = {}, secret_key len = {}", message.as_ref().len(), secret_key.as_ref().len());
-
-        // For ml-dsa, we need to deserialize the key from bytes
-        let sk_bytes = secret_key.as_ref();
-
-        // Create encoded signing key from bytes
-        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes).map_err(|_| {
-            log::error!(target: "citadel", "Failed to deserialize secret key");
-            Error::Generic("Failed to deserialize secret key")
-        })?;
-
-        // Decode to actual signing key
-        let sk = SigningKey::decode(&encoded_sk);
-
-        // Sign the message
-        let sig: Signature<MlDsa65> = sk.sign(message.as_ref());
-
-        // Encode signature and convert to bytes
-        let sig_bytes: Vec<u8> = sig.encode().as_slice().to_vec();
-        log::trace!(target: "citadel", "signature_sign: signature len = {}", sig_bytes.len());
-        Ok(sig_bytes)
+        match sig_alg {
+            SigAlgorithm::MlDsa65 => ml_dsa_sign(message, secret_key),
+            SigAlgorithm::Falcon => falcon_sign(message, secret_key),
+            SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
+        }
     }
 
     pub fn signature_verify(
         message: impl AsRef<[u8]>,
         signature: impl AsRef<[u8]>,
         public_key: impl AsRef<[u8]>,
+        sig_alg: SigAlgorithm,
     ) -> Result<(), Error> {
-        // Deserialize the public key from bytes
-        let encoded_pk = EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref())
-            .map_err(|_| Error::Generic("Failed to deserialize public key"))?;
-        let pk = VerifyingKey::<MlDsa65>::decode(&encoded_pk);
-
-        // Deserialize the signature from bytes
-        let encoded_sig = EncodedSignature::<MlDsa65>::try_from(signature.as_ref())
-            .map_err(|_| Error::Generic("Failed to deserialize signature"))?;
-        let sig =
-            Signature::decode(&encoded_sig).ok_or(Error::Generic("Failed to decode signature"))?;
-
-        // Verify the signature
-        pk.verify(message.as_ref(), &sig)
-            .map_err(|_| Error::Generic("Signature verification failed"))
+        match sig_alg {
+            SigAlgorithm::MlDsa65 => ml_dsa_verify(message, signature, public_key),
+            SigAlgorithm::Falcon => falcon_verify(message, signature, public_key),
+            SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
+        }
     }
 
-    pub fn signature_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
-        // Generate random seed
+    pub fn signature_keypair(
+        sig_alg: SigAlgorithm,
+    ) -> Result<(PublicKeyType, SecretKeyType), Error> {
+        match sig_alg {
+            SigAlgorithm::MlDsa65 => ml_dsa_keypair(),
+            SigAlgorithm::Falcon => falcon_keypair(),
+            SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
+        }
+    }
+
+    pub fn signature_bytes(sig_alg: SigAlgorithm) -> usize {
+        match sig_alg {
+            SigAlgorithm::MlDsa65 => 3293,
+            // FN-DSA-512 signature size
+            SigAlgorithm::Falcon => fn_dsa::signature_size(fn_dsa::FN_DSA_LOGN_512),
+            SigAlgorithm::None => 0,
+        }
+    }
+
+    // --- ML-DSA-65 implementation ---
+
+    fn ml_dsa_sign(
+        message: impl AsRef<[u8]>,
+        secret_key: impl AsRef<[u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        use ml_dsa::signature::Signer;
+        use ml_dsa::{EncodedSigningKey, MlDsa65, Signature, SigningKey};
+
+        let sk_bytes = secret_key.as_ref();
+        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes)
+            .map_err(|_| Error::Generic("Failed to deserialize ML-DSA secret key"))?;
+        let sk = SigningKey::decode(&encoded_sk);
+        let sig: Signature<MlDsa65> = sk.sign(message.as_ref());
+        Ok(sig.encode().as_slice().to_vec())
+    }
+
+    fn ml_dsa_verify(
+        message: impl AsRef<[u8]>,
+        signature: impl AsRef<[u8]>,
+        public_key: impl AsRef<[u8]>,
+    ) -> Result<(), Error> {
+        use ml_dsa::signature::Verifier;
+        use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa65, Signature, VerifyingKey};
+
+        let encoded_pk = EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref())
+            .map_err(|_| Error::Generic("Failed to deserialize ML-DSA public key"))?;
+        let pk = VerifyingKey::<MlDsa65>::decode(&encoded_pk);
+        let encoded_sig = EncodedSignature::<MlDsa65>::try_from(signature.as_ref())
+            .map_err(|_| Error::Generic("Failed to deserialize ML-DSA signature"))?;
+        let sig = Signature::decode(&encoded_sig)
+            .ok_or(Error::Generic("Failed to decode ML-DSA signature"))?;
+        pk.verify(message.as_ref(), &sig)
+            .map_err(|_| Error::Generic("ML-DSA signature verification failed"))
+    }
+
+    fn ml_dsa_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
+        use ml_dsa::{KeyGen, MlDsa65};
+
         let mut rng = citadel_io::ThreadRng::default();
-
-        // Generate keypair
         let kp = MlDsa65::key_gen(&mut rng);
-
-        // Convert keys to bytes via encoding methods
         let pk_bytes = kp.verifying_key().encode().as_slice().to_vec();
         let sk_bytes = kp.signing_key().encode().as_slice().to_vec();
-        log::trace!(target: "citadel", "signature_keypair: pk len = {}, sk len = {}", pk_bytes.len(), sk_bytes.len());
-
         Ok((Zeroizing::new(pk_bytes), Zeroizing::new(sk_bytes)))
     }
 
-    pub fn signature_bytes() -> usize {
-        // Dilithium65 signature size
-        3293
+    // --- Falcon (FN-DSA-512) implementation ---
+
+    fn falcon_sign(
+        message: impl AsRef<[u8]>,
+        secret_key: impl AsRef<[u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        use fn_dsa::{
+            sign_key_size, signature_size, SigningKey as _, SigningKey512, DOMAIN_NONE,
+            FN_DSA_LOGN_512, HASH_ID_RAW,
+        };
+
+        let sk_bytes = secret_key.as_ref();
+        let expected_len = sign_key_size(FN_DSA_LOGN_512);
+        if sk_bytes.len() != expected_len {
+            return Err(Error::Generic("Invalid Falcon signing key length"));
+        }
+        let mut sk = SigningKey512::decode(sk_bytes)
+            .ok_or(Error::Generic("Failed to decode Falcon signing key"))?;
+
+        let mut sig_buf = vec![0u8; signature_size(FN_DSA_LOGN_512)];
+        let mut rng = rand::thread_rng();
+        sk.sign(
+            &mut rng,
+            &DOMAIN_NONE,
+            &HASH_ID_RAW,
+            message.as_ref(),
+            &mut sig_buf,
+        );
+        Ok(sig_buf)
+    }
+
+    fn falcon_verify(
+        message: impl AsRef<[u8]>,
+        signature: impl AsRef<[u8]>,
+        public_key: impl AsRef<[u8]>,
+    ) -> Result<(), Error> {
+        use fn_dsa::{VerifyingKey as _, VerifyingKey512, DOMAIN_NONE, HASH_ID_RAW};
+
+        let pk = VerifyingKey512::decode(public_key.as_ref())
+            .ok_or(Error::Generic("Failed to decode Falcon verifying key"))?;
+        if pk.verify(
+            signature.as_ref(),
+            &DOMAIN_NONE,
+            &HASH_ID_RAW,
+            message.as_ref(),
+        ) {
+            Ok(())
+        } else {
+            Err(Error::Generic("Falcon signature verification failed"))
+        }
+    }
+
+    fn falcon_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
+        use fn_dsa::{
+            sign_key_size, vrfy_key_size, KeyPairGenerator as _, KeyPairGenerator512,
+            FN_DSA_LOGN_512,
+        };
+
+        let mut rng = rand::thread_rng();
+        let mut sk_buf = vec![0u8; sign_key_size(FN_DSA_LOGN_512)];
+        let mut pk_buf = vec![0u8; vrfy_key_size(FN_DSA_LOGN_512)];
+        let mut kgen = KeyPairGenerator512::default();
+        kgen.keygen(FN_DSA_LOGN_512, &mut rng, &mut sk_buf, &mut pk_buf);
+        Ok((Zeroizing::new(pk_buf), Zeroizing::new(sk_buf)))
     }
 }
 
@@ -424,7 +508,7 @@ impl PostQuantumContainer {
     }
 
     fn get_decryption_key(&self) -> Option<&dyn AeadModule> {
-        if let EncryptionAlgorithm::KyberHybrid = self.params.encryption_algorithm {
+        if let EncryptionAlgorithm::MlKemHybrid = self.params.encryption_algorithm {
             // use multi-modal asymmetric + symmetric ratcheted encryption
             // alice's key is in alice, bob's key is in bob. Thus, use encryption key
             self.get_encryption_key()
@@ -745,7 +829,7 @@ impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
         let (public_key, secret_key) = match kem_alg {
-            KemAlgorithm::Kyber => {
+            KemAlgorithm::MlKem => {
                 let pk_alice =
                     kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
                 (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
@@ -767,8 +851,9 @@ impl PostQuantumMeta {
         };
 
         match sig_alg {
-            SigAlgorithm::Dilithium65 => {
-                let (sig_public_key, sig_private_key) = crate::functions::signature_keypair()?;
+            SigAlgorithm::MlDsa65 | SigAlgorithm::Falcon => {
+                let (sig_public_key, sig_private_key) =
+                    crate::functions::signature_keypair(sig_alg)?;
                 let sig = PostQuantumMetaSig {
                     sig_public_key: Arc::new(sig_public_key),
                     sig_private_key: Arc::new(sig_private_key),
@@ -798,7 +883,7 @@ impl PostQuantumMeta {
         };
 
         let (kem_pk_bob, kem_sk_bob) = match kem_scheme {
-            KemAlgorithm::Kyber => {
+            KemAlgorithm::MlKem => {
                 let pk_bob =
                     kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
                 (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
@@ -806,7 +891,7 @@ impl PostQuantumMeta {
         };
 
         let (ciphertext, shared_secret) = match kem_scheme {
-            KemAlgorithm::Kyber => {
+            KemAlgorithm::MlKem => {
                 let (ciphertext, shared_secret) =
                     kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default())
                         .map_err(|_err| get_generic_error("Failed encapsulate step"))?;
@@ -827,13 +912,14 @@ impl PostQuantumMeta {
                 sig_scheme,
                 kem_scheme,
             } => {
-                let (sig_pk_bob, sig_sk_bob) = crate::functions::signature_keypair()?;
+                let (sig_pk_bob, sig_sk_bob) = crate::functions::signature_keypair(sig_scheme)?;
                 let public_key_alice = alice_pk;
 
                 crate::functions::signature_verify(
                     public_key_alice.as_slice(),
                     alice_public_key_signature.as_slice(),
                     alice_pk_sig.as_slice(),
+                    sig_scheme,
                 )?;
 
                 let remote_sig_public_key = Some(alice_pk_sig);
@@ -890,10 +976,12 @@ impl PostQuantumMeta {
                 bob_ciphertext,
                 ..
             } => {
+                let sig_alg = self.sig().map(|s| s.sig_alg).unwrap_or(SigAlgorithm::None);
                 crate::functions::signature_verify(
                     bob_ciphertext.as_slice(),
                     bob_ciphertext_signature.as_slice(),
                     bob_pk_sig.as_slice(),
+                    sig_alg,
                 )?;
                 bob_ciphertext.clone()
             }
@@ -902,7 +990,7 @@ impl PostQuantumMeta {
         let secret_key = self.get_secret_key()?;
 
         let shared_secret = match self.kex().kem_alg {
-            KemAlgorithm::Kyber => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
+            KemAlgorithm::MlKem => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
                 .map_err(|err| Error::Other(err.to_string()))?
                 .to_vec(),
         };
@@ -933,6 +1021,7 @@ impl PostQuantumMeta {
                 let alice_public_key_signature = crate::functions::signature_sign(
                     alice_pk.as_slice(),
                     sig.sig_private_key.as_slice(),
+                    sig.sig_alg,
                 )?
                 .into();
                 let sig_scheme = sig.sig_alg;
@@ -972,6 +1061,7 @@ impl PostQuantumMeta {
                 let bob_signed_ciphertext = crate::functions::signature_sign(
                     bob_ciphertext.as_slice(),
                     sig.sig_private_key.as_slice(),
+                    sig.sig_alg,
                 )?
                 .into();
                 let bob_pk_sig = sig.sig_public_key.clone();
@@ -1097,7 +1187,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
         match self {
             Self::AES_GCM_256 => AES_GCM_NONCE_LENGTH_BYTES,
             Self::ChaCha20Poly_1305 => CHA_CHA_NONCE_LENGTH_BYTES,
-            Self::KyberHybrid => KYBER_NONCE_LENGTH_BYTES,
+            Self::MlKemHybrid => KYBER_NONCE_LENGTH_BYTES,
             Self::Ascon80pq => ASCON_NONCE_LENGTH_BYTES,
         }
     }
@@ -1111,9 +1201,9 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             // Add 32 for internal apendees
-            Self::KyberHybrid => {
+            Self::MlKemHybrid => {
                 const LENGTH_FIELD: usize = 8;
-                let signature_len = functions::signature_bytes();
+                let signature_len = functions::signature_bytes(_sig_alg);
 
                 let aes_input_len = signature_len + LENGTH_FIELD;
                 let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
@@ -1135,7 +1225,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::AES_GCM_256 => Some(ciphertext.len() - 16),
             Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
             Self::Ascon80pq => Some(ciphertext.len() - 16),
-            Self::KyberHybrid => kyber_pke::plaintext_len(ciphertext),
+            Self::MlKemHybrid => kyber_pke::plaintext_len(ciphertext),
         }
     }
 }

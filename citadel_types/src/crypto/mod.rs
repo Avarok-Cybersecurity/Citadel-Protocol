@@ -30,7 +30,7 @@
 //! use citadel_types::crypto::{KemAlgorithm, EncryptionAlgorithm, SecurityLevel};
 //!
 //! // Create parameters
-//! let params = KemAlgorithm::Kyber
+//! let params = KemAlgorithm::MlKem
 //!     + EncryptionAlgorithm::ChaCha20Poly_1305;
 //!
 //! // Set security level
@@ -42,14 +42,15 @@
 //! Supported algorithms include:
 //!
 //! - KEM (Key Encapsulation Mechanism)
-//!   - Kyber (1024)
+//!   - ML-KEM (FIPS 203, formerly Kyber)
 //! - Encryption
 //!   - ChaCha20-Poly1305
 //!   - AES-GCM
-//!   - Kyber Hybrid Encryption
+//!   - ML-KEM Hybrid Encryption
 //!   - Ascon
 //! - Signatures
-//!   - Falcon
+//!   - ML-DSA-65 (FIPS 204, formerly Dilithium)
+//!   - FN-DSA (Falcon)
 //!
 //! ## Security Considerations
 //!
@@ -361,7 +362,7 @@ pub enum EncryptionAlgorithm {
     #[default]
     AES_GCM_256 = 0,
     ChaCha20Poly_1305 = 1,
-    KyberHybrid = 2,
+    MlKemHybrid = 2,
     Ascon80pq = 3,
 }
 
@@ -440,7 +441,7 @@ impl TryFrom<u8> for SecrecyMode {
 pub enum KemAlgorithm {
     #[strum(ascii_case_insensitive)]
     #[default]
-    Kyber = 0,
+    MlKem = 0,
 }
 
 impl KemAlgorithm {
@@ -485,7 +486,8 @@ impl TryFrom<u8> for KemAlgorithm {
 pub enum SigAlgorithm {
     #[default]
     None = 0,
-    Dilithium65 = 1,
+    MlDsa65 = 1,
+    Falcon = 2,
 }
 
 impl SigAlgorithm {

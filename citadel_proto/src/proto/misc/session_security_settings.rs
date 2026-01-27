@@ -70,7 +70,7 @@ impl SessionSecuritySettingsBuilder {
     /// use citadel_proto::prelude::*;
     /// use citadel_pqcrypto::prelude::*;
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::Kyber)
+    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem)
     /// .build();
     /// ```
     pub fn with_crypto_params(mut self, params: impl Into<CryptoParameters>) -> Self {

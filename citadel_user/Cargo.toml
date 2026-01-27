@@ -18,6 +18,7 @@ default = ["filesystem", "std"]
 redis = ["redis-base", "mobc"]
 sql = ["sqlx", "itertools"]
 filesystem = ["citadel_crypt/filesystem"]
+opfs = ["dep:opfs"]
 std = ["citadel_crypt/std", "rand/std", "sha3/std", "bstr/std"]
 wasm = ["citadel_crypt/wasm", "citadel_io/wasm"]
 google-services = ["openssl", "jwt", "firebase-rtdb"]
@@ -54,6 +55,7 @@ firebase-rtdb = { workspace = true, optional = true }
 jwt = { workspace = true, features = ["openssl"], optional = true }
 openssl = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["v4"] }
+opfs = { version = "0.1", optional = true }
 bincode = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 citadel_types = { workspace = true }

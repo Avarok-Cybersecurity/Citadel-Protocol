@@ -92,6 +92,7 @@ zeroize = { workspace = true, features = [
 citadel_types = { workspace = true }
 
 ml-dsa = { workspace = true }
+fn-dsa = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

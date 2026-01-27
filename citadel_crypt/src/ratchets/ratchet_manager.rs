@@ -1608,7 +1608,7 @@ pub(crate) mod tests {
         let (alice_container, bob_container) = setup_endpoint_containers::<R>(
             security_level,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::Kyber,
+            KemAlgorithm::MlKem,
         );
 
         let (tx_alice, rx_bob) = futures::channel::mpsc::unbounded();

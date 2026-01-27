@@ -1267,7 +1267,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     #[doc(hidden)]
     fn can_use_revfs(&self) -> Result<(), NetworkError> {
         if let Some(sess) = self.session_security_settings() {
-            if sess.crypto_params.kem_algorithm == KemAlgorithm::Kyber {
+            if sess.crypto_params.kem_algorithm == KemAlgorithm::MlKem {
                 Ok(())
             } else {
                 Err(NetworkError::InvalidRequest(
@@ -1475,13 +1475,13 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]

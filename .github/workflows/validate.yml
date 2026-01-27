@@ -411,6 +411,18 @@ jobs:
   #      - name: Check all feature combinations
   #        run: cargo check-all-features --package citadel_sdk
 
+  wasm_check:
+    name: WASM Build Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Check citadel_pqcrypto for wasm32
+        run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
+
   typescript_types:
     name: TypeScript Types
     runs-on: ubuntu-latest

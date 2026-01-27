@@ -160,7 +160,7 @@ let client = NodeBuilder::default()
 #### Custom Security Settings
 ```rust
 let settings = SessionSecuritySettingsBuilder::default()
-    .with_crypto_params(KemAlgorithm::Kyber + EncryptionAlgorithm::AES256GCM)
+    .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES256GCM)
     .with_security_level(SecurityLevel::Standard)
     .build()?;
 ```

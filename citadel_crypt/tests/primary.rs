@@ -163,7 +163,7 @@ mod tests {
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
-        let algo = KemAlgorithm::Kyber + EncryptionAlgorithm::ChaCha20Poly_1305;
+        let algo = KemAlgorithm::MlKem + EncryptionAlgorithm::ChaCha20Poly_1305;
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
@@ -297,7 +297,7 @@ mod tests {
         citadel_logging::setup_log();
         for sec in 0..SecurityLevel::Extreme.value() {
             let ratchet = gen_ratchet::<StackedRatchet, _>(
-                KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256,
+                KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
                 &PRE_SHARED_KEYS,
                 &PRE_SHARED_KEYS,
@@ -382,23 +382,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     fn toolsets(
         #[case] enx: EncryptionAlgorithm,
@@ -526,23 +526,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     fn toolset_wrapping_vers_all(
         #[case] enx: EncryptionAlgorithm,
@@ -620,23 +620,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     #[timeout(std::time::Duration::from_secs(240))]
     fn scrambler_transmission_length_spectrum(
@@ -671,23 +671,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     #[timeout(std::time::Duration::from_secs(240))]
     fn scrambler_transmission_length_spectrum_remote(
@@ -822,23 +822,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer(
@@ -864,23 +864,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer_remote(
@@ -1012,23 +1012,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     fn test_entropy_bank_encrypt_decrypt_basic(
         #[case] enx: EncryptionAlgorithm,
@@ -1047,7 +1047,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     fn test_entropy_bank_encrypt_decrypt_basic_bad_psks(
@@ -1071,23 +1071,23 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::Kyber,
+        KemAlgorithm::MlKem,
         SigAlgorithm::None
     )]
     #[case(
-        EncryptionAlgorithm::KyberHybrid,
-        KemAlgorithm::Kyber,
-        SigAlgorithm::Dilithium65
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
     )]
     fn test_entropy_bank_local_encrypt_decrypt(
         #[case] enx: EncryptionAlgorithm,
