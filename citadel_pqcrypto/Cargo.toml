@@ -94,6 +94,9 @@ citadel_types = { workspace = true }
 ml-dsa = { workspace = true }
 fn-dsa = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [dev-dependencies]
 citadel_logging = { workspace = true }
 lazy_static = { workspace = true }

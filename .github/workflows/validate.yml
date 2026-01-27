@@ -421,7 +421,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Check citadel_pqcrypto for wasm32
-        run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
+        run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
 
   typescript_types:
     name: TypeScript Types
