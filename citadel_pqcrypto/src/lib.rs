@@ -110,7 +110,7 @@ pub(crate) mod functions {
     ) -> Result<Vec<u8>, Error> {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_sign(message, secret_key),
-            SigAlgorithm::Falcon => falcon_sign(message, secret_key),
+            SigAlgorithm::FnDsa512 => falcon_sign(message, secret_key),
             SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
         }
     }
@@ -123,7 +123,7 @@ pub(crate) mod functions {
     ) -> Result<(), Error> {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_verify(message, signature, public_key),
-            SigAlgorithm::Falcon => falcon_verify(message, signature, public_key),
+            SigAlgorithm::FnDsa512 => falcon_verify(message, signature, public_key),
             SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
         }
     }
@@ -133,16 +133,18 @@ pub(crate) mod functions {
     ) -> Result<(PublicKeyType, SecretKeyType), Error> {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_keypair(),
-            SigAlgorithm::Falcon => falcon_keypair(),
+            SigAlgorithm::FnDsa512 => falcon_keypair(),
             SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
         }
     }
 
     pub fn signature_bytes(sig_alg: SigAlgorithm) -> usize {
         match sig_alg {
-            SigAlgorithm::MlDsa65 => 3293,
+            SigAlgorithm::MlDsa65 => {
+                std::mem::size_of::<ml_dsa::EncodedSignature<ml_dsa::MlDsa65>>()
+            }
             // FN-DSA-512 signature size
-            SigAlgorithm::Falcon => fn_dsa::signature_size(fn_dsa::FN_DSA_LOGN_512),
+            SigAlgorithm::FnDsa512 => fn_dsa::signature_size(fn_dsa::FN_DSA_LOGN_512),
             SigAlgorithm::None => 0,
         }
     }
@@ -851,7 +853,7 @@ impl PostQuantumMeta {
         };
 
         match sig_alg {
-            SigAlgorithm::MlDsa65 | SigAlgorithm::Falcon => {
+            SigAlgorithm::MlDsa65 | SigAlgorithm::FnDsa512 => {
                 let (sig_public_key, sig_private_key) =
                     crate::functions::signature_keypair(sig_alg)?;
                 let sig = PostQuantumMetaSig {
@@ -1193,7 +1195,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
     }
 
     // calculates the max ciphertext len given an input plaintext length
-    fn max_ciphertext_len(&self, plaintext_length: usize, _sig_alg: SigAlgorithm) -> usize {
+    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize {
         const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
         match self {
             Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
@@ -1203,7 +1205,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             // Add 32 for internal apendees
             Self::MlKemHybrid => {
                 const LENGTH_FIELD: usize = 8;
-                let signature_len = functions::signature_bytes(_sig_alg);
+                let signature_len = functions::signature_bytes(sig_alg);
 
                 let aes_input_len = signature_len + LENGTH_FIELD;
                 let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;

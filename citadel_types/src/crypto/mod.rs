@@ -50,7 +50,7 @@
 //!   - Ascon
 //! - Signatures
 //!   - ML-DSA-65 (FIPS 204, formerly Dilithium)
-//!   - FN-DSA (Falcon)
+//!   - FN-DSA (FnDsa512)
 //!
 //! ## Security Considerations
 //!
@@ -487,7 +487,7 @@ pub enum SigAlgorithm {
     #[default]
     None = 0,
     MlDsa65 = 1,
-    Falcon = 2,
+    FnDsa512 = 2,
 }
 
 impl SigAlgorithm {

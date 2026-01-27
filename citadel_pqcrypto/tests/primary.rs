@@ -78,6 +78,18 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn runit_fndsa512() {
+        run::<Vec<u8>>(
+            0,
+            EncryptionAlgorithm::MlKemHybrid,
+            SigAlgorithm::FnDsa512,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        )
+        .unwrap();
+    }
+
     fn run<T: AsRef<[u8]>>(
         algorithm: u8,
         encryption_algorithm: EncryptionAlgorithm,
@@ -215,6 +227,28 @@ mod tests {
         let kem_algorithm = KemAlgorithm::MlKem;
         let encryption_algorithm = EncryptionAlgorithm::MlKemHybrid;
         let signature_algorithm = SigAlgorithm::MlDsa65;
+
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
+
+        for x in 0..256 {
+            run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
+            run_protection::<BytesMut>(&alice_container, &bob_container, HEADER_LEN, x);
+        }
+    }
+
+    #[test]
+    fn in_place_sequential_fndsa512() {
+        const HEADER_LEN: usize = 50;
+
+        let kem_algorithm = KemAlgorithm::MlKem;
+        let encryption_algorithm = EncryptionAlgorithm::MlKemHybrid;
+        let signature_algorithm = SigAlgorithm::FnDsa512;
 
         let (alice_container, bob_container) = gen(
             kem_algorithm,

@@ -400,6 +400,11 @@ mod tests {
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
     )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
+    )]
     fn toolsets(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -544,6 +549,11 @@ mod tests {
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
     )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
+    )]
     fn toolset_wrapping_vers_all(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -638,6 +648,11 @@ mod tests {
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
     )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
+    )]
     #[timeout(std::time::Duration::from_secs(240))]
     fn scrambler_transmission_length_spectrum(
         #[case] enx: EncryptionAlgorithm,
@@ -688,6 +703,11 @@ mod tests {
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
     )]
     #[timeout(std::time::Duration::from_secs(240))]
     fn scrambler_transmission_length_spectrum_remote(
@@ -840,6 +860,11 @@ mod tests {
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
     )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
+    )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer(
         #[case] enx: EncryptionAlgorithm,
@@ -881,6 +906,11 @@ mod tests {
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer_remote(
@@ -1030,6 +1060,11 @@ mod tests {
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
     )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
+    )]
     fn test_entropy_bank_encrypt_decrypt_basic(
         #[case] enx: EncryptionAlgorithm,
         #[case] kem: KemAlgorithm,
@@ -1088,6 +1123,11 @@ mod tests {
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
         SigAlgorithm::MlDsa65
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem,
+        SigAlgorithm::FnDsa512
     )]
     fn test_entropy_bank_local_encrypt_decrypt(
         #[case] enx: EncryptionAlgorithm,
