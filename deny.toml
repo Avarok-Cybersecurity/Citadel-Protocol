@@ -45,6 +45,10 @@ ignore = [
     # immediate security vulnerability. We'll migrate when a suitable replacement
     # is identified.
     "RUSTSEC-2025-0141",
+    # ml-dsa 0.0.4 has a timing side-channel in Barrett reduction (GHSA-hcp2-x6j4-29j7).
+    # Upgrading to 0.1.0-rc requires significant API and rand_core version changes.
+    # Tracked for upgrade in a follow-up PR.
+    "RUSTSEC-2025-0144",
 ]
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
 # lower than the range specified will be ignored. Note that ignored advisories
