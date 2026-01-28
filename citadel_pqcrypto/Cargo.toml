@@ -20,7 +20,7 @@
 
 [package]
 name = "citadel_pqcrypto"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Lower-level cryptographic library for the Citadel Protocol"
 edition = "2021"
