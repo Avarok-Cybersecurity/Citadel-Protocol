@@ -54,6 +54,7 @@
 //!
 
 use crate::error::NetworkError;
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
@@ -89,6 +90,7 @@ impl<R: Ratchet> PeerChannel<R> {
         security_level: SecurityLevel,
         is_alive: Arc<AtomicBool>,
         messenger: ProtocolMessenger<R>,
+        disconnect_token: Option<DisconnectToken>,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -112,6 +114,7 @@ impl<R: Ratchet> PeerChannel<R> {
             vconn_type,
             channel_id,
             is_alive,
+            disconnect_token,
         };
 
         PeerChannel {
@@ -199,6 +202,8 @@ pub struct PeerChannelRecvHalf<R: Ratchet> {
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
     node_remote: NodeRemote<R>,
+    /// Token identifying this specific connection instance, embedded in Drop-triggered disconnect signals
+    disconnect_token: Option<DisconnectToken>,
 }
 
 enum ReceiverType<R: Ratchet> {
@@ -284,6 +289,7 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
                                 peer_cid,
                             },
                             disconnect_response: None,
+                            disconnect_token: self.disconnect_token,
                         },
                     })
                 }
@@ -292,7 +298,10 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
                     if let Some(peer_conn_type) = self.vconn_type.try_as_peer_connection() {
                         NodeRequest::PeerCommand(PeerCommand {
                             session_cid: local_cid,
-                            command: PeerSignal::DisconnectUDP { peer_conn_type },
+                            command: PeerSignal::DisconnectUDP {
+                                peer_conn_type,
+                                disconnect_token: self.disconnect_token,
+                            },
                         })
                     } else {
                         log::error!(target: "citadel", "Unable to convert v_conn_type to peer_conn_type. This is a bug");
@@ -315,6 +324,7 @@ pub struct UdpChannel<R: Ratchet> {
 }
 
 impl<R: Ratchet> UdpChannel<R> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         send_half: OutboundUdpSender,
         rx: UnboundedReceiver<SecBuffer>,
@@ -323,6 +333,7 @@ impl<R: Ratchet> UdpChannel<R> {
         channel_id: Ticket,
         is_alive: Arc<AtomicBool>,
         node_remote: NodeRemote<R>,
+        disconnect_token: Option<DisconnectToken>,
     ) -> Self {
         Self {
             send_half,
@@ -333,6 +344,7 @@ impl<R: Ratchet> UdpChannel<R> {
                 channel_id,
                 is_alive,
                 node_remote,
+                disconnect_token,
             },
         }
     }

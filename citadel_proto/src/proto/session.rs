@@ -68,7 +68,7 @@ use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 //use futures_codec::Framed;
-use crate::proto::disconnect_tracker::DisconnectSignalTracker;
+use crate::proto::disconnect_tracker::{DisconnectSignalTracker, DisconnectToken};
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
 use crate::proto::outbound_sender::{
     channel, unbounded, SendError, UnboundedReceiver, UnboundedSender,
@@ -1131,6 +1131,7 @@ impl<R: Ratchet> CitadelSession<R> {
                             disconnect_response: Some(PeerResponse::Disconnected(
                                 err_string.clone(),
                             )),
+                            disconnect_token: None,
                         },
                         ticket: session.kernel_ticket.get(),
                         session_cid,
@@ -1145,6 +1146,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         success: false,
                         conn_type: Some(ClientConnectionType::Server { session_cid }),
                         message: err_string.clone(),
+                        disconnect_token: None,
                     })) {
                         log::error!(target: "citadel", "Error sending C2S disconnect signal to kernel: {err:?}");
                     }
@@ -2221,8 +2223,22 @@ impl<R: Ratchet> CitadelSession<R> {
                 PeerSignal::Disconnect {
                     peer_conn_type: v_conn,
                     disconnect_response: resp,
+                    disconnect_token,
                 } => {
                     let target = v_conn.get_original_target_cid();
+
+                    // Validate disconnect token against active vconn to reject stale signals
+                    if let Some(token) = &disconnect_token {
+                        if let Some(vconn) = state_container.active_virtual_connections.get(&target)
+                        {
+                            if vconn.p2p_connection_id != token.connection_id {
+                                log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal for peer {target}: token connection_id {:?} != active {:?}",
+                                    token.connection_id, vconn.p2p_connection_id);
+                                return Ok(());
+                            }
+                        }
+                    }
+
                     if !state_container
                         .active_virtual_connections
                         .contains_key(&target)
@@ -2234,6 +2250,7 @@ impl<R: Ratchet> CitadelSession<R> {
                                     disconnect_response: Some(PeerResponse::Disconnected(
                                         "Peer session already disconnected".to_string(),
                                     )),
+                                    disconnect_token,
                                 },
                                 ticket,
                                 session_cid: self.session_cid.get().ok_or_else(|| {
@@ -2246,13 +2263,34 @@ impl<R: Ratchet> CitadelSession<R> {
                     PeerSignal::Disconnect {
                         peer_conn_type: v_conn,
                         disconnect_response: resp,
+                        disconnect_token,
                     }
                 }
-                PeerSignal::DisconnectUDP { peer_conn_type } => {
+                PeerSignal::DisconnectUDP {
+                    peer_conn_type,
+                    disconnect_token,
+                } => {
+                    let target = peer_conn_type.get_original_target_cid();
+
+                    // Validate disconnect token against active vconn to reject stale signals
+                    if let Some(token) = &disconnect_token {
+                        if let Some(vconn) = state_container.active_virtual_connections.get(&target)
+                        {
+                            if vconn.p2p_connection_id != token.connection_id {
+                                log::trace!(target: "citadel", "Rejecting stale P2P DisconnectUDP signal for peer {target}: token connection_id {:?} != active {:?}",
+                                    token.connection_id, vconn.p2p_connection_id);
+                                return Ok(());
+                            }
+                        }
+                    }
+
                     // disconnect UDP locally
                     log::trace!(target: "citadel", "Closing UDP subsystem locally ...");
-                    state_container.remove_udp_channel(peer_conn_type.get_original_target_cid());
-                    PeerSignal::DisconnectUDP { peer_conn_type }
+                    state_container.remove_udp_channel(target);
+                    PeerSignal::DisconnectUDP {
+                        peer_conn_type,
+                        disconnect_token,
+                    }
                 }
 
                 PeerSignal::PostConnect {
@@ -2623,12 +2661,17 @@ impl<R: Ratchet> CitadelSessionInner<R> {
         if let Some(tx) = self.dc_signal_sender.take() {
             let conn_type = Some(ClientConnectionType::Server { session_cid });
             self.state.set(SessionState::Disconnecting);
+            let disconnect_token = Some(DisconnectToken {
+                cid: session_cid,
+                connection_id: session_ticket,
+            });
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket: ticket.unwrap_or(session_ticket),
                 cid_opt: Some(session_cid),
                 success: disconnect_success,
                 conn_type,
                 message: msg.into(),
+                disconnect_token,
             }));
         }
     }

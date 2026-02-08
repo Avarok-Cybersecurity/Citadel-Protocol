@@ -32,6 +32,7 @@ This module implements the core peer-to-peer networking layer for the Citadel Pr
 
 use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
@@ -617,9 +618,13 @@ pub enum PeerSignal {
     Disconnect {
         peer_conn_type: PeerConnectionType,
         disconnect_response: Option<PeerResponse>,
+        #[serde(default)]
+        disconnect_token: Option<DisconnectToken>,
     },
     DisconnectUDP {
         peer_conn_type: PeerConnectionType,
+        #[serde(default)]
+        disconnect_token: Option<DisconnectToken>,
     },
     // This is used for the mailbox
     BroadcastConnected {

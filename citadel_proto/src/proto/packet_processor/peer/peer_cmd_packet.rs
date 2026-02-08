@@ -144,12 +144,28 @@ pub async fn process_peer_cmd<R: Ratchet>(
                         PeerSignal::Disconnect {
                             peer_conn_type: vconn,
                             disconnect_response: resp,
+                            ref disconnect_token,
                         } => {
                             // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
                             let target = resp
                                 .as_ref()
                                 .map(|_| vconn.get_original_session_cid())
                                 .unwrap_or_else(|| vconn.get_original_target_cid());
+
+                            // Validate disconnect token against the active vconn to
+                            // reject stale signals from a previous P2P connection
+                            if let Some(token) = disconnect_token {
+                                let state_container = inner_state!(session.state_container);
+                                if let Some(current_vconn) =
+                                    state_container.active_virtual_connections.get(&target)
+                                {
+                                    if current_vconn.p2p_connection_id != token.connection_id {
+                                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    }
+                                }
+                            }
+
                             let mut state_container = inner_mut_state!(session.state_container);
                             // Stop UDP task before removing vconn to prevent race condition
                             state_container.remove_udp_channel(target);
@@ -172,7 +188,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::DisconnectUDP { peer_conn_type } => {
+                        PeerSignal::DisconnectUDP { peer_conn_type, .. } => {
                             let target_cid = return_if_none!(get_resp_target_cid(
                                 &peer_conn_type.as_virtual_connection()
                             ));
@@ -315,6 +331,10 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         }
 
                                         let session_password = session_password.unwrap_or_default();
+                                        // Generate a unique connection ID for this P2P connection.
+                                        // Exchanged during KEX so both peers share the same ID.
+                                        let p2p_connection_id = Ticket::default();
+
                                         let mut peer_kem_state_container =
                                             PeerKemStateContainer::new(
                                                 *endpoint_security_settings,
@@ -324,6 +344,8 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         peer_kem_state_container.constructor =
                                             Some(alice_constructor);
+                                        peer_kem_state_container.p2p_connection_id =
+                                            p2p_connection_id;
 
                                         state_container.peer_kem_states.insert(
                                             *original_session_cid,
@@ -342,6 +364,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                                 msg_bytes,
                                                 *endpoint_security_settings,
                                                 *udp_enabled,
+                                                p2p_connection_id,
                                             ),
                                         };
 
@@ -386,6 +409,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     transfer,
                                     session_security_settings,
                                     udp_enabled,
+                                    p2p_connection_id,
                                 ) => {
                                     log::trace!(target: "citadel", "RECV STAGE 0 PEER KEM");
                                     // We generate bob's pqc, as well as a nonce
@@ -427,12 +451,14 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         BackendType::Filesystem(..)
                                     );
 
+                                    // Echo back the p2p_connection_id from Stage0
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
                                         kex_payload: KeyExchangeProcess::Stage1(
                                             bob_transfer,
                                             None,
                                             local_is_file_transfer_compat,
+                                            *p2p_connection_id,
                                         ),
                                     };
 
@@ -442,6 +468,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         session_password,
                                     );
                                     state_container_kem.constructor = Some(bob_constructor);
+                                    state_container_kem.p2p_connection_id = *p2p_connection_id;
                                     state_container
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
@@ -462,6 +489,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     transfer,
                                     Some(bob_nat_info),
                                     peer_file_transfer_compat,
+                                    _p2p_connection_id,
                                 ) => {
                                     // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                     // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
@@ -559,6 +587,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             BackendType::Filesystem(..)
                                         );
 
+                                        let p2p_connection_id = kem_state.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
                                             //bob_predicted_socket_addr,
                                             session_security_settings,
@@ -569,6 +598,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             session,
                                             local_is_file_transfer_compat
                                                 && *peer_file_transfer_compat,
+                                            p2p_connection_id,
                                         );
                                         // load the channel now that the keys have been exchanged
 
@@ -784,6 +814,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
 
+                                        let p2p_connection_id = kem.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
                                             //alice_predicted_socket_addr,
                                             session_security_settings,
@@ -794,6 +825,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             session,
                                             local_is_file_transfer_compat
                                                 && *peer_file_transfer_compat,
+                                            p2p_connection_id,
                                         );
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
@@ -1065,7 +1097,8 @@ async fn process_signal_command_as_server<R: Ratchet>(
             };
 
             match &mut kep {
-                KeyExchangeProcess::Stage1(_, val, _) | KeyExchangeProcess::Stage2(_, val, _) => {
+                KeyExchangeProcess::Stage1(_, val, _, _)
+                | KeyExchangeProcess::Stage2(_, val, _) => {
                     *val = Some(peer_nat_info);
                 }
 
@@ -1456,6 +1489,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
         PeerSignal::Disconnect {
             peer_conn_type,
             disconnect_response: resp,
+            ..
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1484,6 +1518,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 peer_cid: target_cid,
                             },
                             disconnect_response: resp,
+                            disconnect_token: None,
                         };
 
                         // now, remove target CID's v_conn to `session_cid`
@@ -1513,6 +1548,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         disconnect_response: Some(PeerResponse::Disconnected(
                             "Server has begun disconnection".to_string(),
                         )),
+                        disconnect_token: None,
                     };
 
                     reply_to_sender(
@@ -1724,7 +1760,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
 
         PeerSignal::DeregistrationSuccess { .. } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::DisconnectUDP { peer_conn_type } => {
+        PeerSignal::DisconnectUDP { peer_conn_type, .. } => {
             // close this UDP channel
             inner_mut_state!(session.state_container)
                 .remove_udp_channel(peer_conn_type.get_original_target_cid());

@@ -265,6 +265,21 @@ fn handle_p2p_stream<R: Ratchet>(
         if let Ok(signal) = p2p_dc_rx.await {
             log::trace!(target: "citadel", "P2P disconnect notification received for peer {}: {:?}", signal.peer_cid, signal.reason);
 
+            // Validate disconnect token: if a NEW P2P connection already exists for
+            // this peer with a different connection_id, this signal is stale — skip it.
+            if let Some(ref token) = signal.disconnect_token {
+                let state_container = inner_state!(sess_for_dc.state_container);
+                if let Some(current_vconn) = state_container
+                    .active_virtual_connections
+                    .get(&signal.peer_cid)
+                {
+                    if current_vconn.p2p_connection_id != token.connection_id {
+                        log::trace!(target: "citadel", "Rejecting stale P2P disconnect signal for peer {} — new connection exists (expected {:?}, got {:?})", signal.peer_cid, current_vconn.p2p_connection_id, token.connection_id);
+                        return;
+                    }
+                }
+            }
+
             // 1. Send PeerSignal::Disconnect via C2S to notify remote peer
             if let Some(session_cid) = session_cid_for_dc.get() {
                 let peer_signal = PeerSignal::Disconnect {
@@ -276,6 +291,7 @@ fn handle_p2p_stream<R: Ratchet>(
                         "P2P disconnect: {:?}",
                         signal.reason
                     ))),
+                    disconnect_token: signal.disconnect_token,
                 };
 
                 // Get C2S ratchet and send via primary stream
@@ -327,6 +343,7 @@ fn handle_p2p_stream<R: Ratchet>(
                         "P2P disconnect: {:?}",
                         signal.reason
                     ))),
+                    disconnect_token: signal.disconnect_token,
                 },
                 ticket: signal.ticket.unwrap_or(Ticket(0)),
                 session_cid: session_cid_for_dc.get().unwrap_or(0),

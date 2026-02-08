@@ -16,8 +16,23 @@
 
 use crate::proto::remote::Ticket;
 use citadel_io::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+
+/// A token that uniquely identifies a specific connection instance.
+///
+/// Prevents stale disconnect signals from a previous connection (C2S session or P2P)
+/// from incorrectly tearing down a newly established connection with the same CID.
+///
+/// - **C2S:** `connection_id` = `kernel_ticket` (unique per session instance)
+/// - **P2P:** `connection_id` = randomly generated `Ticket` (unique per P2P connection,
+///   exchanged symmetrically during KEX Stage0/Stage1)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DisconnectToken {
+    pub cid: u64,
+    pub connection_id: Ticket,
+}
 
 /// Tracks disconnect signals to ensure at most 1 per unique session/peer instance.
 ///
@@ -175,5 +190,41 @@ mod tests {
 
         // tracker2 should see the same state
         assert!(!tracker2.try_c2s_disconnect(ticket));
+    }
+
+    #[test]
+    fn test_disconnect_token_equality() {
+        let token1 = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(111u128),
+        };
+        let token2 = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(111u128),
+        };
+        let token3 = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(222u128),
+        };
+
+        assert_eq!(token1, token2);
+        assert_ne!(token1, token3);
+    }
+
+    #[test]
+    fn test_disconnect_token_mismatch_rejects_stale_signal() {
+        let old_token = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(111u128),
+        };
+        let new_token = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(222u128),
+        };
+
+        // Same CID but different connection_id means stale signal
+        assert_eq!(old_token.cid, new_token.cid);
+        assert_ne!(old_token.connection_id, new_token.connection_id);
+        assert_ne!(old_token, new_token);
     }
 }
