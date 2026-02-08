@@ -86,6 +86,21 @@ impl DisconnectSignalTracker {
             .insert((session_ticket, peer_cid))
     }
 
+    /// Clear P2P disconnect tracking for a specific peer in a session.
+    ///
+    /// Called when a new P2P connection is established (reconnection) to allow
+    /// the new connection instance to have its own disconnect signal.
+    ///
+    /// # Arguments
+    /// * `session_ticket` - Unique ID for the session instance
+    /// * `peer_cid` - The CID of the peer whose tracking should be cleared
+    pub fn clear_p2p_peer(&self, session_ticket: Ticket, peer_cid: u64) {
+        self.inner
+            .p2p_disconnected
+            .lock()
+            .remove(&(session_ticket, peer_cid));
+    }
+
     /// Clear all disconnect tracking state for a session.
     ///
     /// Called when a session is fully cleaned up to prevent memory leaks
@@ -209,6 +224,26 @@ mod tests {
 
         assert_eq!(token1, token2);
         assert_ne!(token1, token3);
+    }
+
+    #[test]
+    fn test_clear_p2p_peer() {
+        let tracker = DisconnectSignalTracker::new();
+        let ticket = Ticket::from(12345u128);
+        let peer1 = 111u64;
+        let peer2 = 222u64;
+
+        // Mark both peers as disconnected
+        assert!(tracker.try_p2p_disconnect(ticket, peer1));
+        assert!(tracker.try_p2p_disconnect(ticket, peer2));
+
+        // Clear only peer1 (simulating reconnection to peer1)
+        tracker.clear_p2p_peer(ticket, peer1);
+
+        // peer1 should accept signals again (new connection can disconnect)
+        assert!(tracker.try_p2p_disconnect(ticket, peer1));
+        // peer2 should still be blocked (not cleared)
+        assert!(!tracker.try_p2p_disconnect(ticket, peer2));
     }
 
     #[test]

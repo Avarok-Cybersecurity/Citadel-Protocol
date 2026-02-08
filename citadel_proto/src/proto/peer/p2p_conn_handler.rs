@@ -252,6 +252,13 @@ fn handle_p2p_stream<R: Ratchet>(
 
     drop(state_container);
 
+    // Clear P2P disconnect tracker for this peer so the new connection can
+    // have its own disconnect signal. Done AFTER vconn insertion so that
+    // token validation catches stale signals in the window after clearing.
+    sess.session_manager
+        .disconnect_tracker()
+        .clear_p2p_peer(sess.kernel_ticket.get(), v_conn.get_target_cid());
+
     // Spawn task to handle P2P disconnect notification (bidirectional disconnect propagation)
     // When the vconn is dropped (stream ends or explicit disconnect), this task receives
     // the signal and:
@@ -264,6 +271,16 @@ fn handle_p2p_stream<R: Ratchet>(
     spawn!(async move {
         if let Ok(signal) = p2p_dc_rx.await {
             log::trace!(target: "citadel", "P2P disconnect notification received for peer {}: {:?}", signal.peer_cid, signal.reason);
+
+            // Gate the entire handler behind the tracker to prevent both stale
+            // C2S signals and duplicate kernel notifications. The tracker is
+            // cleared by handle_p2p_connection when a new connection is established,
+            // allowing the new connection instance to have its own disconnect signal.
+            if !disconnect_tracker_for_dc.try_p2p_disconnect(session_ticket_for_dc, signal.peer_cid)
+            {
+                log::trace!(target: "citadel", "Skipping P2P D/C signal - already sent for session {:?} peer {}", session_ticket_for_dc, signal.peer_cid);
+                return;
+            }
 
             // Validate disconnect token: if a NEW P2P connection already exists for
             // this peer with a different connection_id, this signal is stale — skip it.
@@ -325,14 +342,6 @@ fn handle_p2p_stream<R: Ratchet>(
             }
 
             // 2. Send NodeResult::PeerEvent(Disconnect) to local kernel
-            // NOTE: NodeResult::Disconnect is for C2S only; P2P uses PeerEvent
-            // Check tracker to ensure at most 1 P2P disconnect signal per session/peer
-            if !disconnect_tracker_for_dc.try_p2p_disconnect(session_ticket_for_dc, signal.peer_cid)
-            {
-                log::trace!(target: "citadel", "Skipping P2P D/C signal - already sent for session {:?} peer {}", session_ticket_for_dc, signal.peer_cid);
-                return;
-            }
-
             let disconnect_result = NodeResult::PeerEvent(PeerEvent {
                 event: PeerSignal::Disconnect {
                     peer_conn_type: PeerConnectionType::LocalGroupPeer {
