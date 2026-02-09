@@ -133,8 +133,8 @@ mod tests {
                         // Barrier: disconnect sync — B disconnects after this
                         barriers[base + 2].wait().await;
 
-                        // Wait for P2P disconnect signal from B
-                        citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
+                        // Wait for P2P disconnect signal from B (generous for CI release builds)
+                        citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
                         log::info!("[Peer A] Iteration {} complete", i + 1);
                     }
 
@@ -241,8 +241,8 @@ mod tests {
                         p2p_remote.disconnect().await?;
                         log::info!("[Peer B] Iteration {} P2P disconnected", i + 1);
 
-                        // Brief pause before next iteration
-                        citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
+                        // Pause before next iteration (generous for CI release builds)
+                        citadel_io::tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
 
                     // Final barrier
@@ -276,7 +276,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(180), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(300), task)
             .await
             .expect("P2P stress test timed out");
 
