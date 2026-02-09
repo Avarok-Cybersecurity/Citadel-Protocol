@@ -1121,37 +1121,40 @@ impl<R: Ratchet> CitadelSession<R> {
                 let session_cid = session.session_cid.get().unwrap_or_default();
 
                 if let Some(peer_cid) = peer_cid {
-                    // P2P disconnect - use PeerEvent
-                    if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
-                        event: PeerSignal::Disconnect {
-                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                session_cid,
-                                peer_cid,
+                    // P2P disconnect — gate through tracker to prevent duplicate
+                    // signals when VConn Drop also fires via p2p_conn_handler
+                    let session_ticket = session.kernel_ticket.get();
+                    if session
+                        .disconnect_tracker
+                        .try_p2p_disconnect(session_ticket, peer_cid)
+                    {
+                        let disconnect_token = Some(DisconnectToken {
+                            cid: peer_cid,
+                            connection_id: session_ticket,
+                        });
+                        if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                            event: PeerSignal::Disconnect {
+                                peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                                    session_cid,
+                                    peer_cid,
+                                },
+                                disconnect_response: Some(PeerResponse::Disconnected(
+                                    err_string.clone(),
+                                )),
+                                disconnect_token,
                             },
-                            disconnect_response: Some(PeerResponse::Disconnected(
-                                err_string.clone(),
-                            )),
-                            disconnect_token: None,
-                        },
-                        ticket: session.kernel_ticket.get(),
-                        session_cid,
-                    })) {
-                        log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
+                            ticket: session_ticket,
+                            session_cid,
+                        })) {
+                            log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
+                        }
+                    } else {
+                        log::trace!(target: "citadel", "Skipping P2P D/C signal in error handler — already sent for session {:?} peer {}", session.kernel_ticket.get(), peer_cid);
                     }
                 } else {
-                    // C2S disconnect - use NodeResult::Disconnect
-                    if let Err(err) = session.send_to_kernel(NodeResult::Disconnect(Disconnect {
-                        ticket: session.kernel_ticket.get(),
-                        cid_opt: session.session_cid.get(),
-                        success: false,
-                        conn_type: Some(ClientConnectionType::Server { session_cid }),
-                        message: err_string.clone(),
-                        disconnect_token: None,
-                    })) {
-                        log::error!(target: "citadel", "Error sending C2S disconnect signal to kernel: {err:?}");
-                    }
-
-                    // If this is a c2s connection, close the session
+                    // C2S disconnect — route through tracker-gated path only.
+                    // send_session_dc_signal checks try_c2s_disconnect() and includes
+                    // a proper DisconnectToken, preventing duplicate signals.
                     log::warn!(target: "citadel", "[DC_SIGNAL:handle_session_terminating_error] C2S terminating | session_cid: {} | reason: {} | strong_count: {} | is_provisional: {}",
                         session_cid, err_string.as_str(), session.strong_count(), session.is_provisional());
                     session.send_session_dc_signal(
