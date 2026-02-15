@@ -120,9 +120,9 @@ jobs:
         run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
       - name: Start Redis
         if: startsWith(matrix.os, 'ubuntu')
-        uses: supercharge/redis-github-action@1.8.0
+        uses: supercharge/redis-github-action@1.8.1
         with:
-          redis-version: 4
+          redis-version: 7
           redis-port: 6379
       - name: Setup dependencies
         id: deps
