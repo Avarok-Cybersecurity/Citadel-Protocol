@@ -1121,29 +1121,36 @@ impl<R: Ratchet> CitadelSession<R> {
                 let session_cid = session.session_cid.get().unwrap_or_default();
 
                 if let Some(peer_cid) = peer_cid {
-                    // P2P disconnect — send to local kernel only.
-                    // NOT gated by DisconnectSignalTracker because:
-                    // 1. This signal is always for the CURRENT connection (never stale)
-                    // 2. Gating here would suppress p2p_conn_handler's disconnect task
-                    //    (which sends PeerSignal::Disconnect to the remote peer via server)
-                    // 3. disconnect_token is None so downstream token validation won't
-                    //    reject signals for a reconnected session
-                    // The p2p_conn_handler has its own tracker check for dedup.
-                    if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
-                        event: PeerSignal::Disconnect {
-                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                session_cid,
-                                peer_cid,
+                    // P2P disconnect — gated by tracker to prevent double-sends.
+                    // Both this error handler AND p2p_conn_handler's disconnect task
+                    // can fire for the same P2P connection; the tracker ensures only
+                    // one signal reaches the kernel with a valid DisconnectToken.
+                    let session_ticket = session.kernel_ticket.get();
+                    if session
+                        .disconnect_tracker
+                        .try_p2p_disconnect(session_ticket, peer_cid)
+                    {
+                        if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
+                            event: PeerSignal::Disconnect {
+                                peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                                    session_cid,
+                                    peer_cid,
+                                },
+                                disconnect_response: Some(PeerResponse::Disconnected(
+                                    err_string.clone(),
+                                )),
+                                disconnect_token: Some(DisconnectToken {
+                                    cid: peer_cid,
+                                    connection_id: session_ticket,
+                                }),
                             },
-                            disconnect_response: Some(PeerResponse::Disconnected(
-                                err_string.clone(),
-                            )),
-                            disconnect_token: None,
-                        },
-                        ticket: session.kernel_ticket.get(),
-                        session_cid,
-                    })) {
-                        log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
+                            ticket: session_ticket,
+                            session_cid,
+                        })) {
+                            log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
+                        }
+                    } else {
+                        log::trace!(target: "citadel", "Skipping P2P D/C signal in error handler — already sent for peer {peer_cid}");
                     }
                 } else {
                     // C2S disconnect — route through tracker-gated path only.

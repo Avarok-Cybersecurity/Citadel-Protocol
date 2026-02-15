@@ -518,16 +518,22 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
             )
         } else {
             log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
-            drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
+
+            // Reuse the hole-punched socket directly for QUIC listener.
+            // This eliminates the drop-and-rebind race where the OS may not
+            // release the port in time for a new socket to bind.
+            let socket = hole_punched_socket.into_socket();
+            let quic_node =
+                citadel_wire::quic::QuicServer::new_self_signed(socket).map_err(generic_error)?;
 
             // Create listener BEFORE sync to ensure it's ready when initiator connects
             let (listener, _) = CitadelNode::<R>::create_listen_socket(
                 ServerUnderlyingProtocol::new_quic_self_signed(),
                 None,
-                None,
+                Some(quic_node),
                 local_addr,
             )?;
-            log::trace!(target: "citadel", "Non-initiator: listener created on {:?}, signaling ready", local_addr);
+            log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
 
             // Signal to initiator that listener is ready
             app.sync().await.map_err(generic_error)?;
