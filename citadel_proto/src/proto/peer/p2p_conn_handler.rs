@@ -239,6 +239,14 @@ fn handle_p2p_stream<R: Ratchet>(
         )
         .map_err(|err| generic_error(err.into_string()))?;
 
+    // Capture the p2p_connection_id so the cleanup future can guard against
+    // removing state that belongs to a newer connection for the same peer.
+    let cleanup_connection_id = state_container
+        .active_virtual_connections
+        .get(&peer_cid)
+        .map(|vconn| vconn.p2p_connection_id)
+        .unwrap_or(Ticket(0));
+
     if udp_mode == UdpMode::Enabled {
         CitadelSession::udp_socket_loader(
             sess.clone(),
@@ -376,16 +384,29 @@ fn handle_p2p_stream<R: Ratchet>(
         }
 
         let mut state_container = inner_mut_state!(sess.state_container);
-        // Stop UDP task BEFORE removing vconn to prevent race condition where
-        // UDP packets arrive but vconn lookup fails (causing "closed by peer: 0")
-        state_container.remove_udp_channel(peer_cid);
-        state_container.active_virtual_connections.remove(&peer_cid);
-        // Remove KEM state to properly cancel any in-flight hole punch operations
-        // and allow clean reconnection without stale state
-        state_container.peer_kem_states.remove(&peer_cid);
-        state_container
-            .outgoing_peer_connect_attempts
-            .remove(&peer_cid);
+
+        // Only remove state if it still belongs to THIS P2P connection instance.
+        // During reconnection, a newer connection may have already replaced this one
+        // in the state container. Unconditional removal would delete the new
+        // connection's state, causing "connection lost" errors.
+        let is_current_connection = state_container
+            .active_virtual_connections
+            .get(&peer_cid)
+            .map(|vconn| vconn.p2p_connection_id == cleanup_connection_id)
+            .unwrap_or(false);
+
+        if is_current_connection {
+            // Stop UDP task BEFORE removing vconn to prevent race condition where
+            // UDP packets arrive but vconn lookup fails (causing "closed by peer: 0")
+            state_container.remove_udp_channel(peer_cid);
+            state_container.active_virtual_connections.remove(&peer_cid);
+            state_container.peer_kem_states.remove(&peer_cid);
+            state_container
+                .outgoing_peer_connect_attempts
+                .remove(&peer_cid);
+        } else {
+            log::trace!(target: "citadel", "[P2P-stream] Skipping cleanup for peer {peer_cid} — connection replaced by newer instance");
+        }
 
         log::trace!(target: "citadel", "[P2P-stream] Dropping tri-joined future");
         res
