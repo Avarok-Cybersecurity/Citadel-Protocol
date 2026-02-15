@@ -51,7 +51,7 @@ pub fn process_hole_punch<R: Ratchet>(
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
-    let state_container = inner_state!(session.state_container);
+    let mut state_container = inner_mut_state!(session.state_container);
     let hr = return_if_none!(
         get_orientation_safe_ratchet(hr_version, &state_container, proxy_cid_info),
         "Unable to get proper HR"
@@ -63,16 +63,23 @@ pub fn process_hole_punch<R: Ratchet>(
     );
     log::trace!(target: "citadel", "Success validating hole-punch packet");
     let peer_cid = get_resp_target_cid_from_header(&header);
-    return_if_none!(
-        return_if_none!(
-            state_container.hole_puncher_pipes.get(&peer_cid),
-            "Unable to get hole puncher pipe"
-        )
-        .send(payload.freeze())
-        .ok(),
-        "Unable to forward hole-punch packet through pipe"
-    );
-    log::trace!(target: "citadel", "Success forwarding hole-punch packet to hole-puncher");
+    match state_container.hole_puncher_pipes.get(&peer_cid) {
+        Some(pipe) => {
+            return_if_none!(
+                pipe.send(payload.freeze()).ok(),
+                "Unable to forward hole-punch packet through pipe"
+            );
+            log::trace!(target: "citadel", "Success forwarding hole-punch packet to hole-puncher");
+        }
+        None => {
+            log::trace!(target: "citadel", "Enqueuing early hole-punch packet for peer {peer_cid} (pipe not yet registered)");
+            state_container
+                .pending_hole_punch_packets
+                .entry(peer_cid)
+                .or_default()
+                .push(payload.freeze());
+        }
+    }
 
     Ok(PrimaryProcessorResult::Void)
 }

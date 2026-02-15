@@ -51,7 +51,7 @@ use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
-use crate::proto::session::CitadelSession;
+use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
@@ -464,12 +464,16 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
     cancel_rx: Option<Receiver<()>>,
+    session_alive: SessionAliveTracker<R>,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
     let v_conn = peer_connection_type.as_virtual_connection();
 
     let process = async move {
+        if !session_alive.alive() {
+            return Err(generic_error("Session no longer alive"));
+        }
         citadel_io::tokio::time::sleep_until(sync_time).await;
 
         let hole_punched_socket = app

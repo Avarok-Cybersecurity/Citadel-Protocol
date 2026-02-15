@@ -172,6 +172,30 @@ impl<R: Ratchet> CitadelSession<R> {
     pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner<R>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
+
+    pub(crate) fn alive_tracker(&self) -> SessionAliveTracker<R> {
+        SessionAliveTracker {
+            weak: self.as_weak(),
+        }
+    }
+}
+
+pub(crate) struct SessionAliveTracker<R: Ratchet> {
+    #[cfg(not(feature = "multi-threaded"))]
+    weak: std::rc::Weak<CitadelSessionInner<R>>,
+    #[cfg(feature = "multi-threaded")]
+    weak: std::sync::Weak<CitadelSessionInner<R>>,
+}
+
+impl<R: Ratchet> SessionAliveTracker<R> {
+    pub(crate) fn alive(&self) -> bool {
+        if self.weak.strong_count() > 0 {
+            true
+        } else {
+            log::warn!(target: "citadel", "Session no longer alive — short-circuiting task");
+            false
+        }
+    }
 }
 
 impl<R: Ratchet> From<CitadelSessionInner<R>> for CitadelSession<R> {

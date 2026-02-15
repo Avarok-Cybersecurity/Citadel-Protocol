@@ -712,33 +712,47 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     } else {
                                         let session_cid = session.session_cid.clone();
                                         let kernel_tx = session.kernel_tx.clone();
-                                        // must send packet before registering app, otherwise, registration will fail
-                                        let app = NetworkEndpoint::register(
-                                            RelativeNodeType::Initiator,
-                                            hole_punch_compat_stream,
+                                        let session_alive = session.alive_tracker();
+                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
+                                        match citadel_io::tokio::time::timeout(
+                                            REGISTER_TIMEOUT,
+                                            NetworkEndpoint::register(
+                                                RelativeNodeType::Initiator,
+                                                hole_punch_compat_stream,
+                                            ),
                                         )
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                        //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                        let client_config = session.client_config.clone();
-
-                                        let _ = attempt_simultaneous_hole_punch(
-                                            conn.reverse(),
-                                            ticket,
-                                            session.clone(),
-                                            bob_nat_info.clone(),
-                                            session_cid,
-                                            kernel_tx,
-                                            channel_signal,
-                                            sync_instant,
-                                            app,
-                                            encrypted_config_container,
-                                            client_config,
-                                            udp_mode,
-                                            session_security_settings,
-                                            Some(hole_punch_cancel_rx),
-                                        )
-                                        .await;
+                                        {
+                                            Ok(Ok(app)) => {
+                                                let client_config = session.client_config.clone();
+                                                let _ = attempt_simultaneous_hole_punch(
+                                                    conn.reverse(),
+                                                    ticket,
+                                                    session.clone(),
+                                                    bob_nat_info.clone(),
+                                                    session_cid,
+                                                    kernel_tx,
+                                                    channel_signal,
+                                                    sync_instant,
+                                                    app,
+                                                    encrypted_config_container,
+                                                    client_config,
+                                                    udp_mode,
+                                                    session_security_settings,
+                                                    Some(hole_punch_cancel_rx),
+                                                    session_alive,
+                                                )
+                                                .await;
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                            Err(_) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                        }
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -890,48 +904,64 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
-                                        let app = NetworkEndpoint::register(
-                                            RelativeNodeType::Receiver,
-                                            hole_punch_compat_stream,
+                                        let session_alive = session.alive_tracker();
+                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
+                                        match citadel_io::tokio::time::timeout(
+                                            REGISTER_TIMEOUT,
+                                            NetworkEndpoint::register(
+                                                RelativeNodeType::Receiver,
+                                                hole_punch_compat_stream,
+                                            ),
                                         )
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                        let stun_servers = session.stun_servers.clone();
-                                        let encrypted_config_container =
-                                            generate_hole_punch_crypt_container(
-                                                endpoint_ratchet,
-                                                SecurityLevel::Standard,
-                                                peer_cid,
-                                                stun_servers,
-                                            );
-                                        let diff = Duration::from_nanos(i64::abs(
-                                            timestamp - *sync_time_ns,
-                                        )
-                                            as u64);
-                                        let sync_instant = Instant::now() + diff;
+                                        {
+                                            Ok(Ok(app)) => {
+                                                let stun_servers = session.stun_servers.clone();
+                                                let encrypted_config_container =
+                                                    generate_hole_punch_crypt_container(
+                                                        endpoint_ratchet,
+                                                        SecurityLevel::Standard,
+                                                        peer_cid,
+                                                        stun_servers,
+                                                    );
+                                                let diff = Duration::from_nanos(i64::abs(
+                                                    timestamp - *sync_time_ns,
+                                                )
+                                                    as u64);
+                                                let sync_instant = Instant::now() + diff;
 
-                                        // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, session_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
-                                        let session_cid = session.session_cid.clone();
-                                        let kernel_tx = session.kernel_tx.clone();
-                                        let client_config = session.client_config.clone();
+                                                let session_cid = session.session_cid.clone();
+                                                let kernel_tx = session.kernel_tx.clone();
+                                                let client_config = session.client_config.clone();
 
-                                        let _ = attempt_simultaneous_hole_punch(
-                                            conn.reverse(),
-                                            ticket,
-                                            session.clone(),
-                                            alice_nat_info.clone(),
-                                            session_cid,
-                                            kernel_tx.clone(),
-                                            channel_signal,
-                                            sync_instant,
-                                            app,
-                                            encrypted_config_container,
-                                            client_config,
-                                            udp_mode,
-                                            session_security_settings,
-                                            Some(hole_punch_cancel_rx),
-                                        )
-                                        .await;
+                                                let _ = attempt_simultaneous_hole_punch(
+                                                    conn.reverse(),
+                                                    ticket,
+                                                    session.clone(),
+                                                    alice_nat_info.clone(),
+                                                    session_cid,
+                                                    kernel_tx.clone(),
+                                                    channel_signal,
+                                                    sync_instant,
+                                                    app,
+                                                    encrypted_config_container,
+                                                    client_config,
+                                                    udp_mode,
+                                                    session_security_settings,
+                                                    Some(hole_punch_cancel_rx),
+                                                    session_alive,
+                                                )
+                                                .await;
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                            Err(_) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                        }
                                     }
 
                                     //let _ = hole_punch_future.await;
