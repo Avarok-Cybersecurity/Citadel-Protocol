@@ -167,17 +167,16 @@ pub async fn process_peer_cmd<R: Ratchet>(
                             }
 
                             let mut state_container = inner_mut_state!(session.state_container);
-                            // Stop UDP task before removing vconn to prevent race condition
                             state_container.remove_udp_channel(target);
+                            // Mark vconn inactive but do NOT remove from HashMap.
+                            // Removal races with concurrent packet processing that
+                            // needs the vconn's ratchet for decryption (NoneError at
+                            // primary_group_packet.rs:97). The entry is overwritten
+                            // by new connections or cleaned up at session shutdown.
                             if let Some(v_conn) =
-                                state_container.active_virtual_connections.remove(&target)
+                                state_container.active_virtual_connections.get(&target)
                             {
                                 v_conn.is_active.store(false, Ordering::SeqCst);
-                                // NOTE: Do NOT remove peer_kem_states here. A reconnection
-                                // may have already inserted a new KEM state for this peer_cid
-                                // via Stage 1 processing. Removing it would cause a NoneError
-                                // when Stage 2 arrives. KEM states are naturally overwritten
-                                // by new connections or cleared at session shutdown.
                             }
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
@@ -1527,17 +1526,14 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     peer_cid: target_cid,
                 } => {
                     let mut state_container = inner_mut_state!(session.state_container);
-                    // Stop UDP task before removing vconn to prevent race condition
                     state_container.remove_udp_channel(target_cid);
-                    if state_container
-                        .active_virtual_connections
-                        .remove(&target_cid)
-                        .is_some()
+                    // Mark vconn inactive but do NOT remove from HashMap.
+                    // Same rationale as client-side handler: removal races
+                    // with concurrent packet processing/proxying.
+                    if let Some(vconn) = state_container.active_virtual_connections.get(&target_cid)
                     {
-                        // NOTE: Do NOT remove peer_kem_states here — a new
-                        // reconnection may have already inserted fresh KEM state.
-                        // note: this is w.r.t the server.
-                        log::trace!(target: "citadel", "[Peer Vconn @ Server] will drop the virtual connection");
+                        vconn.is_active.store(false, Ordering::SeqCst);
+                        log::trace!(target: "citadel", "[Peer Vconn @ Server] marking virtual connection inactive");
                         let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
                             "Peer {session_cid} closed the virtual connection to {target_cid}"
                         ))));

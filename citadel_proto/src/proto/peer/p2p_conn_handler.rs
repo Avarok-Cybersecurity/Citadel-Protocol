@@ -30,6 +30,8 @@ This module implements direct peer-to-peer connection handling and NAT traversal
 
 */
 
+use std::sync::atomic::Ordering;
+
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_io::tokio_stream::StreamExt;
 
@@ -396,11 +398,24 @@ fn handle_p2p_stream<R: Ratchet>(
             .unwrap_or(false);
 
         if is_current_connection {
-            // Stop UDP task BEFORE removing vconn to prevent race condition where
-            // UDP packets arrive but vconn lookup fails (causing "closed by peer: 0")
+            // Stop UDP task to prevent new UDP packets on dead connection
             state_container.remove_udp_channel(peer_cid);
-            state_container.active_virtual_connections.remove(&peer_cid);
-            state_container.peer_kem_states.remove(&peer_cid);
+
+            // Mark vconn inactive but do NOT remove from HashMap.
+            // Removal races with concurrent packet processing that needs
+            // the vconn's ratchet for decryption (NoneError at
+            // primary_group_packet.rs:97). Keeping it in the HashMap
+            // allows in-flight packets to be processed gracefully.
+            // The entry is overwritten by new P2P connections or cleaned
+            // up at session shutdown.
+            if let Some(vconn) = state_container.active_virtual_connections.get(&peer_cid) {
+                vconn.is_active.store(false, Ordering::SeqCst);
+            }
+
+            // NOTE: Do NOT remove peer_kem_states here — a new reconnection
+            // may have already inserted fresh KEM state (same rationale as
+            // commit b1325cf4 fix in peer_cmd_packet.rs and session_manager.rs).
+
             state_container
                 .outgoing_peer_connect_attempts
                 .remove(&peer_cid);

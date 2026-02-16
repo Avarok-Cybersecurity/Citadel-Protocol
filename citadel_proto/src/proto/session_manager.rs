@@ -1230,14 +1230,14 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
             accessor
                 .borrow_hr(None, |hr, state_container| {
-                    // Stop UDP task before removing vconn to prevent race condition
                     state_container.remove_udp_channel(session_cid);
-                    let removed = state_container
-                        .active_virtual_connections
-                        .remove(&session_cid);
-                    if removed.is_some() {
-                        // NOTE: Do NOT remove peer_kem_states here — a new
-                        // reconnection may have already inserted fresh KEM state.
+                    // Mark vconn inactive but do NOT remove from HashMap.
+                    // Removal races with concurrent packet processing that
+                    // needs the vconn's ratchet for decryption.
+                    if let Some(vconn) =
+                        state_container.active_virtual_connections.get(&session_cid)
+                    {
+                        vconn.is_active.store(false, Ordering::SeqCst);
                         let packet = on_internal_disconnect(hr);
                         to_primary
                             .unbounded_send(packet)
