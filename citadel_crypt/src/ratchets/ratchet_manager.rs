@@ -808,17 +808,32 @@ where
         let mut stale_message_count = 0;
         const MAX_STALE_MESSAGES: u32 = 20; // Allow stale messages for high-contention scenarios, but not infinite
 
-        // No timeout on message receipt. The RatchetManager waits indefinitely for:
-        // 1. trigger_rekey() calls from the application
-        // 2. RatchetMessage arrivals from the peer
-        // 3. Shutdown signal
+        // When idle (role == Idle), wait indefinitely for messages. Both sides
+        // already have symmetric keys from the initial KEX, so the connection
+        // can remain idle without any rekey activity.
         //
-        // This is correct because both sides already have symmetric version 0 keys
-        // from the initial KEX before RatchetManager creation. The connection can
-        // remain idle indefinitely - there's no requirement for rekey activity.
+        // When a rekey round is in progress (role != Idle), apply a timeout.
+        // Under extreme contention (0ms delay, both sides rekeying simultaneously),
+        // a race condition can cause protocol messages to be treated as stale,
+        // leaving both sides waiting for messages that never arrive. The timeout
+        // allows recovery via error handling and retry.
+        const ACTIVE_REKEY_TIMEOUT: Duration = Duration::from_secs(60);
 
         loop {
-            let msg = receiver.next().await;
+            let msg = if self.role() != RekeyRole::Idle {
+                match tokio::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
+                    Ok(msg) => msg,
+                    Err(_) => {
+                        log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
+                            self.cid, self.role(), self.state());
+                        return Err(CryptError::RekeyUpdateError(
+                            "Rekey protocol message timeout — resetting for retry".to_string(),
+                        ));
+                    }
+                }
+            } else {
+                receiver.next().await
+            };
             self.last_received_message.store(
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
                 Ordering::Relaxed,
