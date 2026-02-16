@@ -38,7 +38,6 @@ use citadel_io::tokio_stream::StreamExt;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::prelude::ServerUnderlyingProtocol;
-use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
@@ -55,9 +54,7 @@ use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
 use crate::proto::session::{CitadelSession, SessionAliveTracker};
-use crate::proto::state_container::{
-    P2PDisconnectReason, P2PDisconnectSignal, VirtualConnectionType,
-};
+use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
@@ -433,22 +430,19 @@ fn handle_p2p_stream<R: Ratchet>(
                         }
                     }
 
-                    // Take and send disconnect notifier now (exactly-once via
-                    // .take()) so VirtualConnection::Drop during reconnection
-                    // doesn't fire it at the wrong time.
-                    if let Some(notifier) = endpoint_container.take_p2p_disconnect_notifier() {
-                        let session_cid = vconn.connection_type.get_session_cid();
-                        let signal = P2PDisconnectSignal {
-                            peer_cid,
-                            reason: P2PDisconnectReason::StreamEnded,
-                            ticket: None,
-                            disconnect_token: Some(DisconnectToken {
-                                cid: session_cid,
-                                connection_id: vconn.p2p_connection_id,
-                            }),
-                        };
-                        let _ = notifier.send(signal);
-                    }
+                    // Take the disconnect notifier and DROP it (don't send).
+                    // This prevents VirtualConnection::Drop during reconnection
+                    // from sending a stale C2S disconnect that interferes with
+                    // the new KEX. The Drop sends with no disconnect_token,
+                    // bypassing the handler's token validation, and the tracker
+                    // has been cleared for the new connection — so the stale
+                    // signal would pass all gates and send a C2S disconnect
+                    // that the server forwards during the new connection setup.
+                    //
+                    // For explicit disconnects (p2p_remote.disconnect()), the
+                    // C2S path handles notification independently.
+                    // The handler task receives Err(Canceled) and exits cleanly.
+                    let _ = endpoint_container.take_p2p_disconnect_notifier();
                 }
             }
 
