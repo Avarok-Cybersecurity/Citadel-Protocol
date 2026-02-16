@@ -588,11 +588,9 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
                                     // Stop peer's UDP task before removing vconn
                                     peer_state_container.remove_udp_channel(session_cid);
-                                    // Only remove KEM state if vconn existed - prevents removing
-                                    // KEM state for a new reconnection in progress
-                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_some() {
-                                        peer_state_container.peer_kem_states.remove(&session_cid);
-                                    } else {
+                                    // NOTE: Do NOT remove peer_kem_states here — a new
+                                    // reconnection may have already inserted fresh KEM state.
+                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
                                         log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
                                     }
                                 }
@@ -1238,8 +1236,8 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                         .active_virtual_connections
                         .remove(&session_cid);
                     if removed.is_some() {
-                        // Remove KEM state to allow clean reconnection
-                        state_container.peer_kem_states.remove(&session_cid);
+                        // NOTE: Do NOT remove peer_kem_states here — a new
+                        // reconnection may have already inserted fresh KEM state.
                         let packet = on_internal_disconnect(hr);
                         to_primary
                             .unbounded_send(packet)

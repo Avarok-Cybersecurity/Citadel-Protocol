@@ -173,11 +173,11 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                 state_container.active_virtual_connections.remove(&target)
                             {
                                 v_conn.is_active.store(false, Ordering::SeqCst);
-                                //prevent further messages from being sent from this node
-                                // Only remove KEM state if vconn existed - this prevents
-                                // accidentally removing KEM state for a new reconnection
-                                // that's already in progress
-                                state_container.peer_kem_states.remove(&target);
+                                // NOTE: Do NOT remove peer_kem_states here. A reconnection
+                                // may have already inserted a new KEM state for this peer_cid
+                                // via Stage 1 processing. Removing it would cause a NoneError
+                                // when Stage 2 arrives. KEM states are naturally overwritten
+                                // by new connections or cleared at session shutdown.
                             }
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
@@ -1534,8 +1534,8 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         .remove(&target_cid)
                         .is_some()
                     {
-                        // Remove KEM state to allow clean reconnection
-                        state_container.peer_kem_states.remove(&target_cid);
+                        // NOTE: Do NOT remove peer_kem_states here — a new
+                        // reconnection may have already inserted fresh KEM state.
                         // note: this is w.r.t the server.
                         log::trace!(target: "citadel", "[Peer Vconn @ Server] will drop the virtual connection");
                         let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
