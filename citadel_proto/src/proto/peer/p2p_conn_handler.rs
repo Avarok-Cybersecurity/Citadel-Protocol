@@ -38,6 +38,7 @@ use citadel_io::tokio_stream::StreamExt;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::prelude::ServerUnderlyingProtocol;
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
@@ -54,7 +55,9 @@ use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
 use crate::proto::session::{CitadelSession, SessionAliveTracker};
-use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
+use crate::proto::state_container::{
+    P2PDisconnectReason, P2PDisconnectSignal, VirtualConnectionType,
+};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
@@ -401,15 +404,52 @@ fn handle_p2p_stream<R: Ratchet>(
             // Stop UDP task to prevent new UDP packets on dead connection
             state_container.remove_udp_channel(peer_cid);
 
-            // Mark vconn inactive but do NOT remove from HashMap.
-            // Removal races with concurrent packet processing that needs
-            // the vconn's ratchet for decryption (NoneError at
-            // primary_group_packet.rs:97). Keeping it in the HashMap
-            // allows in-flight packets to be processed gracefully.
-            // The entry is overwritten by new P2P connections or cleaned
-            // up at session shutdown.
-            if let Some(vconn) = state_container.active_virtual_connections.get(&peer_cid) {
+            // Soft-remove: keep the vconn in the HashMap so concurrent
+            // packet processing can still find the ratchet for decryption
+            // (prevents NoneError at primary_group_packet.rs:97).
+            // But eagerly clean up all OTHER resources so that
+            // VirtualConnection::Drop during reconnection is a no-op.
+            // Without this, the Drop fires during create_virtual_connection()
+            // (HashMap overwrite) and triggers disconnect signals + ratchet
+            // shutdowns at the wrong time, racing with the new KEX.
+            if let Some(vconn) = state_container
+                .active_virtual_connections
+                .get_mut(&peer_cid)
+            {
                 vconn.is_active.store(false, Ordering::SeqCst);
+
+                // Clear sender to stop routing packets to dead P2P stream
+                vconn.sender = None;
+
+                if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                    // Shutdown ratchet manager (stops periodic rekey tasks;
+                    // ratchets remain available for in-flight packet decryption)
+                    let _ = endpoint_container.ratchet_manager.shutdown();
+
+                    // Stop the old P2P stream handler cleanly
+                    if let Some(mut remote) = endpoint_container.direct_p2p_remote.take() {
+                        if let Some(stopper) = remote.stopper.take() {
+                            let _ = stopper.send(());
+                        }
+                    }
+
+                    // Take and send disconnect notifier now (exactly-once via
+                    // .take()) so VirtualConnection::Drop during reconnection
+                    // doesn't fire it at the wrong time.
+                    if let Some(notifier) = endpoint_container.take_p2p_disconnect_notifier() {
+                        let session_cid = vconn.connection_type.get_session_cid();
+                        let signal = P2PDisconnectSignal {
+                            peer_cid,
+                            reason: P2PDisconnectReason::StreamEnded,
+                            ticket: None,
+                            disconnect_token: Some(DisconnectToken {
+                                cid: session_cid,
+                                connection_id: vconn.p2p_connection_id,
+                            }),
+                        };
+                        let _ = notifier.send(signal);
+                    }
+                }
             }
 
             // NOTE: Do NOT remove peer_kem_states here — a new reconnection
