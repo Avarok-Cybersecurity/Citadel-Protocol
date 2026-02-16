@@ -168,16 +168,16 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                             let mut state_container = inner_mut_state!(session.state_container);
                             state_container.remove_udp_channel(target);
-                            // Mark vconn inactive but do NOT remove from HashMap.
-                            // Removal races with concurrent packet processing that
-                            // needs the vconn's ratchet for decryption (NoneError at
-                            // primary_group_packet.rs:97). The entry is overwritten
-                            // by new connections or cleaned up at session shutdown.
-                            if let Some(v_conn) =
-                                state_container.active_virtual_connections.get(&target)
+                            // Preserve ratchet for in-flight packet decryption,
+                            // then remove the vconn cleanly.
+                            if let Some(ratchet) = state_container
+                                .active_virtual_connections
+                                .get(&target)
+                                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
                             {
-                                v_conn.is_active.store(false, Ordering::SeqCst);
+                                state_container.stale_p2p_ratchets.insert(target, ratchet);
                             }
+                            state_container.active_virtual_connections.remove(&target);
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,

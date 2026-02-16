@@ -140,6 +140,10 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
+    /// Ratchets extracted from P2P vconns before removal, allowing in-flight
+    /// packets to be decrypted after the stream dies. Cleared when a new
+    /// connection for the same peer is created or at session shutdown.
+    pub(super) stale_p2p_ratchets: HashMap<u64, R>,
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
@@ -477,6 +481,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             udp_primary_outbound_tx: None,
             deregister_state: Default::default(),
             active_virtual_connections: Default::default(),
+            stale_p2p_ratchets: Default::default(),
             network_stats: Default::default(),
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
@@ -891,6 +896,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             adjacent_nat_type,
             p2p_connection_id,
         };
+
+        // Clear any stale ratchet for this peer — the new connection
+        // supersedes it and provides a fresh ratchet via the new vconn.
+        self.stale_p2p_ratchets.remove(&target_cid);
 
         self.active_virtual_connections.insert(target_cid, vconn);
 

@@ -30,8 +30,6 @@ This module implements direct peer-to-peer connection handling and NAT traversal
 
 */
 
-use std::sync::atomic::Ordering;
-
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_io::tokio_stream::StreamExt;
 
@@ -398,53 +396,22 @@ fn handle_p2p_stream<R: Ratchet>(
             .unwrap_or(false);
 
         if is_current_connection {
-            // Stop UDP task to prevent new UDP packets on dead connection
             state_container.remove_udp_channel(peer_cid);
 
-            // Soft-remove: keep the vconn in the HashMap so concurrent
-            // packet processing can still find the ratchet for decryption
-            // (prevents NoneError at primary_group_packet.rs:97).
-            // But eagerly clean up all OTHER resources so that
-            // VirtualConnection::Drop during reconnection is a no-op.
-            // Without this, the Drop fires during create_virtual_connection()
-            // (HashMap overwrite) and triggers disconnect signals + ratchet
-            // shutdowns at the wrong time, racing with the new KEX.
-            if let Some(vconn) = state_container
+            // Preserve the ratchet before removing the vconn so in-flight
+            // packets (already in the processing pipeline) can still be
+            // decrypted via stale_p2p_ratchets fallback in
+            // get_orientation_safe_ratchet(). The stale ratchet is cleared
+            // when a new connection for this peer is created.
+            if let Some(ratchet) = state_container
                 .active_virtual_connections
-                .get_mut(&peer_cid)
+                .get(&peer_cid)
+                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
             {
-                vconn.is_active.store(false, Ordering::SeqCst);
-
-                // Clear sender to stop routing packets to dead P2P stream
-                vconn.sender = None;
-
-                if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                    // Shutdown ratchet manager (stops periodic rekey tasks;
-                    // ratchets remain available for in-flight packet decryption)
-                    let _ = endpoint_container.ratchet_manager.shutdown();
-
-                    // Stop the old P2P stream handler cleanly
-                    if let Some(mut remote) = endpoint_container.direct_p2p_remote.take() {
-                        if let Some(stopper) = remote.stopper.take() {
-                            let _ = stopper.send(());
-                        }
-                    }
-
-                    // Take the disconnect notifier and DROP it (don't send).
-                    // This prevents VirtualConnection::Drop during reconnection
-                    // from sending a stale C2S disconnect that interferes with
-                    // the new KEX. The Drop sends with no disconnect_token,
-                    // bypassing the handler's token validation, and the tracker
-                    // has been cleared for the new connection — so the stale
-                    // signal would pass all gates and send a C2S disconnect
-                    // that the server forwards during the new connection setup.
-                    //
-                    // For explicit disconnects (p2p_remote.disconnect()), the
-                    // C2S path handles notification independently.
-                    // The handler task receives Err(Canceled) and exits cleanly.
-                    let _ = endpoint_container.take_p2p_disconnect_notifier();
-                }
+                state_container.stale_p2p_ratchets.insert(peer_cid, ratchet);
             }
+
+            state_container.active_virtual_connections.remove(&peer_cid);
 
             // NOTE: Do NOT remove peer_kem_states here — a new reconnection
             // may have already inserted fresh KEM state (same rationale as
