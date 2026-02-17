@@ -26,18 +26,18 @@ await_holding_lock = "warn"
 
 [workspace.dependencies]
 # workspace deps
-citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.13.0" }
-citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.13.0" }
-citadel_user = { path = "./citadel_user", default-features = false, version = "0.13.0" }
-citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.13.0" }
-citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, version = "0.13.0" }
-citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.13.0" }
-citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.13.0" }
-citadel_io = { path = "./citadel_io", default-features = false, version = "0.13.0" }
-citadel_types = { path = "./citadel_types", default-features = false, version = "0.13.0" }
-netbeam = { path = "./netbeam", default-features = false, version = "0.13.0" }
-firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.13.0" }
-async_ip = { path = "./async_ip", default-features = false, version = "0.13.0" }
+citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.14.0" }
+citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.14.0" }
+citadel_user = { path = "./citadel_user", default-features = false, version = "0.14.0" }
+citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.14.0" }
+citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, version = "0.14.0" }
+citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.14.0" }
+citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.14.0" }
+citadel_io = { path = "./citadel_io", default-features = false, version = "0.14.0" }
+citadel_types = { path = "./citadel_types", default-features = false, version = "0.14.0" }
+netbeam = { path = "./netbeam", default-features = false, version = "0.14.0" }
+firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.14.0" }
+async_ip = { path = "./async_ip", default-features = false, version = "0.14.0" }
 
 # examples
 citadel-examples = { path = "./example-library", default-features = false }
@@ -124,4 +124,5 @@ hyper = { version = "0.14.25" }
 sha256 = { version = "1.5.0" }
 tokio-openssl = { version = "0.6.3" }
 ml-dsa = { version = "0.0.4" }
+fn-dsa = { version = "0.3.0", default-features = false }
 ts-rs = { version = "11", features = ["bytes"] }

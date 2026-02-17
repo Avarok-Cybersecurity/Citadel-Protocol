@@ -34,3 +34,95 @@ describe('Citadel Protocol Types', () => {
     assert.strictEqual(pv, '0.9.0', 'protocol version should match expected');
   });
 });
+
+describe('Enum Helpers', () => {
+  test('allUdpModeValues returns all variants', async () => {
+    const { allUdpModeValues, defaultUdpMode } = await import('../dist/index.js');
+    const values = allUdpModeValues();
+    assert.strictEqual(values.length, 2);
+    assert.ok(values.includes('Disabled'));
+    assert.ok(values.includes('Enabled'));
+    assert.ok(values.includes(defaultUdpMode()));
+  });
+
+  test('allEncryptionAlgorithmValues returns all variants', async () => {
+    const { allEncryptionAlgorithmValues, defaultEncryptionAlgorithm } = await import('../dist/index.js');
+    const values = allEncryptionAlgorithmValues();
+    assert.strictEqual(values.length, 4);
+    assert.ok(values.includes('AES_GCM_256'));
+    assert.ok(values.includes('ChaCha20Poly_1305'));
+    assert.ok(values.includes('MlKemHybrid'));
+    assert.ok(values.includes('Ascon80pq'));
+    assert.ok(values.includes(defaultEncryptionAlgorithm()));
+  });
+
+  test('allSecrecyModeValues returns all variants', async () => {
+    const { allSecrecyModeValues, defaultSecrecyMode } = await import('../dist/index.js');
+    const values = allSecrecyModeValues();
+    assert.strictEqual(values.length, 2);
+    assert.ok(values.includes('BestEffort'));
+    assert.ok(values.includes('Perfect'));
+    assert.ok(values.includes(defaultSecrecyMode()));
+  });
+
+  test('allKemAlgorithmValues returns all variants', async () => {
+    const { allKemAlgorithmValues, defaultKemAlgorithm } = await import('../dist/index.js');
+    const values = allKemAlgorithmValues();
+    assert.strictEqual(values.length, 1);
+    assert.ok(values.includes('MlKem'));
+    assert.ok(values.includes(defaultKemAlgorithm()));
+  });
+
+  test('allSigAlgorithmValues returns all variants', async () => {
+    const { allSigAlgorithmValues, defaultSigAlgorithm } = await import('../dist/index.js');
+    const values = allSigAlgorithmValues();
+    assert.strictEqual(values.length, 3);
+    assert.ok(values.includes('None'));
+    assert.ok(values.includes('MlDsa65'));
+    assert.ok(values.includes('FnDsa512'));
+    assert.ok(values.includes(defaultSigAlgorithm()));
+  });
+
+  test('allGroupTypeValues returns all variants', async () => {
+    const { allGroupTypeValues } = await import('../dist/index.js');
+    const values = allGroupTypeValues();
+    assert.strictEqual(values.length, 2);
+    assert.ok(values.includes('Public'));
+    assert.ok(values.includes('Private'));
+  });
+
+  test('allGroupMemberAlterModeValues returns all variants', async () => {
+    const { allGroupMemberAlterModeValues } = await import('../dist/index.js');
+    const values = allGroupMemberAlterModeValues();
+    assert.strictEqual(values.length, 2);
+    assert.ok(values.includes('Leave'));
+    assert.ok(values.includes('Kick'));
+  });
+
+  test('allSecurityLevelValues returns string-literal variants', async () => {
+    const { allSecurityLevelValues, defaultSecurityLevel } = await import('../dist/index.js');
+    const values = allSecurityLevelValues();
+    assert.strictEqual(values.length, 5);
+    assert.ok(values.includes('Standard'));
+    assert.ok(values.includes('Reinforced'));
+    assert.ok(values.includes('High'));
+    assert.ok(values.includes('Ultra'));
+    assert.ok(values.includes('Extreme'));
+    assert.ok(values.includes(defaultSecurityLevel()));
+  });
+
+  test('allHeaderObfuscatorSettingsValues returns string-literal variants', async () => {
+    const { allHeaderObfuscatorSettingsValues, defaultHeaderObfuscatorSettings } = await import('../dist/index.js');
+    const values = allHeaderObfuscatorSettingsValues();
+    assert.strictEqual(values.length, 2);
+    assert.ok(values.includes('Disabled'));
+    assert.ok(values.includes('Enabled'));
+    assert.ok(values.includes(defaultHeaderObfuscatorSettings()));
+  });
+
+  test('defaultConnectMode returns Standard with force_login false', async () => {
+    const { defaultConnectMode } = await import('../dist/index.js');
+    const mode = defaultConnectMode();
+    assert.deepStrictEqual(mode, { Standard: { force_login: false } });
+  });
+});

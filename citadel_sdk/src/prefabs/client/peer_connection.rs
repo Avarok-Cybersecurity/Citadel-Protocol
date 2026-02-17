@@ -1194,7 +1194,7 @@ mod tests {
     async fn test_p2p_wrong_session_password(
         #[case] secrecy_mode: SecrecyMode,
         #[case] p2p_password: Option<&'static str>,
-        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log_no_panic_hook();

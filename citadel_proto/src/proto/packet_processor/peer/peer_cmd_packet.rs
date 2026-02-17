@@ -144,25 +144,40 @@ pub async fn process_peer_cmd<R: Ratchet>(
                         PeerSignal::Disconnect {
                             peer_conn_type: vconn,
                             disconnect_response: resp,
+                            ref disconnect_token,
                         } => {
                             // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
                             let target = resp
                                 .as_ref()
                                 .map(|_| vconn.get_original_session_cid())
                                 .unwrap_or_else(|| vconn.get_original_target_cid());
-                            let mut state_container = inner_mut_state!(session.state_container);
-                            // Stop UDP task before removing vconn to prevent race condition
-                            state_container.remove_udp_channel(target);
-                            if let Some(v_conn) =
-                                state_container.active_virtual_connections.remove(&target)
-                            {
-                                v_conn.is_active.store(false, Ordering::SeqCst);
-                                //prevent further messages from being sent from this node
-                                // Only remove KEM state if vconn existed - this prevents
-                                // accidentally removing KEM state for a new reconnection
-                                // that's already in progress
-                                state_container.peer_kem_states.remove(&target);
+
+                            // Validate disconnect token against the active vconn to
+                            // reject stale signals from a previous P2P connection
+                            if let Some(token) = disconnect_token {
+                                let state_container = inner_state!(session.state_container);
+                                if let Some(current_vconn) =
+                                    state_container.active_virtual_connections.get(&target)
+                                {
+                                    if current_vconn.p2p_connection_id != token.connection_id {
+                                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    }
+                                }
                             }
+
+                            let mut state_container = inner_mut_state!(session.state_container);
+                            state_container.remove_udp_channel(target);
+                            // Preserve ratchet for in-flight packet decryption,
+                            // then remove the vconn cleanly.
+                            if let Some(ratchet) = state_container
+                                .active_virtual_connections
+                                .get(&target)
+                                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
+                            {
+                                state_container.stale_p2p_ratchets.insert(target, ratchet);
+                            }
+                            state_container.active_virtual_connections.remove(&target);
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,
@@ -172,7 +187,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::DisconnectUDP { peer_conn_type } => {
+                        PeerSignal::DisconnectUDP { peer_conn_type, .. } => {
                             let target_cid = return_if_none!(get_resp_target_cid(
                                 &peer_conn_type.as_virtual_connection()
                             ));
@@ -315,6 +330,10 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         }
 
                                         let session_password = session_password.unwrap_or_default();
+                                        // Generate a unique connection ID for this P2P connection.
+                                        // Exchanged during KEX so both peers share the same ID.
+                                        let p2p_connection_id = Ticket::default();
+
                                         let mut peer_kem_state_container =
                                             PeerKemStateContainer::new(
                                                 *endpoint_security_settings,
@@ -324,6 +343,8 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         peer_kem_state_container.constructor =
                                             Some(alice_constructor);
+                                        peer_kem_state_container.p2p_connection_id =
+                                            p2p_connection_id;
 
                                         state_container.peer_kem_states.insert(
                                             *original_session_cid,
@@ -342,6 +363,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                                 msg_bytes,
                                                 *endpoint_security_settings,
                                                 *udp_enabled,
+                                                p2p_connection_id,
                                             ),
                                         };
 
@@ -386,6 +408,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     transfer,
                                     session_security_settings,
                                     udp_enabled,
+                                    p2p_connection_id,
                                 ) => {
                                     log::trace!(target: "citadel", "RECV STAGE 0 PEER KEM");
                                     // We generate bob's pqc, as well as a nonce
@@ -427,12 +450,14 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         BackendType::Filesystem(..)
                                     );
 
+                                    // Echo back the p2p_connection_id from Stage0
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
                                         kex_payload: KeyExchangeProcess::Stage1(
                                             bob_transfer,
                                             None,
                                             local_is_file_transfer_compat,
+                                            *p2p_connection_id,
                                         ),
                                     };
 
@@ -442,6 +467,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         session_password,
                                     );
                                     state_container_kem.constructor = Some(bob_constructor);
+                                    state_container_kem.p2p_connection_id = *p2p_connection_id;
                                     state_container
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
@@ -462,6 +488,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     transfer,
                                     Some(bob_nat_info),
                                     peer_file_transfer_compat,
+                                    _p2p_connection_id,
                                 ) => {
                                     // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                     // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
@@ -559,6 +586,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             BackendType::Filesystem(..)
                                         );
 
+                                        let p2p_connection_id = kem_state.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
                                             //bob_predicted_socket_addr,
                                             session_security_settings,
@@ -569,6 +597,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             session,
                                             local_is_file_transfer_compat
                                                 && *peer_file_transfer_compat,
+                                            p2p_connection_id,
                                         );
                                         // load the channel now that the keys have been exchanged
 
@@ -682,33 +711,47 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                     } else {
                                         let session_cid = session.session_cid.clone();
                                         let kernel_tx = session.kernel_tx.clone();
-                                        // must send packet before registering app, otherwise, registration will fail
-                                        let app = NetworkEndpoint::register(
-                                            RelativeNodeType::Initiator,
-                                            hole_punch_compat_stream,
+                                        let session_alive = session.alive_tracker();
+                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
+                                        match citadel_io::tokio::time::timeout(
+                                            REGISTER_TIMEOUT,
+                                            NetworkEndpoint::register(
+                                                RelativeNodeType::Initiator,
+                                                hole_punch_compat_stream,
+                                            ),
                                         )
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                        //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                        let client_config = session.client_config.clone();
-
-                                        let _ = attempt_simultaneous_hole_punch(
-                                            conn.reverse(),
-                                            ticket,
-                                            session.clone(),
-                                            bob_nat_info.clone(),
-                                            session_cid,
-                                            kernel_tx,
-                                            channel_signal,
-                                            sync_instant,
-                                            app,
-                                            encrypted_config_container,
-                                            client_config,
-                                            udp_mode,
-                                            session_security_settings,
-                                            Some(hole_punch_cancel_rx),
-                                        )
-                                        .await;
+                                        {
+                                            Ok(Ok(app)) => {
+                                                let client_config = session.client_config.clone();
+                                                let _ = attempt_simultaneous_hole_punch(
+                                                    conn.reverse(),
+                                                    ticket,
+                                                    session.clone(),
+                                                    bob_nat_info.clone(),
+                                                    session_cid,
+                                                    kernel_tx,
+                                                    channel_signal,
+                                                    sync_instant,
+                                                    app,
+                                                    encrypted_config_container,
+                                                    client_config,
+                                                    udp_mode,
+                                                    session_security_settings,
+                                                    Some(hole_punch_cancel_rx),
+                                                    session_alive,
+                                                )
+                                                .await;
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                            Err(_) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                        }
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -784,6 +827,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
 
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
 
+                                        let p2p_connection_id = kem.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
                                             //alice_predicted_socket_addr,
                                             session_security_settings,
@@ -794,6 +838,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                             session,
                                             local_is_file_transfer_compat
                                                 && *peer_file_transfer_compat,
+                                            p2p_connection_id,
                                         );
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
@@ -858,48 +903,64 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
-                                        let app = NetworkEndpoint::register(
-                                            RelativeNodeType::Receiver,
-                                            hole_punch_compat_stream,
+                                        let session_alive = session.alive_tracker();
+                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
+                                        match citadel_io::tokio::time::timeout(
+                                            REGISTER_TIMEOUT,
+                                            NetworkEndpoint::register(
+                                                RelativeNodeType::Receiver,
+                                                hole_punch_compat_stream,
+                                            ),
                                         )
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                        let stun_servers = session.stun_servers.clone();
-                                        let encrypted_config_container =
-                                            generate_hole_punch_crypt_container(
-                                                endpoint_ratchet,
-                                                SecurityLevel::Standard,
-                                                peer_cid,
-                                                stun_servers,
-                                            );
-                                        let diff = Duration::from_nanos(i64::abs(
-                                            timestamp - *sync_time_ns,
-                                        )
-                                            as u64);
-                                        let sync_instant = Instant::now() + diff;
+                                        {
+                                            Ok(Ok(app)) => {
+                                                let stun_servers = session.stun_servers.clone();
+                                                let encrypted_config_container =
+                                                    generate_hole_punch_crypt_container(
+                                                        endpoint_ratchet,
+                                                        SecurityLevel::Standard,
+                                                        peer_cid,
+                                                        stun_servers,
+                                                    );
+                                                let diff = Duration::from_nanos(i64::abs(
+                                                    timestamp - *sync_time_ns,
+                                                )
+                                                    as u64);
+                                                let sync_instant = Instant::now() + diff;
 
-                                        // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, session_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
-                                        let session_cid = session.session_cid.clone();
-                                        let kernel_tx = session.kernel_tx.clone();
-                                        let client_config = session.client_config.clone();
+                                                let session_cid = session.session_cid.clone();
+                                                let kernel_tx = session.kernel_tx.clone();
+                                                let client_config = session.client_config.clone();
 
-                                        let _ = attempt_simultaneous_hole_punch(
-                                            conn.reverse(),
-                                            ticket,
-                                            session.clone(),
-                                            alice_nat_info.clone(),
-                                            session_cid,
-                                            kernel_tx.clone(),
-                                            channel_signal,
-                                            sync_instant,
-                                            app,
-                                            encrypted_config_container,
-                                            client_config,
-                                            udp_mode,
-                                            session_security_settings,
-                                            Some(hole_punch_cancel_rx),
-                                        )
-                                        .await;
+                                                let _ = attempt_simultaneous_hole_punch(
+                                                    conn.reverse(),
+                                                    ticket,
+                                                    session.clone(),
+                                                    alice_nat_info.clone(),
+                                                    session_cid,
+                                                    kernel_tx.clone(),
+                                                    channel_signal,
+                                                    sync_instant,
+                                                    app,
+                                                    encrypted_config_container,
+                                                    client_config,
+                                                    udp_mode,
+                                                    session_security_settings,
+                                                    Some(hole_punch_cancel_rx),
+                                                    session_alive,
+                                                )
+                                                .await;
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                            Err(_) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                        }
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -1065,7 +1126,8 @@ async fn process_signal_command_as_server<R: Ratchet>(
             };
 
             match &mut kep {
-                KeyExchangeProcess::Stage1(_, val, _) | KeyExchangeProcess::Stage2(_, val, _) => {
+                KeyExchangeProcess::Stage1(_, val, _, _)
+                | KeyExchangeProcess::Stage2(_, val, _) => {
                     *val = Some(peer_nat_info);
                 }
 
@@ -1456,6 +1518,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
         PeerSignal::Disconnect {
             peer_conn_type,
             disconnect_response: resp,
+            ..
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1463,17 +1526,14 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     peer_cid: target_cid,
                 } => {
                     let mut state_container = inner_mut_state!(session.state_container);
-                    // Stop UDP task before removing vconn to prevent race condition
                     state_container.remove_udp_channel(target_cid);
-                    if state_container
-                        .active_virtual_connections
-                        .remove(&target_cid)
-                        .is_some()
+                    // Mark vconn inactive but do NOT remove from HashMap.
+                    // Same rationale as client-side handler: removal races
+                    // with concurrent packet processing/proxying.
+                    if let Some(vconn) = state_container.active_virtual_connections.get(&target_cid)
                     {
-                        // Remove KEM state to allow clean reconnection
-                        state_container.peer_kem_states.remove(&target_cid);
-                        // note: this is w.r.t the server.
-                        log::trace!(target: "citadel", "[Peer Vconn @ Server] will drop the virtual connection");
+                        vconn.is_active.store(false, Ordering::SeqCst);
+                        log::trace!(target: "citadel", "[Peer Vconn @ Server] marking virtual connection inactive");
                         let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
                             "Peer {session_cid} closed the virtual connection to {target_cid}"
                         ))));
@@ -1484,6 +1544,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                                 peer_cid: target_cid,
                             },
                             disconnect_response: resp,
+                            disconnect_token: None,
                         };
 
                         // now, remove target CID's v_conn to `session_cid`
@@ -1513,6 +1574,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         disconnect_response: Some(PeerResponse::Disconnected(
                             "Server has begun disconnection".to_string(),
                         )),
+                        disconnect_token: None,
                     };
 
                     reply_to_sender(
@@ -1724,7 +1786,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
 
         PeerSignal::DeregistrationSuccess { .. } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::DisconnectUDP { peer_conn_type } => {
+        PeerSignal::DisconnectUDP { peer_conn_type, .. } => {
             // close this UDP channel
             inner_mut_state!(session.state_container)
                 .remove_udp_channel(peer_conn_type.get_original_target_cid());

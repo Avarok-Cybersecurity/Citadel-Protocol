@@ -1,6 +1,6 @@
 [package]
 name = "citadel_proto"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Networking library for the Citadel Protocol"
 edition = "2021"
@@ -14,6 +14,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["filesystem", "std"]
 filesystem = ["citadel_user/filesystem"]
+opfs = ["citadel_user/opfs"]
 multi-threaded = []
 sql = ["citadel_user/sql"]
 redis = ["citadel_user/redis"]

@@ -42,6 +42,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
 
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
@@ -139,6 +140,10 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
+    /// Ratchets extracted from P2P vconns before removal, allowing in-flight
+    /// packets to be decrypted after the stream dies. Cleared when a new
+    /// connection for the same peer is created or at session shutdown.
+    pub(super) stale_p2p_ratchets: HashMap<u64, R>,
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
@@ -146,6 +151,7 @@ pub struct StateContainerInner<R: Ratchet> {
     // TODO: Ensure cleanup
     pub(super) hole_puncher_pipes:
         HashMap<u64, citadel_io::tokio::sync::mpsc::UnboundedSender<Bytes>>,
+    pub(super) pending_hole_punch_packets: HashMap<u64, Vec<Bytes>>,
     pub(super) cnac: Option<ClientNetworkAccount<R, R>>,
     pub(super) time_tracker: TimeTracker,
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
@@ -238,6 +244,9 @@ pub struct P2PDisconnectSignal {
     /// Preserved for disconnect initiator to know when operation completed.
     /// Some when ExplicitDisconnect, None for automatic disconnects.
     pub ticket: Option<Ticket>,
+    /// Token identifying the specific P2P connection instance.
+    /// Used to reject stale disconnect signals from previous connections.
+    pub disconnect_token: Option<DisconnectToken>,
 }
 
 /// Reason for P2P disconnect
@@ -264,6 +273,10 @@ pub struct VirtualConnection<R: Ratchet> {
     pub endpoint_container: Option<EndpointChannelContainer<R>>,
     /// The NAT type of the adjacent peer (if known)
     pub adjacent_nat_type: Option<NatType>,
+    /// Unique ID for this P2P connection instance (exchanged during KEX).
+    /// Used to build `DisconnectToken` for stale-signal rejection.
+    /// `Ticket(0)` for C2S connections.
+    pub p2p_connection_id: Ticket,
 }
 
 impl<R: Ratchet> VirtualConnection<R> {
@@ -316,11 +329,17 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
             // Trigger P2P disconnect notification if not already triggered (exactly-once via .take())
             if let Some(notifier) = endpoint_container.take_p2p_disconnect_notifier() {
                 let peer_cid = self.connection_type.get_target_cid();
+                let session_cid = self.connection_type.get_session_cid();
                 log::trace!(target: "citadel", "VirtualConnection drop: sending P2P disconnect notification (SessionShutdown) for peer {peer_cid}");
+                let disconnect_token = Some(DisconnectToken {
+                    cid: session_cid,
+                    connection_id: self.p2p_connection_id,
+                });
                 let signal = P2PDisconnectSignal {
                     peer_cid,
                     reason: P2PDisconnectReason::SessionShutdown,
                     ticket: None, // No ticket for automatic disconnects (Drop)
+                    disconnect_token,
                 };
                 let _ = notifier.send(signal);
             } else {
@@ -452,6 +471,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             time_tracker,
             cnac,
             hole_puncher_pipes: HashMap::new(),
+            pending_hole_punch_packets: HashMap::new(),
             tcp_loaded_status: None,
             state,
             keep_alive_timeout_ns,
@@ -461,6 +481,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             udp_primary_outbound_tx: None,
             deregister_state: Default::default(),
             active_virtual_connections: Default::default(),
+            stale_p2p_ratchets: Default::default(),
             network_stats: Default::default(),
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
@@ -562,6 +583,16 @@ impl<R: Ratchet> StateContainerInner<R> {
                 *sender = Some(to_udp_stream.clone());
                 if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut() {
                     let (to_channel, rx) = unbounded();
+                    // Build disconnect token from the vconn's p2p_connection_id
+                    let disconnect_token = match v_conn {
+                        VirtualConnectionType::LocalGroupPeer { session_cid, .. } => {
+                            Some(DisconnectToken {
+                                cid: session_cid,
+                                connection_id: p2p_container.p2p_connection_id,
+                            })
+                        }
+                        _ => None,
+                    };
                     let udp_channel = UdpChannel::new(
                         to_udp_stream,
                         rx,
@@ -570,6 +601,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         ticket,
                         p2p_container.is_active.clone(),
                         self.node_remote.clone(),
+                        disconnect_token,
                     );
                     p2p_endpoint_container.to_unordered_local_channel =
                         Some(UnorderedChannelContainer {
@@ -709,6 +741,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         endpoint_crypto: PeerSessionCrypto<R>,
         sess: &CitadelSession<R>,
         file_transfer_compatible: bool,
+        p2p_connection_id: Ticket,
     ) -> PeerChannel<R> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
@@ -812,6 +845,15 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         spawn!(combined_task);
 
+        // Build disconnect token for P2P connections
+        let disconnect_token = match virtual_connection_type {
+            VirtualConnectionType::LocalGroupPeer { session_cid, .. } => Some(DisconnectToken {
+                cid: session_cid,
+                connection_id: p2p_connection_id,
+            }),
+            _ => None, // C2S connections don't use P2P disconnect tokens in the channel
+        };
+
         let peer_channel = PeerChannel::new(
             self.node_remote.clone(),
             target_cid,
@@ -820,6 +862,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             default_security_settings.security_level,
             is_active.clone(),
             protocol_messenger,
+            disconnect_token,
         );
 
         CitadelSession::spawn_message_sender_function(
@@ -851,7 +894,12 @@ impl<R: Ratchet> StateContainerInner<R> {
             sender: None,
             endpoint_container,
             adjacent_nat_type,
+            p2p_connection_id,
         };
+
+        // Clear any stale ratchet for this peer — the new connection
+        // supersedes it and provides a fresh ratchet via the new vconn.
+        self.stale_p2p_ratchets.remove(&target_cid);
 
         self.active_virtual_connections.insert(target_cid, vconn);
 
@@ -881,6 +929,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             endpoint_crypto,
             session,
             true,
+            Ticket(0), // C2S connections don't need P2P connection IDs
         );
 
         let p2p_remote = DirectP2PRemote {
@@ -925,6 +974,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             connection_type,
             is_active: Arc::new(AtomicBool::new(true)),
             adjacent_nat_type: None, // Server doesn't have direct NAT info for clients
+            p2p_connection_id: Ticket(0), // Server doesn't track P2P connection IDs
         };
         if self
             .active_virtual_connections

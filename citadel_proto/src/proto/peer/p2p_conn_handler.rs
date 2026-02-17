@@ -51,7 +51,7 @@ use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
-use crate::proto::session::CitadelSession;
+use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
@@ -239,6 +239,14 @@ fn handle_p2p_stream<R: Ratchet>(
         )
         .map_err(|err| generic_error(err.into_string()))?;
 
+    // Capture the p2p_connection_id so the cleanup future can guard against
+    // removing state that belongs to a newer connection for the same peer.
+    let cleanup_connection_id = state_container
+        .active_virtual_connections
+        .get(&peer_cid)
+        .map(|vconn| vconn.p2p_connection_id)
+        .unwrap_or(Ticket(0));
+
     if udp_mode == UdpMode::Enabled {
         CitadelSession::udp_socket_loader(
             sess.clone(),
@@ -251,6 +259,13 @@ fn handle_p2p_stream<R: Ratchet>(
     }
 
     drop(state_container);
+
+    // Clear P2P disconnect tracker for this peer so the new connection can
+    // have its own disconnect signal. Done AFTER vconn insertion so that
+    // token validation catches stale signals in the window after clearing.
+    sess.session_manager
+        .disconnect_tracker()
+        .clear_p2p_peer(sess.kernel_ticket.get(), v_conn.get_target_cid());
 
     // Spawn task to handle P2P disconnect notification (bidirectional disconnect propagation)
     // When the vconn is dropped (stream ends or explicit disconnect), this task receives
@@ -265,6 +280,31 @@ fn handle_p2p_stream<R: Ratchet>(
         if let Ok(signal) = p2p_dc_rx.await {
             log::trace!(target: "citadel", "P2P disconnect notification received for peer {}: {:?}", signal.peer_cid, signal.reason);
 
+            // Gate the entire handler behind the tracker to prevent both stale
+            // C2S signals and duplicate kernel notifications. The tracker is
+            // cleared by handle_p2p_connection when a new connection is established,
+            // allowing the new connection instance to have its own disconnect signal.
+            if !disconnect_tracker_for_dc.try_p2p_disconnect(session_ticket_for_dc, signal.peer_cid)
+            {
+                log::trace!(target: "citadel", "Skipping P2P D/C signal - already sent for session {:?} peer {}", session_ticket_for_dc, signal.peer_cid);
+                return;
+            }
+
+            // Validate disconnect token: if a NEW P2P connection already exists for
+            // this peer with a different connection_id, this signal is stale — skip it.
+            if let Some(ref token) = signal.disconnect_token {
+                let state_container = inner_state!(sess_for_dc.state_container);
+                if let Some(current_vconn) = state_container
+                    .active_virtual_connections
+                    .get(&signal.peer_cid)
+                {
+                    if current_vconn.p2p_connection_id != token.connection_id {
+                        log::trace!(target: "citadel", "Rejecting stale P2P disconnect signal for peer {} — new connection exists (expected {:?}, got {:?})", signal.peer_cid, current_vconn.p2p_connection_id, token.connection_id);
+                        return;
+                    }
+                }
+            }
+
             // 1. Send PeerSignal::Disconnect via C2S to notify remote peer
             if let Some(session_cid) = session_cid_for_dc.get() {
                 let peer_signal = PeerSignal::Disconnect {
@@ -276,6 +316,7 @@ fn handle_p2p_stream<R: Ratchet>(
                         "P2P disconnect: {:?}",
                         signal.reason
                     ))),
+                    disconnect_token: signal.disconnect_token,
                 };
 
                 // Get C2S ratchet and send via primary stream
@@ -309,14 +350,6 @@ fn handle_p2p_stream<R: Ratchet>(
             }
 
             // 2. Send NodeResult::PeerEvent(Disconnect) to local kernel
-            // NOTE: NodeResult::Disconnect is for C2S only; P2P uses PeerEvent
-            // Check tracker to ensure at most 1 P2P disconnect signal per session/peer
-            if !disconnect_tracker_for_dc.try_p2p_disconnect(session_ticket_for_dc, signal.peer_cid)
-            {
-                log::trace!(target: "citadel", "Skipping P2P D/C signal - already sent for session {:?} peer {}", session_ticket_for_dc, signal.peer_cid);
-                return;
-            }
-
             let disconnect_result = NodeResult::PeerEvent(PeerEvent {
                 event: PeerSignal::Disconnect {
                     peer_conn_type: PeerConnectionType::LocalGroupPeer {
@@ -327,6 +360,7 @@ fn handle_p2p_stream<R: Ratchet>(
                         "P2P disconnect: {:?}",
                         signal.reason
                     ))),
+                    disconnect_token: signal.disconnect_token,
                 },
                 ticket: signal.ticket.unwrap_or(Ticket(0)),
                 session_cid: session_cid_for_dc.get().unwrap_or(0),
@@ -350,16 +384,45 @@ fn handle_p2p_stream<R: Ratchet>(
         }
 
         let mut state_container = inner_mut_state!(sess.state_container);
-        // Stop UDP task BEFORE removing vconn to prevent race condition where
-        // UDP packets arrive but vconn lookup fails (causing "closed by peer: 0")
-        state_container.remove_udp_channel(peer_cid);
-        state_container.active_virtual_connections.remove(&peer_cid);
-        // Remove KEM state to properly cancel any in-flight hole punch operations
-        // and allow clean reconnection without stale state
-        state_container.peer_kem_states.remove(&peer_cid);
-        state_container
-            .outgoing_peer_connect_attempts
-            .remove(&peer_cid);
+
+        // Only remove state if it still belongs to THIS P2P connection instance.
+        // During reconnection, a newer connection may have already replaced this one
+        // in the state container. Unconditional removal would delete the new
+        // connection's state, causing "connection lost" errors.
+        let is_current_connection = state_container
+            .active_virtual_connections
+            .get(&peer_cid)
+            .map(|vconn| vconn.p2p_connection_id == cleanup_connection_id)
+            .unwrap_or(false);
+
+        if is_current_connection {
+            state_container.remove_udp_channel(peer_cid);
+
+            // Preserve the ratchet before removing the vconn so in-flight
+            // packets (already in the processing pipeline) can still be
+            // decrypted via stale_p2p_ratchets fallback in
+            // get_orientation_safe_ratchet(). The stale ratchet is cleared
+            // when a new connection for this peer is created.
+            if let Some(ratchet) = state_container
+                .active_virtual_connections
+                .get(&peer_cid)
+                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
+            {
+                state_container.stale_p2p_ratchets.insert(peer_cid, ratchet);
+            }
+
+            state_container.active_virtual_connections.remove(&peer_cid);
+
+            // NOTE: Do NOT remove peer_kem_states here — a new reconnection
+            // may have already inserted fresh KEM state (same rationale as
+            // commit b1325cf4 fix in peer_cmd_packet.rs and session_manager.rs).
+
+            state_container
+                .outgoing_peer_connect_attempts
+                .remove(&peer_cid);
+        } else {
+            log::trace!(target: "citadel", "[P2P-stream] Skipping cleanup for peer {peer_cid} — connection replaced by newer instance");
+        }
 
         log::trace!(target: "citadel", "[P2P-stream] Dropping tri-joined future");
         res
@@ -438,12 +501,16 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
     cancel_rx: Option<Receiver<()>>,
+    session_alive: SessionAliveTracker<R>,
 ) -> std::io::Result<()> {
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
     let v_conn = peer_connection_type.as_virtual_connection();
 
     let process = async move {
+        if !session_alive.alive() {
+            return Err(generic_error("Session no longer alive"));
+        }
         citadel_io::tokio::time::sleep_until(sync_time).await;
 
         let hole_punched_socket = app
@@ -492,16 +559,22 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
             )
         } else {
             log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
-            drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
+
+            // Reuse the hole-punched socket directly for QUIC listener.
+            // This eliminates the drop-and-rebind race where the OS may not
+            // release the port in time for a new socket to bind.
+            let socket = hole_punched_socket.into_socket();
+            let quic_node =
+                citadel_wire::quic::QuicServer::new_self_signed(socket).map_err(generic_error)?;
 
             // Create listener BEFORE sync to ensure it's ready when initiator connects
             let (listener, _) = CitadelNode::<R>::create_listen_socket(
                 ServerUnderlyingProtocol::new_quic_self_signed(),
                 None,
-                None,
+                Some(quic_node),
                 local_addr,
             )?;
-            log::trace!(target: "citadel", "Non-initiator: listener created on {:?}, signaling ready", local_addr);
+            log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
 
             // Signal to initiator that listener is ready
             app.sync().await.map_err(generic_error)?;

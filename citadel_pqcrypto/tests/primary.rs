@@ -78,6 +78,18 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn runit_fndsa512() {
+        run::<Vec<u8>>(
+            0,
+            EncryptionAlgorithm::MlKemHybrid,
+            SigAlgorithm::FnDsa512,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        )
+        .unwrap();
+    }
+
     fn run<T: AsRef<[u8]>>(
         algorithm: u8,
         encryption_algorithm: EncryptionAlgorithm,
@@ -154,8 +166,8 @@ mod tests {
 
             assert_eq!(plaintext.as_slice(), decrypted);
 
-            if kem_algorithm == KemAlgorithm::Kyber
-                && encryption_algorithm == EncryptionAlgorithm::KyberHybrid
+            if kem_algorithm == KemAlgorithm::MlKem
+                && encryption_algorithm == EncryptionAlgorithm::MlKemHybrid
             {
                 // test local encryption
                 local_encryption(&alice_container, &bob_container, &plaintext, nonce);
@@ -190,7 +202,7 @@ mod tests {
     fn in_place_sequential() {
         const HEADER_LEN: usize = 50;
 
-        let kem_algorithm = KemAlgorithm::Kyber;
+        let kem_algorithm = KemAlgorithm::MlKem;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
 
@@ -212,9 +224,31 @@ mod tests {
     fn in_place_sequential_kyber() {
         const HEADER_LEN: usize = 50;
 
-        let kem_algorithm = KemAlgorithm::Kyber;
-        let encryption_algorithm = EncryptionAlgorithm::KyberHybrid;
-        let signature_algorithm = SigAlgorithm::Dilithium65;
+        let kem_algorithm = KemAlgorithm::MlKem;
+        let encryption_algorithm = EncryptionAlgorithm::MlKemHybrid;
+        let signature_algorithm = SigAlgorithm::MlDsa65;
+
+        let (alice_container, bob_container) = gen(
+            kem_algorithm,
+            encryption_algorithm,
+            signature_algorithm,
+            &PRE_SHARED_KEYS,
+            &PRE_SHARED_KEYS,
+        );
+
+        for x in 0..256 {
+            run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
+            run_protection::<BytesMut>(&alice_container, &bob_container, HEADER_LEN, x);
+        }
+    }
+
+    #[test]
+    fn in_place_sequential_fndsa512() {
+        const HEADER_LEN: usize = 50;
+
+        let kem_algorithm = KemAlgorithm::MlKem;
+        let encryption_algorithm = EncryptionAlgorithm::MlKemHybrid;
+        let signature_algorithm = SigAlgorithm::FnDsa512;
 
         let (alice_container, bob_container) = gen(
             kem_algorithm,
@@ -270,7 +304,7 @@ mod tests {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
-        let kem_algorithm = KemAlgorithm::Kyber;
+        let kem_algorithm = KemAlgorithm::MlKem;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
 
@@ -350,7 +384,7 @@ mod tests {
 
         citadel_logging::setup_log();
 
-        let kem_algorithm = KemAlgorithm::Kyber;
+        let kem_algorithm = KemAlgorithm::MlKem;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
         let nonce_len = encryption_algorithm.nonce_len();
@@ -415,11 +449,11 @@ mod tests {
                 &PRE_SHARED_KEYS,
             )
             .unwrap();
-            if algorithm == KemAlgorithm::Kyber {
+            if algorithm == KemAlgorithm::MlKem {
                 run::<Vec<u8>>(
                     algorithm.as_u8(),
-                    EncryptionAlgorithm::KyberHybrid,
-                    SigAlgorithm::Dilithium65,
+                    EncryptionAlgorithm::MlKemHybrid,
+                    SigAlgorithm::MlDsa65,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 )
@@ -432,9 +466,9 @@ mod tests {
     fn test_kyber() {
         citadel_logging::setup_log();
         run::<Vec<u8>>(
-            KemAlgorithm::Kyber.as_u8(),
-            EncryptionAlgorithm::KyberHybrid,
-            SigAlgorithm::Dilithium65,
+            KemAlgorithm::MlKem.as_u8(),
+            EncryptionAlgorithm::MlKemHybrid,
+            SigAlgorithm::MlDsa65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         )
@@ -446,9 +480,9 @@ mod tests {
     fn test_kyber_bad_psks() {
         citadel_logging::should_panic_test();
         run::<Vec<u8>>(
-            KemAlgorithm::Kyber.as_u8(),
+            KemAlgorithm::MlKem.as_u8(),
             EncryptionAlgorithm::AES_GCM_256,
-            SigAlgorithm::Dilithium65,
+            SigAlgorithm::MlDsa65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS2,
         )
@@ -473,7 +507,7 @@ mod tests {
     #[test]
     fn test_serialize_deserialize() {
         citadel_logging::setup_log();
-        let kem_algorithm = KemAlgorithm::Kyber;
+        let kem_algorithm = KemAlgorithm::MlKem;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let signature_algorithm = SigAlgorithm::None;
         let (alice_container, bob_container) = gen(
@@ -575,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_bad_crypto_params() {
-        let bad_params = EncryptionAlgorithm::KyberHybrid + KemAlgorithm::Kyber;
+        let bad_params = EncryptionAlgorithm::MlKemHybrid + KemAlgorithm::MlKem;
         assert!(validate_crypto_params(&bad_params).is_err());
     }
 }

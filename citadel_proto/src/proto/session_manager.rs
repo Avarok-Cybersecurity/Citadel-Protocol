@@ -575,6 +575,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                 let signal = PeerSignal::Disconnect {
                                     peer_conn_type,
                                     disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {session_cid} forcibly"))),
+                                    disconnect_token: None,
                                 };
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal, Ticket(0), timestamp, security_level)
@@ -587,11 +588,9 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
                                     // Stop peer's UDP task before removing vconn
                                     peer_state_container.remove_udp_channel(session_cid);
-                                    // Only remove KEM state if vconn existed - prevents removing
-                                    // KEM state for a new reconnection in progress
-                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_some() {
-                                        peer_state_container.peer_kem_states.remove(&session_cid);
-                                    } else {
+                                    // NOTE: Do NOT remove peer_kem_states here — a new
+                                    // reconnection may have already inserted fresh KEM state.
+                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
                                         log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
                                     }
                                 }
@@ -926,7 +925,14 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         let will_perform_dc = res?;
 
         if !will_perform_dc {
-            // Already disconnected. Send a message to the kernel
+            // Session not found or already disconnected. Send an API response so
+            // the SDK's disconnect_from_server() subscription doesn't hang.
+            // NOT gated by DisconnectSignalTracker because:
+            // 1. The session is gone from the map — we don't have its kernel_ticket
+            // 2. This uses the request `ticket` (not kernel_ticket), routing only
+            //    to the specific disconnect caller's callback
+            // 3. disconnect_token is None, so downstream token validation rejects
+            //    it if a new session has reconnected with the same CID
             this.kernel_tx
                 .unbounded_send(NodeResult::Disconnect(Disconnect {
                     ticket,
@@ -934,6 +940,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     success: true,
                     conn_type: Some(ClientConnectionType::Server { session_cid }),
                     message: "Already disconnected".to_string(),
+                    disconnect_token: None,
                 }))?;
         }
 
@@ -1223,14 +1230,14 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
             accessor
                 .borrow_hr(None, |hr, state_container| {
-                    // Stop UDP task before removing vconn to prevent race condition
                     state_container.remove_udp_channel(session_cid);
-                    let removed = state_container
-                        .active_virtual_connections
-                        .remove(&session_cid);
-                    if removed.is_some() {
-                        // Remove KEM state to allow clean reconnection
-                        state_container.peer_kem_states.remove(&session_cid);
+                    // Mark vconn inactive but do NOT remove from HashMap.
+                    // Removal races with concurrent packet processing that
+                    // needs the vconn's ratchet for decryption.
+                    if let Some(vconn) =
+                        state_container.active_virtual_connections.get(&session_cid)
+                    {
+                        vconn.is_active.store(false, Ordering::SeqCst);
                         let packet = on_internal_disconnect(hr);
                         to_primary
                             .unbounded_send(packet)

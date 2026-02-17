@@ -185,8 +185,11 @@ pub mod kyber_module {
 
             // Now sign the entire encrypted packet (including the encrypted scramble dict and checksum)
             let hash = sha3_256_with_ad(ad, input.as_ref());
-            let signature =
-                crate::functions::signature_sign(&hash[..], self.sig.sig_private_key.as_slice())?;
+            let signature = crate::functions::signature_sign(
+                &hash[..],
+                self.sig.sig_private_key.as_slice(),
+                self.sig_alg,
+            )?;
 
             // Append the signature and its length at the very end
             input
@@ -230,6 +233,7 @@ pub mod kyber_module {
                 &sig_verify_input[..],
                 signature_bytes,
                 sig_remote_pk.as_slice(),
+                self.sig_alg,
             )?;
 
             // Remove the signature from the buffer
@@ -280,7 +284,7 @@ pub mod kyber_module {
         nonce: V,
     ) -> Result<Vec<u8>, Error> {
         match kem_alg {
-            KemAlgorithm::Kyber => kyber_pke::encrypt(local_pk, plaintext, nonce)
+            KemAlgorithm::MlKem => kyber_pke::encrypt(local_pk, plaintext, nonce)
                 .map_err(|err| Error::Other(format!("{err:?}"))),
         }
     }
@@ -291,7 +295,7 @@ pub mod kyber_module {
         ciphertext: R,
     ) -> Result<Vec<u8>, Error> {
         match kem_alg {
-            KemAlgorithm::Kyber => kyber_pke::decrypt(local_sk, ciphertext)
+            KemAlgorithm::MlKem => kyber_pke::decrypt(local_sk, ciphertext)
                 .map_err(|err| Error::Other(format!("{err:?}"))),
         }
     }

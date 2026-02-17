@@ -16,8 +16,23 @@
 
 use crate::proto::remote::Ticket;
 use citadel_io::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+
+/// A token that uniquely identifies a specific connection instance.
+///
+/// Prevents stale disconnect signals from a previous connection (C2S session or P2P)
+/// from incorrectly tearing down a newly established connection with the same CID.
+///
+/// - **C2S:** `connection_id` = `kernel_ticket` (unique per session instance)
+/// - **P2P:** `connection_id` = randomly generated `Ticket` (unique per P2P connection,
+///   exchanged symmetrically during KEX Stage0/Stage1)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DisconnectToken {
+    pub cid: u64,
+    pub connection_id: Ticket,
+}
 
 /// Tracks disconnect signals to ensure at most 1 per unique session/peer instance.
 ///
@@ -69,6 +84,21 @@ impl DisconnectSignalTracker {
             .p2p_disconnected
             .lock()
             .insert((session_ticket, peer_cid))
+    }
+
+    /// Clear P2P disconnect tracking for a specific peer in a session.
+    ///
+    /// Called when a new P2P connection is established (reconnection) to allow
+    /// the new connection instance to have its own disconnect signal.
+    ///
+    /// # Arguments
+    /// * `session_ticket` - Unique ID for the session instance
+    /// * `peer_cid` - The CID of the peer whose tracking should be cleared
+    pub fn clear_p2p_peer(&self, session_ticket: Ticket, peer_cid: u64) {
+        self.inner
+            .p2p_disconnected
+            .lock()
+            .remove(&(session_ticket, peer_cid));
     }
 
     /// Clear all disconnect tracking state for a session.
@@ -175,5 +205,61 @@ mod tests {
 
         // tracker2 should see the same state
         assert!(!tracker2.try_c2s_disconnect(ticket));
+    }
+
+    #[test]
+    fn test_disconnect_token_equality() {
+        let token1 = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(111u128),
+        };
+        let token2 = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(111u128),
+        };
+        let token3 = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(222u128),
+        };
+
+        assert_eq!(token1, token2);
+        assert_ne!(token1, token3);
+    }
+
+    #[test]
+    fn test_clear_p2p_peer() {
+        let tracker = DisconnectSignalTracker::new();
+        let ticket = Ticket::from(12345u128);
+        let peer1 = 111u64;
+        let peer2 = 222u64;
+
+        // Mark both peers as disconnected
+        assert!(tracker.try_p2p_disconnect(ticket, peer1));
+        assert!(tracker.try_p2p_disconnect(ticket, peer2));
+
+        // Clear only peer1 (simulating reconnection to peer1)
+        tracker.clear_p2p_peer(ticket, peer1);
+
+        // peer1 should accept signals again (new connection can disconnect)
+        assert!(tracker.try_p2p_disconnect(ticket, peer1));
+        // peer2 should still be blocked (not cleared)
+        assert!(!tracker.try_p2p_disconnect(ticket, peer2));
+    }
+
+    #[test]
+    fn test_disconnect_token_mismatch_rejects_stale_signal() {
+        let old_token = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(111u128),
+        };
+        let new_token = DisconnectToken {
+            cid: 100,
+            connection_id: Ticket::from(222u128),
+        };
+
+        // Same CID but different connection_id means stale signal
+        assert_eq!(old_token.cid, new_token.cid);
+        assert_ne!(old_token.connection_id, new_token.connection_id);
+        assert_ne!(old_token, new_token);
     }
 }

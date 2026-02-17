@@ -28,6 +28,7 @@
 //!
 use crate::error::NetworkError;
 use crate::prelude::{GroupBroadcast, GroupChannel, PeerChannel, PeerSignal, UdpChannel};
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::peer::peer_layer::MailboxTransfer;
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::VirtualConnectionType;
@@ -148,6 +149,9 @@ pub struct Disconnect {
     /// None only for provisional connections that never fully established.
     pub conn_type: Option<ClientConnectionType>,
     pub message: String,
+    /// Token identifying the specific C2S session instance.
+    /// Used to reject stale disconnect signals from previous sessions.
+    pub disconnect_token: Option<DisconnectToken>,
 }
 
 #[derive(Debug)]
@@ -344,11 +348,7 @@ impl<R: Ratchet> NodeResult<R> {
                 session_cid,
             }) => Some(CallbackKey::new(*t, *session_cid)),
             NodeResult::Disconnect(Disconnect {
-                ticket: t,
-                cid_opt,
-                success: _,
-                conn_type: _,
-                message: _,
+                ticket: t, cid_opt, ..
             }) => Some(CallbackKey {
                 ticket: *t,
                 session_cid: *cid_opt,

@@ -18,7 +18,7 @@ Get the protocol and SDK versions programmatically:
 import { protocol_version, sdk_version } from '@avarok/citadel-protocol-types';
 
 console.log(`Protocol version: ${protocol_version()}`);  // e.g., "0.9.0"
-console.log(`SDK version: ${sdk_version()}`);            // e.g., "0.13.0"
+console.log(`SDK version: ${sdk_version()}`);            // e.g., "0.14.0"
 ```
 
 ## Usage

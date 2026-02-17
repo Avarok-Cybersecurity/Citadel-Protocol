@@ -40,3 +40,6 @@ export * from './PreSharedKey';
 
 // Error types
 export * from './Error';
+
+// Runtime helpers (allValues, defaults)
+export * from './helpers';

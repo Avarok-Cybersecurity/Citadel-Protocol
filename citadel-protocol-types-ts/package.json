@@ -1,6 +1,6 @@
 {
   "name": "@avarok/citadel-protocol-types",
-  "version": "0.13.1",
+  "version": "0.14.1",
   "description": "TypeScript type definitions for the Citadel Protocol, automatically generated from Rust types",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
