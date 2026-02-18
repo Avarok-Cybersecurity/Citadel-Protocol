@@ -35,9 +35,9 @@ use citadel_io::tokio_stream::StreamExt;
 
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
-use crate::prelude::ServerUnderlyingProtocol;
 use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
+use crate::proto::misc::native_config::NativeP2PConfig;
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
 use crate::proto::node::CitadelNode;
@@ -55,6 +55,7 @@ use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ProtocolIO;
+use citadel_io::ServerMode;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
 use citadel_wire::exports::tokio_rustls::rustls;
@@ -190,7 +191,7 @@ where
     let remote_peer = p2p_stream.peer_addr()?;
     let local_bind_addr = p2p_stream.local_addr()?;
     let quic_conn = p2p_stream
-        .take_quic_connection()
+        .take_p2p_connection()
         .ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
     let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_bind_addr);
 
@@ -588,7 +589,7 @@ where
 
             // Create listener BEFORE sync to ensure it's ready when initiator connects
             let (listener, _) = CitadelNode::<R, T>::create_listen_socket(
-                ServerUnderlyingProtocol::new_quic_self_signed(),
+                ServerMode::P2P(NativeP2PConfig::self_signed()),
                 None,
                 Some(quic_node),
                 local_addr,

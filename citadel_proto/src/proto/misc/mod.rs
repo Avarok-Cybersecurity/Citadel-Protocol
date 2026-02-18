@@ -40,12 +40,13 @@ pub mod dual_cell;
 pub mod dual_late_init;
 pub mod dual_rwlock;
 pub mod lock_holder;
+pub mod native_config;
 pub mod native_io;
+pub mod native_upgrade;
 pub mod net;
 pub mod panic_future;
 pub mod session_security_settings;
 pub mod udp_internal_interface;
-pub mod underlying_proto;
 
 pub async fn read_one_packet_as_framed<S: AsyncRead + Unpin, D: DeserializeOwned + Serialize>(
     io: S,

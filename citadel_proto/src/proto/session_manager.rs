@@ -42,7 +42,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
+use citadel_io::{ProtocolIO, ServerMode};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -247,7 +247,7 @@ where
         init_mode: HdpSessionInitMode,
         ticket: Ticket,
         connect_mode: Option<ConnectMode>,
-        listener_underlying_proto: T::ServerConfig,
+        listener_underlying_proto: ServerMode<T>,
         udp_mode: Option<UdpMode>,
         keep_alive_timeout_ns: Option<i64>,
         security_settings: SessionSecuritySettings,
@@ -378,7 +378,7 @@ where
                 };
 
                 let peer_only_connect_mode =
-                    ConnectProtocol::Quic(T::server_identity(&listener_underlying_proto));
+                    ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
                 // create conn to peer
                 let primary_stream = T::connect(default_client_config, peer_addr.into())

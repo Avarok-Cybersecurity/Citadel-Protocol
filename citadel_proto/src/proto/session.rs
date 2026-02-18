@@ -511,7 +511,7 @@ where
         let this_close = self.clone();
 
         let (session_future, handle_zero_state, session_cid, queue_worker_handle) = {
-            let quic_conn_opt = primary_stream.take_quic_connection();
+            let quic_conn_opt = primary_stream.take_p2p_connection();
             let (writer, reader) = misc::net::safe_split_stream(primary_stream);
 
             let (primary_outbound_tx, primary_outbound_rx) = unbounded();

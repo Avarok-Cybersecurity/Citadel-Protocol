@@ -230,9 +230,9 @@ mod test {
 
         let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
-            .with_underlying_protocol(
-                ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),
-            )
+            .with_underlying_protocol(ServerMode::OrderedReliable(
+                NativeOrderedReliableConfig::from_tokio_listener(server_listener).unwrap(),
+            ))
             .build(server_kernel)
             .unwrap();
 
@@ -338,9 +338,9 @@ mod test {
 
         let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
-            .with_underlying_protocol(
-                ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),
-            )
+            .with_underlying_protocol(ServerMode::OrderedReliable(
+                NativeOrderedReliableConfig::from_tokio_listener(server_listener).unwrap(),
+            ))
             .build(server_kernel)
             .unwrap();
 

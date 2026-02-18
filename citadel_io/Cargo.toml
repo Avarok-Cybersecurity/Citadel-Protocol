@@ -22,6 +22,8 @@ net = ["tokio/net", "tokio-util/net"]
 
 [dependencies]
 rand = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = [

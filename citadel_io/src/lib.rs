@@ -57,7 +57,9 @@ pub mod standard;
 pub mod wasm;
 
 pub mod proto_io;
-pub use proto_io::{ProtocolIO, UnreliableDatagram};
+pub use proto_io::{
+    ProtocolIO, ProtocolUpgrade, ServerMode, UnreliableDatagram, UpgradeListenerPair,
+};
 
 #[cfg(target_family = "wasm")]
 pub use wasm::locks::*;

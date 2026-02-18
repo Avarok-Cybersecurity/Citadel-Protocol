@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::AsyncRead;
-use citadel_io::{Mutex, ProtocolIO};
+use citadel_io::{Mutex, ProtocolIO, ProtocolUpgrade};
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
@@ -57,10 +57,13 @@ use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
 use crate::prelude::ActiveSessions;
 use crate::prelude::{DeleteObject, PullObject};
+use crate::proto::misc::native_config::{
+    NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig,
+};
+use crate::proto::misc::native_io::NativeIO;
 use crate::proto::misc::net::{
     DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
 };
-use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
 use crate::proto::node_request::{
     ConnectToHypernode, DeregisterFromHypernode, DisconnectFromHypernode, GroupBroadcastCommand,
     NodeRequest, PeerCommand, ReKey, RegisterToHypernode, SendObject,
@@ -72,6 +75,7 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{HdpSessionInitMode, ServerOnlySessionInitSettings};
 use crate::proto::session_manager::CitadelSessionManager;
+use citadel_io::ServerMode;
 
 pub type TlsDomain = Option<String>;
 
@@ -89,7 +93,7 @@ pub struct CitadelNodeInner<R: Ratchet, T: ProtocolIO> {
     to_kernel: UnboundedSender<NodeResult<R>>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
-    underlying_proto: T::ServerConfig,
+    underlying_proto: ServerMode<T>,
     nat_type: NatType,
     // for TLS params
     client_config: T::ClientConfig,
@@ -112,7 +116,7 @@ where
         to_kernel: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
-        underlying_proto: T::ServerConfig,
+        underlying_proto: ServerMode<T>,
         client_config: Option<T::ClientConfig>,
         stun_servers: Option<Vec<String>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
@@ -328,20 +332,20 @@ where
     }
 
     pub fn server_create_primary_listen_socket<A: ToSocketAddrs>(
-        underlying_proto: ServerUnderlyingProtocol,
+        underlying_proto: ServerMode<NativeIO>,
         full_bind_addr: A,
     ) -> io::Result<(DualListener, SocketAddr)> {
         match &underlying_proto {
-            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(..) => {
+            ServerMode::OrderedReliableSecure(..) | ServerMode::OrderedReliable(..) => {
                 Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
                     .map(|r| (DualListener::new(r.0, None), r.1))
             }
 
-            ServerUnderlyingProtocol::Quic(_, domain, is_self_signed) => {
+            ServerMode::P2P(ref config) => {
                 // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
                 let (tcp_listener, bind_addr) = Self::create_listen_socket(
-                    ServerUnderlyingProtocol::tcp(),
-                    Some((domain.clone(), *is_self_signed)),
+                    ServerMode::OrderedReliable(NativeOrderedReliableConfig::new()),
+                    Some((config.domain.clone(), config.is_self_signed)),
                     None,
                     full_bind_addr,
                 )?;
@@ -356,7 +360,7 @@ where
     }
 
     pub fn create_listen_socket<A: ToSocketAddrs>(
-        underlying_proto: ServerUnderlyingProtocol,
+        underlying_proto: ServerMode<NativeIO>,
         redirect_to_quic: Option<(TlsDomain, bool)>,
         quic_endpoint_opt: Option<QuicNode>,
         full_bind_addr: A,
@@ -368,16 +372,16 @@ where
         Self::bind_defaults(underlying_proto, redirect_to_quic, quic_endpoint_opt, bind)
     }
 
-    /// redirect_to_quic is only applicable when using TCP
-    /// - quic_endpoint_opt is only relevant (yet optional) when the underlying proto specified is quic
+    /// redirect_to_quic is only applicable when using OrderedReliable (TCP)
+    /// - quic_endpoint_opt is only relevant (yet optional) when the underlying proto specified is P2P (QUIC)
     fn bind_defaults(
-        underlying_proto: ServerUnderlyingProtocol,
+        underlying_proto: ServerMode<NativeIO>,
         redirect_to_quic: Option<(TlsDomain, bool)>,
         quic_endpoint_opt: Option<QuicNode>,
         bind: SocketAddr,
     ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         match underlying_proto {
-            ServerUnderlyingProtocol::Tcp(Some(listener)) => {
+            ServerMode::OrderedReliable(NativeOrderedReliableConfig { listener: Some(listener) }) => {
                 let listener = listener.lock().take().ok_or_else(|| {
                     std::io::Error::other(
                         "TCP listener already taken",
@@ -388,17 +392,17 @@ where
 
                 Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
             }
-            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(None) => {
+            ServerMode::OrderedReliableSecure(..) | ServerMode::OrderedReliable(NativeOrderedReliableConfig { listener: None }) => {
                 citadel_wire::socket_helpers::get_tcp_listener(bind)
                     .and_then(|listener| {
                         log::trace!(target: "citadel", "Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
                         let bind = listener.local_addr()?;
                         match underlying_proto {
-                            ServerUnderlyingProtocol::Tcp(None) => {
+                            ServerMode::OrderedReliable(..) => {
                                 Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
                             }
 
-                            ServerUnderlyingProtocol::Tls(interop, domain, is_self_signed) => {
+                            ServerMode::OrderedReliableSecure(NativeSecureConfig { interop, domain, is_self_signed }) => {
                                 let tls_listener = TlsListener::new(listener, interop.tls_acceptor, domain, is_self_signed)?;
                                 Ok((GenericNetworkListener::new_tls(tls_listener)?, bind))
                             }
@@ -410,7 +414,7 @@ where
                     }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
             }
 
-            ServerUnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
+            ServerMode::P2P(NativeP2PConfig { crypto, domain, is_self_signed }) => {
                 log::trace!(target: "citadel", "Setting up QUIC listener socket on {bind:?} | Self-signed? {is_self_signed}");
 
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
@@ -477,7 +481,7 @@ where
         )
         .await?
         .map_err(generic_error)?;
-        Ok(GenericNetworkStream::Quic(
+        Ok(GenericNetworkStream::P2P(
             sink,
             stream,
             quic_endpoint,
@@ -516,17 +520,17 @@ where
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
 
         match first_packet {
-            FirstPacket::Tcp { external_addr } => {
-                log::trace!(target: "citadel", "Host claims TCP DEFAULT CONNECTION. External ADDR: {external_addr:?}");
-                Ok((GenericNetworkStream::Tcp(stream), None))
+            FirstPacket::OrderedReliable { external_addr } => {
+                log::trace!(target: "citadel", "Host claims OrderedReliable (TCP) DEFAULT CONNECTION. External ADDR: {external_addr:?}");
+                Ok((GenericNetworkStream::OrderedReliable(stream), None))
             }
 
-            FirstPacket::Tls {
+            FirstPacket::OrderedReliableSecure {
                 domain,
                 external_addr,
                 is_self_signed,
             } => {
-                log::trace!(target: "citadel", "Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
+                log::trace!(target: "citadel", "Host claims OrderedReliableSecure (TLS) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
 
                 let connector = if is_self_signed {
                     citadel_wire::tls::create_client_dangerous_config()
@@ -546,38 +550,27 @@ where
                     )
                     .await
                     .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
-                Ok((GenericNetworkStream::Tls(Box::new(stream.into())), None))
+                Ok((
+                    GenericNetworkStream::OrderedReliableSecure(Box::new(stream.into())),
+                    None,
+                ))
             }
-            FirstPacket::Quic {
+            FirstPacket::P2P {
                 domain,
                 external_addr,
                 is_self_signed,
             } => {
-                log::trace!(target: "citadel", "Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
-                let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind_addr)
-                    .map_err(generic_error)?; // bind to same address as tcp for firewall purposes
-                let mut quic_endpoint = if is_self_signed {
-                    citadel_wire::quic::QuicClient::new_no_verify(udp_socket)
-                        .map_err(generic_error)?
-                } else {
-                    citadel_wire::quic::QuicClient::new_with_rustls_config(
-                        udp_socket,
-                        default_client_config.clone(),
-                    )
-                    .map_err(generic_error)?
-                };
-
-                quic_endpoint.tls_domain_opt.clone_from(&domain);
-
-                Self::quic_p2p_connect_defaults(
-                    quic_endpoint.endpoint.clone(),
-                    timeout,
+                log::trace!(target: "citadel", "Host claims P2P (QUIC) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
+                let signal = crate::proto::misc::native_upgrade::QuicRedirectSignal {
                     domain,
-                    remote,
-                    default_client_config.clone(),
-                )
+                    external_addr,
+                    is_self_signed,
+                };
+                <crate::proto::misc::native_upgrade::TcpToQuicUpgrade as ProtocolUpgrade<
+                    crate::proto::misc::native_io::NativeIO,
+                >>::connect_target(signal, bind_addr, remote, default_client_config)
                 .await
-                .map(|r| (r, Some(quic_endpoint)))
+                .map(|s| (s, None))
             }
         }
     }

@@ -16,7 +16,7 @@ pub mod tests {
 
     #[fixture]
     #[once]
-    fn protocols() -> Vec<ServerUnderlyingProtocol> {
+    fn protocols() -> Vec<ServerMode<NativeIO>> {
         /*use std::io::Read;
           use itertools::Itertools;
         // NOTE: This is a dev-only pkcs12 bundle that is periodically renewed. It is not used
@@ -30,16 +30,16 @@ pub mod tests {
             .unwrap();*/
 
         vec![
-            ServerUnderlyingProtocol::tcp(),
-            ServerUnderlyingProtocol::new_tls_self_signed().unwrap(),
-            ServerUnderlyingProtocol::new_quic_self_signed(),
-            /*ServerUnderlyingProtocol::load_tls_from_bytes(
+            ServerMode::OrderedReliable(NativeOrderedReliableConfig::new()),
+            ServerMode::OrderedReliableSecure(NativeSecureConfig::self_signed().unwrap()),
+            ServerMode::P2P(NativeP2PConfig::self_signed()),
+            /*ServerMode::<NativeIO>::load_secure_from_bytes(
                 &pkcs_12_der,
                 "password",
                 "thomaspbraun.com",
             )
             .unwrap(),
-            ServerUnderlyingProtocol::load_quic_from_bytes(
+            ServerMode::<NativeIO>::load_p2p_from_bytes(
                 &pkcs_12_der,
                 "password",
                 "thomaspbraun.com",
@@ -69,7 +69,7 @@ pub mod tests {
     )]
     async fn test_tcp_or_tls(
         #[case] addr: SocketAddr,
-        protocols: &Vec<ServerUnderlyingProtocol>,
+        protocols: &Vec<ServerMode<NativeIO>>,
         client_config: &Arc<ClientConfig>,
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();
@@ -149,7 +149,7 @@ pub mod tests {
     )]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,
-        protocols: &Vec<ServerUnderlyingProtocol>,
+        protocols: &Vec<ServerMode<NativeIO>>,
         client_config: &Arc<ClientConfig>,
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();

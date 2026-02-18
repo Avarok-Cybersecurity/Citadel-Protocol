@@ -62,9 +62,9 @@ pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
     let bind_addr = tcp_listener.local_addr().unwrap();
     let builder = builder
         .with_node_type(NodeType::Server(bind_addr))
-        .with_underlying_protocol(
-            ServerUnderlyingProtocol::from_tokio_tcp_listener(tcp_listener).unwrap(),
-        );
+        .with_underlying_protocol(ServerMode::OrderedReliable(
+            NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
+        ));
 
     (opts)(builder);
 

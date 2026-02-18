@@ -533,10 +533,13 @@ pub mod prelude {
     pub use crate::kernel::{
         kernel_executor::KernelExecutor, kernel_trait::NetKernel, KernelExecutorSettings,
     };
+    pub use crate::proto::misc::native_config::{
+        NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig, NativeServerModeExt,
+    };
     pub use crate::proto::misc::native_io::NativeIO;
+    pub use crate::proto::misc::native_upgrade::{QuicRedirectSignal, TcpToQuicUpgrade};
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
-    pub use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
     pub use crate::proto::node::CitadelNode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -549,6 +552,7 @@ pub mod prelude {
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::re_imports::{async_trait, NodeType};
+    pub use citadel_io::ServerMode;
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;

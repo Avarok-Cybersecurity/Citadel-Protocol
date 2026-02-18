@@ -37,7 +37,7 @@
 
 use citadel_proto::prelude::*;
 
-use citadel_io::ProtocolIO;
+use citadel_io::{ProtocolIO, ServerMode};
 use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::macros::{ContextRequirements, LocalContextRequirements};
 use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey};
@@ -51,7 +51,7 @@ use std::task::{Context, Poll};
 /// Used to construct a running client/peer or server instance
 pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = NativeIO> {
     hypernode_type: Option<NodeType>,
-    underlying_protocol: Option<T::ServerConfig>,
+    underlying_protocol: Option<ServerMode<T>>,
     backend_type: Option<BackendType>,
     server_argon_settings: Option<ArgonDefaultServerSettings>,
     #[cfg(feature = "google-services")]
@@ -283,7 +283,7 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
 
     /// Sets the underlying protocol / server configuration for the transport.
     /// Default: TLS transport w/ self-signed cert (for NativeIO)
-    pub fn with_underlying_protocol(&mut self, proto: T::ServerConfig) -> &mut Self {
+    pub fn with_underlying_protocol(&mut self, proto: ServerMode<T>) -> &mut Self {
         self.underlying_protocol = Some(proto);
         self
     }
@@ -409,7 +409,9 @@ mod tests {
     use crate::prefabs::server::empty::EmptyKernel;
     use crate::prelude::{BackendType, NodeType};
     use citadel_io::tokio;
-    use citadel_proto::prelude::{KernelExecutorSettings, ServerUnderlyingProtocol};
+    use citadel_proto::prelude::{
+        KernelExecutorSettings, NativeIO, NativeP2PConfig, NativeSecureConfig, ServerMode,
+    };
     use rstest::rstest;
     use std::str::FromStr;
 
@@ -445,9 +447,9 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(60))]
     #[allow(clippy::let_underscore_must_use)]
     async fn test_options(
-        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap()
+        #[values(ServerMode::P2P(NativeP2PConfig::self_signed()), ServerMode::OrderedReliableSecure(NativeSecureConfig::self_signed().unwrap())
         )]
-        underlying_protocol: ServerUnderlyingProtocol,
+        underlying_protocol: ServerMode<NativeIO>,
         #[values(NodeType::Peer, NodeType::Server(std::net::SocketAddr::from_str("127.0.0.1:9999").unwrap()
         ))]
         node_type: NodeType,

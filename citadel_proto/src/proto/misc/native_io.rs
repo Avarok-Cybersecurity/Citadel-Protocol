@@ -4,11 +4,14 @@ use std::sync::Arc;
 
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio::net::UdpSocket;
-use citadel_io::{ProtocolIO, ThreadRng, UnreliableDatagram};
+use citadel_io::{ProtocolIO, ProtocolUpgrade, ServerMode, ThreadRng, UnreliableDatagram};
 use citadel_wire::exports::ClientConfig;
 
+use crate::proto::misc::native_config::{
+    NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig, NativeServerModeExt,
+};
+use crate::proto::misc::native_upgrade::TcpToQuicUpgrade;
 use crate::proto::misc::net::{DualListener, GenericNetworkStream};
-use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
 use crate::proto::node::CitadelNode;
 
 // Concrete node type for calling static methods that don't depend on the
@@ -27,15 +30,20 @@ impl ProtocolIO for NativeIO {
     type Stream = GenericNetworkStream;
     type Listener = DualListener;
     type UnreliableSocket = NativeUdpSocket;
-    type ServerConfig = ServerUnderlyingProtocol;
+    type OrderedReliableConfig = NativeOrderedReliableConfig;
+    type SecureConfig = NativeSecureConfig;
+    type P2PConfig = NativeP2PConfig;
     type ClientConfig = Arc<ClientConfig>;
     type Rng = ThreadRng;
 
     async fn bind(
-        config: Self::ServerConfig,
+        config: ServerMode<Self>,
         addr: Self::Addr,
     ) -> io::Result<(Self::Listener, Self::Addr)> {
-        AnyNode::server_create_primary_listen_socket(config, addr)
+        match &config {
+            ServerMode::P2P(..) => TcpToQuicUpgrade::bind_with_upgrade(config, addr).await,
+            _ => AnyNode::server_create_primary_listen_socket(config, addr),
+        }
     }
 
     async fn connect(config: &Self::ClientConfig, addr: Self::Addr) -> io::Result<Self::Stream> {
@@ -60,7 +68,7 @@ impl ProtocolIO for NativeIO {
         Ok(Arc::new(config))
     }
 
-    fn server_identity(config: &Self::ServerConfig) -> Option<String> {
+    fn server_identity(config: &ServerMode<Self>) -> Option<String> {
         config.maybe_get_identity()
     }
 
@@ -68,13 +76,14 @@ impl ProtocolIO for NativeIO {
         stream.local_addr()
     }
 
-    async fn default_server_config() -> io::Result<Self::ServerConfig> {
-        ServerUnderlyingProtocol::new_tls_self_signed()
+    async fn default_server_config() -> io::Result<ServerMode<Self>> {
+        NativeSecureConfig::self_signed()
+            .map(ServerMode::OrderedReliableSecure)
             .map_err(|e| io::Error::other(e.into_string()))
     }
 
-    fn config_warnings(config: &Self::ServerConfig) {
-        if matches!(config, ServerUnderlyingProtocol::Tcp(..)) {
+    fn config_warnings(config: &ServerMode<Self>) {
+        if matches!(config, ServerMode::OrderedReliable(..)) {
             citadel_logging::warn!(target: "citadel", "⚠️ WARNING ⚠️ TCP is discouraged for production use until The Citadel Protocol has been reviewed. Use TLS automatically by not changing the underlying protocol");
         }
     }
