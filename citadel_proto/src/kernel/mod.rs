@@ -35,13 +35,11 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Future;
 use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
-use citadel_wire::exports::ClientConfig;
 use citadel_wire::hypernode_type::NodeType;
-use std::sync::Arc;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use crate::prelude::ServerUnderlyingProtocol;
+use citadel_io::ProtocolIO;
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;
@@ -69,13 +67,13 @@ impl KernelExecutorSettings {
     }
 }
 
-pub struct KernelExecutorArguments<K, R: Ratchet> {
+pub struct KernelExecutorArguments<K, R: Ratchet, T: ProtocolIO> {
     pub rt: Handle,
     pub hypernode_type: NodeType,
     pub account_manager: AccountManager<R, R>,
     pub kernel: K,
-    pub underlying_proto: ServerUnderlyingProtocol,
-    pub client_config: Option<Arc<ClientConfig>>,
+    pub underlying_proto: T::ServerConfig,
+    pub client_config: Option<T::ClientConfig>,
     pub kernel_executor_settings: KernelExecutorSettings,
     pub stun_servers: Option<Vec<String>>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,

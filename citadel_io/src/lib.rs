@@ -56,6 +56,9 @@ pub mod standard;
 #[cfg(target_family = "wasm")]
 pub mod wasm;
 
+pub mod proto_io;
+pub use proto_io::{ProtocolIO, UnreliableDatagram};
+
 #[cfg(target_family = "wasm")]
 pub use wasm::locks::*;
 

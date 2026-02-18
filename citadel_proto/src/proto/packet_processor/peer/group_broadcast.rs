@@ -38,6 +38,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 use citadel_types::proto::{
     GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
 };
@@ -217,12 +218,18 @@ pub enum GroupBroadcast {
     )
 ))]
 /// Process a group broadcast message
-pub async fn process_group_broadcast<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub async fn process_group_broadcast<R: Ratchet, T: ProtocolIO>(
+    session_ref: &CitadelSession<R, T>,
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
     sess_ratchet: &R,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let session = session_ref;
     let signal = return_if_none!(
         GroupBroadcast::deserialize_from_vector(payload).ok(),
@@ -804,11 +811,17 @@ pub async fn process_group_broadcast<R: Ratchet>(
 }
 
 /// Create a group channel
-fn create_group_channel<R: Ratchet>(
+fn create_group_channel<R: Ratchet, T: ProtocolIO>(
     ticket: Ticket,
     key: MessageGroupKey,
-    session: &CitadelSession<R>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+    session: &CitadelSession<R, T>,
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
     let session_cid = session
@@ -838,12 +851,18 @@ impl From<GroupBroadcast> for GroupBroadcastPayload {
 }
 
 /// Forward a signal to the kernel or a group channel
-fn forward_signal<R: Ratchet>(
-    session: &CitadelSession<R>,
+fn forward_signal<R: Ratchet, T: ProtocolIO>(
+    session: &CitadelSession<R, T>,
     ticket: Ticket,
     key: Option<MessageGroupKey>,
     broadcast: GroupBroadcast,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let session_cid = return_if_none!(session.session_cid.get(), "Implicated CID not loaded");
 
     if let Some(key) = key {

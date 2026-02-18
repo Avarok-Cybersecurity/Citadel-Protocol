@@ -36,6 +36,7 @@ use crate::proto::peer::peer_layer::Username;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 use citadel_types::crypto::SecurityLevel;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -47,7 +48,7 @@ use citadel_types::crypto::SecurityLevel;
     fields(is_server = session.is_server, session_cid = session_cid, target_cid = target_cid)
 ))]
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_response_phase_post_register<R: Ratchet>(
+pub async fn handle_response_phase_post_register<R: Ratchet, T: ProtocolIO>(
     peer_conn_type: PeerConnectionType,
     username: Username,
     peer_response: PeerResponse,
@@ -55,10 +56,16 @@ pub async fn handle_response_phase_post_register<R: Ratchet>(
     session_cid: u64,
     target_cid: u64,
     timestamp: i64,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let decline = matches!(&peer_response, PeerResponse::Decline);
 
     route_signal_response(PeerSignal::PostRegister {

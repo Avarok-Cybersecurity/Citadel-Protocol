@@ -38,10 +38,12 @@
 //! - `mod.rs`: Module coordination
 //! - `AccountManager`: User session management
 
+use std::net::SocketAddr;
 use std::pin::Pin;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::runtime::Handle;
+use citadel_io::ProtocolIO;
 use citadel_user::account_manager::AccountManager;
 use futures::TryStreamExt;
 
@@ -77,8 +79,16 @@ type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new(args: KernelExecutorArguments<K, R>) -> Result<Self, NetworkError> {
-        let KernelExecutorArguments::<K, R> {
+    pub async fn new<T: ProtocolIO>(
+        args: KernelExecutorArguments<K, R, T>,
+    ) -> Result<Self, NetworkError>
+    where
+        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+        T::ClientConfig:
+            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+        T::Addr: From<SocketAddr> + Into<SocketAddr>,
+    {
+        let KernelExecutorArguments::<K, R, T> {
             rt,
             hypernode_type,
             account_manager,
@@ -93,7 +103,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             citadel_io::tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R>::init(
+        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R, T>::init(
             hypernode_type,
             server_to_kernel_tx,
             account_manager.clone(),

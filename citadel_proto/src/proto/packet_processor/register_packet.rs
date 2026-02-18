@@ -37,6 +37,7 @@ use citadel_crypt::endpoint_crypto_container::{
 };
 use citadel_crypt::prelude::{ConstructorOpts, Toolset};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 use citadel_user::serialization::SyncIO;
 
 /// This will handle a registration packet
@@ -49,11 +50,17 @@ use citadel_user::serialization::SyncIO;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_register<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub async fn process_register<R: Ratchet, T: ProtocolIO>(
+    session_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     remote_addr: SocketAddr,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let session = session_ref.clone();
     let state = session.state.get();
 

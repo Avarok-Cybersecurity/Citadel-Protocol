@@ -94,7 +94,7 @@ pub mod tests {
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
+            let res = CitadelNode::<StackedRatchet, NativeIO>::server_create_primary_listen_socket(
                 proto.clone(),
                 addr,
             );
@@ -114,10 +114,13 @@ pub mod tests {
             };
 
             let client = async move {
-                let (stream, _) =
-                    CitadelNode::<StackedRatchet>::c2s_connect_defaults(None, addr, client_config)
-                        .await
-                        .unwrap();
+                let (stream, _) = CitadelNode::<StackedRatchet, NativeIO>::c2s_connect_defaults(
+                    None,
+                    addr,
+                    client_config,
+                )
+                .await
+                .unwrap();
                 on_client_received_stream(stream).await
             };
 
@@ -166,7 +169,7 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
+            let res = CitadelNode::<StackedRatchet, NativeIO>::server_create_primary_listen_socket(
                 proto.clone(),
                 addr,
             );
@@ -197,12 +200,13 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let (stream, _) = CitadelNode::<StackedRatchet>::c2s_connect_defaults(
-                        None,
-                        addr,
-                        client_config,
-                    )
-                    .await?;
+                    let (stream, _) =
+                        CitadelNode::<StackedRatchet, NativeIO>::c2s_connect_defaults(
+                            None,
+                            addr,
+                            client_config,
+                        )
+                        .await?;
                     on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())

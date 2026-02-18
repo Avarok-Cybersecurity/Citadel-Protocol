@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::AsyncRead;
-use citadel_io::Mutex;
+use citadel_io::{Mutex, ProtocolIO};
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
@@ -50,7 +50,6 @@ use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
-use crate::functional::PairMap;
 use crate::kernel::kernel_communicator::{
     KernelAsyncCallbackHandler, KernelAsyncCallbackHandlerInner,
 };
@@ -78,26 +77,34 @@ pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet>, <R>);
+define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, T: ProtocolIO>, <R, T>);
 
 /// Inner device for the [`CitadelNode`]
-pub struct CitadelNodeInner<R: Ratchet> {
-    primary_socket: Option<DualListener>,
+pub struct CitadelNodeInner<R: Ratchet, T: ProtocolIO> {
+    primary_socket: Option<citadel_io::Mutex<T::Listener>>,
+    /// Server bind address (set during init for server nodes).
+    bind_address: Option<T::Addr>,
     /// Key: cid (to account for multiple clients from the same node)
-    session_manager: CitadelSessionManager<R>,
+    session_manager: CitadelSessionManager<R, T>,
     to_kernel: UnboundedSender<NodeResult<R>>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
-    underlying_proto: ServerUnderlyingProtocol,
+    underlying_proto: T::ServerConfig,
     nat_type: NatType,
     // for TLS params
-    client_config: Arc<ClientConfig>,
+    client_config: T::ClientConfig,
     // All connecting/registering clients must present this pre-shared password in order to register and connect
     // to the server. This is an additional security measure to prevent unauthorized connections.
     server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
 }
 
-impl<R: Ratchet> CitadelNode<R> {
+impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     /// Creates a new [`CitadelNode`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
@@ -105,8 +112,8 @@ impl<R: Ratchet> CitadelNode<R> {
         to_kernel: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
-        underlying_proto: ServerUnderlyingProtocol,
-        client_config: Option<Arc<ClientConfig>>,
+        underlying_proto: T::ServerConfig,
+        client_config: Option<T::ClientConfig>,
         stun_servers: Option<Vec<String>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     ) -> io::Result<(
@@ -117,16 +124,15 @@ impl<R: Ratchet> CitadelNode<R> {
     )> {
         let (primary_socket, bind_addr) = match local_node_type {
             NodeType::Server(bind_addr) => {
-                Self::server_create_primary_listen_socket(underlying_proto.clone(), bind_addr)?
-                    .map_left(Some)
-                    .map_right(Some)
+                let (listener, addr) = T::bind(underlying_proto.clone(), bind_addr.into()).await?;
+                (Some(citadel_io::Mutex::new(listener)), Some(addr))
             }
 
             NodeType::Peer => (None, None),
         };
 
-        if let Some(local_bind_addr) = bind_addr {
-            log::info!(target: "citadel", "Citadel server established on {local_bind_addr}");
+        if let Some(local_bind_addr) = &bind_addr {
+            log::info!(target: "citadel", "Citadel server established on {local_bind_addr:?}");
         } else {
             log::info!(target: "citadel", "Citadel client established")
         }
@@ -134,11 +140,7 @@ impl<R: Ratchet> CitadelNode<R> {
         let client_config = if let Some(config) = client_config {
             config
         } else {
-            let native_certs = citadel_wire::tls::load_native_certs_async().await?;
-            Arc::new(
-                citadel_wire::tls::create_rustls_client_config(&native_certs)
-                    .map_err(|err| generic_error(err.to_string()))?,
-            )
+            T::default_client_config().await?
         };
 
         let time_tracker = TimeTracker::new();
@@ -157,6 +159,7 @@ impl<R: Ratchet> CitadelNode<R> {
             underlying_proto,
             local_node_type,
             primary_socket,
+            bind_address: bind_addr,
             to_kernel,
             session_manager,
             nat_type,
@@ -175,7 +178,7 @@ impl<R: Ratchet> CitadelNode<R> {
     #[allow(clippy::type_complexity)]
     #[allow(unused_results, unused_must_use)]
     fn load(
-        this: CitadelNode<R>,
+        this: CitadelNode<R, T>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> (
@@ -324,9 +327,9 @@ impl<R: Ratchet> CitadelNode<R> {
         )
     }
 
-    pub fn server_create_primary_listen_socket<T: ToSocketAddrs>(
+    pub fn server_create_primary_listen_socket<A: ToSocketAddrs>(
         underlying_proto: ServerUnderlyingProtocol,
-        full_bind_addr: T,
+        full_bind_addr: A,
     ) -> io::Result<(DualListener, SocketAddr)> {
         match &underlying_proto {
             ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(..) => {
@@ -352,11 +355,11 @@ impl<R: Ratchet> CitadelNode<R> {
         }
     }
 
-    pub fn create_listen_socket<T: ToSocketAddrs>(
+    pub fn create_listen_socket<A: ToSocketAddrs>(
         underlying_proto: ServerUnderlyingProtocol,
         redirect_to_quic: Option<(TlsDomain, bool)>,
         quic_endpoint_opt: Option<QuicNode>,
-        full_bind_addr: T,
+        full_bind_addr: A,
     ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         let bind: SocketAddr = full_bind_addr
             .to_socket_addrs()?
@@ -430,8 +433,9 @@ impl<R: Ratchet> CitadelNode<R> {
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
     /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
-    pub(crate) async fn create_session_transport_init<T: ToSocketAddrs>(
-        remote: T,
+    #[allow(dead_code)]
+    pub(crate) async fn create_session_transport_init<A: ToSocketAddrs>(
+        remote: A,
         default_client_config: &Arc<ClientConfig>,
     ) -> io::Result<GenericNetworkStream> {
         // We start by creating a client to server connection
@@ -483,8 +487,8 @@ impl<R: Ratchet> CitadelNode<R> {
     }
 
     /// Only for client to server conns
-    pub async fn create_c2s_connect_socket<T: ToSocketAddrs>(
-        remote: T,
+    pub async fn create_c2s_connect_socket<A: ToSocketAddrs>(
+        remote: A,
         timeout: Option<Duration>,
         default_client_config: &Arc<ClientConfig>,
     ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
@@ -599,18 +603,20 @@ impl<R: Ratchet> CitadelNode<R> {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
-        server: CitadelNode<R>,
+        server: CitadelNode<R, T>,
         _tt: TimeTracker,
         to_kernel: UnboundedSender<NodeResult<R>>,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         let primary_port_future = {
             let mut this = inner_mut!(server);
-            let listener = this.primary_socket.take().unwrap();
+            let listener = this.primary_socket.take().unwrap().into_inner();
+            let bind_address = this.bind_address.clone().unwrap();
             let session_manager = this.session_manager.clone();
             let local_nat_type = this.nat_type.clone();
             drop(this);
             Self::primary_session_creator_loop(
+                bind_address,
                 to_kernel,
                 local_nat_type,
                 session_manager,
@@ -623,19 +629,21 @@ impl<R: Ratchet> CitadelNode<R> {
     }
 
     async fn primary_session_creator_loop(
+        local_bind_addr: T::Addr,
         to_kernel: UnboundedSender<NodeResult<R>>,
         local_nat_type: NatType,
-        session_manager: CitadelSessionManager<R>,
-        mut socket: DualListener,
+        session_manager: CitadelSessionManager<R, T>,
+        mut socket: T::Listener,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
                     log::trace!(target: "citadel", "Received stream from {peer_addr:?}");
-                    let local_bind_addr = stream.local_addr().unwrap();
+                    let local_bind_addr: SocketAddr = local_bind_addr.clone().into();
+                    let peer_addr: SocketAddr = peer_addr.into();
 
-                    log::trace!(target: "citadel", "[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
+                    log::trace!(target: "citadel", "[Server] Starting connection with remote={peer_addr:?}");
 
                     match session_manager.process_new_inbound_connection(
                         local_bind_addr,
@@ -654,7 +662,7 @@ impl<R: Ratchet> CitadelNode<R> {
                                     ticket_opt: None,
                                     cid_opt: None,
                                     message: format!(
-                                        "HDP Server dropping connection to {peer_addr}. Reason: {err}"
+                                        "HDP Server dropping connection to {peer_addr:?}. Reason: {err}"
                                     ),
                                 },
                             ))?;
@@ -678,7 +686,7 @@ impl<R: Ratchet> CitadelNode<R> {
     }
 
     async fn outbound_kernel_request_handler(
-        this: CitadelNode<R>,
+        this: CitadelNode<R, T>,
         to_kernel_tx: UnboundedSender<NodeResult<R>>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
     ) -> Result<(), NetworkError> {

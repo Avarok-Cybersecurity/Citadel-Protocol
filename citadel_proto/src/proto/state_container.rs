@@ -95,6 +95,7 @@ use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::unbounded_channel;
 use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
+use citadel_io::ProtocolIO;
 use citadel_io::{tokio, Mutex};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::crypto::{PreSharedKey, SecBuffer};
@@ -732,17 +733,23 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     #[allow(unused_results)]
     #[allow(clippy::too_many_arguments)]
-    pub fn create_virtual_connection(
+    pub fn create_virtual_connection<T: ProtocolIO>(
         &mut self,
         default_security_settings: SessionSecuritySettings,
         channel_ticket: Ticket,
         target_cid: u64,
         virtual_connection_type: VirtualConnectionType,
         endpoint_crypto: PeerSessionCrypto<R>,
-        sess: &CitadelSession<R>,
+        sess: &CitadelSession<R, T>,
         file_transfer_compatible: bool,
         p2p_connection_id: Ticket,
-    ) -> PeerChannel<R> {
+    ) -> PeerChannel<R>
+    where
+        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+        T::ClientConfig:
+            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+    {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS); // Put backpressure on requests
@@ -908,13 +915,19 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
     #[allow(unused_results)]
-    pub fn init_new_c2s_virtual_connection(
+    pub fn init_new_c2s_virtual_connection<T: ProtocolIO>(
         &mut self,
         cnac: &ClientNetworkAccount<R, R>,
         channel_ticket: Ticket,
         session_cid: u64,
-        session: &CitadelSession<R>,
-    ) -> PeerChannel<R> {
+        session: &CitadelSession<R, T>,
+    ) -> PeerChannel<R>
+    where
+        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+        T::ClientConfig:
+            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+    {
         let security_settings = self
             .session_security_settings
             .expect("Should be set at beginning of session or on first SYN packet");
@@ -1947,12 +1960,18 @@ impl<R: Ratchet> StateContainerInner<R> {
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    pub(crate) fn setup_group_channel_endpoints(
+    pub(crate) fn setup_group_channel_endpoints<T: ProtocolIO>(
         &mut self,
         key: MessageGroupKey,
         ticket: Ticket,
-        session: &CitadelSession<R>,
-    ) -> Result<GroupChannel, NetworkError> {
+        session: &CitadelSession<R, T>,
+    ) -> Result<GroupChannel, NetworkError>
+    where
+        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+        T::ClientConfig:
+            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+    {
         let (tx, rx) = unbounded();
         let session_cid = self
             .cnac

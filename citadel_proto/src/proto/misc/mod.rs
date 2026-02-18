@@ -40,6 +40,7 @@ pub mod dual_cell;
 pub mod dual_late_init;
 pub mod dual_rwlock;
 pub mod lock_holder;
+pub mod native_io;
 pub mod net;
 pub mod panic_future;
 pub mod session_security_settings;

@@ -38,6 +38,7 @@ use crate::proto::session::CitadelSession;
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 
 /// For the custom BytesCodec that doesn't overflow
 pub(crate) mod codec;
@@ -74,9 +75,9 @@ pub(crate) mod transfer_stats;
 pub(crate) mod validation;
 
 /// Returns the preferred primary stream for returning a response
-pub(crate) fn get_preferred_primary_stream<R: Ratchet>(
+pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: ProtocolIO>(
     header: &HdpHeader,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     state_container: &StateContainerInner<R>,
 ) -> Option<OutboundPrimaryStreamSender> {
     if header.target_cid.get() != 0 {

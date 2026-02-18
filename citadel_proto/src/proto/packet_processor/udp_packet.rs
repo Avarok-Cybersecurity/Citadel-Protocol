@@ -32,6 +32,7 @@ use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 
 /// This will handle an inbound group packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -43,8 +44,8 @@ use citadel_crypt::ratchets::Ratchet;
     fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_udp_packet<R: Ratchet>(
-    _session: &CitadelSession<R>,
+pub fn process_udp_packet<R: Ratchet, T: ProtocolIO>(
+    _session: &CitadelSession<R, T>,
     packet: HdpPacket,
     hr_version: u32,
     accessor: &EndpointCryptoAccessor<R>,

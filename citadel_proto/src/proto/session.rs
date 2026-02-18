@@ -33,12 +33,11 @@
 use std::fs::File;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
 //use async_std::prelude::*;
 use crate::proto::packet_processor::includes::Instant;
 use bytes::{Bytes, BytesMut};
 use citadel_io::tokio_util::codec::LengthDelimitedCodec;
+use citadel_io::ProtocolIO;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
 use citadel_crypt::ratchets::Ratchet;
@@ -113,7 +112,6 @@ use citadel_types::proto::TransferType;
 use citadel_types::proto::VirtualObjectMetadata;
 use citadel_user::backend::PersistenceHandler;
 use citadel_user::prelude::ConnectProtocol;
-use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::Connection;
 use citadel_wire::nat_identification::NatType;
 use serde::{Deserialize, Serialize};
@@ -128,11 +126,11 @@ use zerocopy::AsBytes;
 
 /// Allows a connection stream to be worked on by a single worker
 #[derive(Clone)]
-pub struct CitadelSession<R: Ratchet> {
+pub struct CitadelSession<R: Ratchet, T: ProtocolIO> {
     #[cfg(not(feature = "multi-threaded"))]
-    pub inner: std::rc::Rc<CitadelSessionInner<R>>,
+    pub inner: std::rc::Rc<CitadelSessionInner<R, T>>,
     #[cfg(feature = "multi-threaded")]
-    pub inner: std::sync::Arc<CitadelSessionInner<R>>,
+    pub inner: std::sync::Arc<CitadelSessionInner<R, T>>,
 }
 
 enum SessionShutdownReason {
@@ -140,7 +138,7 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-impl<R: Ratchet> CitadelSession<R> {
+impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -154,40 +152,40 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner<R>> {
+    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner<R, T>> {
         std::rc::Rc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner<R>> {
+    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner<R, T>> {
         std::sync::Arc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner<R>>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner<R, T>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner<R>>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner<R, T>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 
-    pub(crate) fn alive_tracker(&self) -> SessionAliveTracker<R> {
+    pub(crate) fn alive_tracker(&self) -> SessionAliveTracker<R, T> {
         SessionAliveTracker {
             weak: self.as_weak(),
         }
     }
 }
 
-pub(crate) struct SessionAliveTracker<R: Ratchet> {
+pub(crate) struct SessionAliveTracker<R: Ratchet, T: ProtocolIO> {
     #[cfg(not(feature = "multi-threaded"))]
-    weak: std::rc::Weak<CitadelSessionInner<R>>,
+    weak: std::rc::Weak<CitadelSessionInner<R, T>>,
     #[cfg(feature = "multi-threaded")]
-    weak: std::sync::Weak<CitadelSessionInner<R>>,
+    weak: std::sync::Weak<CitadelSessionInner<R, T>>,
 }
 
-impl<R: Ratchet> SessionAliveTracker<R> {
+impl<R: Ratchet, T: ProtocolIO> SessionAliveTracker<R, T> {
     pub(crate) fn alive(&self) -> bool {
         if self.weak.strong_count() > 0 {
             true
@@ -198,8 +196,8 @@ impl<R: Ratchet> SessionAliveTracker<R> {
     }
 }
 
-impl<R: Ratchet> From<CitadelSessionInner<R>> for CitadelSession<R> {
-    fn from(inner: CitadelSessionInner<R>) -> Self {
+impl<R: Ratchet, T: ProtocolIO> From<CitadelSessionInner<R, T>> for CitadelSession<R, T> {
+    fn from(inner: CitadelSessionInner<R, T>) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
         {
             Self {
@@ -216,8 +214,8 @@ impl<R: Ratchet> From<CitadelSessionInner<R>> for CitadelSession<R> {
     }
 }
 
-impl<R: Ratchet> Deref for CitadelSession<R> {
-    type Target = CitadelSessionInner<R>;
+impl<R: Ratchet, T: ProtocolIO> Deref for CitadelSession<R, T> {
+    type Target = CitadelSessionInner<R, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
@@ -226,7 +224,7 @@ impl<R: Ratchet> Deref for CitadelSession<R> {
 
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
-pub struct CitadelSessionInner<R: Ratchet> {
+pub struct CitadelSessionInner<R: Ratchet, T: ProtocolIO> {
     pub(super) session_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
@@ -234,7 +232,7 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
-    pub(super) session_manager: CitadelSessionManager<R>,
+    pub(super) session_manager: CitadelSessionManager<R, T>,
     pub(super) state: DualCell<SessionState>,
     pub(super) state_container: StateContainer<R>,
     pub(super) account_manager: AccountManager<R, R>,
@@ -252,7 +250,7 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
-    pub(super) client_config: Arc<rustls::ClientConfig>,
+    pub(super) client_config: T::ClientConfig,
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: Option<Vec<String>>,
     pub(super) init_time: Instant,
@@ -297,19 +295,19 @@ pub enum HdpSessionInitMode {
     Register(SocketAddr, ProposedCredentials),
 }
 
-pub(crate) struct SessionInitParams<R: Ratchet> {
+pub(crate) struct SessionInitParams<R: Ratchet, T: ProtocolIO> {
     pub on_drop: UnboundedSender<()>,
     pub local_nat_type: NatType,
     pub citadel_remote: NodeRemote<R>,
     pub local_bind_addr: SocketAddr,
     pub local_node_type: NodeType,
     pub kernel_tx: UnboundedSender<NodeResult<R>>,
-    pub session_manager: CitadelSessionManager<R>,
+    pub session_manager: CitadelSessionManager<R, T>,
     pub account_manager: AccountManager<R, R>,
     pub time_tracker: TimeTracker,
     pub remote_peer: SocketAddr,
     pub init_ticket: Ticket,
-    pub client_config: Arc<rustls::ClientConfig>,
+    pub client_config: T::ClientConfig,
     pub hypernode_peer_layer: CitadelNodePeerLayer<R>,
     // this is set only when a local client is attempting to start an outbound session
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
@@ -339,9 +337,15 @@ pub struct ServerOnlySessionInitSettings {
     pub declared_pre_shared_key: Option<PreSharedKey>,
 }
 
-impl<R: Ratchet> CitadelSession<R> {
+impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     pub(crate) fn new(
-        session_init_params: SessionInitParams<R>,
+        session_init_params: SessionInitParams<R, T>,
     ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (stopper_tx, _stopper_rx) = citadel_io::tokio::sync::broadcast::channel(10);
         let client_only_settings = &session_init_params.client_only_settings;
@@ -639,7 +643,7 @@ impl<R: Ratchet> CitadelSession<R> {
         zero_packet: Option<BytesMut>,
         persistence_handler: PersistenceHandler<R, R>,
         to_outbound: OutboundPrimaryStreamSender,
-        session: CitadelSession<R>,
+        session: CitadelSession<R, T>,
         state: SessionState,
         timestamp: i64,
         cnac: Option<ClientNetworkAccount<R, R>>,
@@ -733,7 +737,7 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 
     pub(crate) fn begin_connect(
-        session: &CitadelSession<R>,
+        session: &CitadelSession<R, T>,
         cnac: &ClientNetworkAccount<R, R>,
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine");
@@ -805,7 +809,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
     // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
     pub(crate) fn udp_socket_loader(
-        this: CitadelSession<R>,
+        this: CitadelSession<R, T>,
         v_target: VirtualTargetType,
         udp_conn: UdpSplittableTypes,
         addr: TargettedSocketAddr,
@@ -1013,7 +1017,7 @@ impl<R: Ratchet> CitadelSession<R> {
     )]
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
-        this_main: CitadelSession<R>,
+        this_main: CitadelSession<R, T>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
@@ -1057,13 +1061,19 @@ impl<R: Ratchet> CitadelSession<R> {
             )
         };
 
-        fn evaluate_result<R: Ratchet>(
+        fn evaluate_result<R: Ratchet, T: ProtocolIO>(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult<R>>,
-            session: &CitadelSession<R>,
+            session: &CitadelSession<R, T>,
             cid_opt: Option<u64>,
-        ) -> std::io::Result<()> {
+        ) -> std::io::Result<()>
+        where
+            T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+            T::ClientConfig:
+                Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+            T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+        {
             let mut session_closing_error: Option<String> = None;
             match &result {
                 Ok(
@@ -1081,7 +1091,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         _ => unreachable!(),
                     };
 
-                    CitadelSession::<R>::send_to_primary_stream_closure(
+                    CitadelSession::<R, T>::send_to_primary_stream_closure(
                         primary_stream,
                         kernel_tx,
                         return_packet,
@@ -1121,8 +1131,8 @@ impl<R: Ratchet> CitadelSession<R> {
             }
         }
 
-        fn handle_session_terminating_error<R: Ratchet>(
-            session: &CitadelSession<R>,
+        fn handle_session_terminating_error<R: Ratchet, T: ProtocolIO>(
+            session: &CitadelSession<R, T>,
             err: std::io::Error,
             is_server: bool,
             peer_cid: Option<u64>,
@@ -1269,7 +1279,7 @@ impl<R: Ratchet> CitadelSession<R> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn execute_queue_worker(this_main: CitadelSession<R>) -> Result<(), NetworkError> {
+    async fn execute_queue_worker(this_main: CitadelSession<R, T>) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
@@ -2025,7 +2035,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
-        this: CitadelSession<R>,
+        this: CitadelSession<R, T>,
         virtual_connection_type: VirtualConnectionType,
         mut rx_session_requests: crate::proto::outbound_sender::Receiver<SessionRequest>,
     ) {
@@ -2063,8 +2073,8 @@ impl<R: Ratchet> CitadelSession<R> {
 
             // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
             // to forward these to.
-            fn send_ratchet_message<R: Ratchet>(
-                session: &CitadelSession<R>,
+            fn send_ratchet_message<R: Ratchet, T: ProtocolIO>(
+                session: &CitadelSession<R, T>,
                 state_container: &StateContainerInner<R>,
                 ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
                 v_conn: VirtualConnectionType,
@@ -2385,7 +2395,7 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 
     async fn listen_udp_port<S: UdpStream>(
-        this: CitadelSession<R>,
+        this: CitadelSession<R, T>,
         _hole_punched_addr_ip: IpAddr,
         local_port: u16,
         mut stream: S,
@@ -2538,7 +2548,7 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 }
 
-impl<R: Ratchet> CitadelSessionInner<R> {
+impl<R: Ratchet, T: ProtocolIO> CitadelSessionInner<R, T> {
     /// Stores the proposed credentials into the register state container
     pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
         let mut state_container = inner_mut_state!(self.state_container);
@@ -2607,11 +2617,11 @@ impl<R: Ratchet> CitadelSessionInner<R> {
     }
 
     /// will try a running a function, and if an error occurs, will send error to Kernel
-    pub fn try_action<T, E: ToString>(
+    pub fn try_action<U, E: ToString>(
         &self,
         ticket: Option<Ticket>,
-        fx: impl FnOnce() -> Result<T, E>,
-    ) -> Result<T, NetworkError> {
+        fx: impl FnOnce() -> Result<U, E>,
+    ) -> Result<U, NetworkError> {
         match (fx)().map_err(|err| NetworkError::Generic(err.to_string())) {
             Err(err) => {
                 self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
@@ -2659,11 +2669,11 @@ impl<R: Ratchet> CitadelSessionInner<R> {
         state != SessionState::Connected && state != SessionState::Disconnecting
     }
 
-    pub(crate) fn send_session_dc_signal<T: Into<String>>(
+    pub(crate) fn send_session_dc_signal<S: Into<String>>(
         &self,
         ticket: Option<Ticket>,
         disconnect_success: bool,
-        msg: T,
+        msg: S,
     ) {
         // Only send disconnect signal if we have a valid session CID
         // Sessions without a CID were never connected, so no disconnect is needed
@@ -2709,7 +2719,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
     }
 }
 
-impl<R: Ratchet> Drop for CitadelSession<R> {
+impl<R: Ratchet, T: ProtocolIO> Drop for CitadelSession<R, T> {
     fn drop(&mut self) {
         if self.strong_count() == 1 {
             log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());

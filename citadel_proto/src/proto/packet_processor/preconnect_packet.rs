@@ -29,6 +29,7 @@
 
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 use citadel_wire::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use netbeam::sync::RelativeNodeType;
@@ -63,11 +64,17 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_preconnect<R: Ratchet>(
-    session_orig: &CitadelSession<R>,
+pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
+    session_orig: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let session = session_orig.clone();
 
     if !session.is_provisional() {
@@ -561,12 +568,18 @@ pub async fn process_preconnect<R: Ratchet>(
     to_concurrent_processor!(task)
 }
 
-fn begin_connect_process<R: Ratchet>(
-    session: &CitadelSession<R>,
+fn begin_connect_process<R: Ratchet, T: ProtocolIO>(
+    session: &CitadelSession<R, T>,
     ratchet: &R,
     security_level: SecurityLevel,
     ticket: Ticket,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     // At this point, the session keys have already been re-established. We just need to begin the login stage
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
@@ -595,15 +608,21 @@ fn begin_connect_process<R: Ratchet>(
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator<R: Ratchet>(
+fn send_success_as_initiator<R: Ratchet, T: ProtocolIO>(
     udp_splittable: Option<UdpSplittableTypes>,
     ratchet: &R,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     security_level: SecurityLevel,
     session_cid: u64,
     state_container: &mut StateContainerInner<R>,
     ticket: Ticket,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let _ = handle_success_as_receiver(udp_splittable, session, session_cid, state_container)?;
 
     let success_packet = packet_crafter::pre_connect::craft_stage_final(
@@ -617,12 +636,18 @@ fn send_success_as_initiator<R: Ratchet>(
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
-fn handle_success_as_receiver<R: Ratchet>(
+fn handle_success_as_receiver<R: Ratchet, T: ProtocolIO>(
     udp_splittable: Option<UdpSplittableTypes>,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     session_cid: u64,
     state_container: &mut StateContainerInner<R>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
 
     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;

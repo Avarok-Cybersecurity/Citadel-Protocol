@@ -28,7 +28,7 @@
 //! - `node.rs`: Node implementation
 
 use crate::error::NetworkError;
-use crate::macros::{ContextRequirements, SyncContextRequirements};
+use crate::macros::ContextRequirements;
 use crate::proto::misc::clean_shutdown::{
     clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream,
 };
@@ -630,5 +630,7 @@ impl Stream for DualListener {
     }
 }
 
-trait StreamOutputImpl: Future<Output = std::io::Result<()>> + SyncContextRequirements {}
-impl<T: Future<Output = std::io::Result<()>> + SyncContextRequirements> StreamOutputImpl for T {}
+// Always require Send so that listener types satisfy ProtocolIO::Listener bounds.
+// All futures stored here capture only Send types (TcpListener, channels, etc.).
+trait StreamOutputImpl: Future<Output = std::io::Result<()>> + Send + 'static {}
+impl<T: Future<Output = std::io::Result<()>> + Send + 'static> StreamOutputImpl for T {}

@@ -174,7 +174,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let task = async move {
             citadel_io::tokio::select! {

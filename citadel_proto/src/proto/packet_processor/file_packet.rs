@@ -39,6 +39,7 @@ use crate::proto::packet_processor::primary_group_packet::{
 };
 use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 use citadel_types::proto::TransferType;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -50,11 +51,17 @@ use citadel_types::proto::TransferType;
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_file_packet<R: Ratchet>(
-    session: &CitadelSession<R>,
+pub fn process_file_packet<R: Ratchet, T: ProtocolIO>(
+    session: &CitadelSession<R, T>,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     if !session.state.is_connected() {
         return Ok(PrimaryProcessorResult::Void);
     }

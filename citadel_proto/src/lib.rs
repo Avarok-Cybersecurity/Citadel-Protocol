@@ -119,7 +119,7 @@ pub mod macros {
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
-    pub type SessionBorrow<'a, R> = std::cell::RefMut<'a, CitadelSessionInner<R>>;
+    pub type SessionBorrow<'a, R, T> = std::cell::RefMut<'a, CitadelSessionInner<R, T>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::rc::Weak<std::cell::RefCell<T>>,
@@ -316,7 +316,7 @@ pub mod macros {
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
-    pub type SessionBorrow<'a, R> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R>>;
+    pub type SessionBorrow<'a, R, T> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R, T>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::sync::Weak<citadel_io::RwLock<T>>,
@@ -533,6 +533,7 @@ pub mod prelude {
     pub use crate::kernel::{
         kernel_executor::KernelExecutor, kernel_trait::NetKernel, KernelExecutorSettings,
     };
+    pub use crate::proto::misc::native_io::NativeIO;
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
     pub use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;

@@ -36,6 +36,7 @@ use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::ProtocolIO;
 
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[allow(unused_results, unused_must_use)]
@@ -48,8 +49,8 @@ use citadel_crypt::ratchets::Ratchet;
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_keep_alive<R: Ratchet>(
-    session: &CitadelSession<R>,
+pub async fn process_keep_alive<R: Ratchet, T: ProtocolIO>(
+    session: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

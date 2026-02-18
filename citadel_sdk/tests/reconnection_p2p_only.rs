@@ -379,8 +379,12 @@ mod tests {
             },
         );
 
-        let client_a = NodeBuilder::default().build(client_a_kernel).unwrap();
-        let client_b = NodeBuilder::default().build(client_b_kernel).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .build(client_a_kernel)
+            .unwrap();
+        let client_b = DefaultNodeBuilder::default()
+            .build(client_b_kernel)
+            .unwrap();
 
         let clients = futures::future::try_join(client_a, client_b);
 

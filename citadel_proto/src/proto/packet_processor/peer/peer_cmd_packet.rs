@@ -39,6 +39,7 @@ use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerS
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
+use citadel_io::ProtocolIO;
 use citadel_types::proto::UdpMode;
 use citadel_user::backend::BackendType;
 use citadel_user::serialization::SyncIO;
@@ -80,13 +81,19 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_peer_cmd<R: Ratchet>(
-    session_orig: &CitadelSession<R>,
+pub async fn process_peer_cmd<R: Ratchet, T: ProtocolIO>(
+    session_orig: &CitadelSession<R, T>,
     aux_cmd: u8,
     packet: HdpPacket,
     header_entropy_bank_version: u32,
     endpoint_cid_info: Option<(u64, u64)>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
@@ -1089,15 +1096,21 @@ pub async fn process_peer_cmd<R: Ratchet>(
     to_concurrent_processor!(task)
 }
 
-async fn process_signal_command_as_server<R: Ratchet>(
-    sess_ref: &CitadelSession<R>,
+async fn process_signal_command_as_server<R: Ratchet, T: ProtocolIO>(
+    sess_ref: &CitadelSession<R, T>,
     signal: PeerSignal,
     ticket: Ticket,
     sess_ratchet: R,
     header: Ref<&[u8], HdpHeader>,
     timestamp: i64,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let session = sess_ref;
     match signal {
         PeerSignal::Kex {
@@ -1853,7 +1866,7 @@ fn construct_error_signal<E: ToString, R: Ratchet>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
+pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: ProtocolIO>(
     signal: PeerSignal,
     timeout: Duration,
     session_cid: u64,
@@ -1861,11 +1874,17 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
     timestamp: i64,
     ticket: Ticket,
     to_primary_stream: &OutboundPrimaryStreamSender,
-    sess_mgr: &CitadelSessionManager<R>,
+    sess_mgr: &CitadelSessionManager<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -1900,7 +1919,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
 /// for simultaneous connect detection. This prevents a race where two PostConnects
 /// slip through before either is registered in the peer_layer.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratchet>(
+pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratchet, T: ProtocolIO>(
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
     signal: PeerSignal,
     timeout: Duration,
@@ -1909,10 +1928,16 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratch
     timestamp: i64,
     ticket: Ticket,
     to_primary_stream: &OutboundPrimaryStreamSender,
-    sess_mgr: &CitadelSessionManager<R>,
+    sess_mgr: &CitadelSessionManager<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -1963,17 +1988,23 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratch
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_response<R: Ratchet>(
+pub(crate) async fn route_signal_response<R: Ratchet, T: ProtocolIO>(
     signal: PeerSignal,
     session_cid: u64,
     target_cid: u64,
     timestamp: i64,
     ticket: Ticket,
-    session: CitadelSession<R>,
+    session: CitadelSession<R, T>,
     sess_ratchet: &R,
-    on_route_finished: impl FnOnce(&CitadelSession<R>, &CitadelSession<R>, PeerSignal),
+    on_route_finished: impl FnOnce(&CitadelSession<R, T>, &CitadelSession<R, T>, PeerSignal),
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
+    T::ClientConfig:
+        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
+    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
+{
     trace!(target: "citadel", "Routing signal {signal:?} | impl: {session_cid} | target: {target_cid}");
     let sess_ref = &session;
 
