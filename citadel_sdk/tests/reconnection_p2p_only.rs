@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 3: P2P-Only Disconnect
 //!
 //! Verifies P2P can be re-established while C2S stays active.

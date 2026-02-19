@@ -584,7 +584,7 @@ where
                     // Clear listener if we registered one
                     let _ = self.local_listener.lock().take();
                     // Small delay to let concurrent rekeys settle
-                    citadel_io::tokio::time::sleep(Duration::from_millis(1)).await;
+                    citadel_io::time::sleep(Duration::from_millis(1)).await;
                     // Increment retry counter and loop back
                     stale_version_retry_count += 1;
                     continue 'rekey_attempt;

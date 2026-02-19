@@ -223,13 +223,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: ProtocolIO>(
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
     sess_ratchet: &R,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let signal = return_if_none!(
         GroupBroadcast::deserialize_from_vector(payload).ok(),
@@ -815,13 +809,7 @@ fn create_group_channel<R: Ratchet, T: ProtocolIO>(
     ticket: Ticket,
     key: MessageGroupKey,
     session: &CitadelSession<R, T>,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
     let session_cid = session
@@ -856,13 +844,7 @@ fn forward_signal<R: Ratchet, T: ProtocolIO>(
     ticket: Ticket,
     key: Option<MessageGroupKey>,
     broadcast: GroupBroadcast,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let session_cid = return_if_none!(session.session_cid.get(), "Implicated CID not loaded");
 
     if let Some(key) = key {

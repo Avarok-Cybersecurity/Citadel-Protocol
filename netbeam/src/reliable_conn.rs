@@ -228,6 +228,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin> ReliableOrderedStreamToTarget for
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub mod simulator {
     //! Network condition simulation module.
     //!
@@ -271,10 +272,7 @@ pub mod simulator {
                             rng.gen_range(min_lag..max) // 50 -> 150ms ping
                         };
 
-                        citadel_io::tokio::time::sleep(std::time::Duration::from_millis(
-                            rnd as u64,
-                        ))
-                        .await;
+                        citadel_io::time::sleep(std::time::Duration::from_millis(rnd as u64)).await;
                     }
 
                     inner_fwd.send_to_peer(&packet).await.unwrap();

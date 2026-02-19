@@ -239,10 +239,8 @@ where
                     if owned_groups.contains(&expected_message_group_key) {
                         break;
                     } else {
-                        citadel_io::tokio::time::sleep(std::time::Duration::from_secs(
-                            2u64.pow(retries),
-                        ))
-                        .await;
+                        citadel_io::time::sleep(std::time::Duration::from_secs(2u64.pow(retries)))
+                            .await;
 
                         retries += 1;
                         if retries > 4 {

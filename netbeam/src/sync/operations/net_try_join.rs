@@ -358,7 +358,7 @@ mod tests {
     }
 
     async fn dummy_function() -> Result<(), &'static str> {
-        citadel_io::tokio::time::sleep(Duration::from_millis(50)).await;
+        citadel_io::time::sleep(Duration::from_millis(50)).await;
         Ok(())
     }
 

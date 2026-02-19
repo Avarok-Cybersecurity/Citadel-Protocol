@@ -2,6 +2,7 @@
 pub mod tests {
     use bytes::BytesMut;
     use citadel_io::tokio;
+    use citadel_io::ProtocolIO;
     use citadel_proto::prelude::*;
     use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
     use citadel_wire::socket_helpers::is_ipv6_enabled;
@@ -94,10 +95,7 @@ pub mod tests {
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let res = CitadelNode::<StackedRatchet, NativeIO>::server_create_primary_listen_socket(
-                proto.clone(),
-                addr,
-            );
+            let res = NativeIO::bind(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket: {err:?}");
@@ -114,13 +112,7 @@ pub mod tests {
             };
 
             let client = async move {
-                let (stream, _) = CitadelNode::<StackedRatchet, NativeIO>::c2s_connect_defaults(
-                    None,
-                    addr,
-                    client_config,
-                )
-                .await
-                .unwrap();
+                let stream = NativeIO::connect(client_config, addr).await.unwrap();
                 on_client_received_stream(stream).await
             };
 
@@ -169,10 +161,7 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = CitadelNode::<StackedRatchet, NativeIO>::server_create_primary_listen_socket(
-                proto.clone(),
-                addr,
-            );
+            let res = NativeIO::bind(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket w/mode {proto:?}: {err:?}");
@@ -200,13 +189,7 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let (stream, _) =
-                        CitadelNode::<StackedRatchet, NativeIO>::c2s_connect_defaults(
-                            None,
-                            addr,
-                            client_config,
-                        )
-                        .await?;
+                    let stream = NativeIO::connect(client_config, addr).await?;
                     on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())

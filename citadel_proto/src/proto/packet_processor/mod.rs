@@ -89,7 +89,7 @@ use std::fmt::Formatter;
 pub mod includes {
     pub use std::net::SocketAddr;
 
-    pub use citadel_io::tokio::time::{Duration, Instant};
+    pub use citadel_io::time::{Duration, Instant};
     pub use log::{trace, warn};
     pub use zerocopy::Ref;
 

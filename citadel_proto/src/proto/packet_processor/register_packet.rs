@@ -54,13 +54,7 @@ pub async fn process_register<R: Ratchet, T: ProtocolIO>(
     session_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     remote_addr: SocketAddr,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
     let state = session.state.get();
 

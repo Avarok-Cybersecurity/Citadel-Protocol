@@ -1,3 +1,5 @@
+#![cfg(not(target_family = "wasm"))]
+
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use citadel_io::tokio;

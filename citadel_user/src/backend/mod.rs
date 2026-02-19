@@ -107,6 +107,18 @@ pub enum BackendType {
 }
 
 impl BackendType {
+    /// Returns `true` if this backend uses the local filesystem for storage.
+    pub fn is_filesystem_backend(&self) -> bool {
+        #[cfg(feature = "filesystem")]
+        {
+            matches!(self, BackendType::Filesystem(..))
+        }
+        #[cfg(not(feature = "filesystem"))]
+        {
+            false
+        }
+    }
+
     /// Creates a new [`BackendType`] given the provided `url`. Returns an error
     /// if the URL could not be parsed
     pub fn new<T: Into<String>>(url: T) -> Result<Self, AccountError> {

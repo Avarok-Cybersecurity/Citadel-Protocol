@@ -14,10 +14,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["std"]
 std = ["futures/std", "serde"]
-wasm = []
-
-#[target.'cfg(not(target_family = "wasm"))'.dependencies]
-#reqwest = { workspace = true }
+wasm = ["citadel_io/wasm", "serde"]
 
 [dependencies]
 citadel_io = { workspace = true }

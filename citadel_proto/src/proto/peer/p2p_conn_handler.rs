@@ -37,10 +37,10 @@ use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
-use crate::proto::misc::native_config::NativeP2PConfig;
+#[cfg(not(target_family = "wasm"))]
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
+#[cfg(not(target_family = "wasm"))]
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
-use crate::proto::node::CitadelNode;
 use crate::proto::node_result::{NodeResult, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_sender::{unbounded, OutboundPrimaryStreamReceiver, UnboundedSender};
@@ -55,12 +55,14 @@ use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ProtocolIO;
-use citadel_io::ServerMode;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
+#[cfg(not(target_family = "wasm"))]
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
+#[cfg(not(target_family = "wasm"))]
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
+#[cfg(not(target_family = "wasm"))]
 use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::fmt::Debug;
@@ -108,6 +110,7 @@ impl Drop for DirectP2PRemote {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[allow(clippy::too_many_arguments)]
 async fn p2p_conn_handler<R: Ratchet, T: ProtocolIO>(
     mut p2p_listener: GenericNetworkListener,
@@ -118,13 +121,7 @@ async fn p2p_conn_handler<R: Ratchet, T: ProtocolIO>(
     ticket: Ticket,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
-) -> Result<(), NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
     let session_cid = session.session_cid.clone();
     let weak = &session.as_weak();
@@ -168,6 +165,7 @@ where
 }
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
+#[cfg(not(target_family = "wasm"))]
 #[allow(clippy::too_many_arguments)]
 fn handle_p2p_stream<R: Ratchet, T: ProtocolIO>(
     mut p2p_stream: GenericNetworkStream,
@@ -180,13 +178,7 @@ fn handle_p2p_stream<R: Ratchet, T: ProtocolIO>(
     ticket: Ticket,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
-) -> std::io::Result<()>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> std::io::Result<()> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, implying authentication has been performed
     let remote_peer = p2p_stream.peer_addr()?;
     let local_bind_addr = p2p_stream.local_addr()?;
@@ -196,7 +188,7 @@ where
     let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_bind_addr);
 
     log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), &remote_peer);
-    let (sink, stream) = misc::net::safe_split_stream(p2p_stream);
+    let (sink, stream) = misc::safe_split_stream(p2p_stream);
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
     let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);
     let p2p_primary_stream_rx = OutboundPrimaryStreamReceiver::from(p2p_primary_stream_rx);
@@ -490,6 +482,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 /// - `cancel_rx`: Optional cancellation signal. When the sender is dropped (e.g., on session
 ///   disconnect), the hole punch operation will be cancelled gracefully. This prevents orphaned
 ///   hole punch operations from interfering with reconnection attempts.
+#[cfg(not(target_family = "wasm"))]
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
     target = "citadel",
@@ -516,13 +509,11 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet, T: ProtocolIO>(
     session_security_settings: SessionSecuritySettings,
     cancel_rx: Option<Receiver<()>>,
     session_alive: SessionAliveTracker<R, T>,
-) -> std::io::Result<()>
-where
-    T::ClientConfig: Into<Arc<rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-{
-    let client_config: Arc<rustls::ClientConfig> = client_config.into();
+) -> std::io::Result<()> {
+    let client_config: Arc<rustls::ClientConfig> = T::client_config_to_any(&client_config)
+        .and_then(|c| c.downcast::<Arc<rustls::ClientConfig>>().ok())
+        .map(|c| *c)
+        .ok_or_else(|| generic_error("P2P hole-punch requires native rustls client config"))?;
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
     let v_conn = peer_connection_type.as_virtual_connection();
@@ -531,7 +522,7 @@ where
         if !session_alive.alive() {
             return Err(generic_error("Session no longer alive"));
         }
-        citadel_io::tokio::time::sleep_until(sync_time).await;
+        citadel_io::time::sleep_until(sync_time).await;
 
         let hole_punched_socket = app
             .begin_udp_hole_punch(encrypted_config_container)
@@ -550,17 +541,12 @@ where
             log::trace!(target: "citadel", "Initiator: sync complete, non-initiator listener should be ready");
 
             let socket = hole_punched_socket.into_socket();
-            let quic_endpoint = citadel_wire::quic::QuicClient::new_with_rustls_config(
+            let p2p_stream = crate::proto::misc::native_connect::p2p_connect_from_socket(
                 socket,
-                client_config.clone(),
-            )
-            .map_err(generic_error)?;
-            let p2p_stream = CitadelNode::<R, T>::quic_p2p_connect_defaults(
-                quic_endpoint.endpoint,
-                None,
-                peer_nat_info.tls_domain,
                 remote_connect_addr,
+                peer_nat_info.tls_domain,
                 client_config,
+                None,
             )
             .await?;
 
@@ -584,15 +570,10 @@ where
             // This eliminates the drop-and-rebind race where the OS may not
             // release the port in time for a new socket to bind.
             let socket = hole_punched_socket.into_socket();
-            let quic_node =
-                citadel_wire::quic::QuicServer::new_self_signed(socket).map_err(generic_error)?;
 
             // Create listener BEFORE sync to ensure it's ready when initiator connects
-            let (listener, _) = CitadelNode::<R, T>::create_listen_socket(
-                ServerMode::P2P(NativeP2PConfig::self_signed()),
-                None,
-                Some(quic_node),
-                local_addr,
+            let (listener, _) = crate::proto::misc::native_connect::p2p_listener_from_socket(
+                socket, None, local_addr,
             )?;
             log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
 
@@ -623,7 +604,7 @@ where
     // Wrap the process with timeout and optional cancellation signal.
     // The cancellation signal allows graceful shutdown when the session disconnects,
     // preventing orphaned hole punch operations from interfering with reconnection attempts.
-    let timed_process = citadel_io::tokio::time::timeout(P2P_CONN_TIMEOUT, process);
+    let timed_process = citadel_io::time::timeout(P2P_CONN_TIMEOUT, process);
 
     let result = if let Some(mut cancel_rx) = cancel_rx {
         citadel_io::tokio::select! {

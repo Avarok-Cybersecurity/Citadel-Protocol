@@ -81,6 +81,9 @@ chrono = { workspace = true }
 sha3 = { workspace = true }
 citadel_logging = { workspace = true }
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+
 [dev-dependencies]
 citadel_logging = { workspace = true }
 tracing = { workspace = true }

@@ -24,7 +24,7 @@ std = [
     "async_ip/std",
 ]
 localhost-testing = ["tracing"]
-wasm = ["citadel_io/wasm", "netbeam/wasm"]
+wasm = ["citadel_io/wasm", "netbeam/wasm", "async_ip/wasm"]
 vendored = ["openssl/vendored"]
 
 [dependencies]
@@ -43,9 +43,9 @@ netbeam = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 tracing = { workspace = true, optional = true, features = ["attributes"] }
 rustls = { workspace = true }
-socket2 = { workspace = true, features = ["all"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+socket2 = { workspace = true, features = ["all"] }
 quinn = { workspace = true, features = ["rustls"] }
 openssl = { workspace = true }
 rustls-native-certs = { workspace = true }
@@ -58,6 +58,7 @@ tokio-rustls = { workspace = true }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_IO", "Win32_Networking_WinSock"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
+uuid = { workspace = true, features = ["v4", "serde", "js"] }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

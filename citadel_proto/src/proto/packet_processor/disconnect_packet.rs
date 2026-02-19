@@ -88,7 +88,7 @@ pub async fn process_disconnect<R: Ratchet, T: ProtocolIO>(
             )
             .unbounded_send(packet)?;
             // give some time for the outbound task to send the DC message to the adjacent node
-            citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
+            citadel_io::time::sleep(Duration::from_millis(100)).await;
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }
 

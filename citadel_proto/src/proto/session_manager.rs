@@ -57,7 +57,6 @@ use crate::macros::{FutureRequirements, SyncContextRequirements};
 use crate::prelude::{ConnectionInfo, Disconnect, SessionInfo};
 use crate::proto::disconnect_tracker::DisconnectSignalTracker;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
-use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
@@ -110,13 +109,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: ProtocolIO> {
     disconnect_tracker: DisconnectSignalTracker,
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelSessionManager<R, T>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+impl<R: Ratchet, T: ProtocolIO> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
     pub fn new(
         local_node_type: NodeType,
@@ -219,7 +212,7 @@ where
 
         // Timeout after 5s to ensure we don't wait indefinitely. We brute force disconnect the session if it doesn't disconnect within the timeout.
         let timeout = async move {
-            citadel_io::tokio::time::sleep(Duration::from_secs(5)).await;
+            citadel_io::time::sleep(Duration::from_secs(5)).await;
         };
 
         // Wait for the session to disconnect or timeout
@@ -253,11 +246,7 @@ where
         security_settings: SessionSecuritySettings,
         default_client_config: &T::ClientConfig,
         session_password: PreSharedKey,
-    ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError>
-    where
-        T::Addr: From<SocketAddr> + Into<SocketAddr>,
-        T::Stream: Into<GenericNetworkStream>,
-    {
+    ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
             // Clone disconnect_tracker BEFORE acquiring inner lock to avoid
@@ -381,12 +370,14 @@ where
                     ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
                 // create conn to peer
-                let primary_stream = T::connect(default_client_config, peer_addr.into())
-                    .await
-                    .map_err(|err| NetworkError::SocketError(err.to_string()))?;
-                let local_bind_addr: SocketAddr = T::local_addr(&primary_stream)
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?
-                    .into();
+                let primary_stream =
+                    T::connect(default_client_config, T::from_socket_addr(peer_addr))
+                        .await
+                        .map_err(|err| NetworkError::SocketError(err.to_string()))?;
+                let local_bind_addr: SocketAddr = T::to_socket_addr(
+                    &T::local_addr(&primary_stream)
+                        .map_err(|err| NetworkError::Generic(err.to_string()))?,
+                );
                 (
                     remote,
                     primary_stream,
@@ -483,14 +474,11 @@ where
         new_session: CitadelSession<R, T>,
         peer_addr: SocketAddr,
         tcp_stream: T::Stream,
-    ) -> Result<(), NetworkError>
-    where
-        T::Stream: Into<GenericNetworkStream>,
-    {
+    ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-execution of session");
         let mut err = None;
         let init_time = new_session.init_time;
-        let res = new_session.execute(tcp_stream.into(), peer_addr).await;
+        let res = new_session.execute(tcp_stream, peer_addr).await;
         new_session.state.set(SessionState::Disconnecting);
 
         match &res {
@@ -639,10 +627,7 @@ where
         peer_addr: SocketAddr,
         primary_stream: T::Stream,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
-    ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError>
-    where
-        T::Stream: Into<GenericNetworkStream>,
-    {
+    ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let this_dc = self.clone();
         // Clone disconnect_tracker BEFORE acquiring inner lock to avoid
         // RefCell double-borrow panic during session construction
@@ -1507,13 +1492,7 @@ where
     }
 }
 
-impl<R: Ratchet, T: ProtocolIO> HdpSessionManagerInner<R, T>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+impl<R: Ratchet, T: ProtocolIO> HdpSessionManagerInner<R, T> {
     /// Clears a session from the SessionManager
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
         if let Some((_, session)) = self.sessions.get(&cid) {

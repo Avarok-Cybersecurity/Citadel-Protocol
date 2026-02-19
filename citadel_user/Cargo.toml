@@ -60,6 +60,9 @@ bincode = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 citadel_types = { workspace = true }
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+chrono = { workspace = true, features = ["clock", "wasmbind"] }
+
 [dev-dependencies]
 citadel_logging = { workspace = true }
 citadel_io = { workspace = true }

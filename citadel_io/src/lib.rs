@@ -79,6 +79,7 @@ pub use rand::prelude::*;
 pub use wasm::rng::{WasmRng as ThreadRng, *};
 
 pub use rand::Rng;
+pub use rand::RngCore;
 
 /// Represents errors that can occur during I/O operations
 #[derive(Debug)]
@@ -86,6 +87,8 @@ pub enum Error {
     /// Wraps a standard I/O error
     IoError(std::io::Error),
 }
+
+pub mod time;
 
 // Re-export Tokio and related crates with platform-specific implementations
 #[cfg(not(target_family = "wasm"))]

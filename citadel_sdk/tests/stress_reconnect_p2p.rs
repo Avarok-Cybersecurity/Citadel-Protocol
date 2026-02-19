@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Stress Test: P2P Iterative Disconnect/Reconnect
 //!
 //! Two registered peers loop N iterations of:

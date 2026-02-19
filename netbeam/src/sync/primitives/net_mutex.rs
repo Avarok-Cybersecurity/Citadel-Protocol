@@ -170,7 +170,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetMutex<T, S> {
             // sends Halt before the peer has completed its operations (similar
             // to TCP's TIME_WAIT state for graceful connection closure).
             rt.spawn(async move {
-                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                citadel_io::time::sleep(std::time::Duration::from_millis(200)).await;
                 let _ = conn.send_serialized(UpdatePacket::Halt).await;
             });
         }

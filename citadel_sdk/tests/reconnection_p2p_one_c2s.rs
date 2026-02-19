@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 2: P2P After ONE C2S Disconnect
 //!
 //! Verifies P2P re-establishes after one peer's C2S disconnects.

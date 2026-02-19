@@ -27,6 +27,10 @@
 //! - `error.rs`: Error handling
 
 use crate::error::NetworkError;
+use crate::macros::ContextRequirements;
+use crate::proto::misc::clean_shutdown::{
+    clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream,
+};
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite};
 use citadel_io::tokio_stream::StreamExt;
@@ -40,13 +44,45 @@ pub mod dual_cell;
 pub mod dual_late_init;
 pub mod dual_rwlock;
 pub mod lock_holder;
-pub mod native_config;
-pub mod native_io;
-pub mod native_upgrade;
-pub mod net;
 pub mod panic_future;
 pub mod session_security_settings;
+
+#[cfg(not(target_family = "wasm"))]
+pub mod native_bind;
+#[cfg(not(target_family = "wasm"))]
+pub mod native_config;
+#[cfg(not(target_family = "wasm"))]
+pub mod native_connect;
+#[cfg(not(target_family = "wasm"))]
+pub mod native_io;
+#[cfg(not(target_family = "wasm"))]
+pub mod native_upgrade;
+#[cfg(not(target_family = "wasm"))]
+pub mod net;
+#[cfg(not(target_family = "wasm"))]
 pub mod udp_internal_interface;
+
+#[cfg(target_family = "wasm")]
+pub mod wasm_io;
+
+/// Wraps a stream into a split interface for I/O that safely shuts-down the interface
+/// upon drop
+#[doc(hidden)]
+pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements>(
+    stream: S,
+) -> (
+    CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
+    CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
+) {
+    let framed = LengthDelimitedCodec::builder()
+        .length_field_offset(0)
+        .max_frame_length(1024 * 1024 * 64) // 64 MB
+        .length_field_type::<u32>()
+        .length_adjustment(0)
+        .new_framed(stream);
+
+    clean_framed_shutdown(framed)
+}
 
 pub async fn read_one_packet_as_framed<S: AsyncRead + Unpin, D: DeserializeOwned + Serialize>(
     io: S,

@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Stress Test: C2S Iterative Disconnect/Reconnect
 //!
 //! Registers once, then loops N iterations of:

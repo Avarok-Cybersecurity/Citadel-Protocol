@@ -94,7 +94,7 @@ async fn driver(
     let mut retries = 0;
     loop {
         log::trace!(target: "citadel", "[driver] Attempt {}/{} starting (timeout: {:?})", retries + 1, MAX_RETRIES, timeout);
-        let task = citadel_io::tokio::time::timeout(
+        let task = citadel_io::time::timeout(
             timeout,
             driver_inner(conn, encrypted_config_container.clone()),
         );

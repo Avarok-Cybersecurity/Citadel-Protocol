@@ -63,9 +63,9 @@ use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 
+use citadel_io::time::Duration;
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::tokio::sync::Mutex as TokioMutex;
-use citadel_io::tokio::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::error::FirewallError;
@@ -168,7 +168,7 @@ impl Method3 {
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            let timeout = citadel_io::tokio::time::timeout(
+            let timeout = citadel_io::time::timeout(
                 Duration::from_millis(3000),
                 Self::recv_until(
                     socket_wrapper,
@@ -189,7 +189,7 @@ impl Method3 {
         };
 
         let sender_task = async move {
-            //citadel_io::tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
+            //citadel_io::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
             Self::send_packet_barrage(packet_send_params, None)
                 .await
                 .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -231,7 +231,7 @@ impl Method3 {
             this_node_type,
         } = params;
 
-        let mut sleep = citadel_io::tokio::time::interval(Duration::from_millis(*millis_delta));
+        let mut sleep = citadel_io::time::interval(Duration::from_millis(*millis_delta));
         let delta_ttl = delta_ttl.unwrap_or(0);
         let ttls = (0..*count)
             .map(|idx| ttl_init + (idx * delta_ttl))

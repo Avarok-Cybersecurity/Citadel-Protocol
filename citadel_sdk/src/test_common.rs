@@ -45,12 +45,12 @@ use crate::prefabs::server::empty::EmptyKernel;
 use crate::prefabs::ClientServerRemote;
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
-use citadel_io::tokio::net::TcpListener;
 use futures::Future;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+#[cfg(not(target_family = "wasm"))]
 #[allow(dead_code)]
 pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
     kernel: K,
@@ -71,18 +71,21 @@ pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
     (builder.build::<K>(kernel).unwrap(), bind_addr)
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
 pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
     crate::test_common::server_test_node(EmptyKernel::<R>::default(), |_| {})
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[allow(dead_code)]
 #[cfg(not(feature = "localhost-testing"))]
 pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
     panic!("Function server_info is not available without the localhost-testing feature");
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
 pub fn server_info_reactive<'a, F, Fut, R: Ratchet>(
@@ -99,6 +102,7 @@ where
     )
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[allow(dead_code)]
 #[cfg(not(feature = "localhost-testing"))]
 pub fn server_info_reactive<
@@ -241,7 +245,7 @@ pub async fn udp_mode_assertions<R: Ratchet>(
             tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
             assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
             // wait to give time for the other side to receive the message
-            citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
+            citadel_io::time::sleep(Duration::from_millis(500)).await;
             //wait_for_peers().await;
             std::mem::forget((tx, rx)); // do not run destructor to not trigger premature
         }

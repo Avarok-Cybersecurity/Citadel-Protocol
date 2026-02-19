@@ -75,10 +75,13 @@
 //!
 
 use crate::udp_traversal::HolePunchID;
-use citadel_io::tokio::net::UdpSocket;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, SocketAddr};
+
+#[cfg(not(target_family = "wasm"))]
+use citadel_io::tokio::net::UdpSocket;
+#[cfg(not(target_family = "wasm"))]
 use std::time::Duration;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -135,6 +138,7 @@ impl Display for TargettedSocketAddr {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[derive(Debug)]
 pub struct HolePunchedUdpSocket {
     pub local_id: HolePunchID,
@@ -142,6 +146,7 @@ pub struct HolePunchedUdpSocket {
     pub addr: TargettedSocketAddr,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl HolePunchedUdpSocket {
     pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> std::io::Result<usize> {
         let bind_addr = self.socket.local_addr()?;
@@ -173,7 +178,7 @@ impl HolePunchedUdpSocket {
         let target_addr = SocketAddr::new(send_ip, addr.port());
         log::trace!(target: "citadel", "Sending packet from {bind_addr} to {target_addr}");
 
-        citadel_io::tokio::time::timeout(
+        citadel_io::time::timeout(
             Duration::from_secs(2),
             self.socket.send_to(buf, target_addr),
         )

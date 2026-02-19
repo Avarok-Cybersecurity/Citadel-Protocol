@@ -41,7 +41,6 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_io::ProtocolIO;
 use citadel_types::proto::UdpMode;
-use citadel_user::backend::BackendType;
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
@@ -50,13 +49,14 @@ use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet_processor::includes::*;
 use crate::proto::packet_processor::peer::{group_broadcast, send_dc_signal_peer};
-use crate::proto::packet_processor::preconnect_packet::{
-    calculate_sync_time, generate_hole_punch_crypt_container,
-};
+use crate::proto::packet_processor::preconnect_packet::calculate_sync_time;
+#[cfg(not(target_family = "wasm"))]
+use crate::proto::packet_processor::preconnect_packet::generate_hole_punch_crypt_container;
 use crate::proto::packet_processor::primary_group_packet::{
     get_orientation_safe_ratchet, get_resp_target_cid,
 };
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
+#[cfg(not(target_family = "wasm"))]
 use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
@@ -87,13 +87,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: ProtocolIO>(
     packet: HdpPacket,
     header_entropy_bank_version: u32,
     endpoint_cid_info: Option<(u64, u64)>,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
@@ -452,10 +446,10 @@ where
                                     let bob_transfer =
                                         return_if_none!(transfer.serialize_to_vector().ok());
 
-                                    let local_is_file_transfer_compat = matches!(
-                                        session.account_manager.get_backend_type(),
-                                        BackendType::Filesystem(..)
-                                    );
+                                    let local_is_file_transfer_compat = session
+                                        .account_manager
+                                        .get_backend_type()
+                                        .is_filesystem_backend();
 
                                     // Echo back the p2p_connection_id from Stage0
                                     let signal = PeerSignal::Kex {
@@ -509,7 +503,7 @@ where
                                         channel,
                                         udp_rx_opt,
                                         sync_instant,
-                                        encrypted_config_container,
+                                        endpoint_ratchet,
                                         local_outgoing_attempt_metadata,
                                         needs_turn,
                                         kem_session_security_settings,
@@ -588,10 +582,10 @@ where
                                             );
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &bob_predicted_socket_addr, needs_turn);
                                         let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
-                                        let local_is_file_transfer_compat = matches!(
-                                            session.account_manager.get_backend_type(),
-                                            BackendType::Filesystem(..)
-                                        );
+                                        let local_is_file_transfer_compat = session
+                                            .account_manager
+                                            .get_backend_type()
+                                            .is_filesystem_backend();
 
                                         let p2p_connection_id = kem_state.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
@@ -646,14 +640,6 @@ where
                                             .outgoing_peer_connect_attempts
                                             .remove(&peer_cid);
                                         drop(state_container);
-                                        let stun_servers = session.stun_servers.clone();
-                                        let encrypted_config_container =
-                                            generate_hole_punch_crypt_container(
-                                                endpoint_ratchet,
-                                                SecurityLevel::Standard,
-                                                peer_cid,
-                                                stun_servers,
-                                            );
 
                                         // we need to use the session pqc since this signal needs to get processed by the center node
                                         let stage2_kem_packet =
@@ -673,7 +659,7 @@ where
                                             channel,
                                             udp_rx_opt,
                                             sync_instant,
-                                            encrypted_config_container,
+                                            endpoint_ratchet,
                                             local_outgoing_attempt_metadata,
                                             needs_turn,
                                             session_security_settings,
@@ -716,48 +702,73 @@ where
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
-                                        let session_cid = session.session_cid.clone();
-                                        let kernel_tx = session.kernel_tx.clone();
-                                        let session_alive = session.alive_tracker();
-                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
-                                        match citadel_io::tokio::time::timeout(
-                                            REGISTER_TIMEOUT,
-                                            NetworkEndpoint::register(
-                                                RelativeNodeType::Initiator,
-                                                hole_punch_compat_stream,
-                                            ),
-                                        )
-                                        .await
+                                        #[cfg(not(target_family = "wasm"))]
                                         {
-                                            Ok(Ok(app)) => {
-                                                let client_config = session.client_config.clone();
-                                                let _ = attempt_simultaneous_hole_punch(
-                                                    conn.reverse(),
-                                                    ticket,
-                                                    session.clone(),
-                                                    bob_nat_info.clone(),
-                                                    session_cid,
-                                                    kernel_tx,
-                                                    channel_signal,
-                                                    sync_instant,
-                                                    app,
-                                                    encrypted_config_container,
-                                                    client_config,
-                                                    udp_mode,
-                                                    session_security_settings,
-                                                    Some(hole_punch_cancel_rx),
-                                                    session_alive,
-                                                )
-                                                .await;
+                                            let stun_servers = session.stun_servers.clone();
+                                            let encrypted_config_container =
+                                                generate_hole_punch_crypt_container(
+                                                    endpoint_ratchet,
+                                                    SecurityLevel::Standard,
+                                                    peer_cid,
+                                                    stun_servers,
+                                                );
+                                            let session_cid = session.session_cid.clone();
+                                            let kernel_tx = session.kernel_tx.clone();
+                                            let session_alive = session.alive_tracker();
+                                            const REGISTER_TIMEOUT: Duration =
+                                                Duration::from_secs(15);
+                                            match citadel_io::time::timeout(
+                                                REGISTER_TIMEOUT,
+                                                NetworkEndpoint::register(
+                                                    RelativeNodeType::Initiator,
+                                                    hole_punch_compat_stream,
+                                                ),
+                                            )
+                                            .await
+                                            {
+                                                Ok(Ok(app)) => {
+                                                    let client_config =
+                                                        session.client_config.clone();
+                                                    let _ = attempt_simultaneous_hole_punch(
+                                                        conn.reverse(),
+                                                        ticket,
+                                                        session.clone(),
+                                                        bob_nat_info.clone(),
+                                                        session_cid,
+                                                        kernel_tx,
+                                                        channel_signal,
+                                                        sync_instant,
+                                                        app,
+                                                        encrypted_config_container,
+                                                        client_config,
+                                                        udp_mode,
+                                                        session_security_settings,
+                                                        Some(hole_punch_cancel_rx),
+                                                        session_alive,
+                                                    )
+                                                    .await;
+                                                }
+                                                Ok(Err(err)) => {
+                                                    log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                    session.send_to_kernel(channel_signal)?;
+                                                }
+                                                Err(_) => {
+                                                    log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                    session.send_to_kernel(channel_signal)?;
+                                                }
                                             }
-                                            Ok(Err(err)) => {
-                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
-                                                session.send_to_kernel(channel_signal)?;
-                                            }
-                                            Err(_) => {
-                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
-                                                session.send_to_kernel(channel_signal)?;
-                                            }
+                                        }
+                                        #[cfg(target_family = "wasm")]
+                                        {
+                                            let _ = (
+                                                endpoint_ratchet,
+                                                hole_punch_compat_stream,
+                                                sync_instant,
+                                                hole_punch_cancel_rx,
+                                                udp_mode,
+                                                session_security_settings,
+                                            );
+                                            session.send_to_kernel(channel_signal)?;
                                         }
                                     }
 
@@ -827,10 +838,10 @@ where
                                             alice_nat_info.generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
                                             );
-                                        let local_is_file_transfer_compat = matches!(
-                                            session.account_manager.get_backend_type(),
-                                            BackendType::Filesystem(..)
-                                        );
+                                        let local_is_file_transfer_compat = session
+                                            .account_manager
+                                            .get_backend_type()
+                                            .is_filesystem_backend();
 
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
 
@@ -910,63 +921,79 @@ where
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
-                                        let session_alive = session.alive_tracker();
-                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
-                                        match citadel_io::tokio::time::timeout(
-                                            REGISTER_TIMEOUT,
-                                            NetworkEndpoint::register(
-                                                RelativeNodeType::Receiver,
-                                                hole_punch_compat_stream,
-                                            ),
-                                        )
-                                        .await
+                                        #[cfg(not(target_family = "wasm"))]
                                         {
-                                            Ok(Ok(app)) => {
-                                                let stun_servers = session.stun_servers.clone();
-                                                let encrypted_config_container =
-                                                    generate_hole_punch_crypt_container(
-                                                        endpoint_ratchet,
-                                                        SecurityLevel::Standard,
-                                                        peer_cid,
-                                                        stun_servers,
-                                                    );
-                                                let diff = Duration::from_nanos(i64::abs(
-                                                    timestamp - *sync_time_ns,
-                                                )
-                                                    as u64);
-                                                let sync_instant = Instant::now() + diff;
+                                            let session_alive = session.alive_tracker();
+                                            const REGISTER_TIMEOUT: Duration =
+                                                Duration::from_secs(15);
+                                            match citadel_io::time::timeout(
+                                                REGISTER_TIMEOUT,
+                                                NetworkEndpoint::register(
+                                                    RelativeNodeType::Receiver,
+                                                    hole_punch_compat_stream,
+                                                ),
+                                            )
+                                            .await
+                                            {
+                                                Ok(Ok(app)) => {
+                                                    let stun_servers = session.stun_servers.clone();
+                                                    let encrypted_config_container =
+                                                        generate_hole_punch_crypt_container(
+                                                            endpoint_ratchet,
+                                                            SecurityLevel::Standard,
+                                                            peer_cid,
+                                                            stun_servers,
+                                                        );
+                                                    let diff = Duration::from_nanos(i64::abs(
+                                                        timestamp - *sync_time_ns,
+                                                    )
+                                                        as u64);
+                                                    let sync_instant = Instant::now() + diff;
 
-                                                let session_cid = session.session_cid.clone();
-                                                let kernel_tx = session.kernel_tx.clone();
-                                                let client_config = session.client_config.clone();
+                                                    let session_cid = session.session_cid.clone();
+                                                    let kernel_tx = session.kernel_tx.clone();
+                                                    let client_config =
+                                                        session.client_config.clone();
 
-                                                let _ = attempt_simultaneous_hole_punch(
-                                                    conn.reverse(),
-                                                    ticket,
-                                                    session.clone(),
-                                                    alice_nat_info.clone(),
-                                                    session_cid,
-                                                    kernel_tx.clone(),
-                                                    channel_signal,
-                                                    sync_instant,
-                                                    app,
-                                                    encrypted_config_container,
-                                                    client_config,
-                                                    udp_mode,
-                                                    session_security_settings,
-                                                    Some(hole_punch_cancel_rx),
-                                                    session_alive,
-                                                )
-                                                .await;
+                                                    let _ = attempt_simultaneous_hole_punch(
+                                                        conn.reverse(),
+                                                        ticket,
+                                                        session.clone(),
+                                                        alice_nat_info.clone(),
+                                                        session_cid,
+                                                        kernel_tx.clone(),
+                                                        channel_signal,
+                                                        sync_instant,
+                                                        app,
+                                                        encrypted_config_container,
+                                                        client_config,
+                                                        udp_mode,
+                                                        session_security_settings,
+                                                        Some(hole_punch_cancel_rx),
+                                                        session_alive,
+                                                    )
+                                                    .await;
+                                                }
+                                                Ok(Err(err)) => {
+                                                    log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                    session.send_to_kernel(channel_signal)?;
+                                                }
+                                                Err(_) => {
+                                                    log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                    session.send_to_kernel(channel_signal)?;
+                                                }
                                             }
-                                            Ok(Err(err)) => {
-                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
-                                                session.send_to_kernel(channel_signal)?;
-                                            }
-                                            Err(_) => {
-                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
-                                                session.send_to_kernel(channel_signal)?;
-                                            }
+                                        }
+                                        #[cfg(target_family = "wasm")]
+                                        {
+                                            let _ = (
+                                                endpoint_ratchet,
+                                                hole_punch_compat_stream,
+                                                hole_punch_cancel_rx,
+                                                udp_mode,
+                                                session_security_settings,
+                                            );
+                                            session.send_to_kernel(channel_signal)?;
                                         }
                                     }
 
@@ -1104,13 +1131,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: ProtocolIO>(
     header: Ref<&[u8], HdpHeader>,
     timestamp: i64,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
     match signal {
         PeerSignal::Kex {
@@ -1878,13 +1899,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: Pro
     sess_ratchet: &R,
     security_level: SecurityLevel,
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -1919,7 +1934,10 @@ where
 /// for simultaneous connect detection. This prevents a race where two PostConnects
 /// slip through before either is registered in the peer_layer.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratchet, T: ProtocolIO>(
+pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
+    R: Ratchet,
+    T: ProtocolIO,
+>(
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
     signal: PeerSignal,
     timeout: Duration,
@@ -1931,13 +1949,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<R: Ratch
     sess_mgr: &CitadelSessionManager<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -1998,13 +2010,7 @@ pub(crate) async fn route_signal_response<R: Ratchet, T: ProtocolIO>(
     sess_ratchet: &R,
     on_route_finished: impl FnOnce(&CitadelSession<R, T>, &CitadelSession<R, T>, PeerSignal),
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     trace!(target: "citadel", "Routing signal {signal:?} | impl: {session_cid} | target: {target_cid}");
     let sess_ref = &session;
 

@@ -743,13 +743,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         sess: &CitadelSession<R, T>,
         file_transfer_compatible: bool,
         p2p_connection_id: Ticket,
-    ) -> PeerChannel<R>
-    where
-        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-        T::ClientConfig:
-            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-    {
+    ) -> PeerChannel<R> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS); // Put backpressure on requests
@@ -921,13 +915,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         channel_ticket: Ticket,
         session_cid: u64,
         session: &CitadelSession<R, T>,
-    ) -> PeerChannel<R>
-    where
-        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-        T::ClientConfig:
-            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-    {
+    ) -> PeerChannel<R> {
         let security_settings = self
             .session_security_settings
             .expect("Should be set at beginning of session or on first SYN packet");
@@ -1965,13 +1953,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         key: MessageGroupKey,
         ticket: Ticket,
         session: &CitadelSession<R, T>,
-    ) -> Result<GroupChannel, NetworkError>
-    where
-        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-        T::ClientConfig:
-            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-    {
+    ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
         let session_cid = self
             .cnac

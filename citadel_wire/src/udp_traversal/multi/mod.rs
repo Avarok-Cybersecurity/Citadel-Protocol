@@ -285,7 +285,7 @@ async fn drive(
         drop(lock);
 
         let loser_poller = async move {
-            let mut ticker = citadel_io::tokio::time::interval(Duration::from_millis(100));
+            let mut ticker = citadel_io::time::interval(Duration::from_millis(100));
             loop {
                 ticker.tick().await;
 

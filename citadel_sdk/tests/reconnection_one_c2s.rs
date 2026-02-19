@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 5: P2P Disconnect then ONE C2S Disconnect
 //!
 //! Verifies recovery when P2P disconnects, then only one peer (B) disconnects C2S.

@@ -33,6 +33,7 @@
 use crate::proto::session::ServerOnlySessionInitSettings;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Future;
+#[cfg(not(target_family = "wasm"))]
 use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
@@ -52,6 +53,13 @@ pub mod kernel_trait;
 pub trait RuntimeFuture: Future<Output = Result<(), NetworkError>> + ContextRequirements {}
 impl<T: Future<Output = Result<(), NetworkError>> + ContextRequirements> RuntimeFuture for T {}
 
+/// On native, wraps a real tokio runtime Handle (needed for multi-threaded spawn).
+/// On WASM (always single-threaded), the handle is unused so we substitute `()`.
+#[cfg(not(target_family = "wasm"))]
+pub type RuntimeHandle = Handle;
+#[cfg(target_family = "wasm")]
+pub type RuntimeHandle = ();
+
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 /// Used for fine-tuning parameters within the [`KernelExecutor`]
 pub struct KernelExecutorSettings {
@@ -68,7 +76,7 @@ impl KernelExecutorSettings {
 }
 
 pub struct KernelExecutorArguments<K, R: Ratchet, T: ProtocolIO> {
-    pub rt: Handle,
+    pub rt: RuntimeHandle,
     pub hypernode_type: NodeType,
     pub account_manager: AccountManager<R, R>,
     pub kernel: K,

@@ -6,74 +6,55 @@
 //!
 //! # Features
 //!
-//! - STUN-based NAT type detection
+//! - STUN-based NAT type detection (native only)
 //! - Port and IP translation pattern analysis
 //! - Predictive external address mapping
 //! - IPv4 and IPv6 compatibility checks
 //! - Multiple STUN server fallback support
 //! - NAT traversal strategy determination
-//!
-//! # Examples
-//!
-//! ```rust
-//! use citadel_wire::nat_identification::NatType;
-//! use citadel_wire::nat_identification::TraversalTypeRequired;
-//!
-//! async fn identify_nat() -> Result<(), citadel_wire::error::FirewallError> {
-//!     // Identify NAT type using default STUN servers
-//!     let nat = NatType::identify(None).await?;
-//!     
-//!     // Check if peer-to-peer connection is possible
-//!     if nat.traversal_type_required() == TraversalTypeRequired::Direct {
-//!         println!("Direct connection possible");
-//!     }
-//!     
-//!     Ok(())
-//! }
-//! ```
-//!
-//! # Important Notes
-//!
-//! - NAT detection requires active internet connection
-//! - Multiple STUN requests are made for accurate detection
-//! - Port prediction may fail with symmetric NATs
-//! - IPv6 support depends on system configuration
-//! - Detection timeout defaults to 5 seconds
-//!
-//! # Related Components
-//!
-//! - [`crate::udp_traversal`] - UDP hole punching implementation
-//! - [`crate::standard::upnp_handler`] - UPnP port forwarding
-//! - [`crate::standard::socket_helpers`] - Socket utility functions
-//! - [`crate::error::FirewallError`] - Error handling for NAT operations
-//!
 
 use crate::error::FirewallError;
-use crate::socket_helpers::is_ipv6_enabled;
 use async_ip::IpAddressInfo;
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
+
+#[cfg(not(target_family = "wasm"))]
+use std::borrow::Cow;
+#[cfg(not(target_family = "wasm"))]
 use std::sync::Arc;
+#[cfg(not(target_family = "wasm"))]
 use std::time::Duration;
 
+#[cfg(not(target_family = "wasm"))]
+use crate::socket_helpers::is_ipv6_enabled;
+
 use crate::udp_traversal::hole_punch_config::AddrBand;
+
+#[cfg(not(target_family = "wasm"))]
 use citadel_io::tokio::net::UdpSocket;
+#[cfg(not(target_family = "wasm"))]
+use futures::stream::FuturesUnordered;
+#[cfg(not(target_family = "wasm"))]
+use futures::StreamExt;
+#[cfg(not(target_family = "wasm"))]
 use stun::client::ClientBuilder;
+#[cfg(not(target_family = "wasm"))]
 use stun::message::{Getter, Message, BINDING_REQUEST};
+#[cfg(not(target_family = "wasm"))]
 use stun::xoraddr::XorMappedAddress;
 
+#[cfg(not(target_family = "wasm"))]
 const STUN_SERVERS: [&str; 3] = [
     "global.stun.twilio.com:3478",
     "stun1.l.google.com:19302",
     "stun4.l.google.com:19302",
 ];
 
+#[cfg(not(target_family = "wasm"))]
 const V4_BIND_ADDR: &str = "0.0.0.0:0";
+#[cfg(not(target_family = "wasm"))]
 pub const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3000);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -136,49 +117,19 @@ pub struct SocketPair {
 
 pub const MAX_OCTET_DELTA: i32 = 5;
 
+// Platform-appropriate IPv6 check
+#[cfg(not(target_family = "wasm"))]
+fn check_ipv6_enabled() -> bool {
+    is_ipv6_enabled()
+}
+
+#[cfg(target_family = "wasm")]
+fn check_ipv6_enabled() -> bool {
+    false
+}
+
 impl NatType {
-    /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
-    /// `local_bind_addr`: Only relevant for localhost testing
-    #[cfg_attr(
-        feature = "localhost-testing",
-        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
-    )]
-    pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
-        // In localhost-testing mode, skip STUN entirely and return a localhost-only NatType.
-        // This prevents issues where STUN returns external IPs but sockets are bound to 127.0.0.1,
-        // causing hole punching to try sending from localhost to external IPs (which fails).
-        if cfg!(feature = "localhost-testing") {
-            log::trace!(target: "citadel", "Localhost testing enabled, skipping STUN and using localhost NatType");
-            return Ok(NatType::offline());
-        }
-
-        match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
-            Ok(nat_type) => Ok(nat_type),
-            Err(err) => {
-                log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {err:?}");
-                Ok(NatType::offline())
-            }
-        }
-    }
-
-    /// Identifies the NAT which the local node is behind
-    pub async fn identify_timeout(
-        _timeout: Duration,
-        stun_servers: Option<Vec<String>>,
-    ) -> Result<Self, FirewallError> {
-        match citadel_io::tokio::time::timeout(_timeout, get_nat_type(stun_servers)).await {
-            Ok(res) => res
-                .map_err(|err| FirewallError::HolePunch(err.to_string()))
-                .inspect(|nat_type| {
-                    *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
-                }),
-
-            Err(_elapsed) => Err(FirewallError::HolePunch(
-                "NAT identification elapsed".to_string(),
-            )),
-        }
-    }
-
+    /// Constructs a NatType from 3 socket pair observations. Pure math — no I/O.
     pub fn new(addr0: SocketPair, addr1: SocketPair, addr2: SocketPair) -> Self {
         let ip_translation = Self::get_ip_translation(&addr0, &addr1, &addr2);
         let port_translation = Self::get_port_translation(&addr0, &addr1, &addr2);
@@ -186,11 +137,12 @@ impl NatType {
             ip_translation,
             port_translation,
             ip_info: None,
-            is_ipv6_enabled: is_ipv6_enabled(),
+            is_ipv6_enabled: check_ipv6_enabled(),
         }
     }
 
-    // given a local socket address, predicts the external addresses. Returns None if unpredictable
+    /// Given a local socket address, predicts the external addresses. Returns None if unpredictable.
+    /// Pure math — no I/O.
     pub(crate) fn predict(&self, internal_addr: &SocketAddr) -> Option<Vec<AddrBand>> {
         let mut bands = Vec::new();
         let internal_port = internal_addr.port();
@@ -294,7 +246,7 @@ impl NatType {
         Some(bands)
     }
 
-    /// Given 3 socket addresses, determine the port translation
+    /// Given 3 socket addresses, determine the IP translation. Pure math.
     fn get_ip_translation(
         addr0: &SocketPair,
         addr1: &SocketPair,
@@ -324,20 +276,12 @@ impl NatType {
         let last_octet_external1 = Self::last_octet(&ip1_external);
         let last_octet_external2 = Self::last_octet(&ip2_external);
 
-        // Third case: NAT translates each ip's last octet independently
-        // e.g., NAT may begin allocating at *.100, and incrementing upwards
-        // e.g., [192.168.2.1] -> [192.168.2.100]
-        // e.g., [192.168.2.2] -> [192.168.2.101]
-        // e.g., [192.168.2.10] -> [192.168.2.102]
-        // compare the external ip's last octet to find a pattern
         let last_external_octets = &[
             last_octet_external0,
             last_octet_external1,
             last_octet_external2,
         ];
         let average_delta = average_delta(last_external_octets);
-        // if the delta is within an acceptable range, say, 5, then we can assume that the NAT is
-        // potentially predictable
         if average_delta <= MAX_OCTET_DELTA as usize {
             let highest = *last_external_octets.iter().max().unwrap();
 
@@ -385,15 +329,9 @@ impl NatType {
             return PortTranslation::DeltaConstantOffset { delta: port0_delta };
         }
 
-        // last case: NAT translates each port's last octet independently
-        // e.g., NAT may begin allocating at 25000, and incrementing upwards
-        // e.g., 1098 > 25000
-        // e.g., 10000 > 25001
-        // e.g., 15000 > 25002
         let port_external_octets = &[port0_external, port1_external, port2_external];
 
         let average_delta = average_delta(port_external_octets);
-        // if the delta is within an acceptable range, say, 5, then we can assume that the NAT predictably allocates ports
         if average_delta <= MAX_OCTET_DELTA as usize {
             let highest = *port_external_octets.iter().max().unwrap();
 
@@ -439,7 +377,7 @@ pub enum TraversalTypeRequired {
     TURN,
 }
 
-// we only need to check the NAT type once per node
+#[cfg(not(target_family = "wasm"))]
 static LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> =
     citadel_io::Mutex::new(None);
 
@@ -465,12 +403,6 @@ impl NatType {
     }
 
     /// If either of the method required to reach the endpoints don't require TURN, then the connection will work since at least one of the addrs is predictable
-    ///
-    /// Why? Suppose getting to node A requires unpredictable prediction, but, getting to node B does not.
-    /// Node A can begin sending packets towards predictable B, where A binds towards any port internally.
-    /// Simultaneously, like usual, node B send to A (however, it will likely send to the wrong address).
-    /// Eventually, node A will send a packet correctly to node B. Node B will respond, taking note of the address
-    /// like usual, and sending to the observed address. This observed address is where B will send packets to A.
     pub fn stun_compatible(&self, other_nat: &NatType) -> bool {
         let (this, other) = self.traversal_type_required_with(other_nat);
         this != TraversalTypeRequired::TURN || other != TraversalTypeRequired::TURN
@@ -506,6 +438,50 @@ where
     average.abs() as usize
 }
 
+// --- Native-only: STUN-based NAT identification ---
+
+#[cfg(not(target_family = "wasm"))]
+impl NatType {
+    /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
+    #[cfg_attr(
+        feature = "localhost-testing",
+        tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
+    )]
+    pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
+        if cfg!(feature = "localhost-testing") {
+            log::trace!(target: "citadel", "Localhost testing enabled, skipping STUN and using localhost NatType");
+            return Ok(NatType::offline());
+        }
+
+        match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
+            Ok(nat_type) => Ok(nat_type),
+            Err(err) => {
+                log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {err:?}");
+                Ok(NatType::offline())
+            }
+        }
+    }
+
+    /// Identifies the NAT which the local node is behind
+    pub async fn identify_timeout(
+        _timeout: Duration,
+        stun_servers: Option<Vec<String>>,
+    ) -> Result<Self, FirewallError> {
+        match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
+            Ok(res) => res
+                .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                .inspect(|nat_type| {
+                    *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
+                }),
+
+            Err(_elapsed) => Err(FirewallError::HolePunch(
+                "NAT identification elapsed".to_string(),
+            )),
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
 #[cfg_attr(
     feature = "localhost-testing",
     tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
@@ -574,7 +550,6 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
             .pop()
             .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
 
-        // now, we determine what the nat does when mapping internal socket addrs to external socket addrs
         match (first_natted_addr, second_natted_addr, third_natted_addr) {
             (
                 Some((addr_ext, addr_int)),
@@ -605,7 +580,7 @@ async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyh
     };
 
     let ip_info_future = async move {
-        match citadel_io::tokio::time::timeout(
+        match citadel_io::time::timeout(
             Duration::from_millis(2000),
             async_ip::get_all_multi_concurrent(None),
         )

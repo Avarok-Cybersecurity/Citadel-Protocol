@@ -41,7 +41,6 @@ use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_r
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ProtocolIO;
 use citadel_types::proto::ConnectMode;
-use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
@@ -58,13 +57,7 @@ pub async fn process_connect<R: Ratchet, T: ProtocolIO>(
     sess_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref.clone();
 
     let (hr, cnac) = {
@@ -111,10 +104,10 @@ where
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
                         Ok(stage0_packet) => {
                             // Compute inexpensive values and perform checks before taking the lock
-                            let local_uses_file_system = matches!(
-                                session.account_manager.get_backend_type(),
-                                BackendType::Filesystem(..)
-                            );
+                            let local_uses_file_system = session
+                                .account_manager
+                                .get_backend_type()
+                                .is_filesystem_backend();
                             session
                                 .file_transfer_compatible
                                 .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
@@ -284,10 +277,10 @@ where
                 let task = {
                     // Compute compatibility outside of lock
                     let remote_uses_filesystem = header.group.get() != 0;
-                    let local_uses_file_system = matches!(
-                        session.account_manager.get_backend_type(),
-                        BackendType::Filesystem(..)
-                    );
+                    let local_uses_file_system = session
+                        .account_manager
+                        .get_backend_type()
+                        .is_filesystem_backend();
                     session
                         .file_transfer_compatible
                         .set_once(local_uses_file_system && remote_uses_filesystem);

@@ -55,7 +55,7 @@
 //!
 
 use crate::error::FirewallError;
-use citadel_io::tokio::time::Duration;
+use citadel_io::time::Duration;
 use igd::aio::Gateway;
 use igd::{PortMappingProtocol, SearchOptions};
 use std::fmt::Formatter;

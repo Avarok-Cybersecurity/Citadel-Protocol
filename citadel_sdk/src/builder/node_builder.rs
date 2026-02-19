@@ -44,11 +44,13 @@ use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey};
 use futures::Future;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+#[cfg(not(target_family = "wasm"))]
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 /// Used to construct a running client/peer or server instance
+#[cfg(not(target_family = "wasm"))]
 pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = NativeIO> {
     hypernode_type: Option<NodeType>,
     underlying_protocol: Option<ServerMode<T>>,
@@ -65,10 +67,34 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = NativeIO> {
     _transport: PhantomData<T>,
 }
 
-/// Default node builder type
-pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, NativeIO>;
+/// Used to construct a running client/peer or server instance
+#[cfg(target_family = "wasm")]
+pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = WasmIO> {
+    hypernode_type: Option<NodeType>,
+    underlying_protocol: Option<ServerMode<T>>,
+    backend_type: Option<BackendType>,
+    server_argon_settings: Option<ArgonDefaultServerSettings>,
+    #[cfg(feature = "google-services")]
+    services: Option<ServicesConfig>,
+    server_misc_settings: Option<ServerMiscSettings>,
+    client_tls_config: Option<T::ClientConfig>,
+    kernel_executor_settings: Option<KernelExecutorSettings>,
+    stun_servers: Option<Vec<String>>,
+    local_only_server_settings: Option<ServerOnlySessionInitSettings>,
+    _ratchet: PhantomData<R>,
+    _transport: PhantomData<T>,
+}
 
+/// Default node builder type
+#[cfg(not(target_family = "wasm"))]
+pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, NativeIO>;
+#[cfg(target_family = "wasm")]
+pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, WasmIO>;
+
+#[cfg(not(target_family = "wasm"))]
 pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, NativeIO>;
+#[cfg(target_family = "wasm")]
+pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, WasmIO>;
 
 impl<R: Ratchet, T: ProtocolIO> Default for NodeBuilder<R, T> {
     fn default() -> Self {
@@ -137,22 +163,19 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
     pub fn build<'a, 'b: 'a, K: NetKernel<R> + 'b>(
         &'a mut self,
         kernel: K,
-    ) -> anyhow::Result<NodeFuture<'b, K>>
-    where
-        T::Stream: Into<GenericNetworkStream>,
-        T::ClientConfig: Into<std::sync::Arc<citadel_proto::re_imports::RustlsClientConfig>>,
-        T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-    {
+    ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = self.backend_type.take().unwrap_or_else(|| {
-            if cfg!(feature = "filesystem") {
+            #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+            {
                 // set the home dir for fs type to the home directory
                 let mut home_dir = dirs2::home_dir().unwrap();
                 home_dir.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
                 return BackendType::Filesystem(home_dir.to_str().unwrap().to_string());
             }
 
+            #[allow(unreachable_code)]
             BackendType::InMemory
         });
         let server_argon_settings = self.server_argon_settings.take();
@@ -182,8 +205,11 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
                 T::config_warnings(&underlying_proto);
 
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
+                #[cfg(not(target_family = "wasm"))]
                 let rt = citadel_io::tokio::runtime::Handle::try_current()
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                #[cfg(target_family = "wasm")]
+                let rt = ();
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(
                     backend_type,
@@ -357,6 +383,7 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
 }
 
 /// NativeIO-specific builder methods for TLS certificate configuration
+#[cfg(not(target_family = "wasm"))]
 impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
     /// Loads the accepted cert chain stored by the local operating system
     /// If a custom set of certs is required, run [`Self::with_custom_certs`]
@@ -403,7 +430,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::builder::node_builder::DefaultNodeBuilder;
     use crate::prefabs::server::empty::EmptyKernel;

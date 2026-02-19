@@ -62,13 +62,7 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: ProtocolIO
     session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
     route_signal_response(PeerSignal::PostConnect {
         peer_conn_type,

@@ -30,6 +30,7 @@
 //! - Session keys are automatically rotated based on configurable parameters
 //! - Memory containing sensitive data is securely zeroed when dropped
 
+#[cfg(not(target_family = "wasm"))]
 use std::fs::File;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
@@ -64,7 +65,7 @@ use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream}
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
-use crate::proto::misc::net::GenericNetworkStream;
+#[cfg(not(target_family = "wasm"))]
 use crate::proto::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 //use futures_codec::Framed;
 use crate::proto::disconnect_tracker::{DisconnectSignalTracker, DisconnectToken};
@@ -337,13 +338,7 @@ pub struct ServerOnlySessionInitSettings {
     pub declared_pre_shared_key: Option<PreSharedKey>,
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
     pub(crate) fn new(
         session_init_params: SessionInitParams<R, T>,
     ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
@@ -500,7 +495,7 @@ where
     )]
     pub async fn execute(
         &self,
-        mut primary_stream: GenericNetworkStream,
+        mut primary_stream: T::Stream,
         peer_addr: SocketAddr,
     ) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::trace!(target: "citadel", "HdpSession is executing ...");
@@ -511,8 +506,10 @@ where
         let this_close = self.clone();
 
         let (session_future, handle_zero_state, session_cid, queue_worker_handle) = {
-            let quic_conn_opt = primary_stream.take_p2p_connection();
-            let (writer, reader) = misc::net::safe_split_stream(primary_stream);
+            let quic_conn_opt = T::take_p2p_connection(&mut primary_stream)
+                .and_then(|c| c.downcast::<citadel_wire::exports::Connection>().ok())
+                .map(|c| *c);
+            let (writer, reader) = misc::safe_split_stream(primary_stream);
 
             let (primary_outbound_tx, primary_outbound_rx) = unbounded();
             let primary_outbound_tx = OutboundPrimaryStreamSender::from(primary_outbound_tx);
@@ -808,6 +805,7 @@ where
     }
 
     // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn udp_socket_loader(
         this: CitadelSession<R, T>,
         v_target: VirtualTargetType,
@@ -981,9 +979,14 @@ where
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn outbound_stream(
+    pub async fn outbound_stream<
+        S: citadel_io::tokio::io::AsyncWrite
+            + citadel_io::tokio::io::AsyncRead
+            + Unpin
+            + crate::macros::ContextRequirements,
+    >(
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
-        mut writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
+        mut writer: CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
         mut header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
         if let Some(first_packet) = header_obfuscator.first_packet.take() {
@@ -1015,8 +1018,13 @@ where
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn execute_inbound_stream(
-        mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
+    pub async fn execute_inbound_stream<
+        S: citadel_io::tokio::io::AsyncRead
+            + citadel_io::tokio::io::AsyncWrite
+            + Unpin
+            + crate::macros::ContextRequirements,
+    >(
+        mut reader: CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
         this_main: CitadelSession<R, T>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,
@@ -1067,13 +1075,7 @@ where
             kernel_tx: &UnboundedSender<NodeResult<R>>,
             session: &CitadelSession<R, T>,
             cid_opt: Option<u64>,
-        ) -> std::io::Result<()>
-        where
-            T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-            T::ClientConfig:
-                Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-            T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-        {
+        ) -> std::io::Result<()> {
             let mut session_closing_error: Option<String> = None;
             match &result {
                 Ok(
@@ -1237,7 +1239,7 @@ where
                     evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid);
                 if res.is_err() {
                     // TODO: remove this waiting logic for better code. Wait for any outgoing packets to get flushed
-                    citadel_io::tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    citadel_io::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
 
                 res
@@ -1553,409 +1555,431 @@ where
         virtual_object_metadata: Option<VirtualObjectMetadata>,
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
-        let this = self;
-        let source_path = source.path().ok_or_else(|| {
-            NetworkError::InternalError("The source object does not have a path location")
-        })?;
-
-        let file =
-            File::open(&source_path).map_err(|err| NetworkError::Generic(err.to_string()))?;
-
-        if let Some(virtual_object_metadata) = &virtual_object_metadata {
-            let expected_min_length = virtual_object_metadata.plaintext_length;
-            let file_length = file
-                .length()
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
-            if file_length < expected_min_length as u64 {
-                log::warn!(target: "citadel", "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem: Current file length: {file_length}, expected min length: {expected_min_length}");
-                return Err(NetworkError::InternalError(
-                    "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem",
-                ));
-            }
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = (
+                ticket,
+                max_group_size,
+                source,
+                virtual_target,
+                security_level,
+                transfer_type,
+                local_encryption_level,
+                virtual_object_metadata,
+                post_close_hook,
+            );
+            return Err(NetworkError::InternalError(
+                "File transfer not yet supported on WASM",
+            ));
         }
 
-        let file_metadata = file
-            .metadata()
-            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let this = self;
+            let source_path = source.path().ok_or_else(|| {
+                NetworkError::InternalError("The source object does not have a path location")
+            })?;
 
-        self.ensure_connected(&ticket)?;
+            let file =
+                File::open(&source_path).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-        let file_name = source
-            .get_source_name()
-            .map_err(|err| NetworkError::msg(err.into_string()))?;
-
-        let time_tracker = this.time_tracker;
-        let timestamp = this.time_tracker.get_global_time_ns();
-        let (group_sender, group_sender_rx) = channel(5);
-        let mut group_sender_rx =
-            citadel_io::tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
-        let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
-        // the above are the same for all vtarget types. Now, we need to get the proper entropy_bank and pqc
-
-        let mut state_container = inner_mut_state!(this.state_container);
-
-        log::trace!(target: "citadel", "Transmit file name: {}", &file_name);
-        // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
-        // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
-        let (
-            to_primary_stream,
-            file_header,
-            object_id,
-            target_cid,
-            key_cid,
-            groups_needed,
-            metadata,
-        ) = match virtual_target {
-            VirtualTargetType::LocalGroupServer { session_cid } => {
-                // if we are sending this just to the HyperLAN server (in the case of file uploads),
-                // then, we use this session's pqc, the cnac's latest entropy_bank, and 0 for target_cid
-                if !*self.file_transfer_compatible {
-                    return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+            if let Some(virtual_object_metadata) = &virtual_object_metadata {
+                let expected_min_length = virtual_object_metadata.plaintext_length;
+                let file_length = file
+                    .length()
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                if file_length < expected_min_length as u64 {
+                    log::warn!(target: "citadel", "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem: Current file length: {file_length}, expected min length: {expected_min_length}");
+                    return Err(NetworkError::InternalError(
+                    "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem",
+                ));
                 }
-
-                let crypt_container = state_container
-                    .get_endpoint_container(C2S_IDENTITY_CID)?
-                    .ratchet_manager
-                    .session_crypto_state();
-                let object_id = virtual_object_metadata
-                    .as_ref()
-                    .map(|r| r.object_id)
-                    .unwrap_or_else(|| crypt_container.get_next_object_id());
-                let group_id_start = crypt_container.get_and_increment_group_file_transfer();
-                let latest_hr = crypt_container.get_ratchet(None).unwrap();
-                let static_aux_ratchet = crypt_container
-                    .toolset()
-                    .read()
-                    .get_static_auxiliary_ratchet()
-                    .clone();
-
-                let to_primary_stream = this.to_primary_stream.clone().unwrap();
-                let target_cid = 0;
-                let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
-                    source,
-                    max_group_size,
-                    object_id,
-                    group_sender,
-                    stop_rx,
-                    security_level,
-                    latest_hr.clone(),
-                    static_aux_ratchet,
-                    HDP_HEADER_BYTE_LEN,
-                    target_cid,
-                    group_id_start,
-                    transfer_type.clone(),
-                    packet_crafter::group::craft_wave_payload_packet_into,
-                )
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
-
-                let date_created = file_metadata.created().unwrap_or(SystemTime::now());
-
-                let file_metadata = VirtualObjectMetadata {
-                    object_id,
-                    name: file_name,
-                    date_created: chrono::DateTime::from_timestamp(
-                        date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                        0,
-                    )
-                    .expect("Invalid timestamp")
-                    .to_rfc2822(),
-                    author: session_cid.to_string(),
-                    plaintext_length: file_size,
-                    group_count: groups_needed,
-                    cid: session_cid,
-                    transfer_type,
-                };
-
-                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                let amt_to_reserve = groups_needed.saturating_sub(1);
-                crypt_container
-                    .incrementing_group_id_file_transfer
-                    .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
-                let file_header = packet_crafter::file::craft_file_header_packet(
-                    &latest_hr,
-                    group_id_start,
-                    ticket,
-                    security_level,
-                    virtual_target,
-                    file_metadata.clone(),
-                    timestamp,
-                    local_encryption_level,
-                );
-                (
-                    to_primary_stream,
-                    file_header,
-                    object_id,
-                    target_cid,
-                    session_cid,
-                    groups_needed,
-                    file_metadata,
-                )
             }
 
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            } => {
-                log::trace!(target: "citadel", "Sending HyperLAN peer ({session_cid}) <-> HyperLAN Peer ({target_cid})");
-                // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
-                // of the file
-                let ratchet_manager_c2s = &state_container
-                    .get_endpoint_container(C2S_IDENTITY_CID)?
-                    .ratchet_manager;
-                let static_aux_ratchet = ratchet_manager_c2s
-                    .session_crypto_state()
-                    .toolset()
-                    .read()
-                    .get_static_auxiliary_ratchet()
-                    .clone();
+            let file_metadata = file
+                .metadata()
+                .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                let endpoint_container = state_container.get_endpoint_container(target_cid)?;
+            self.ensure_connected(&ticket)?;
 
-                if !endpoint_container.file_transfer_compatible {
-                    return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
+            let file_name = source
+                .get_source_name()
+                .map_err(|err| NetworkError::msg(err.into_string()))?;
+
+            let time_tracker = this.time_tracker;
+            let timestamp = this.time_tracker.get_global_time_ns();
+            let (group_sender, group_sender_rx) = channel(5);
+            let mut group_sender_rx =
+                citadel_io::tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
+            let (stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
+            // the above are the same for all vtarget types. Now, we need to get the proper entropy_bank and pqc
+
+            let mut state_container = inner_mut_state!(this.state_container);
+
+            log::trace!(target: "citadel", "Transmit file name: {}", &file_name);
+            // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
+            // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
+            let (
+                to_primary_stream,
+                file_header,
+                object_id,
+                target_cid,
+                key_cid,
+                groups_needed,
+                metadata,
+            ) = match virtual_target {
+                VirtualTargetType::LocalGroupServer { session_cid } => {
+                    // if we are sending this just to the HyperLAN server (in the case of file uploads),
+                    // then, we use this session's pqc, the cnac's latest entropy_bank, and 0 for target_cid
+                    if !*self.file_transfer_compatible {
+                        return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+                    }
+
+                    let crypt_container = state_container
+                        .get_endpoint_container(C2S_IDENTITY_CID)?
+                        .ratchet_manager
+                        .session_crypto_state();
+                    let object_id = virtual_object_metadata
+                        .as_ref()
+                        .map(|r| r.object_id)
+                        .unwrap_or_else(|| crypt_container.get_next_object_id());
+                    let group_id_start = crypt_container.get_and_increment_group_file_transfer();
+                    let latest_hr = crypt_container.get_ratchet(None).unwrap();
+                    let static_aux_ratchet = crypt_container
+                        .toolset()
+                        .read()
+                        .get_static_auxiliary_ratchet()
+                        .clone();
+
+                    let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                    let target_cid = 0;
+                    let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
+                        source,
+                        max_group_size,
+                        object_id,
+                        group_sender,
+                        stop_rx,
+                        security_level,
+                        latest_hr.clone(),
+                        static_aux_ratchet,
+                        HDP_HEADER_BYTE_LEN,
+                        target_cid,
+                        group_id_start,
+                        transfer_type.clone(),
+                        packet_crafter::group::craft_wave_payload_packet_into,
+                    )
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                    let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+
+                    let file_metadata = VirtualObjectMetadata {
+                        object_id,
+                        name: file_name,
+                        date_created: chrono::DateTime::from_timestamp(
+                            date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+                            0,
+                        )
+                        .expect("Invalid timestamp")
+                        .to_rfc2822(),
+                        author: session_cid.to_string(),
+                        plaintext_length: file_size,
+                        group_count: groups_needed,
+                        cid: session_cid,
+                        transfer_type,
+                    };
+
+                    // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                    let amt_to_reserve = groups_needed.saturating_sub(1);
+                    crypt_container
+                        .incrementing_group_id_file_transfer
+                        .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
+                    let file_header = packet_crafter::file::craft_file_header_packet(
+                        &latest_hr,
+                        group_id_start,
+                        ticket,
+                        security_level,
+                        virtual_target,
+                        file_metadata.clone(),
+                        timestamp,
+                        local_encryption_level,
+                    );
+                    (
+                        to_primary_stream,
+                        file_header,
+                        object_id,
+                        target_cid,
+                        session_cid,
+                        groups_needed,
+                        file_metadata,
+                    )
                 }
 
-                let object_id = virtual_object_metadata
-                    .as_ref()
-                    .map(|r| r.object_id)
-                    .unwrap_or_else(|| {
-                        endpoint_container
-                            .ratchet_manager
-                            .session_crypto_state()
-                            .get_next_object_id()
-                    });
-                // reserve group ids
-                let start_group_id = endpoint_container
-                    .ratchet_manager
-                    .session_crypto_state()
-                    .get_and_increment_group_id();
+                VirtualConnectionType::LocalGroupPeer {
+                    session_cid,
+                    peer_cid: target_cid,
+                } => {
+                    log::trace!(target: "citadel", "Sending HyperLAN peer ({session_cid}) <-> HyperLAN Peer ({target_cid})");
+                    // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
+                    // of the file
+                    let ratchet_manager_c2s = &state_container
+                        .get_endpoint_container(C2S_IDENTITY_CID)?
+                        .ratchet_manager;
+                    let static_aux_ratchet = ratchet_manager_c2s
+                        .session_crypto_state()
+                        .toolset()
+                        .read()
+                        .get_static_auxiliary_ratchet()
+                        .clone();
 
-                let latest_usable_ratchet = endpoint_container
-                    .ratchet_manager
-                    .get_ratchet(None)
-                    .unwrap();
+                    let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
-                let preferred_primary_stream = state_container
-                    .get_preferred_stream(target_cid)
-                    .ok_or_else(|| {
-                        NetworkError::msg(
+                    if !endpoint_container.file_transfer_compatible {
+                        return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
+                    }
+
+                    let object_id = virtual_object_metadata
+                        .as_ref()
+                        .map(|r| r.object_id)
+                        .unwrap_or_else(|| {
+                            endpoint_container
+                                .ratchet_manager
+                                .session_crypto_state()
+                                .get_next_object_id()
+                        });
+                    // reserve group ids
+                    let start_group_id = endpoint_container
+                        .ratchet_manager
+                        .session_crypto_state()
+                        .get_and_increment_group_id();
+
+                    let latest_usable_ratchet = endpoint_container
+                        .ratchet_manager
+                        .get_ratchet(None)
+                        .unwrap();
+
+                    let preferred_primary_stream = state_container
+                        .get_preferred_stream(target_cid)
+                        .ok_or_else(|| {
+                            NetworkError::msg(
                             "Connection unavailable (shutdown in progress or connection closed)",
                         )
-                    })?
-                    .clone();
+                        })?
+                        .clone();
 
-                let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
-                    source,
-                    max_group_size,
-                    object_id,
-                    group_sender,
-                    stop_rx,
-                    security_level,
-                    latest_usable_ratchet.clone(),
-                    static_aux_ratchet,
-                    HDP_HEADER_BYTE_LEN,
-                    target_cid,
-                    start_group_id,
-                    transfer_type.clone(),
-                    packet_crafter::group::craft_wave_payload_packet_into,
-                )
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
-
-                let date_created = file_metadata.created().unwrap_or(SystemTime::now());
-
-                let file_metadata = VirtualObjectMetadata {
-                    object_id,
-                    name: file_name,
-                    date_created: chrono::DateTime::from_timestamp(
-                        date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
-                        0,
+                    let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
+                        source,
+                        max_group_size,
+                        object_id,
+                        group_sender,
+                        stop_rx,
+                        security_level,
+                        latest_usable_ratchet.clone(),
+                        static_aux_ratchet,
+                        HDP_HEADER_BYTE_LEN,
+                        target_cid,
+                        start_group_id,
+                        transfer_type.clone(),
+                        packet_crafter::group::craft_wave_payload_packet_into,
                     )
-                    .expect("Invalid timestamp")
-                    .to_rfc2822(),
-                    author: session_cid.to_string(),
-                    plaintext_length: file_size,
-                    group_count: groups_needed,
-                    cid: session_cid,
-                    transfer_type,
-                };
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                let file_header = packet_crafter::file::craft_file_header_packet(
-                    &latest_usable_ratchet,
-                    start_group_id,
-                    ticket,
-                    security_level,
-                    virtual_target,
-                    file_metadata.clone(),
-                    timestamp,
-                    local_encryption_level,
+                    let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+
+                    let file_metadata = VirtualObjectMetadata {
+                        object_id,
+                        name: file_name,
+                        date_created: chrono::DateTime::from_timestamp(
+                            date_created.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+                            0,
+                        )
+                        .expect("Invalid timestamp")
+                        .to_rfc2822(),
+                        author: session_cid.to_string(),
+                        plaintext_length: file_size,
+                        group_count: groups_needed,
+                        cid: session_cid,
+                        transfer_type,
+                    };
+
+                    let file_header = packet_crafter::file::craft_file_header_packet(
+                        &latest_usable_ratchet,
+                        start_group_id,
+                        ticket,
+                        security_level,
+                        virtual_target,
+                        file_metadata.clone(),
+                        timestamp,
+                        local_encryption_level,
+                    );
+
+                    // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                    let amt_to_reserve = groups_needed.saturating_sub(1);
+                    endpoint_container
+                        .ratchet_manager
+                        .session_crypto_state()
+                        .incrementing_group_id_file_transfer
+                        .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
+
+                    (
+                        preferred_primary_stream,
+                        file_header,
+                        object_id,
+                        target_cid,
+                        target_cid,
+                        groups_needed,
+                        file_metadata,
+                    )
+                }
+
+                _ => {
+                    log::error!(target: "citadel", "HyperWAN functionality not yet implemented");
+                    return Err(NetworkError::InternalError(
+                        "HyperWAN functionality not yet implemented",
+                    ));
+                }
+            };
+
+            // now that the async cryptscrambler tasks have been spawned on the threadpool, we need to also
+            // spawn tasks that read the [GroupSenders] from there. We also need to store an [OutboundFileMetadataTransmitter]
+            // to store the stopper. After spawning them, the rest is under control. Note: for the async task that spawns here
+            // should be given a Rc<RefCell<StateContainer>>. Finally, since two vpeers may send to the source we are sending
+            // to, the GROUP HEADER ACK needs to return the group start idx. It is expected the adjacent node reserve enough groups
+            // on its end to take into account
+
+            // send the FILE_HEADER
+            to_primary_stream
+                .unbounded_send(file_header)
+                .map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
+            // create the outbound file container
+            let kernel_tx = state_container.kernel_tx.clone();
+            let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
+            let mut next_gs_alerter_rx =
+                citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(
+                    next_gs_alerter_rx,
                 );
+            let (start, start_rx) = citadel_io::tokio::sync::oneshot::channel();
+            let outbound_file_transfer_container = OutboundFileTransfer {
+                stop_tx: Some(stop_tx),
+                metadata,
+                ticket,
+                next_gs_alerter: next_gs_alerter.clone(),
+                start: Some(start),
+            };
+            let file_key = FileKey::new(object_id);
+            let _ = state_container
+                .outbound_files
+                .insert(file_key, outbound_file_transfer_container);
+            // spawn the task that takes GroupSenders from the threadpool cryptscrambler
+            drop(state_container);
 
-                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                let amt_to_reserve = groups_needed.saturating_sub(1);
-                endpoint_container
-                    .ratchet_manager
-                    .session_crypto_state()
-                    .incrementing_group_id_file_transfer
-                    .fetch_add(amt_to_reserve as _, Ordering::Relaxed);
+            let this = self.clone();
+            let future = async move {
+                let this = &this;
+                let next_gs_alerter = &next_gs_alerter;
+                // this future will resolve when the sender drops in the file_crypt_scrambler
+                match start_rx.await {
+                    Ok(false) => {
+                        log::warn!(target: "citadel", "start_rx signalled to NOT begin streaming process. Ending async subroutine");
+                        return;
+                    }
+                    Err(err) => {
+                        log::error!(target: "citadel", "start_rx error occurred: {err:?}");
+                        return;
+                    }
 
-                (
-                    preferred_primary_stream,
-                    file_header,
-                    object_id,
-                    target_cid,
-                    target_cid,
-                    groups_needed,
-                    file_metadata,
-                )
-            }
-
-            _ => {
-                log::error!(target: "citadel", "HyperWAN functionality not yet implemented");
-                return Err(NetworkError::InternalError(
-                    "HyperWAN functionality not yet implemented",
-                ));
-            }
-        };
-
-        // now that the async cryptscrambler tasks have been spawned on the threadpool, we need to also
-        // spawn tasks that read the [GroupSenders] from there. We also need to store an [OutboundFileMetadataTransmitter]
-        // to store the stopper. After spawning them, the rest is under control. Note: for the async task that spawns here
-        // should be given a Rc<RefCell<StateContainer>>. Finally, since two vpeers may send to the source we are sending
-        // to, the GROUP HEADER ACK needs to return the group start idx. It is expected the adjacent node reserve enough groups
-        // on its end to take into account
-
-        // send the FILE_HEADER
-        to_primary_stream
-            .unbounded_send(file_header)
-            .map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
-        // create the outbound file container
-        let kernel_tx = state_container.kernel_tx.clone();
-        let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
-        let mut next_gs_alerter_rx =
-            citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
-        let (start, start_rx) = citadel_io::tokio::sync::oneshot::channel();
-        let outbound_file_transfer_container = OutboundFileTransfer {
-            stop_tx: Some(stop_tx),
-            metadata,
-            ticket,
-            next_gs_alerter: next_gs_alerter.clone(),
-            start: Some(start),
-        };
-        let file_key = FileKey::new(object_id);
-        let _ = state_container
-            .outbound_files
-            .insert(file_key, outbound_file_transfer_container);
-        // spawn the task that takes GroupSenders from the threadpool cryptscrambler
-        drop(state_container);
-
-        let this = self.clone();
-        let future = async move {
-            let this = &this;
-            let next_gs_alerter = &next_gs_alerter;
-            // this future will resolve when the sender drops in the file_crypt_scrambler
-            match start_rx.await {
-                Ok(false) => {
-                    log::warn!(target: "citadel", "start_rx signalled to NOT begin streaming process. Ending async subroutine");
-                    return;
-                }
-                Err(err) => {
-                    log::error!(target: "citadel", "start_rx error occurred: {err:?}");
-                    return;
+                    _ => {}
                 }
 
-                _ => {}
-            }
+                log::trace!(target: "citadel", "Outbound file transfer async subroutine signalled to begin!");
 
-            log::trace!(target: "citadel", "Outbound file transfer async subroutine signalled to begin!");
+                // TODO: planning/overhaul of file transmission process
+                // By now, the file container has been created remotely and locally
+                // We have been signalled to begin polling the group sender
+                // NOTE: polling the group_sender_rx (eventually) stops polling the
+                // async crypt scrambler. Up to 5 groups can be enqueued before stopping
+                // Once 5 groups have enqueued, the only way to continue is if the receiving
+                // end tells us it finished that group, and, we poll the next() group sender below.
+                //
 
-            // TODO: planning/overhaul of file transmission process
-            // By now, the file container has been created remotely and locally
-            // We have been signalled to begin polling the group sender
-            // NOTE: polling the group_sender_rx (eventually) stops polling the
-            // async crypt scrambler. Up to 5 groups can be enqueued before stopping
-            // Once 5 groups have enqueued, the only way to continue is if the receiving
-            // end tells us it finished that group, and, we poll the next() group sender below.
-            //
-
-            let mut relative_group_id = 0;
-            let session_cid = this.session_cid.get();
-            // while waiting, we likely have a set of GroupSenders to process
-            while let Some(sender) = group_sender_rx.next().await {
-                match sender {
-                    Ok(sender) => {
-                        let (group_id, key) = {
-                            // construct the OutboundTransmitters
-                            let sess = this;
-                            if !sess.state.is_connected() {
-                                log::warn!(target: "citadel", "Since transmitting the file, the session ended");
-                                return;
-                            }
-
-                            let mut state_container = inner_mut_state!(sess.state_container);
-                            let latest_proper_ratchet = match state_container
-                                .get_endpoint_container(virtual_target.get_target_cid())
-                            {
-                                Ok(r) => r.ratchet_manager.get_ratchet(None),
-                                Err(err) => {
-                                    log::error!(target: "citadel", "Unable to get endpoint container: {err}");
+                let mut relative_group_id = 0;
+                let session_cid = this.session_cid.get();
+                // while waiting, we likely have a set of GroupSenders to process
+                while let Some(sender) = group_sender_rx.next().await {
+                    match sender {
+                        Ok(sender) => {
+                            let (group_id, key) = {
+                                // construct the OutboundTransmitters
+                                let sess = this;
+                                if !sess.state.is_connected() {
+                                    log::warn!(target: "citadel", "Since transmitting the file, the session ended");
                                     return;
                                 }
+
+                                let mut state_container = inner_mut_state!(sess.state_container);
+                                let latest_proper_ratchet = match state_container
+                                    .get_endpoint_container(virtual_target.get_target_cid())
+                                {
+                                    Ok(r) => r.ratchet_manager.get_ratchet(None),
+                                    Err(err) => {
+                                        log::error!(target: "citadel", "Unable to get endpoint container: {err}");
+                                        return;
+                                    }
+                                };
+
+                                let Some(ratchet) = latest_proper_ratchet else {
+                                    log::error!(target: "citadel", "Unable to unwrap Ratchet for {virtual_target}");
+                                    return;
+                                };
+
+                                let mut transmitter = ObjectTransmitter::new_from_group_sender(
+                                    to_primary_stream.clone(),
+                                    sender,
+                                    ratchet.clone(),
+                                    object_id,
+                                    ticket,
+                                    security_level,
+                                    time_tracker,
+                                );
+                                // group_id is unique per session
+                                let group_id = transmitter.group_id;
+
+                                // We manually send the header. The tails get sent automatically
+                                log::trace!(target: "citadel", "Sending GROUP HEADER through primary stream for group {group_id}");
+                                if let Err(err) = sess.try_action(Some(ticket), || {
+                                    transmitter.transmit_group_header(virtual_target)
+                                }) {
+                                    log::error!(target: "citadel", "Unable to send through primary stream: {err}");
+                                    return;
+                                }
+                                let group_byte_len = transmitter.get_total_plaintext_bytes();
+
+                                let outbound_container = OutboundTransmitterContainer::new(
+                                    Some(next_gs_alerter.clone()),
+                                    transmitter,
+                                    group_byte_len,
+                                    groups_needed,
+                                    relative_group_id,
+                                    ticket,
+                                );
+                                relative_group_id += 1;
+                                // The payload packets won't be sent until a GROUP_HEADER_ACK is received
+                                // the key is the target_cid coupled with the group id
+                                let key = GroupKey::new(key_cid, group_id, object_id);
+
+                                assert!(state_container
+                                    .outbound_transmitters
+                                    .insert(key, outbound_container)
+                                    .is_none());
+                                // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
+                                // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
+                                // here. Also: DROP `sess`!
+                                std::mem::drop(state_container);
+                                //sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
+                                (group_id, key)
                             };
 
-                            let Some(ratchet) = latest_proper_ratchet else {
-                                log::error!(target: "citadel", "Unable to unwrap Ratchet for {virtual_target}");
-                                return;
-                            };
-
-                            let mut transmitter = ObjectTransmitter::new_from_group_sender(
-                                to_primary_stream.clone(),
-                                sender,
-                                ratchet.clone(),
-                                object_id,
-                                ticket,
-                                security_level,
-                                time_tracker,
-                            );
-                            // group_id is unique per session
-                            let group_id = transmitter.group_id;
-
-                            // We manually send the header. The tails get sent automatically
-                            log::trace!(target: "citadel", "Sending GROUP HEADER through primary stream for group {group_id}");
-                            if let Err(err) = sess.try_action(Some(ticket), || {
-                                transmitter.transmit_group_header(virtual_target)
-                            }) {
-                                log::error!(target: "citadel", "Unable to send through primary stream: {err}");
-                                return;
-                            }
-                            let group_byte_len = transmitter.get_total_plaintext_bytes();
-
-                            let outbound_container = OutboundTransmitterContainer::new(
-                                Some(next_gs_alerter.clone()),
-                                transmitter,
-                                group_byte_len,
-                                groups_needed,
-                                relative_group_id,
-                                ticket,
-                            );
-                            relative_group_id += 1;
-                            // The payload packets won't be sent until a GROUP_HEADER_ACK is received
-                            // the key is the target_cid coupled with the group id
-                            let key = GroupKey::new(key_cid, group_id, object_id);
-
-                            assert!(state_container
-                                .outbound_transmitters
-                                .insert(key, outbound_container)
-                                .is_none());
-                            // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
-                            // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
-                            // here. Also: DROP `sess`!
-                            std::mem::drop(state_container);
-                            //sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
-                            (group_id, key)
-                        };
-
-                        let kernel_tx2 = kernel_tx.clone();
-                        this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                            let kernel_tx2 = kernel_tx.clone();
+                            this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                             if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
                                 // as long as a wave ACK has been received, proceed with the timeout check
                                 // The reason why is because this group may be loaded, but the previous one isn't done
@@ -2003,34 +2027,38 @@ where
                             }
                         });
 
-                        // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
-                        // received a signal here
+                            // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
+                            // received a signal here
 
-                        if (next_gs_alerter_rx.next().await).is_none() {
-                            log::warn!(target: "citadel", "next_gs_alerter: steam ended");
-                            return;
+                            if (next_gs_alerter_rx.next().await).is_none() {
+                                log::warn!(target: "citadel", "next_gs_alerter: steam ended");
+                                return;
+                            }
+                        }
+
+                        Err(err) => {
+                            let _ =
+                                kernel_tx
+                                    .clone()
+                                    .unbounded_send(NodeResult::InternalServerError(
+                                        InternalServerError {
+                                            ticket_opt: Some(ticket),
+                                            cid_opt: session_cid,
+                                            message: err.to_string(),
+                                        },
+                                    ));
                         }
                     }
-
-                    Err(err) => {
-                        let _ = kernel_tx
-                            .clone()
-                            .unbounded_send(NodeResult::InternalServerError(InternalServerError {
-                                ticket_opt: Some(ticket),
-                                cid_opt: session_cid,
-                                message: err.to_string(),
-                            }));
-                    }
                 }
-            }
 
-            // we finished pulling. Now, execute the hook if present
-            post_close_hook(source_path);
-        };
+                // we finished pulling. Now, execute the hook if present
+                post_close_hook(source_path);
+            };
 
-        spawn!(future);
+            spawn!(future);
 
-        Ok(())
+            Ok(())
+        }
     }
 
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
@@ -2394,6 +2422,7 @@ where
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn listen_udp_port<S: UdpStream>(
         this: CitadelSession<R, T>,
         _hole_punched_addr_ip: IpAddr,

@@ -55,13 +55,7 @@ pub fn process_file_packet<R: Ratchet, T: ProtocolIO>(
     session: &CitadelSession<R, T>,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     if !session.state.is_connected() {
         return Ok(PrimaryProcessorResult::Void);
     }
@@ -293,9 +287,12 @@ where
                                             Some(metadata),
                                             move |source| {
                                                 if delete_on_pull {
+                                                    #[cfg(not(target_family = "wasm"))]
                                                     spawn!(citadel_io::tokio::fs::remove_file(
                                                         source
                                                     ));
+                                                    #[cfg(target_family = "wasm")]
+                                                    let _ = source;
                                                 }
                                             },
                                         ) {

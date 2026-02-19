@@ -28,17 +28,11 @@
 //! - `node.rs`: Node implementation
 
 use crate::error::NetworkError;
-use crate::macros::ContextRequirements;
-use crate::proto::misc::clean_shutdown::{
-    clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream,
-};
 use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
-use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
 use citadel_io::tokio_stream::{Stream, StreamExt};
-use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
@@ -54,26 +48,6 @@ use std::ops::DerefMut;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-/// Wraps a stream into a split interface for I/O that safely shuts-down the interface
-/// upon drop
-#[doc(hidden)]
-pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements>(
-    stream: S,
-) -> (
-    CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
-    CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
-) {
-    let framed = LengthDelimitedCodec::builder()
-        .length_field_offset(0) // default value
-        .max_frame_length(1024 * 1024 * 64) // 64 MB
-        .length_field_type::<u32>()
-        .length_adjustment(0) // default value
-        // `num_skip` is not needed, the default is to skip
-        .new_framed(stream);
-
-    clean_framed_shutdown(framed)
-}
 
 pub enum GenericNetworkStream {
     OrderedReliable(TcpStream),

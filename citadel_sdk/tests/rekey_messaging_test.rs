@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Minimal test: Rekey + Messaging (no reconnection)
 //!
 //! This isolates whether rekey + messaging works without disconnect/reconnect.

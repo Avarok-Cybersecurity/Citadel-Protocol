@@ -70,9 +70,10 @@
     unused_extern_crates,
     unused_import_braces,
     variant_size_differences,
-    unused_features,
-    dead_code
+    unused_features
 )]
+#![cfg_attr(not(target_family = "wasm"), deny(dead_code))]
+#![cfg_attr(target_family = "wasm", warn(dead_code))]
 #![allow(rustdoc::broken_intra_doc_links)]
 
 use crate::error::NetworkError;
@@ -512,7 +513,7 @@ pub mod re_imports {
 
 pub mod prelude {
     pub use citadel_crypt::argon::argon_container::ArgonDefaultServerSettings;
-    #[cfg(not(coverage))]
+    #[cfg(all(not(coverage), not(target_family = "wasm")))]
     pub use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     pub use citadel_crypt::ratchets::mono::keys::FcmKeys;
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
@@ -533,12 +534,33 @@ pub mod prelude {
     pub use crate::kernel::{
         kernel_executor::KernelExecutor, kernel_trait::NetKernel, KernelExecutorSettings,
     };
+
+    // Native-only prelude exports
+    #[cfg(not(target_family = "wasm"))]
     pub use crate::proto::misc::native_config::{
         NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig, NativeServerModeExt,
     };
+    #[cfg(not(target_family = "wasm"))]
     pub use crate::proto::misc::native_io::NativeIO;
+    #[cfg(not(target_family = "wasm"))]
     pub use crate::proto::misc::native_upgrade::{QuicRedirectSignal, TcpToQuicUpgrade};
+    #[cfg(not(target_family = "wasm"))]
+    #[doc(hidden)]
+    pub use crate::proto::misc::net::GenericNetworkStream;
+    #[cfg(not(target_family = "wasm"))]
+    pub use crate::re_imports::{async_trait, NodeType};
+
+    // WASM prelude exports
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::wasm_io::*;
+    #[cfg(target_family = "wasm")]
+    pub use async_trait::async_trait;
+    #[cfg(target_family = "wasm")]
+    pub use citadel_wire::hypernode_type::NodeType;
+
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
+    #[doc(hidden)]
+    pub use crate::proto::misc::safe_split_stream;
     pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
     pub use crate::proto::node::CitadelNode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
@@ -551,7 +573,6 @@ pub mod prelude {
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::state_container::VirtualTargetType;
-    pub use crate::re_imports::{async_trait, NodeType};
     pub use citadel_io::ServerMode;
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
@@ -560,8 +581,6 @@ pub mod prelude {
     pub use citadel_user::backend::utils::{ObjectTransferHandler, ObjectTransferHandlerInner};
     pub use citadel_user::serialization::SyncIO;
 
-    #[doc(hidden)]
-    pub use crate::proto::misc::net::{safe_split_stream, GenericNetworkStream};
     pub use crate::proto::node_request::*;
     pub use crate::proto::node_result::*;
     pub use crate::proto::remote::*;

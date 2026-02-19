@@ -98,10 +98,8 @@ pub async fn process_keep_alive<R: Ratchet, T: ProtocolIO>(
                     // ever since creating the anti-replay attack, we can no longer withhold packets; they must be sent outbound
                     // immediately, otherwise other packets will fail, invalidating the session
                     async move {
-                        citadel_io::tokio::time::sleep(Duration::from_millis(
-                            KEEP_ALIVE_INTERVAL_MS,
-                        ))
-                        .await;
+                        citadel_io::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS))
+                            .await;
                         accessor.borrow_hr(None, |hr, _| {
                             let next_ka = packet_crafter::keep_alive::craft_keep_alive_packet(
                                 hr,

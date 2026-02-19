@@ -59,13 +59,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet, T: ProtocolIO>(
     session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     let decline = matches!(&peer_response, PeerResponse::Decline);
 
     route_signal_response(PeerSignal::PostRegister {

@@ -23,7 +23,7 @@
 //! - `peer`: Manages peer-to-peer rekey operations
 //! - `kernel`: Receives rekey completion notifications
 
-use citadel_io::tokio::time::Duration;
+use citadel_io::time::Duration;
 
 use crate::constants::{
     REKEY_UPDATE_FREQUENCY_EXTREME, REKEY_UPDATE_FREQUENCY_HIGH, REKEY_UPDATE_FREQUENCY_REINFORCED,

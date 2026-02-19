@@ -160,7 +160,7 @@ async fn setup_connect(
 ) -> Result<TcpStream, anyhow::Error> {
     setup_base_socket(connect_addr, &socket, reuse)?;
     let socket = citadel_io::tokio::net::TcpSocket::from_std_stream(socket.into());
-    Ok(citadel_io::tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
+    Ok(citadel_io::time::timeout(timeout, socket.connect(connect_addr)).await??)
 }
 
 fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(

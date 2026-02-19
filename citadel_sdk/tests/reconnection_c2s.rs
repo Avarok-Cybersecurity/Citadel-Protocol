@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 1: C2S Reconnection
 //!
 //! Verifies client can disconnect from server and reconnect with same CID.

@@ -60,13 +60,7 @@ pub async fn process_raw_packet<R: Ratchet, T: ProtocolIO>(
     remote_peer: SocketAddr,
     local_primary_port: u16,
     packet: BytesMut,
-) -> Result<PrimaryProcessorResult, NetworkError>
-where
-    T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-    T::ClientConfig:
-        Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-    T::Addr: From<std::net::SocketAddr> + Into<std::net::SocketAddr>,
-{
+) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     if packet.parse().is_none() {

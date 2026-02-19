@@ -2,7 +2,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::{ProtocolIO, ProtocolUpgrade, ServerMode, ThreadRng, UnreliableDatagram};
 use citadel_wire::exports::ClientConfig;
@@ -12,11 +11,6 @@ use crate::proto::misc::native_config::{
 };
 use crate::proto::misc::native_upgrade::TcpToQuicUpgrade;
 use crate::proto::misc::net::{DualListener, GenericNetworkStream};
-use crate::proto::node::CitadelNode;
-
-// Concrete node type for calling static methods that don't depend on the
-// Ratchet parameter.
-type AnyNode = CitadelNode<StackedRatchet, NativeIO>;
 
 /// Default [`ProtocolIO`] implementation for native platforms.
 ///
@@ -42,13 +36,15 @@ impl ProtocolIO for NativeIO {
     ) -> io::Result<(Self::Listener, Self::Addr)> {
         match &config {
             ServerMode::P2P(..) => TcpToQuicUpgrade::bind_with_upgrade(config, addr).await,
-            _ => AnyNode::server_create_primary_listen_socket(config, addr),
+            _ => {
+                let (gnl, bound) = super::native_bind::create_listener(config, None, None, addr)?;
+                Ok((DualListener::new(gnl, None), bound))
+            }
         }
     }
 
     async fn connect(config: &Self::ClientConfig, addr: Self::Addr) -> io::Result<Self::Stream> {
-        let (stream, _quic_endpoint) = AnyNode::c2s_connect_defaults(None, addr, config).await?;
-        Ok(stream)
+        super::native_connect::c2s_connect(None, addr, config).await
     }
 
     async fn bind_unreliable(addr: Self::Addr) -> io::Result<Self::UnreliableSocket> {
@@ -86,6 +82,32 @@ impl ProtocolIO for NativeIO {
         if matches!(config, ServerMode::OrderedReliable(..)) {
             citadel_logging::warn!(target: "citadel", "⚠️ WARNING ⚠️ TCP is discouraged for production use until The Citadel Protocol has been reviewed. Use TLS automatically by not changing the underlying protocol");
         }
+    }
+
+    fn from_socket_addr(addr: SocketAddr) -> SocketAddr {
+        addr
+    }
+
+    fn to_socket_addr(addr: &SocketAddr) -> SocketAddr {
+        *addr
+    }
+
+    fn addr_port(addr: &SocketAddr) -> u16 {
+        addr.port()
+    }
+
+    fn peer_addr(stream: &GenericNetworkStream) -> io::Result<SocketAddr> {
+        stream.peer_addr()
+    }
+
+    fn take_p2p_connection(
+        stream: &mut GenericNetworkStream,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
+        stream.take_p2p_connection().map(|c| Box::new(c) as _)
+    }
+
+    fn client_config_to_any(config: &Arc<ClientConfig>) -> Option<Box<dyn std::any::Any + Send>> {
+        Some(Box::new(config.clone()))
     }
 }
 

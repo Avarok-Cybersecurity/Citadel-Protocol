@@ -96,6 +96,35 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
     /// Default is a no-op. Override to warn about insecure configurations
     /// (e.g. NativeIO warns about raw TCP without TLS).
     fn config_warnings(_config: &ServerMode<Self>) {}
+
+    /// Convert a standard socket address to this protocol's address type.
+    fn from_socket_addr(addr: std::net::SocketAddr) -> Self::Addr;
+
+    /// Convert this protocol's address to a standard socket address.
+    fn to_socket_addr(addr: &Self::Addr) -> std::net::SocketAddr;
+
+    /// Extract the port number from an address.
+    fn addr_port(addr: &Self::Addr) -> u16;
+
+    /// Get the peer address of an established stream.
+    fn peer_addr(stream: &Self::Stream) -> io::Result<Self::Addr>;
+
+    /// Extract an opaque P2P connection handle from a stream (if present).
+    ///
+    /// Returns `None` for non-P2P streams or transports without QUIC.
+    /// The returned value can be downcast to the concrete connection type
+    /// (e.g. `quinn::Connection` for NativeIO).
+    fn take_p2p_connection(_stream: &mut Self::Stream) -> Option<Box<dyn std::any::Any + Send>> {
+        None
+    }
+
+    /// Extract an opaque handle from the client config for P2P operations.
+    ///
+    /// Returns `None` for transports that don't support native P2P
+    /// (e.g. WASM). For NativeIO, returns `Arc<rustls::ClientConfig>`.
+    fn client_config_to_any(_config: &Self::ClientConfig) -> Option<Box<dyn std::any::Any + Send>> {
+        None
+    }
 }
 
 /// Capability-based server configuration.

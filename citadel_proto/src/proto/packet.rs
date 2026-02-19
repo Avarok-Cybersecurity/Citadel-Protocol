@@ -390,7 +390,10 @@ impl HeaderObfuscator {
     /// Returns to the client an instance of self coupled with the required init packet
     pub fn new_client(header_obfuscator_settings: HeaderObfuscatorSettings) -> Self {
         let key = match header_obfuscator_settings {
-            HeaderObfuscatorSettings::Enabled => rand::random::<u128>(),
+            HeaderObfuscatorSettings::Enabled => {
+                let mut rng = ThreadRng::default();
+                rng.gen::<u128>()
+            }
             HeaderObfuscatorSettings::Disabled => {
                 let mut disabled_packet = BytesMut::with_capacity(16);
                 disabled_packet.put_u128(DISABLED_KEY);

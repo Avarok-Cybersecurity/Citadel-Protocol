@@ -31,6 +31,7 @@
 //!
 //! Tools for punching holes through the firewall and network. This enables functionality across residential NATs
 #![deny(unsafe_code)]
+
 #[cfg(not(target_family = "wasm"))]
 pub mod exports {
     pub use openssl;
@@ -39,6 +40,46 @@ pub mod exports {
     pub use rustls::pki_types::{CertificateDer as Certificate, PrivateKeyDer as PrivateKey};
     pub use rustls::ClientConfig;
     pub use tokio_rustls;
+}
+
+#[cfg(target_family = "wasm")]
+pub mod exports {
+    /// WASM connection type — designed to hold a browser transport connection.
+    /// Will wrap WebRTC PeerConnection in future phases.
+    /// On WASM, `Box<dyn Any>` downcasts to this type succeed when a connection exists.
+    #[derive(Clone, Debug)]
+    pub struct Connection;
+
+    /// WASM endpoint type — designed to hold a browser transport endpoint.
+    /// Will wrap WebSocket/WebRTC signaling in future phases.
+    #[derive(Clone, Debug)]
+    pub struct Endpoint;
+
+    /// WASM receive stream — will wrap browser transport receive half.
+    pub struct RecvStream;
+
+    /// WASM send stream — will wrap browser transport send half.
+    pub struct SendStream;
+
+    /// Stub rustls module for WASM.
+    /// Browser handles TLS natively; these types exist for API compatibility.
+    pub mod tokio_rustls {
+        pub mod rustls {
+            /// Browser TLS config — the browser handles TLS natively.
+            /// This type exists for `Box<dyn Any>` downcast compatibility.
+            #[derive(Clone, Debug)]
+            pub struct ClientConfig;
+
+            pub mod pki_types {
+                #[derive(Clone, Debug)]
+                pub struct CertificateDer;
+                #[derive(Clone, Debug)]
+                pub struct PrivateKeyDer;
+            }
+        }
+    }
+
+    pub use self::tokio_rustls::rustls::ClientConfig;
 }
 
 pub mod error;

@@ -252,7 +252,7 @@ mod tests {
         citadel_io::tokio_stream::iter(values_unordered)
             .for_each_concurrent(None, |(id, packet)| async move {
                 let rnd = ThreadRng::default().gen_range(1..10);
-                citadel_io::tokio::time::sleep(Duration::from_millis(rnd)).await;
+                citadel_io::time::sleep(Duration::from_millis(rnd)).await;
                 ordered_channel
                     .write()
                     .await

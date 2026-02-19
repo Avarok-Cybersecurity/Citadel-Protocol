@@ -79,11 +79,18 @@
 //! - [`crate::standard::upnp_handler`] - Alternative NAT traversal
 //!
 
+#[cfg(not(target_family = "wasm"))]
 use crate::nat_identification::NatType;
+#[cfg(not(target_family = "wasm"))]
 use citadel_io::tokio::net::UdpSocket;
+#[cfg(not(target_family = "wasm"))]
 use itertools::Itertools;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
+#[cfg(not(target_family = "wasm"))]
+use std::net::{Ipv4Addr, Ipv6Addr};
+
+#[cfg(not(target_family = "wasm"))]
 #[derive(Debug)]
 pub struct HolePunchConfig {
     /// The IP addresses that must be connected to based on NAT traversal
@@ -98,6 +105,7 @@ pub struct AddrBand {
     pub(crate) anticipated_ports: Vec<u16>,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl IntoIterator for HolePunchConfig {
     type Item = Vec<SocketAddr>;
     type IntoIter = std::vec::IntoIter<Vec<SocketAddr>>;
@@ -131,6 +139,7 @@ impl Iterator for AddrBand {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl HolePunchConfig {
     pub fn new(
         peer_nat: &NatType,
@@ -171,6 +180,7 @@ impl HolePunchConfig {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn get_localhost_bands(peer_internal_addr: &SocketAddr) -> Vec<AddrBand> {
     vec![
         AddrBand {

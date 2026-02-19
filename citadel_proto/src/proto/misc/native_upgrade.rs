@@ -140,7 +140,7 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
             citadel_wire::quic::insecure::configure_client()
         };
 
-        let (conn, sink, stream) = citadel_io::tokio::time::timeout(
+        let (conn, sink, stream) = citadel_io::time::timeout(
             Duration::from_secs(TCP_CONN_TIMEOUT.as_secs()),
             quic_endpoint.endpoint.connect_biconn_with(
                 remote_addr,

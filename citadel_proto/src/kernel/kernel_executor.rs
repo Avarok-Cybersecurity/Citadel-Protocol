@@ -38,11 +38,9 @@
 //! - `mod.rs`: Module coordination
 //! - `AccountManager`: User session management
 
-use std::net::SocketAddr;
 use std::pin::Pin;
 
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::tokio::runtime::Handle;
 use citadel_io::ProtocolIO;
 use citadel_user::account_manager::AccountManager;
 use futures::TryStreamExt;
@@ -50,7 +48,9 @@ use futures::TryStreamExt;
 use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::kernel_trait::NetKernel;
-use crate::kernel::{KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture};
+use crate::kernel::{
+    KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture, RuntimeHandle,
+};
 use crate::proto::node::CitadelNode;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
@@ -74,20 +74,14 @@ pub type LocalSet = citadel_io::tokio::task::LocalSet;
 #[cfg(feature = "multi-threaded")]
 pub type LocalSet = ();
 
-type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
+type KernelContext = (RuntimeHandle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 
 impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
     pub async fn new<T: ProtocolIO>(
         args: KernelExecutorArguments<K, R, T>,
-    ) -> Result<Self, NetworkError>
-    where
-        T::Stream: Into<crate::proto::misc::net::GenericNetworkStream>,
-        T::ClientConfig:
-            Into<std::sync::Arc<citadel_wire::exports::tokio_rustls::rustls::ClientConfig>>,
-        T::Addr: From<SocketAddr> + Into<SocketAddr>,
-    {
+    ) -> Result<Self, NetworkError> {
         let KernelExecutorArguments::<K, R, T> {
             rt,
             hypernode_type,
@@ -238,7 +232,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
         };
 
         log::trace!(target: "citadel", "Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
-        citadel_io::tokio::time::timeout(Duration::from_millis(300), shutdown).await;
+        citadel_io::time::timeout(Duration::from_millis(300), shutdown).await;
         log::trace!(target: "citadel", "KernelExecutor confirmed HdpServer has been shut down");
         let stop_res = kernel.on_stop().await;
         // give precedence to the execution res
