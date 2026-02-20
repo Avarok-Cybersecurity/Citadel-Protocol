@@ -287,12 +287,9 @@ pub fn process_file_packet<R: Ratchet, T: ProtocolIO>(
                                             Some(metadata),
                                             move |source| {
                                                 if delete_on_pull {
-                                                    #[cfg(not(target_family = "wasm"))]
-                                                    spawn!(citadel_io::tokio::fs::remove_file(
-                                                        source
-                                                    ));
-                                                    #[cfg(target_family = "wasm")]
-                                                    let _ = source;
+                                                    crate::proto::misc::file_io::async_delete_file(
+                                                        source,
+                                                    );
                                                 }
                                             },
                                         ) {

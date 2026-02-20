@@ -360,6 +360,26 @@ description = "If you have a wasix error, run this task to potentially fix it"
 command = "cargo"
 args = ["wasix", "download-toolchain"]
 
+[tasks.test-wasm]
+description = "Run WASM integration tests (requires Node.js 22+ and wasm-pack)"
+script_runner = "@shell"
+script = '''
+# Use nvm to switch to Node.js 22 if available
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+  nvm use 22 --silent || { echo "Node.js 22 not installed. Run: nvm install 22"; exit 1; }
+fi
+NODE_VERSION=$(node --version)
+NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  echo "Error: Node.js 22+ required (found $NODE_VERSION). Install via: nvm install 22"
+  exit 1
+fi
+echo "Using Node.js $NODE_VERSION"
+cd citadel_sdk
+RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node --release -- --features=wasm --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+'''
+
 [tasks.wasix]
 command = "cargo"
 args = ["--config=Cargo.wasix.toml", "wasix", "${@}", "--profile=wasix"]

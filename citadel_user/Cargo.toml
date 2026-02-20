@@ -17,11 +17,11 @@ license = "MIT OR Apache-2.0"
 default = ["filesystem", "std"]
 redis = ["redis-base", "mobc"]
 sql = ["sqlx", "itertools"]
-filesystem = ["citadel_crypt/filesystem"]
+filesystem = ["citadel_crypt/filesystem", "dirs2"]
 opfs = ["dep:opfs"]
 std = ["citadel_crypt/std", "rand/std", "sha3/std", "bstr/std"]
 wasm = ["citadel_crypt/wasm", "citadel_io/wasm"]
-google-services = ["openssl", "jwt", "firebase-rtdb"]
+google-services = ["openssl", "jwt", "firebase-rtdb", "serde_millis"]
 vendored = ["openssl/vendored"]
 
 localhost-testing = []
@@ -55,7 +55,9 @@ firebase-rtdb = { workspace = true, optional = true }
 jwt = { workspace = true, features = ["openssl"], optional = true }
 openssl = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["v4"] }
+dirs2 = { workspace = true, optional = true }
 opfs = { version = "0.1", optional = true }
+serde_millis = { workspace = true, optional = true }
 bincode = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 citadel_types = { workspace = true }

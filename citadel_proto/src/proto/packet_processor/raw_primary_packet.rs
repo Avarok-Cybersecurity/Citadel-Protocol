@@ -251,8 +251,7 @@ pub(crate) fn check_proxy<R: Ratchet, T: ProtocolIO>(
                                 if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET
                                     && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER
                                 {
-                                    log::error!(target: "citadel", "***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
-                                    std::process::exit(1)
+                                    panic!("Did not expect packet to be proxied via feature flag | local is server: {}", session.is_server);
                                 }
                             }
 

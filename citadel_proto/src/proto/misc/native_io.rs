@@ -109,6 +109,20 @@ impl ProtocolIO for NativeIO {
     fn client_config_to_any(config: &Arc<ClientConfig>) -> Option<Box<dyn std::any::Any + Send>> {
         Some(Box::new(config.clone()))
     }
+
+    async fn bind_with_websocket(
+        primary: Self::Listener,
+        ws_bind_addr: Option<std::net::SocketAddr>,
+    ) -> io::Result<Self::Listener> {
+        if let Some(addr) = ws_bind_addr {
+            let tcp = citadel_io::tokio::net::TcpListener::bind(addr).await?;
+            let ws_listener = super::net::GenericNetworkListener::new_websocket(tcp)?;
+            log::info!(target: "citadel", "WebSocket listener bound on {addr}");
+            Ok(primary.merge_with(ws_listener))
+        } else {
+            Ok(primary)
+        }
+    }
 }
 
 /// Newtype around [`UdpSocket`] implementing [`UnreliableDatagram`].

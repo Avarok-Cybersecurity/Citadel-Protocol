@@ -99,6 +99,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T> {
         client_config: Option<T::ClientConfig>,
         stun_servers: Option<Vec<String>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+        websocket_listen_addr: Option<std::net::SocketAddr>,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -109,6 +110,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T> {
             NodeType::Server(bind_addr) => {
                 let (listener, addr) =
                     T::bind(underlying_proto.clone(), T::from_socket_addr(bind_addr)).await?;
+                let listener = T::bind_with_websocket(listener, websocket_listen_addr).await?;
                 (Some(citadel_io::Mutex::new(listener)), Some(addr))
             }
 
@@ -137,13 +139,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T> {
             stun_servers.clone(),
         );
 
-        #[cfg(not(target_family = "wasm"))]
-        let nat_type = NatType::identify(stun_servers).await?;
-        #[cfg(target_family = "wasm")]
-        let nat_type = {
-            let _ = stun_servers;
-            NatType::offline()
-        };
+        let nat_type = crate::proto::misc::nat_traversal::identify_nat_type(stun_servers).await?;
 
         let inner = CitadelNodeInner {
             underlying_proto,
@@ -209,66 +205,23 @@ impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T> {
 
         drop(read);
 
-        let (
-            outbound_kernel_request_handler,
-            primary_stream_listener,
-            peer_container,
-            localset_opt,
-        ) = {
-            #[cfg(feature = "multi-threaded")]
-            {
-                let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
-                    this.clone(),
-                    kernel_tx.clone(),
-                    outbound_send_request_rx,
-                );
-                let primary_stream_listener = if node_type.is_server() {
-                    Some(Self::listen_primary(
-                        this.clone(),
-                        tt,
-                        kernel_tx.clone(),
-                        server_only_session_settings,
-                    ))
-                } else {
-                    None
-                };
-                let peer_container = CitadelSessionManager::run_peer_container(session_manager);
-                let localset_opt = None;
-                (
-                    outbound_kernel_request_handler,
-                    primary_stream_listener,
-                    peer_container,
-                    localset_opt,
-                )
-            }
-
-            #[cfg(not(feature = "multi-threaded"))]
-            {
-                let localset = LocalSet::new();
-                let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
-                    this.clone(),
-                    kernel_tx.clone(),
-                    outbound_send_request_rx,
-                );
-                let primary_stream_listener = if node_type.is_server() {
-                    Some(Self::listen_primary(
-                        this.clone(),
-                        tt,
-                        kernel_tx.clone(),
-                        server_only_session_settings,
-                    ))
-                } else {
-                    None
-                };
-                let peer_container = CitadelSessionManager::run_peer_container(session_manager);
-                (
-                    outbound_kernel_request_handler,
-                    primary_stream_listener,
-                    peer_container,
-                    Some(localset),
-                )
-            }
+        let localset_opt = crate::proto::misc::threading::create_localset();
+        let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
+            this.clone(),
+            kernel_tx.clone(),
+            outbound_send_request_rx,
+        );
+        let primary_stream_listener = if node_type.is_server() {
+            Some(Self::listen_primary(
+                this.clone(),
+                tt,
+                kernel_tx.clone(),
+                server_only_session_settings,
+            ))
+        } else {
+            None
         };
+        let peer_container = CitadelSessionManager::run_peer_container(session_manager);
 
         let server_future = async move {
             let res = if let Some(primary_stream_listener) = primary_stream_listener {

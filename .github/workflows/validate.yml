@@ -430,6 +430,8 @@ jobs:
         run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --package citadel_proto --target wasm32-unknown-unknown --features=wasm --no-default-features
       - name: Check citadel_sdk for wasm32
         run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --package citadel_sdk --target wasm32-unknown-unknown --features=wasm --no-default-features
+      - name: Check citadel_sdk for wasm32 (default features)
+        run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --package citadel_sdk --target wasm32-unknown-unknown
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -438,7 +440,7 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Run WASM integration tests
         working-directory: citadel_sdk
-        run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node -- --features=wasm --no-default-features --test wasm_basic_p2p
+        run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node --release -- --features=wasm --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
 
   typescript_types:
     name: TypeScript Types

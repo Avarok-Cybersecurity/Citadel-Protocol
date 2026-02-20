@@ -47,6 +47,8 @@ pub mod lock_holder;
 pub mod panic_future;
 pub mod session_security_settings;
 
+pub(crate) mod file_io;
+pub mod nat_traversal;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_bind;
 #[cfg(not(target_family = "wasm"))]
@@ -58,9 +60,12 @@ pub mod native_io;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_upgrade;
 #[cfg(not(target_family = "wasm"))]
-pub mod net;
+pub mod native_websocket;
 #[cfg(not(target_family = "wasm"))]
+pub mod net;
+pub(crate) mod threading;
 pub mod udp_internal_interface;
+pub(crate) mod udp_session_ops;
 
 #[cfg(target_family = "wasm")]
 pub mod wasm_io;

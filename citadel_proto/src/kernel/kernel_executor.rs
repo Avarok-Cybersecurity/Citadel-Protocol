@@ -92,6 +92,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             kernel_executor_settings,
             stun_servers,
             server_only_session_init_settings,
+            websocket_listen_addr,
         } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
@@ -106,6 +107,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             client_config,
             stun_servers,
             server_only_session_init_settings,
+            websocket_listen_addr,
         )
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -145,26 +147,13 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
                 callback_handler,
                 kernel_executor_settings,
             );
-            #[cfg(feature = "multi-threaded")]
-            {
-                use crate::proto::misc::panic_future::ExplicitPanicFuture;
-                let citadel_server_future = ExplicitPanicFuture::new(_rt.spawn(citadel_server));
-                citadel_io::tokio::select! {
-                    ret0 = kernel_future => ret0,
-                    ret1 = citadel_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
-                }
-            }
-            #[cfg(not(feature = "multi-threaded"))]
-            {
-                let localset = _localset_opt.unwrap();
-                //let _ = localset.spawn_local(citadel_server);
-                let citadel_server_future = localset.run_until(citadel_server);
-                //let citadel_server_future = localset;
-                citadel_io::tokio::select! {
-                    ret0 = kernel_future => ret0,
-                    ret1 = citadel_server_future => ret1
-                }
-            }
+            crate::proto::misc::threading::run_server_with_kernel(
+                _rt,
+                citadel_server,
+                kernel_future,
+                _localset_opt,
+            )
+            .await
         };
 
         log::trace!(target: "citadel", "KernelExecutor::execute has finished execution");

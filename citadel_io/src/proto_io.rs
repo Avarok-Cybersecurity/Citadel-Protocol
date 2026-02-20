@@ -125,6 +125,20 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
     fn client_config_to_any(_config: &Self::ClientConfig) -> Option<Box<dyn std::any::Any + Send>> {
         None
     }
+
+    /// Optionally bind an additional WebSocket listener and merge it with
+    /// the primary listener.
+    ///
+    /// Native servers use this to accept browser clients via WebSocket
+    /// alongside their primary TCP/TLS/QUIC transport. Returns the
+    /// primary listener unchanged if `ws_bind_addr` is `None` or the
+    /// transport doesn't support WebSocket.
+    fn bind_with_websocket(
+        primary: Self::Listener,
+        _ws_bind_addr: Option<std::net::SocketAddr>,
+    ) -> impl Future<Output = io::Result<Self::Listener>> + Send {
+        async { Ok(primary) }
+    }
 }
 
 /// Capability-based server configuration.

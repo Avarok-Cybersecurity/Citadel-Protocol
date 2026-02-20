@@ -81,8 +81,37 @@ chrono = { workspace = true }
 sha3 = { workspace = true }
 citadel_logging = { workspace = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+
 [target.'cfg(target_family = "wasm")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+    "WebSocket",
+    "MessageEvent",
+    "ErrorEvent",
+    "CloseEvent",
+    "BinaryType",
+    "Event",
+    # WebRTC DataChannel (unordered mode = UDP equivalent)
+    "RtcPeerConnection",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcDataChannelEvent",
+    "RtcDataChannelState",
+    "RtcConfiguration",
+    "RtcIceServer",
+    "RtcSessionDescriptionInit",
+    "RtcSdpType",
+    "RtcSessionDescription",
+    "RtcIceCandidate",
+    "RtcIceCandidateInit",
+    "RtcPeerConnectionIceEvent",
+    "RtcSignalingState",
+    "RtcIceConnectionState",
+] }
+js-sys = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

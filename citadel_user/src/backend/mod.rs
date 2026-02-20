@@ -78,7 +78,7 @@ pub mod redis_backend;
 /// Implementation for the SQL backend
 pub mod sql_backend;
 /// Standard filesystem I/O implementation
-#[cfg(feature = "filesystem")]
+#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
 pub mod std_file_io;
 /// Utils for the backend trait
 #[allow(missing_docs)]
@@ -93,7 +93,7 @@ pub enum BackendType {
     /// access
     InMemory,
     /// Synchronization will occur on the filesystem
-    #[cfg(feature = "filesystem")]
+    #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
     Filesystem(String),
     /// Synchronization will occur via OPFS (Origin Private File System)
     #[cfg(feature = "opfs")]
@@ -106,14 +106,32 @@ pub enum BackendType {
     Redis(String, RedisConnectionOptions),
 }
 
+impl Default for BackendType {
+    /// Platform-aware default backend selection.
+    ///
+    /// On native + filesystem feature: uses `~/.citadel/<uuid>` directory.
+    /// On WASM or without filesystem feature: uses in-memory storage.
+    fn default() -> Self {
+        #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+        {
+            let mut home_dir = dirs2::home_dir().unwrap();
+            home_dir.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
+            return BackendType::Filesystem(home_dir.to_str().unwrap().to_string());
+        }
+
+        #[allow(unreachable_code)]
+        BackendType::InMemory
+    }
+}
+
 impl BackendType {
     /// Returns `true` if this backend uses the local filesystem for storage.
     pub fn is_filesystem_backend(&self) -> bool {
-        #[cfg(feature = "filesystem")]
+        #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
         {
             matches!(self, BackendType::Filesystem(..))
         }
-        #[cfg(not(feature = "filesystem"))]
+        #[cfg(not(all(feature = "filesystem", not(target_family = "wasm"))))]
         {
             false
         }

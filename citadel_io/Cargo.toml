@@ -15,8 +15,9 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["std"]
-std = ["net", "socket2_wasm"]
+std = ["net"]
 wasm = []
+wasi = ["socket2_wasm"]
 deadlock-detection = ["parking_lot/deadlock_detection"]
 net = ["tokio/net", "tokio-util/net"]
 
@@ -54,7 +55,7 @@ tokio-util-wasm = { package = "tokio-util", version = "0.7.3", git = "https://gi
 ] }
 tokio-stream-wasm = { package = "tokio-stream", version = "0.1.4", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x" }
 wasmtimer = "0.4"
-getrandom = { version = "0.3.3", features = ["wasm_js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 serde = { workspace = true, default-features = false, features = [
     "derive",
     "std",

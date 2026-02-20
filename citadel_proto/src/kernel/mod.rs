@@ -33,8 +33,6 @@
 use crate::proto::session::ServerOnlySessionInitSettings;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Future;
-#[cfg(not(target_family = "wasm"))]
-use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
 
@@ -55,10 +53,7 @@ impl<T: Future<Output = Result<(), NetworkError>> + ContextRequirements> Runtime
 
 /// On native, wraps a real tokio runtime Handle (needed for multi-threaded spawn).
 /// On WASM (always single-threaded), the handle is unused so we substitute `()`.
-#[cfg(not(target_family = "wasm"))]
-pub type RuntimeHandle = Handle;
-#[cfg(target_family = "wasm")]
-pub type RuntimeHandle = ();
+pub type RuntimeHandle = citadel_io::RuntimeHandle;
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 /// Used for fine-tuning parameters within the [`KernelExecutor`]
@@ -85,4 +80,5 @@ pub struct KernelExecutorArguments<K, R: Ratchet, T: ProtocolIO> {
     pub kernel_executor_settings: KernelExecutorSettings,
     pub stun_servers: Option<Vec<String>>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+    pub websocket_listen_addr: Option<std::net::SocketAddr>,
 }

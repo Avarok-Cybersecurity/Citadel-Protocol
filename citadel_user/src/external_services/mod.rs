@@ -180,5 +180,74 @@ pub mod service {
     }
 }
 
+#[cfg(not(all(feature = "google-services", not(target_family = "wasm"))))]
+impl ServicesHandler {
+    /// Returns default ServicesObject when google-services is disabled or on WASM.
+    pub async fn on_post_login_serverside(
+        &self,
+        _session_cid: u64,
+    ) -> Result<ServicesObject, crate::misc::AccountError> {
+        Ok(ServicesObject::default())
+    }
+}
+
+#[cfg(all(feature = "google-services", not(target_family = "wasm")))]
+impl ServicesObject {
+    /// Initialize client-side RTDB from post-login services data.
+    /// Authenticates with Firebase and stores the RTDB config in the CNAC.
+    pub async fn setup_client_rtdb<
+        R: citadel_crypt::ratchets::Ratchet,
+        Fcm: citadel_crypt::ratchets::Ratchet,
+    >(
+        self,
+        cnac: &crate::client_account::ClientNetworkAccount<R, Fcm>,
+    ) -> Result<(), crate::misc::AccountError> {
+        if let (Some(rtdb_cfg), Some(jwt)) = (self.rtdb, self.google_auth_jwt) {
+            log::trace!(target: "citadel", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
+            let rtdb = firebase_rtdb::FirebaseRTDB::new_from_jwt(
+                &rtdb_cfg.url,
+                jwt.clone(),
+                rtdb_cfg.api_key.clone(),
+            )
+            .await
+            .map_err(|err| crate::misc::AccountError::Generic(err.inner))?;
+
+            let firebase_rtdb::FirebaseRTDB {
+                base_url,
+                auth,
+                expire_time,
+                api_key,
+                jwt,
+                ..
+            } = rtdb;
+
+            cnac.store_rtdb_config(crate::external_services::rtdb::RtdbClientConfig {
+                url: base_url,
+                api_key,
+                auth_payload: auth,
+                expire_time,
+                jwt,
+            });
+
+            log::trace!(target: "citadel", "Successfully logged-in to RTDB + stored config inside CNAC ...");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(all(feature = "google-services", not(target_family = "wasm"))))]
+impl ServicesObject {
+    /// No-op when google-services is disabled or on WASM.
+    pub async fn setup_client_rtdb<
+        R: citadel_crypt::ratchets::Ratchet,
+        Fcm: citadel_crypt::ratchets::Ratchet,
+    >(
+        self,
+        _cnac: &crate::client_account::ClientNetworkAccount<R, Fcm>,
+    ) -> Result<(), crate::misc::AccountError> {
+        Ok(())
+    }
+}
+
 /// The type returned when signing a custom jwt
 pub type JsonWebToken = String;

@@ -64,7 +64,10 @@
 //! in the changelog. It is recommended to specify exact version requirements
 //! in your `Cargo.toml`.
 #![doc(html_no_source)]
-#![forbid(unsafe_code)]
+// Native: forbid unsafe entirely. WASM: deny (allows targeted #[allow] for
+// Send/Sync impls on single-threaded web_sys types — the standard WASM pattern).
+#![cfg_attr(not(target_family = "wasm"), forbid(unsafe_code))]
+#![cfg_attr(target_family = "wasm", deny(unsafe_code))]
 #![deny(
     trivial_numeric_casts,
     unused_extern_crates,
@@ -495,7 +498,6 @@ pub mod macros {
 
 #[cfg(not(target_family = "wasm"))]
 pub mod re_imports {
-    pub use async_trait::*;
     pub use bytes::BufMut;
     pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
@@ -504,7 +506,6 @@ pub mod re_imports {
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
     pub use citadel_wire::exports::ClientConfig as RustlsClientConfig;
-    pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic::insecure;
     pub use citadel_wire::tls::{
         cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
@@ -535,6 +536,10 @@ pub mod prelude {
         kernel_executor::KernelExecutor, kernel_trait::NetKernel, KernelExecutorSettings,
     };
 
+    // Unconditional exports available on all platforms
+    pub use async_trait::async_trait;
+    pub use citadel_wire::hypernode_type::NodeType;
+
     // Native-only prelude exports
     #[cfg(not(target_family = "wasm"))]
     pub use crate::proto::misc::native_config::{
@@ -547,16 +552,10 @@ pub mod prelude {
     #[cfg(not(target_family = "wasm"))]
     #[doc(hidden)]
     pub use crate::proto::misc::net::GenericNetworkStream;
-    #[cfg(not(target_family = "wasm"))]
-    pub use crate::re_imports::{async_trait, NodeType};
 
-    // WASM prelude exports
+    // WASM-only prelude exports
     #[cfg(target_family = "wasm")]
     pub use crate::proto::misc::wasm_io::*;
-    #[cfg(target_family = "wasm")]
-    pub use async_trait::async_trait;
-    #[cfg(target_family = "wasm")]
-    pub use citadel_wire::hypernode_type::NodeType;
 
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]

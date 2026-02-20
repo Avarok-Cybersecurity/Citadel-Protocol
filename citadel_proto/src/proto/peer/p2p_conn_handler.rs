@@ -254,7 +254,7 @@ fn handle_p2p_stream<R: Ratchet, T: ProtocolIO>(
         .unwrap_or(Ticket(0));
 
     if udp_mode == UdpMode::Enabled {
-        CitadelSession::udp_socket_loader(
+        crate::proto::misc::udp_session_ops::spawn_udp_socket_loader(
             sess.clone(),
             v_conn,
             UdpSplittableTypes::Quic(udp_conn),

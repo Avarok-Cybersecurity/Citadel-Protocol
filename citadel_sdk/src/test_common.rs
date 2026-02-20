@@ -56,6 +56,26 @@ pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
     kernel: K,
     opts: impl FnOnce(&mut NodeBuilder<R>),
 ) -> (NodeFuture<'a, K>, SocketAddr) {
+    server_test_node_inner(kernel, opts, false).0
+}
+
+/// Create a test server with an additional WebSocket listener.
+/// Returns `((NodeFuture, tcp_addr), ws_addr)`.
+#[cfg(not(target_family = "wasm"))]
+#[allow(dead_code)]
+pub fn server_test_node_with_websocket<'a, K: NetKernel<R> + 'a, R: Ratchet>(
+    kernel: K,
+    opts: impl FnOnce(&mut NodeBuilder<R>),
+) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
+    server_test_node_inner(kernel, opts, true)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn server_test_node_inner<'a, K: NetKernel<R> + 'a, R: Ratchet>(
+    kernel: K,
+    opts: impl FnOnce(&mut NodeBuilder<R>),
+    enable_websocket: bool,
+) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
     let mut builder = NodeBuilder::default();
     let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
         .expect("Failed to create TCP listener");
@@ -66,9 +86,20 @@ pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
             NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
         ));
 
+    let ws_addr = if enable_websocket {
+        let ws_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
+            .expect("Failed to create WebSocket TCP listener");
+        let ws_addr = ws_listener.local_addr().unwrap();
+        drop(ws_listener); // Release the port so the server can rebind it
+        let _ = builder.with_websocket_listener(ws_addr);
+        ws_addr
+    } else {
+        SocketAddr::from(([0, 0, 0, 0], 0))
+    };
+
     (opts)(builder);
 
-    (builder.build::<K>(kernel).unwrap(), bind_addr)
+    ((builder.build::<K>(kernel).unwrap(), bind_addr), ws_addr)
 }
 
 #[cfg(not(target_family = "wasm"))]

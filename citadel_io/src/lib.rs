@@ -108,3 +108,25 @@ pub use tokio_stream;
 
 #[cfg(target_family = "wasm")]
 pub use tokio_stream_wasm as tokio_stream;
+
+/// On native, wraps a real tokio runtime Handle (needed for multi-threaded spawn).
+/// On WASM (always single-threaded), the handle is unused so we substitute `()`.
+#[cfg(not(target_family = "wasm"))]
+pub type RuntimeHandle = tokio::runtime::Handle;
+#[cfg(target_family = "wasm")]
+pub type RuntimeHandle = ();
+
+/// Attempt to acquire a handle to the current async runtime.
+///
+/// On native: calls `tokio::runtime::Handle::try_current()`.
+/// On WASM: always succeeds (returns `()`).
+pub fn try_current_runtime() -> Result<RuntimeHandle, String> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        tokio::runtime::Handle::try_current().map_err(|e| e.to_string())
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        Ok(())
+    }
+}

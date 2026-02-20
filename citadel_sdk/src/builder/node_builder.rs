@@ -49,9 +49,15 @@ use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Used to construct a running client/peer or server instance
+/// Platform-appropriate default transport: `NativeIO` on native, `WasmIO` on WASM.
 #[cfg(not(target_family = "wasm"))]
-pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = NativeIO> {
+pub type DefaultTransport = NativeIO;
+/// Platform-appropriate default transport: `NativeIO` on native, `WasmIO` on WASM.
+#[cfg(target_family = "wasm")]
+pub type DefaultTransport = WasmIO;
+
+/// Used to construct a running client/peer or server instance
+pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = DefaultTransport> {
     hypernode_type: Option<NodeType>,
     underlying_protocol: Option<ServerMode<T>>,
     backend_type: Option<BackendType>,
@@ -63,38 +69,15 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = NativeIO> {
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
+    websocket_listen_addr: Option<std::net::SocketAddr>,
     _ratchet: PhantomData<R>,
     _transport: PhantomData<T>,
 }
 
-/// Used to construct a running client/peer or server instance
-#[cfg(target_family = "wasm")]
-pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = WasmIO> {
-    hypernode_type: Option<NodeType>,
-    underlying_protocol: Option<ServerMode<T>>,
-    backend_type: Option<BackendType>,
-    server_argon_settings: Option<ArgonDefaultServerSettings>,
-    #[cfg(feature = "google-services")]
-    services: Option<ServicesConfig>,
-    server_misc_settings: Option<ServerMiscSettings>,
-    client_tls_config: Option<T::ClientConfig>,
-    kernel_executor_settings: Option<KernelExecutorSettings>,
-    stun_servers: Option<Vec<String>>,
-    local_only_server_settings: Option<ServerOnlySessionInitSettings>,
-    _ratchet: PhantomData<R>,
-    _transport: PhantomData<T>,
-}
-
-/// Default node builder type
-#[cfg(not(target_family = "wasm"))]
-pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, NativeIO>;
-#[cfg(target_family = "wasm")]
-pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, WasmIO>;
-
-#[cfg(not(target_family = "wasm"))]
-pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, NativeIO>;
-#[cfg(target_family = "wasm")]
-pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, WasmIO>;
+/// Default node builder type using platform-appropriate transport
+pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, DefaultTransport>;
+/// Lightweight node builder using `MonoRatchet` for reduced cryptographic overhead
+pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, DefaultTransport>;
 
 impl<R: Ratchet, T: ProtocolIO> Default for NodeBuilder<R, T> {
     fn default() -> Self {
@@ -110,6 +93,7 @@ impl<R: Ratchet, T: ProtocolIO> Default for NodeBuilder<R, T> {
             kernel_executor_settings: None,
             stun_servers: None,
             local_only_server_settings: None,
+            websocket_listen_addr: None,
             _ratchet: Default::default(),
             _transport: Default::default(),
         }
@@ -166,18 +150,7 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
-        let backend_type = self.backend_type.take().unwrap_or_else(|| {
-            #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
-            {
-                // set the home dir for fs type to the home directory
-                let mut home_dir = dirs2::home_dir().unwrap();
-                home_dir.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
-                return BackendType::Filesystem(home_dir.to_str().unwrap().to_string());
-            }
-
-            #[allow(unreachable_code)]
-            BackendType::InMemory
-        });
+        let backend_type = self.backend_type.take().unwrap_or_default();
         let server_argon_settings = self.server_argon_settings.take();
         #[cfg(feature = "google-services")]
         let server_services_cfg = self.services.take();
@@ -189,6 +162,7 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
         let stun_servers = self.stun_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = self.local_only_server_settings.take();
+        let websocket_listen_addr = self.websocket_listen_addr.take();
 
         Ok(NodeFuture {
             _pd: Default::default(),
@@ -205,11 +179,7 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
                 T::config_warnings(&underlying_proto);
 
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
-                #[cfg(not(target_family = "wasm"))]
-                let rt = citadel_io::tokio::runtime::Handle::try_current()
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                #[cfg(target_family = "wasm")]
-                let rt = ();
+                let rt = citadel_io::try_current_runtime().map_err(NetworkError::Generic)?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(
                     backend_type,
@@ -229,6 +199,7 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
                     kernel_executor_settings,
                     stun_servers,
                     server_only_session_init_settings,
+                    websocket_listen_addr,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -334,6 +305,18 @@ impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
     /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
     pub fn with_stun_servers<V: Into<String>, S: Into<Vec<V>>>(&mut self, servers: S) -> &mut Self {
         self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
+        self
+    }
+
+    /// Adds an optional WebSocket listener to a server node.
+    ///
+    /// When set, the server will accept both its primary transport (TCP/TLS/QUIC)
+    /// AND WebSocket connections on the specified address. This enables browser
+    /// clients (via WASM) to connect to the same server.
+    ///
+    /// Has no effect on client/peer nodes.
+    pub fn with_websocket_listener(&mut self, addr: std::net::SocketAddr) -> &mut Self {
+        self.websocket_listen_addr = Some(addr);
         self
     }
 

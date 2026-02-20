@@ -165,14 +165,10 @@ pub async fn process_connect<R: Ratchet, T: ProtocolIO>(
                                     .await?
                                     .unwrap_or_default();
 
-                                #[cfg(feature = "google-services")]
                                 let post_login_object = account_manager
                                     .services_handler()
                                     .on_post_login_serverside(cid)
                                     .await?;
-                                #[cfg(not(feature = "google-services"))]
-                                let post_login_object =
-                                    citadel_user::external_services::ServicesObject::default();
 
                                 let success_packet =
                                     packet_crafter::do_connect::craft_final_status_packet(
@@ -338,7 +334,7 @@ pub async fn process_connect<R: Ratchet, T: ProtocolIO>(
 
                             log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", &message);
 
-                            let _post_login_object = payload.post_login_object.clone();
+                            let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
                             let cxn_type =
                                 VirtualConnectionType::LocalGroupServer { session_cid: cid };
@@ -386,41 +382,10 @@ pub async fn process_connect<R: Ratchet, T: ProtocolIO>(
                                 persistence_handler
                                     .synchronize_hyperlan_peer_list_as_client(&cnac, peers)
                                     .await?;
-                                #[cfg(feature = "google-services")]
-                                if let (Some(rtdb_cfg), Some(jwt)) =
-                                    (_post_login_object.rtdb, _post_login_object.google_auth_jwt)
-                                {
-                                    log::trace!(target: "citadel", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
-                                    let rtdb =
-                                        citadel_user::re_exports::FirebaseRTDB::new_from_jwt(
-                                            &rtdb_cfg.url,
-                                            jwt.clone(),
-                                            rtdb_cfg.api_key.clone(),
-                                        )
-                                        .await
-                                        .map_err(|err| NetworkError::Generic(err.inner))?; // login
-
-                                    let citadel_user::re_exports::FirebaseRTDB {
-                                        base_url,
-                                        auth,
-                                        expire_time,
-                                        api_key,
-                                        jwt,
-                                        ..
-                                    } = rtdb;
-
-                                    let client_rtdb_config =
-                                        citadel_user::external_services::rtdb::RtdbClientConfig {
-                                            url: base_url,
-                                            api_key,
-                                            auth_payload: auth,
-                                            expire_time,
-                                            jwt,
-                                        };
-                                    cnac.store_rtdb_config(client_rtdb_config);
-
-                                    log::trace!(target: "citadel", "Successfully logged-in to RTDB + stored config inside CNAC ...");
-                                };
+                                post_login_object
+                                    .setup_client_rtdb(&cnac)
+                                    .await
+                                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                                 if let ConnectMode::Fetch { .. } = connect_mode {
                                     log::trace!(target: "citadel", "[FETCH] complete ...");

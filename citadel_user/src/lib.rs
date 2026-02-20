@@ -120,7 +120,7 @@ pub mod connection_metadata;
 /// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!VPN)
 pub mod client_account;
 
-#[cfg(feature = "filesystem")]
+#[cfg(any(feature = "filesystem", feature = "opfs"))]
 /// This provides methods to load all locally-stored files
 pub mod account_loader;
 /// The server in legacy_citadel_proto requires a means of handling the user database. This module contains the means of achieving this
@@ -130,7 +130,7 @@ pub mod auth;
 /// For handling different I/O operations
 pub mod backend;
 pub mod credentials;
-#[cfg(feature = "filesystem")]
+#[cfg(any(feature = "filesystem", feature = "opfs"))]
 /// Environmental constants and subroutines for pre-checking the system
 pub mod directory_store;
 /// For services
