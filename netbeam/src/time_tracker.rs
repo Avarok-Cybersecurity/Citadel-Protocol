@@ -56,7 +56,7 @@ impl TimeTracker {
     /// Returns the current time in nanoseconds as an i64.
     /// The returned value will wrap around after approximately 100 years.
     pub fn get_global_time_ns(&self) -> i64 {
-        (std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos() % i64::MAX as u128) as i64
+        (citadel_io::time::UNIX_EPOCH.elapsed().unwrap().as_nanos() % i64::MAX as u128) as i64
     }
 }
 
