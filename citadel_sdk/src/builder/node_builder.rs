@@ -44,8 +44,6 @@ use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey};
 use futures::Future;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-#[cfg(not(target_family = "wasm"))]
-use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -394,7 +392,10 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
 
     /// The file should be a PEM formatted certificate
     #[cfg(feature = "std")]
-    pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
+    pub async fn with_pem_file<P: AsRef<std::path::Path>>(
+        &mut self,
+        path: P,
+    ) -> anyhow::Result<&mut Self> {
         use citadel_wire::exports::{Certificate, PemObject};
         let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
         let certs: Vec<Certificate<'static>> =

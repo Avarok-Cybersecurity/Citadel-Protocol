@@ -51,102 +51,105 @@ use std::str::FromStr;
 use std::time::Duration;
 
 #[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
-pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
-    kernel: K,
-    opts: impl FnOnce(&mut NodeBuilder<R>),
-) -> (NodeFuture<'a, K>, SocketAddr) {
-    server_test_node_inner(kernel, opts, false).0
+mod native {
+    use super::*;
+
+    #[allow(dead_code)]
+    pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
+        kernel: K,
+        opts: impl FnOnce(&mut NodeBuilder<R>),
+    ) -> (NodeFuture<'a, K>, SocketAddr) {
+        server_test_node_inner(kernel, opts, false).0
+    }
+
+    /// Create a test server with an additional WebSocket listener.
+    /// Returns `((NodeFuture, tcp_addr), ws_addr)`.
+    #[allow(dead_code)]
+    pub fn server_test_node_with_websocket<'a, K: NetKernel<R> + 'a, R: Ratchet>(
+        kernel: K,
+        opts: impl FnOnce(&mut NodeBuilder<R>),
+    ) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
+        server_test_node_inner(kernel, opts, true)
+    }
+
+    fn server_test_node_inner<'a, K: NetKernel<R> + 'a, R: Ratchet>(
+        kernel: K,
+        opts: impl FnOnce(&mut NodeBuilder<R>),
+        enable_websocket: bool,
+    ) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
+        let mut builder = NodeBuilder::default();
+        let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
+            .expect("Failed to create TCP listener");
+        let bind_addr = tcp_listener.local_addr().unwrap();
+        let builder = builder
+            .with_node_type(NodeType::Server(bind_addr))
+            .with_underlying_protocol(ServerMode::OrderedReliable(
+                NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
+            ));
+
+        let ws_addr = if enable_websocket {
+            let ws_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
+                .expect("Failed to create WebSocket TCP listener");
+            let ws_addr = ws_listener.local_addr().unwrap();
+            drop(ws_listener); // Release the port so the server can rebind it
+            let _ = builder.with_websocket_listener(ws_addr);
+            ws_addr
+        } else {
+            SocketAddr::from(([0, 0, 0, 0], 0))
+        };
+
+        (opts)(builder);
+
+        ((builder.build::<K>(kernel).unwrap(), bind_addr), ws_addr)
+    }
+
+    #[allow(dead_code)]
+    #[cfg(feature = "localhost-testing")]
+    pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
+        server_test_node(EmptyKernel::<R>::default(), |_| {})
+    }
+
+    #[allow(dead_code)]
+    #[cfg(not(feature = "localhost-testing"))]
+    pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
+        panic!("Function server_info is not available without the localhost-testing feature");
+    }
+
+    #[allow(dead_code)]
+    #[cfg(feature = "localhost-testing")]
+    pub fn server_info_reactive<'a, F, Fut, R: Ratchet>(
+        f: F,
+        opts: impl FnOnce(&mut NodeBuilder<R>),
+    ) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr)
+    where
+        F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
+    {
+        server_test_node(
+            Box::new(ClientConnectListenerKernel::<_, _, R>::new(f)) as Box<dyn NetKernel<R>>,
+            opts,
+        )
+    }
+
+    #[allow(dead_code)]
+    #[cfg(not(feature = "localhost-testing"))]
+    pub fn server_info_reactive<
+        'a,
+        F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
+        Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
+        R: Ratchet,
+    >(
+        _f: F,
+        _opts: impl FnOnce(&mut NodeBuilder<R>),
+    ) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr) {
+        panic!(
+            "Function server_info_reactive is not available without the localhost-testing feature"
+        );
+    }
 }
 
-/// Create a test server with an additional WebSocket listener.
-/// Returns `((NodeFuture, tcp_addr), ws_addr)`.
 #[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
-pub fn server_test_node_with_websocket<'a, K: NetKernel<R> + 'a, R: Ratchet>(
-    kernel: K,
-    opts: impl FnOnce(&mut NodeBuilder<R>),
-) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
-    server_test_node_inner(kernel, opts, true)
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn server_test_node_inner<'a, K: NetKernel<R> + 'a, R: Ratchet>(
-    kernel: K,
-    opts: impl FnOnce(&mut NodeBuilder<R>),
-    enable_websocket: bool,
-) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
-    let mut builder = NodeBuilder::default();
-    let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
-        .expect("Failed to create TCP listener");
-    let bind_addr = tcp_listener.local_addr().unwrap();
-    let builder = builder
-        .with_node_type(NodeType::Server(bind_addr))
-        .with_underlying_protocol(ServerMode::OrderedReliable(
-            NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
-        ));
-
-    let ws_addr = if enable_websocket {
-        let ws_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
-            .expect("Failed to create WebSocket TCP listener");
-        let ws_addr = ws_listener.local_addr().unwrap();
-        drop(ws_listener); // Release the port so the server can rebind it
-        let _ = builder.with_websocket_listener(ws_addr);
-        ws_addr
-    } else {
-        SocketAddr::from(([0, 0, 0, 0], 0))
-    };
-
-    (opts)(builder);
-
-    ((builder.build::<K>(kernel).unwrap(), bind_addr), ws_addr)
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
-#[cfg(feature = "localhost-testing")]
-pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
-    crate::test_common::server_test_node(EmptyKernel::<R>::default(), |_| {})
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
-#[cfg(not(feature = "localhost-testing"))]
-pub fn server_info<'a, R: Ratchet>() -> (NodeFuture<'a, EmptyKernel<R>>, SocketAddr) {
-    panic!("Function server_info is not available without the localhost-testing feature");
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
-#[cfg(feature = "localhost-testing")]
-pub fn server_info_reactive<'a, F, Fut, R: Ratchet>(
-    f: F,
-    opts: impl FnOnce(&mut NodeBuilder<R>),
-) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr)
-where
-    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
-    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
-{
-    server_test_node(
-        Box::new(ClientConnectListenerKernel::<_, _, R>::new(f)) as Box<dyn NetKernel<R>>,
-        opts,
-    )
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
-#[cfg(not(feature = "localhost-testing"))]
-pub fn server_info_reactive<
-    'a,
-    F: Fn(CitadelClientServerConnection<R>) -> Fut + Send + Sync + 'a,
-    Fut: Future<Output = Result<(), NetworkError>> + Send + Sync + 'a,
-    R: Ratchet,
->(
-    _f: F,
-    _opts: impl FnOnce(&mut NodeBuilder<R>),
-) -> (NodeFuture<'a, Box<dyn NetKernel<R> + 'a>>, SocketAddr) {
-    panic!("Function server_info_reactive is not available without the localhost-testing feature");
-}
+pub use native::*;
 
 #[cfg(feature = "localhost-testing")]
 pub async fn wait_for_peers() {

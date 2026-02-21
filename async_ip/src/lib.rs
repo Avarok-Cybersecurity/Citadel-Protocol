@@ -188,6 +188,48 @@ pub async fn get_ip_from(
 // --- Platform-specific internal IP resolution ---
 
 #[cfg(not(target_family = "wasm"))]
+mod native {
+    use super::*;
+    use std::str::FromStr;
+
+    /// Gets the internal IP address using a UDP socket trick (native only)
+    pub async fn get_internal_ip(ipv6: bool) -> Option<IpAddr> {
+        if ipv6 {
+            get_internal_ipv6().await
+        } else {
+            get_internal_ipv4().await
+        }
+    }
+
+    /// Returns the internal ipv4 address of this node
+    pub async fn get_internal_ipv4() -> Option<IpAddr> {
+        let socket = citadel_io::tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?)
+            .await
+            .ok()?;
+        socket.connect(addr("8.8.8.8:80")?).await.ok()?;
+        socket.local_addr().ok().map(|sck| sck.ip())
+    }
+
+    async fn get_internal_ipv6() -> Option<IpAddr> {
+        let socket = citadel_io::tokio::net::UdpSocket::bind(addr("[::]:0")?)
+            .await
+            .ok()?;
+        socket
+            .connect(addr("[2001:4860:4860::8888]:80")?)
+            .await
+            .ok()?;
+        socket.local_addr().ok().map(|sck| sck.ip())
+    }
+
+    fn addr(addr: &str) -> Option<std::net::SocketAddr> {
+        std::net::SocketAddr::from_str(addr).ok()
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub use native::{get_internal_ip, get_internal_ipv4};
+
+#[cfg(not(target_family = "wasm"))]
 async fn resolve_internal_ip(ipv6: bool) -> Option<IpAddr> {
     get_internal_ip(ipv6).await
 }
@@ -196,43 +238,6 @@ async fn resolve_internal_ip(ipv6: bool) -> Option<IpAddr> {
 async fn resolve_internal_ip(_ipv6: bool) -> Option<IpAddr> {
     // Browser cannot discover LAN IP address; return localhost
     Some(IpAddr::from_str("127.0.0.1").unwrap())
-}
-
-/// Gets the internal IP address using a UDP socket trick (native only)
-#[cfg(not(target_family = "wasm"))]
-pub async fn get_internal_ip(ipv6: bool) -> Option<IpAddr> {
-    if ipv6 {
-        get_internal_ipv6().await
-    } else {
-        get_internal_ipv4().await
-    }
-}
-
-/// Returns the internal ipv4 address of this node
-#[cfg(not(target_family = "wasm"))]
-pub async fn get_internal_ipv4() -> Option<IpAddr> {
-    let socket = citadel_io::tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?)
-        .await
-        .ok()?;
-    socket.connect(addr("8.8.8.8:80")?).await.ok()?;
-    socket.local_addr().ok().map(|sck| sck.ip())
-}
-
-#[cfg(not(target_family = "wasm"))]
-async fn get_internal_ipv6() -> Option<IpAddr> {
-    let socket = citadel_io::tokio::net::UdpSocket::bind(addr("[::]:0")?)
-        .await
-        .ok()?;
-    socket
-        .connect(addr("[2001:4860:4860::8888]:80")?)
-        .await
-        .ok()?;
-    socket.local_addr().ok().map(|sck| sck.ip())
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn addr(addr: &str) -> Option<std::net::SocketAddr> {
-    std::net::SocketAddr::from_str(addr).ok()
 }
 
 /// Returns a default client
