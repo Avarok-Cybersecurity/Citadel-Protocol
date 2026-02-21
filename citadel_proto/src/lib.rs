@@ -542,16 +542,16 @@ pub mod prelude {
 
     // Native-only prelude exports
     #[cfg(not(target_family = "wasm"))]
-    pub use crate::proto::misc::native_config::{
-        NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig, NativeServerModeExt,
-    };
-    #[cfg(not(target_family = "wasm"))]
-    pub use crate::proto::misc::native_io::NativeIO;
-    #[cfg(not(target_family = "wasm"))]
-    pub use crate::proto::misc::native_upgrade::{QuicRedirectSignal, TcpToQuicUpgrade};
-    #[cfg(not(target_family = "wasm"))]
     #[doc(hidden)]
     pub use crate::proto::misc::net::GenericNetworkStream;
+    #[cfg(not(target_family = "wasm"))]
+    pub use {
+        crate::proto::misc::native_config::{
+            NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig, NativeServerModeExt,
+        },
+        crate::proto::misc::native_io::NativeIO,
+        crate::proto::misc::native_upgrade::{QuicRedirectSignal, TcpToQuicUpgrade},
+    };
 
     // WASM-only prelude exports
     #[cfg(target_family = "wasm")]

@@ -20,42 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 
-#[cfg(not(target_family = "wasm"))]
-use std::borrow::Cow;
-#[cfg(not(target_family = "wasm"))]
-use std::sync::Arc;
-#[cfg(not(target_family = "wasm"))]
-use std::time::Duration;
-
-#[cfg(not(target_family = "wasm"))]
-use crate::socket_helpers::is_ipv6_enabled;
-
 use crate::udp_traversal::hole_punch_config::AddrBand;
-
-#[cfg(not(target_family = "wasm"))]
-use citadel_io::tokio::net::UdpSocket;
-#[cfg(not(target_family = "wasm"))]
-use futures::stream::FuturesUnordered;
-#[cfg(not(target_family = "wasm"))]
-use futures::StreamExt;
-#[cfg(not(target_family = "wasm"))]
-use stun::client::ClientBuilder;
-#[cfg(not(target_family = "wasm"))]
-use stun::message::{Getter, Message, BINDING_REQUEST};
-#[cfg(not(target_family = "wasm"))]
-use stun::xoraddr::XorMappedAddress;
-
-#[cfg(not(target_family = "wasm"))]
-const STUN_SERVERS: [&str; 3] = [
-    "global.stun.twilio.com:3478",
-    "stun1.l.google.com:19302",
-    "stun4.l.google.com:19302",
-];
-
-#[cfg(not(target_family = "wasm"))]
-const V4_BIND_ADDR: &str = "0.0.0.0:0";
-#[cfg(not(target_family = "wasm"))]
-pub const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3000);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum IpTranslation {
@@ -120,7 +85,7 @@ pub const MAX_OCTET_DELTA: i32 = 5;
 // Platform-appropriate IPv6 check
 #[cfg(not(target_family = "wasm"))]
 fn check_ipv6_enabled() -> bool {
-    is_ipv6_enabled()
+    crate::socket_helpers::is_ipv6_enabled()
 }
 
 #[cfg(target_family = "wasm")]
@@ -377,10 +342,6 @@ pub enum TraversalTypeRequired {
     TURN,
 }
 
-#[cfg(not(target_family = "wasm"))]
-static LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> =
-    citadel_io::Mutex::new(None);
-
 impl NatType {
     /// Returns the NAT traversal type required to access self and other, respectively
     pub fn traversal_type_required_with(
@@ -438,181 +399,206 @@ where
     average.abs() as usize
 }
 
-// --- Native-only: STUN-based NAT identification ---
-
 #[cfg(not(target_family = "wasm"))]
-impl NatType {
-    /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
+mod native {
+    use super::*;
+    use citadel_io::tokio::net::UdpSocket;
+    use futures::stream::FuturesUnordered;
+    use futures::StreamExt;
+    use std::borrow::Cow;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use stun::client::ClientBuilder;
+    use stun::message::{Getter, Message, BINDING_REQUEST};
+    use stun::xoraddr::XorMappedAddress;
+
+    const STUN_SERVERS: [&str; 3] = [
+        "global.stun.twilio.com:3478",
+        "stun1.l.google.com:19302",
+        "stun4.l.google.com:19302",
+    ];
+
+    const V4_BIND_ADDR: &str = "0.0.0.0:0";
+    pub const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3000);
+
+    static LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> =
+        citadel_io::Mutex::new(None);
+
+    impl NatType {
+        /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
+        #[cfg_attr(
+            feature = "localhost-testing",
+            tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
+        )]
+        pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
+            if cfg!(feature = "localhost-testing") {
+                log::trace!(target: "citadel", "Localhost testing enabled, skipping STUN and using localhost NatType");
+                return Ok(NatType::offline());
+            }
+
+            match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
+                Ok(nat_type) => Ok(nat_type),
+                Err(err) => {
+                    log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {err:?}");
+                    Ok(NatType::offline())
+                }
+            }
+        }
+
+        /// Identifies the NAT which the local node is behind
+        pub async fn identify_timeout(
+            _timeout: Duration,
+            stun_servers: Option<Vec<String>>,
+        ) -> Result<Self, FirewallError> {
+            match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
+                Ok(res) => res
+                    .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                    .inspect(|nat_type| {
+                        *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
+                    }),
+
+                Err(_elapsed) => Err(FirewallError::HolePunch(
+                    "NAT identification elapsed".to_string(),
+                )),
+            }
+        }
+    }
+
     #[cfg_attr(
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
-        if cfg!(feature = "localhost-testing") {
-            log::trace!(target: "citadel", "Localhost testing enabled, skipping STUN and using localhost NatType");
-            return Ok(NatType::offline());
-        }
+    async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyhow::Error> {
+        let stun_servers = if let Some(stun_servers) = &stun_servers {
+            Cow::Owned(stun_servers.iter().map(|r| r.as_str()).collect())
+        } else {
+            Cow::Borrowed(&STUN_SERVERS as &[&str])
+        };
 
-        match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
-            Ok(nat_type) => Ok(nat_type),
-            Err(err) => {
-                log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {err:?}");
-                Ok(NatType::offline())
+        let nat_type = async move {
+            let mut msg = Message::new();
+            msg.build(&[
+                Box::<stun::agent::TransactionId>::default(),
+                Box::new(BINDING_REQUEST),
+            ])?;
+
+            let msg = &msg;
+
+            let futures_unordered = FuturesUnordered::new();
+
+            for server in stun_servers.iter() {
+                let task = async move {
+                    let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
+                    let new_bind_addr = udp_sck.local_addr()?;
+                    udp_sck.connect(server).await?;
+                    let (handler_tx, mut handler_rx) =
+                        citadel_io::tokio::sync::mpsc::unbounded_channel();
+                    log::trace!(target: "citadel", "Connected to STUN server {server:?}");
+                    let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
+
+                    client.send(msg, Some(Arc::new(handler_tx))).await?;
+
+                    if let Some(event) = handler_rx.recv().await {
+                        match event.event_body {
+                            Ok(msg) => {
+                                let mut xor_addr = XorMappedAddress::default();
+                                xor_addr.get_from(&msg)?;
+                                let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
+
+                                log::trace!(target: "citadel", "External ADDR: {natted_addr:?} | internal: {new_bind_addr:?}");
+
+                                return Ok(Some((natted_addr, new_bind_addr)));
+                            }
+                            Err(err) => log::trace!(target: "citadel", "{err:?}"),
+                        };
+                    }
+
+                    Ok(None)
+                };
+
+                futures_unordered.push(Box::pin(task));
             }
-        }
-    }
 
-    /// Identifies the NAT which the local node is behind
-    pub async fn identify_timeout(
-        _timeout: Duration,
-        stun_servers: Option<Vec<String>>,
-    ) -> Result<Self, FirewallError> {
-        match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
-            Ok(res) => res
-                .map_err(|err| FirewallError::HolePunch(err.to_string()))
-                .inspect(|nat_type| {
-                    *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
-                }),
+            let mut results = futures_unordered
+                .collect::<Vec<Result<Option<(SocketAddr, SocketAddr)>, anyhow::Error>>>()
+                .await;
+            let first_natted_addr = results
+                .pop()
+                .ok_or_else(|| anyhow::Error::msg("First result not present"))??;
+            let second_natted_addr = results
+                .pop()
+                .ok_or_else(|| anyhow::Error::msg("Second result not present"))??;
+            let third_natted_addr = results
+                .pop()
+                .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
 
-            Err(_elapsed) => Err(FirewallError::HolePunch(
-                "NAT identification elapsed".to_string(),
-            )),
-        }
+            match (first_natted_addr, second_natted_addr, third_natted_addr) {
+                (
+                    Some((addr_ext, addr_int)),
+                    Some((addr2_ext, addr2_int)),
+                    Some((addr3_ext, addr3_int)),
+                ) => {
+                    let pair0 = SocketPair {
+                        internal: addr_int,
+                        external: addr_ext,
+                    };
+                    let pair1 = SocketPair {
+                        internal: addr2_int,
+                        external: addr2_ext,
+                    };
+                    let pair2 = SocketPair {
+                        internal: addr3_int,
+                        external: addr3_ext,
+                    };
+
+                    let nat_type = NatType::new(pair0, pair1, pair2);
+                    log::trace!(target: "citadel", "NAT type: {nat_type:?}");
+
+                    Ok(nat_type)
+                }
+
+                _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
+            }
+        };
+
+        let ip_info_future = async move {
+            match citadel_io::time::timeout(
+                Duration::from_millis(2000),
+                async_ip::get_all_multi_concurrent(None),
+            )
+            .await
+            {
+                Ok(Ok(ip_info)) => Ok(Some(ip_info)),
+                Ok(Err(err)) => Err(err),
+                Err(_) => Ok(None),
+            }
+        };
+
+        let (nat_type, ip_info) = citadel_io::tokio::join!(nat_type, ip_info_future);
+        let mut nat_type = nat_type?;
+
+        let ip_info = match ip_info {
+            Ok(Some(ip_info)) => ip_info,
+            Ok(None) => {
+                log::warn!(target: "citadel", "Unable to get IP info. Defaulting to localhost");
+                IpAddressInfo::localhost()
+            }
+            Err(err) => {
+                log::warn!(target: "citadel", "Unable to get IP info: {err:?}");
+                IpAddressInfo::localhost()
+            }
+        };
+
+        nat_type.ip_info = Some(ip_info);
+
+        log::info!(target: "citadel", "NAT Type: {nat_type:?}");
+
+        Ok(nat_type)
     }
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[cfg_attr(
-    feature = "localhost-testing",
-    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
-)]
-async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyhow::Error> {
-    let stun_servers = if let Some(stun_servers) = &stun_servers {
-        Cow::Owned(stun_servers.iter().map(|r| r.as_str()).collect())
-    } else {
-        Cow::Borrowed(&STUN_SERVERS as &[&str])
-    };
-
-    let nat_type = async move {
-        let mut msg = Message::new();
-        msg.build(&[
-            Box::<stun::agent::TransactionId>::default(),
-            Box::new(BINDING_REQUEST),
-        ])?;
-
-        let msg = &msg;
-
-        let futures_unordered = FuturesUnordered::new();
-
-        for server in stun_servers.iter() {
-            let task = async move {
-                let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
-                let new_bind_addr = udp_sck.local_addr()?;
-                udp_sck.connect(server).await?;
-                let (handler_tx, mut handler_rx) =
-                    citadel_io::tokio::sync::mpsc::unbounded_channel();
-                log::trace!(target: "citadel", "Connected to STUN server {server:?}");
-                let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
-
-                client.send(msg, Some(Arc::new(handler_tx))).await?;
-
-                if let Some(event) = handler_rx.recv().await {
-                    match event.event_body {
-                        Ok(msg) => {
-                            let mut xor_addr = XorMappedAddress::default();
-                            xor_addr.get_from(&msg)?;
-                            let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
-
-                            log::trace!(target: "citadel", "External ADDR: {natted_addr:?} | internal: {new_bind_addr:?}");
-
-                            return Ok(Some((natted_addr, new_bind_addr)));
-                        }
-                        Err(err) => log::trace!(target: "citadel", "{err:?}"),
-                    };
-                }
-
-                Ok(None)
-            };
-
-            futures_unordered.push(Box::pin(task));
-        }
-
-        let mut results = futures_unordered
-            .collect::<Vec<Result<Option<(SocketAddr, SocketAddr)>, anyhow::Error>>>()
-            .await;
-        let first_natted_addr = results
-            .pop()
-            .ok_or_else(|| anyhow::Error::msg("First result not present"))??;
-        let second_natted_addr = results
-            .pop()
-            .ok_or_else(|| anyhow::Error::msg("Second result not present"))??;
-        let third_natted_addr = results
-            .pop()
-            .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
-
-        match (first_natted_addr, second_natted_addr, third_natted_addr) {
-            (
-                Some((addr_ext, addr_int)),
-                Some((addr2_ext, addr2_int)),
-                Some((addr3_ext, addr3_int)),
-            ) => {
-                let pair0 = SocketPair {
-                    internal: addr_int,
-                    external: addr_ext,
-                };
-                let pair1 = SocketPair {
-                    internal: addr2_int,
-                    external: addr2_ext,
-                };
-                let pair2 = SocketPair {
-                    internal: addr3_int,
-                    external: addr3_ext,
-                };
-
-                let nat_type = NatType::new(pair0, pair1, pair2);
-                log::trace!(target: "citadel", "NAT type: {nat_type:?}");
-
-                Ok(nat_type)
-            }
-
-            _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
-        }
-    };
-
-    let ip_info_future = async move {
-        match citadel_io::time::timeout(
-            Duration::from_millis(2000),
-            async_ip::get_all_multi_concurrent(None),
-        )
-        .await
-        {
-            Ok(Ok(ip_info)) => Ok(Some(ip_info)),
-            Ok(Err(err)) => Err(err),
-            Err(_) => Ok(None),
-        }
-    };
-
-    let (nat_type, ip_info) = citadel_io::tokio::join!(nat_type, ip_info_future);
-    let mut nat_type = nat_type?;
-
-    let ip_info = match ip_info {
-        Ok(Some(ip_info)) => ip_info,
-        Ok(None) => {
-            log::warn!(target: "citadel", "Unable to get IP info. Defaulting to localhost");
-            IpAddressInfo::localhost()
-        }
-        Err(err) => {
-            log::warn!(target: "citadel", "Unable to get IP info: {err:?}");
-            IpAddressInfo::localhost()
-        }
-    };
-
-    nat_type.ip_info = Some(ip_info);
-
-    log::info!(target: "citadel", "NAT Type: {nat_type:?}");
-
-    Ok(nat_type)
-}
+pub use native::IDENTIFY_TIMEOUT;
 
 #[cfg(test)]
 mod tests {
