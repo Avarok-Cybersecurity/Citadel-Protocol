@@ -115,7 +115,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         let local_read_lock = this.local_active_read_lock.clone();
         let channel = this.channel.clone();
 
-        citadel_io::tokio::task::spawn(async move {
+        citadel_io::spawn(async move {
             if let Err(err) = passive_background_handler::<S, T>(
                 channel,
                 shared_state,

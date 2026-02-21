@@ -190,7 +190,7 @@ where
             let _ = manager_for_shutdown.shutdown();
         };
 
-        drop(tokio::task::spawn(background_task));
+        drop(citadel_io::spawn(background_task));
 
         Self {
             sink: RatchetManagerMessengerLayerTx {
