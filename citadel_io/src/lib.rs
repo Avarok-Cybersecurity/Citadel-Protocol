@@ -130,3 +130,29 @@ pub fn try_current_runtime() -> Result<RuntimeHandle, String> {
         Ok(())
     }
 }
+
+/// Offload a blocking closure to a dedicated thread pool.
+///
+/// On native: delegates to `tokio::task::spawn_blocking`.
+/// On WASM: runs inline (single-threaded; no blocking pool available).
+#[cfg(not(target_family = "wasm"))]
+pub fn spawn_blocking<F, R>(f: F) -> tokio::task::JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+}
+
+/// Offload a blocking closure to a dedicated thread pool.
+///
+/// On native: delegates to `tokio::task::spawn_blocking`.
+/// On WASM: runs inline (single-threaded; no blocking pool available).
+#[cfg(target_family = "wasm")]
+pub async fn spawn_blocking<F, R>(f: F) -> Result<R, String>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    Ok(f())
+}

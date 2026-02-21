@@ -108,7 +108,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
                         // Heavy: new_bob + stage0_bob + finish (off-thread)
                         let (transfer_out, finished_ratchet) =
-                            citadel_io::tokio::task::spawn_blocking(move || {
+                            citadel_io::spawn_blocking(move || {
                                 let mut bob_constructor =
                                     <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                         cid,
@@ -207,7 +207,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
                     // Offload stage1_alice + finish (avoid capturing session in closure)
                     let psk = session.session_password.clone();
-                    let new_ratchet = citadel_io::tokio::task::spawn_blocking(move || {
+                    let new_ratchet = citadel_io::spawn_blocking(move || {
                         alice_constructor
                             .stage1_alice(transfer, psk.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;

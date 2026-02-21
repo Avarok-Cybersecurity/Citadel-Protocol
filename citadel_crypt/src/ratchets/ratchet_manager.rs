@@ -500,7 +500,7 @@ where
 
             if let Some(constructor) = constructor {
                 // Offload stage0_alice + serialize
-                let (constructor, payload) = citadel_io::tokio::task::spawn_blocking(move || {
+                let (constructor, payload) = citadel_io::spawn_blocking(move || {
                     let transfer = constructor.stage0_alice().ok_or_else(|| {
                         CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
                     })?;
@@ -984,7 +984,7 @@ where
 
                         // Offload update_sync_safe
                         log::info!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking for update_sync_safe", self.cid);
-                        let status_result = citadel_io::tokio::task::spawn_blocking({
+                        let status_result = citadel_io::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
                             let cid = self.cid;
                             move || {
@@ -1185,7 +1185,7 @@ where
 
                         alice_constructor.stage1_alice(transfer, &self.psks)?;
                         // Offload update_sync_safe
-                        let status = citadel_io::tokio::task::spawn_blocking({
+                        let status = citadel_io::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
                             move || session_crypto_state.update_sync_safe(alice_constructor, true)
                         })
