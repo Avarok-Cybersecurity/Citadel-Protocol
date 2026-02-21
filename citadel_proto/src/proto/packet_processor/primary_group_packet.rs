@@ -35,13 +35,13 @@ use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
 use crate::prelude::InternalServerError;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session_queue_handler::QueueWorkerResult;
 use crate::proto::state_container::{FileKey, GroupKey, StateContainerInner};
 use crate::proto::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_types::prelude::ObjectId;
 use citadel_types::proto::UdpMode;
 use std::ops::Deref;
@@ -62,7 +62,7 @@ use std::ops::Deref;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_primary_packet<R: Ratchet, T: ProtocolIO>(
+pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
     cmd_aux: u8,
     packet: HdpPacket,

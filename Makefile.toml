@@ -376,8 +376,47 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
   exit 1
 fi
 echo "Using Node.js $NODE_VERSION"
+echo "--- citadel_crypt WASM tests ---"
+cd citadel_crypt
+RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node --release -- --features=wasm --no-default-features --test wasm_crypto
+cd ..
+echo "--- citadel_sdk WASM tests ---"
 cd citadel_sdk
 RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node --release -- --features=wasm --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+'''
+
+[tasks.test-wasm-integration]
+description = "Run WASM integration tests against a native server (requires Chrome)"
+script_runner = "@shell"
+script = '''
+set -e
+echo "Building WASM test server..."
+cargo build --example wasm_test_server --features localhost-testing --release 2>&1
+
+echo "Starting WASM test server..."
+./target/release/examples/wasm_test_server &
+SERVER_PID=$!
+cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
+trap cleanup EXIT
+
+sleep 2
+if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+  echo "ERROR: Server failed to start"
+  exit 1
+fi
+echo "Server running (PID=$SERVER_PID)"
+
+echo "Running WASM integration tests in headless Chrome..."
+cd citadel_sdk
+RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --chrome --release -- --features=wasm --no-default-features --test wasm_c2s_connect
+echo "WASM integration tests passed!"
+'''
+
+[tasks.test-wasm-p2p-docker]
+description = "Run WASM P2P integration tests in Docker (native server + 2 WASM clients)"
+script_runner = "@shell"
+script = '''
+docker compose -f ./docker/wasm_p2p.yml up --build --abort-on-container-exit --exit-code-from wasm_tests
 '''
 
 [tasks.wasix]

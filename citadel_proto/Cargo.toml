@@ -46,6 +46,7 @@ wasm = [
     "citadel_io/wasm",
     "netbeam/wasm",
 ]
+wasm-threads = ["citadel_crypt/wasm-threads"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

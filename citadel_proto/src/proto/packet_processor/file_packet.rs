@@ -32,6 +32,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::{InternalServerError, ReVFSResult, Ticket};
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_crafter::file::ReVFSPullAckPacket;
 use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
@@ -39,7 +40,6 @@ use crate::proto::packet_processor::primary_group_packet::{
 };
 use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_types::proto::TransferType;
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -51,7 +51,7 @@ use citadel_types::proto::TransferType;
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_file_packet<R: Ratchet, T: ProtocolIO>(
+pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
@@ -287,9 +287,7 @@ pub fn process_file_packet<R: Ratchet, T: ProtocolIO>(
                                             Some(metadata),
                                             move |source| {
                                                 if delete_on_pull {
-                                                    crate::proto::misc::file_io::async_delete_file(
-                                                        source,
-                                                    );
+                                                    T::async_delete_file(source);
                                                 }
                                             },
                                         ) {

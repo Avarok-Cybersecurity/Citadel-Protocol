@@ -303,7 +303,7 @@ where
         wait_for_completion: bool,
     ) -> Result<Option<P>, CryptError> {
         // CBD: Checkpoint RKT-0
-        let rkt_start = std::time::Instant::now();
+        let rkt_start = citadel_io::time::Instant::now();
         log::info!(target: "citadel", "[CBD-RKT-0] Client {} entry: wait_for_completion={}, role={:?}, state={:?}, elapsed=0ms",
             self.cid, wait_for_completion, self.role(), self.state());
         log::info!(target: "citadel", "Client {} manually triggering rekey", self.cid);

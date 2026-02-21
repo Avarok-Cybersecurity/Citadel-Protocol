@@ -306,6 +306,44 @@ impl<F: Future> Future for SendFuture<F> {
     }
 }
 
+impl super::platform_ops::PlatformOps for WasmIO {
+    #[allow(clippy::too_many_arguments)]
+    fn p2p_hole_punch<R: citadel_crypt::ratchets::Ratchet>(
+        session: crate::proto::session::CitadelSession<R, Self>,
+        peer_connection_type: crate::proto::peer::peer_layer::PeerConnectionType,
+        ticket: crate::proto::remote::Ticket,
+        peer_nat_info: crate::proto::peer::peer_crypt::PeerNatInfo,
+        channel_signal: crate::proto::node_result::NodeResult<R>,
+        hole_punch_compat_stream: crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream<R>,
+        endpoint_ratchet: R,
+        peer_cid: u64,
+        sync_instant: citadel_io::time::Instant,
+        node_type: netbeam::sync::RelativeNodeType,
+        udp_mode: citadel_types::proto::UdpMode,
+        session_security_settings: citadel_types::proto::SessionSecuritySettings,
+        cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
+    ) -> impl std::future::Future<Output = Result<(), crate::error::NetworkError>>
+           + crate::macros::ContextRequirements {
+        async move {
+            let _ = (
+                peer_connection_type,
+                ticket,
+                peer_nat_info,
+                hole_punch_compat_stream,
+                endpoint_ratchet,
+                peer_cid,
+                sync_instant,
+                node_type,
+                udp_mode,
+                session_security_settings,
+                cancel_rx,
+            );
+            session.send_to_kernel(channel_signal)?;
+            Ok(())
+        }
+    }
+}
+
 impl ProtocolIO for WasmIO {
     type Addr = SocketAddr;
     type Stream = WasmStream;

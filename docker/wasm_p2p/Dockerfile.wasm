@@ -1,0 +1,32 @@
+FROM rust:latest
+WORKDIR /usr/src/app
+
+# System dependencies for building and headless Chrome
+RUN apt-get update --fix-missing && apt-get install --fix-missing -y \
+    openssl libclang-dev build-essential cmake \
+    chromium chromium-driver \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (required for wasm-bindgen-test runtime)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# wasm-pack
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# WASM target
+RUN rustup target add wasm32-unknown-unknown
+
+# Copy source
+COPY . .
+
+# Pre-compile WASM test artifacts to warm the cargo cache
+RUN RUSTFLAGS='--cfg getrandom_backend="wasm_js"' \
+    cargo test --target wasm32-unknown-unknown \
+    -p citadel_sdk --features wasm --no-default-features \
+    --test wasm_p2p_connect --no-run --release || true
+
+COPY ./docker/wasm_p2p/exec_wasm_tests.sh .
+RUN ["chmod", "u+x", "exec_wasm_tests.sh"]

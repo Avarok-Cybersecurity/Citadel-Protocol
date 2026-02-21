@@ -32,8 +32,9 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{Mutex, ProtocolIO};
+use citadel_io::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
@@ -66,10 +67,10 @@ pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, T: ProtocolIO>, <R, T>);
+define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, T: PlatformOps>, <R, T>);
 
 /// Inner device for the [`CitadelNode`]
-pub struct CitadelNodeInner<R: Ratchet, T: ProtocolIO> {
+pub struct CitadelNodeInner<R: Ratchet, T: PlatformOps> {
     primary_socket: Option<citadel_io::Mutex<T::Listener>>,
     /// Server bind address (set during init for server nodes).
     bind_address: Option<T::Addr>,
@@ -87,7 +88,7 @@ pub struct CitadelNodeInner<R: Ratchet, T: ProtocolIO> {
     server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T> {
+impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
     /// Creates a new [`CitadelNode`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
@@ -139,7 +140,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelNode<R, T> {
             stun_servers.clone(),
         );
 
-        let nat_type = crate::proto::misc::nat_traversal::identify_nat_type(stun_servers).await?;
+        let nat_type = T::identify_nat_type(stun_servers).await?;
 
         let inner = CitadelNodeInner {
             underlying_proto,

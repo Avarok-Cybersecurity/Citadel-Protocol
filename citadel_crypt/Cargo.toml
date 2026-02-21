@@ -18,8 +18,9 @@ exclude = ["./target/*"]
 [features]
 default = ["filesystem", "std"]
 filesystem = []
-std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std"]
+std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std", "rayon"]
 wasm = ["citadel_pqcrypto/wasm", "citadel_io/wasm"]
+wasm-threads = ["rayon", "wasm-bindgen-rayon"]
 skip-argon-tests = []
 
 [dependencies]
@@ -45,9 +46,10 @@ citadel_types = { workspace = true }
 uuid = { version = "1.8.0", features = ["v4"] }
 atomic = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
+rayon = { workspace = true, optional = true }
+wasm-bindgen-rayon = { version = "1.2", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-rayon = { workspace = true }
 sysinfo = { workspace = true }
 num_cpus = { workspace = true }
 
@@ -57,8 +59,12 @@ rstest = { workspace = true }
 lazy_static = { workspace = true }
 #tokio = { workspace = true, features = ["rt-multi-thread"] }
 
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+wasm-bindgen = "0.2"
+
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)', 'cfg(feature, values("wasm-threads"))'] }
 
 [lib]
 doctest = false

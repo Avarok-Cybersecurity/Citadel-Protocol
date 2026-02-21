@@ -39,6 +39,7 @@ use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 #[cfg(not(target_family = "wasm"))]
 use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use crate::proto::misc::platform_ops::PlatformOps;
 #[cfg(not(target_family = "wasm"))]
 use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
 use crate::proto::node_result::{NodeResult, PeerEvent};
@@ -54,7 +55,6 @@ use crate::proto::remote::Ticket;
 use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
 #[cfg(not(target_family = "wasm"))]
@@ -112,7 +112,7 @@ impl Drop for DirectP2PRemote {
 
 #[cfg(not(target_family = "wasm"))]
 #[allow(clippy::too_many_arguments)]
-async fn p2p_conn_handler<R: Ratchet, T: ProtocolIO>(
+async fn p2p_conn_handler<R: Ratchet, T: PlatformOps>(
     mut p2p_listener: GenericNetworkListener,
     session: CitadelSession<R, T>,
     _necessary_remote_addr: SocketAddr,
@@ -167,7 +167,7 @@ async fn p2p_conn_handler<R: Ratchet, T: ProtocolIO>(
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
 #[cfg(not(target_family = "wasm"))]
 #[allow(clippy::too_many_arguments)]
-fn handle_p2p_stream<R: Ratchet, T: ProtocolIO>(
+fn handle_p2p_stream<R: Ratchet, T: PlatformOps>(
     mut p2p_stream: GenericNetworkStream,
     session_cid: DualRwLock<Option<u64>>,
     session: CitadelSession<R, T>,
@@ -254,7 +254,7 @@ fn handle_p2p_stream<R: Ratchet, T: ProtocolIO>(
         .unwrap_or(Ticket(0));
 
     if udp_mode == UdpMode::Enabled {
-        crate::proto::misc::udp_session_ops::spawn_udp_socket_loader(
+        T::spawn_udp_socket_loader(
             sess.clone(),
             v_conn,
             UdpSplittableTypes::Quic(udp_conn),
@@ -493,7 +493,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
     )
 ))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet, T: ProtocolIO>(
+pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet, T: PlatformOps>(
     peer_connection_type: PeerConnectionType,
     ticket: Ticket,
     session: CitadelSession<R, T>,

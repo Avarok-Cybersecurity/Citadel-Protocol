@@ -1,61 +1,27 @@
-//! UDP Session Operations Abstraction
+//! Native UDP session loader and helpers.
 //!
-//! Provides standalone functions for UDP session lifecycle management with
-//! platform-specific dispatch via `cfg`. Native targets perform full UDP I/O;
-//! WASM targets provide no-op stubs.
-//!
-//! All cfg-gates for UDP session operations are concentrated in this module so
-//! the protocol layer (session, packet processors) remains platform-agnostic.
+//! Called from `NativeIO`'s `PlatformOps::spawn_udp_socket_loader` impl.
 
+use super::native_io::NativeIO;
+use super::udp_internal_interface::UdpSplittableTypes;
 use crate::error::NetworkError;
-use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
+use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
+use crate::proto::outbound_sender::{unbounded, OutboundUdpSender};
+use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
-use crate::proto::state_container::VirtualTargetType;
+use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 
-/// Spawn the UDP socket loader, which sets up the UDP subsystem for a session.
-///
-/// On native: spawns an async task that waits for TCP readiness, splits the UDP
-/// connection, inserts channels into the state container, and runs the
-/// listener + sender loop.
-///
-/// On WASM: no-op (UDP handled via WebRTC DataChannels, not raw sockets).
-pub(crate) fn spawn_udp_socket_loader<R: Ratchet, T: ProtocolIO>(
-    session: CitadelSession<R, T>,
+pub(super) fn spawn<R: Ratchet>(
+    this: CitadelSession<R, NativeIO>,
     v_target: VirtualTargetType,
     udp_conn: UdpSplittableTypes,
     addr: TargettedSocketAddr,
     ticket: Ticket,
     tcp_conn_awaiter: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
 ) {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        spawn_udp_socket_loader_native(session, v_target, udp_conn, addr, ticket, tcp_conn_awaiter);
-    }
-
-    #[cfg(target_family = "wasm")]
-    {
-        let _ = (session, v_target, udp_conn, addr, ticket, tcp_conn_awaiter);
-    }
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
-    this: CitadelSession<R, T>,
-    v_target: VirtualTargetType,
-    udp_conn: UdpSplittableTypes,
-    addr: TargettedSocketAddr,
-    ticket: Ticket,
-    tcp_conn_awaiter: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
-) {
-    use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
-    use crate::proto::outbound_sender::{unbounded, OutboundUdpSender};
-    use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
-    use crate::proto::state_container::VirtualConnectionType;
-
     let this_weak = this.as_weak();
     std::mem::drop(this);
     let task = async move {
@@ -64,9 +30,6 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                 .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
             let sess = this;
-
-            // we supply the natted ip since it is where we expect to receive packets
-            // whether local is server or not, we should expect to receive packets from natted
             let hole_punched_socket = addr.receive_address;
             let hole_punched_addr_ip = hole_punched_socket.ip();
 
@@ -113,7 +76,6 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                             .tx
                             .take()
                         {
-                            //TODO: await before sending Channel to c2s or p2p
                             log::trace!(target: "citadel", "C2S UDP subroutine sending channel to local user ... (is_server={is_server})");
                             sender.send(channel).map_err(|_| {
                                 NetworkError::InternalError("Unable to send UdpChannel through")
@@ -121,14 +83,17 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                             EndpointCryptoAccessor::C2S(sess.state_container.clone())
                         } else {
                             log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had no UDP sender");
-                            return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"));
+                            return Err(NetworkError::InternalError(
+                                "Tried loading UDP channel, but, the state container had no UDP sender",
+                            ));
                         }
                     } else {
                         log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
-                        return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ..."));
+                        return Err(NetworkError::InternalError(
+                            "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...",
+                        ));
                     }
                 }
-
                 VirtualConnectionType::LocalGroupPeer {
                     session_cid: _session_cid,
                     peer_cid: target_cid,
@@ -140,9 +105,7 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                         if let Some(kem_state) =
                             state_container.peer_kem_states.get_mut(&target_cid)
                         {
-                            // Below will fail if UDP mode is off, as desired
                             if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
-                                // below will fail if the user drops the receiver at the kernel-level
                                 sender.send(channel).map_err(|_| {
                                     NetworkError::InternalError("Unable to send UdpChannel through")
                                 })?;
@@ -152,7 +115,9 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                                 )
                             } else {
                                 log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had no UDP sender");
-                                return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"));
+                                return Err(NetworkError::InternalError(
+                                    "Tried loading UDP channel, but, the state container had no UDP sender",
+                                ));
                             }
                         } else {
                             log::error!(target: "citadel", "Tried loading the peer kem state, but was absent");
@@ -162,19 +127,17 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                         }
                     } else {
                         log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
-                        return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ..."));
+                        return Err(NetworkError::InternalError(
+                            "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...",
+                        ));
                     }
                 }
-
                 _ => {
                     return Err(NetworkError::InternalError("Invalid virtual target"));
                 }
             };
 
-            // Unlike TCP, we will not use [LengthDelimitedCodec] because there is no guarantee that packets
-            // will arrive in order
             let (writer, reader) = udp_conn.split();
-
             let listener = listen_udp_port(
                 sess,
                 hole_punched_addr_ip,
@@ -182,19 +145,15 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
                 reader,
                 accessor.clone(),
             );
-
             log::trace!(target: "citadel", "Server established UDP Port {local_bind_addr}");
-
             let udp_sender_future = udp_outbound_sender(outbound_sender_rx, addr, writer, accessor);
             (listener, udp_sender_future, stopper_rx)
         };
 
         log::trace!(target: "citadel", "[Q-UDP] Initiated UDP subsystem...");
-
         let stopper = async move {
             let _ = stopper_rx.await;
         };
-
         citadel_io::tokio::select! {
             res0 = listener => res0,
             res1 = udp_sender_future => res1,
@@ -213,17 +172,12 @@ fn spawn_udp_socket_loader_native<R: Ratchet, T: ProtocolIO>(
     spawn!(wrapped_task);
 }
 
-#[cfg(not(target_family = "wasm"))]
-async fn listen_udp_port<
-    R: Ratchet,
-    T: ProtocolIO,
-    S: crate::proto::misc::udp_internal_interface::UdpStream,
->(
-    this: CitadelSession<R, T>,
+async fn listen_udp_port<R: Ratchet, S: crate::proto::misc::udp_internal_interface::UdpStream>(
+    this: CitadelSession<R, NativeIO>,
     _hole_punched_addr_ip: std::net::IpAddr,
     local_port: u16,
     mut stream: S,
-    peer_session_accessor: crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor<R>,
+    peer_session_accessor: EndpointCryptoAccessor<R>,
 ) -> Result<(), NetworkError> {
     use crate::proto::packet::HdpPacket;
     use futures::StreamExt;
@@ -235,7 +189,6 @@ async fn listen_udp_port<
                 let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
                 this.process_inbound_packet_udp(packet, &peer_session_accessor)?;
             }
-
             Err(err) => {
                 log::warn!(target: "citadel", "UDP Stream error: {err:#?}");
                 break;
@@ -244,16 +197,14 @@ async fn listen_udp_port<
     }
 
     log::trace!(target: "citadel", "Ending UDP Port listener on {local_port}");
-
     Ok(())
 }
 
-#[cfg(not(target_family = "wasm"))]
 async fn udp_outbound_sender<R: Ratchet, S: futures::SinkExt<bytes::Bytes> + Unpin>(
     receiver: crate::proto::outbound_sender::UnboundedReceiver<(u8, bytes::BytesMut)>,
     hole_punched_addr: TargettedSocketAddr,
     mut sink: S,
-    peer_session_accessor: crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor<R>,
+    peer_session_accessor: EndpointCryptoAccessor<R>,
 ) -> Result<(), NetworkError> {
     use citadel_types::crypto::SecurityLevel;
     use futures::StreamExt;
@@ -279,6 +230,5 @@ async fn udp_outbound_sender<R: Ratchet, S: futures::SinkExt<bytes::Bytes> + Unp
     }
 
     log::trace!(target: "citadel", "Outbound wave sender ending");
-
     Ok(())
 }

@@ -37,7 +37,7 @@
 
 use citadel_proto::prelude::*;
 
-use citadel_io::{ProtocolIO, ServerMode};
+use citadel_io::ServerMode;
 use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::macros::{ContextRequirements, LocalContextRequirements};
 use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey};
@@ -49,15 +49,8 @@ use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Platform-appropriate default transport: `NativeIO` on native, `WasmIO` on WASM.
-#[cfg(not(target_family = "wasm"))]
-pub type DefaultTransport = NativeIO;
-/// Platform-appropriate default transport: `NativeIO` on native, `WasmIO` on WASM.
-#[cfg(target_family = "wasm")]
-pub type DefaultTransport = WasmIO;
-
 /// Used to construct a running client/peer or server instance
-pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: ProtocolIO = DefaultTransport> {
+pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTransport> {
     hypernode_type: Option<NodeType>,
     underlying_protocol: Option<ServerMode<T>>,
     backend_type: Option<BackendType>,
@@ -79,7 +72,7 @@ pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, DefaultTransport>;
 /// Lightweight node builder using `MonoRatchet` for reduced cryptographic overhead
 pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, DefaultTransport>;
 
-impl<R: Ratchet, T: ProtocolIO> Default for NodeBuilder<R, T> {
+impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
     fn default() -> Self {
         Self {
             hypernode_type: None,
@@ -142,7 +135,7 @@ impl<K> Future for NodeFuture<'_, K> {
     }
 }
 
-impl<R: Ratchet + ContextRequirements, T: ProtocolIO> NodeBuilder<R, T> {
+impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     /// Returns a future that represents the both the protocol and kernel execution
     pub fn build<'a, 'b: 'a, K: NetKernel<R> + 'b>(
         &'a mut self,

@@ -41,8 +41,9 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{ProtocolIO, ServerMode};
+use citadel_io::ServerMode;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -84,11 +85,11 @@ use citadel_types::proto::{
     UdpMode,
 };
 
-define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: Ratchet, T: ProtocolIO>, <R, T>);
+define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: Ratchet, T: PlatformOps>, <R, T>);
 
 /// Used for handling stateful connections between two peer
 #[allow(clippy::type_complexity)]
-pub struct HdpSessionManagerInner<R: Ratchet, T: ProtocolIO> {
+pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     local_node_type: NodeType,
     pub(crate) sessions: HashMap<u64, (Sender<()>, CitadelSession<R, T>)>,
     account_manager: AccountManager<R, R>,
@@ -109,7 +110,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: ProtocolIO> {
     disconnect_tracker: DisconnectSignalTracker,
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelSessionManager<R, T> {
+impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
     pub fn new(
         local_node_type: NodeType,
@@ -1492,7 +1493,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSessionManager<R, T> {
     }
 }
 
-impl<R: Ratchet, T: ProtocolIO> HdpSessionManagerInner<R, T> {
+impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     /// Clears a session from the SessionManager
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
         if let Some((_, session)) = self.sessions.get(&cid) {

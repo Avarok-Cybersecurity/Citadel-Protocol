@@ -23,6 +23,7 @@ webrtc = ["citadel_proto/webrtc"]
 
 std = ["citadel_proto/std"]
 wasm = ["citadel_proto/wasm"]
+wasm-threads = ["citadel_proto/wasm-threads"]
 google-services = ["citadel_proto/google-services"]
 vendored = ["citadel_proto/vendored"]
 

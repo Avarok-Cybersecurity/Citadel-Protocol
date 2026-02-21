@@ -32,10 +32,10 @@
 
 use std::sync::atomic::Ordering;
 //use async_std::prelude::*;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::includes::Instant;
 use bytes::{Bytes, BytesMut};
 use citadel_io::tokio_util::codec::LengthDelimitedCodec;
-use citadel_io::ProtocolIO;
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
 use citadel_crypt::ratchets::Ratchet;
@@ -96,6 +96,7 @@ use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
+use citadel_io::time::{SystemTime, UNIX_EPOCH};
 use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey, SecBuffer, SecurityLevel};
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
@@ -108,7 +109,6 @@ use citadel_wire::nat_identification::NatType;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 use zerocopy::AsBytes;
 //use crate::define_struct;
 
@@ -117,7 +117,7 @@ use zerocopy::AsBytes;
 
 /// Allows a connection stream to be worked on by a single worker
 #[derive(Clone)]
-pub struct CitadelSession<R: Ratchet, T: ProtocolIO> {
+pub struct CitadelSession<R: Ratchet, T: PlatformOps> {
     #[cfg(not(feature = "multi-threaded"))]
     pub inner: std::rc::Rc<CitadelSessionInner<R, T>>,
     #[cfg(feature = "multi-threaded")]
@@ -129,7 +129,7 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
+impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -169,14 +169,14 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
     }
 }
 
-pub(crate) struct SessionAliveTracker<R: Ratchet, T: ProtocolIO> {
+pub(crate) struct SessionAliveTracker<R: Ratchet, T: PlatformOps> {
     #[cfg(not(feature = "multi-threaded"))]
     weak: std::rc::Weak<CitadelSessionInner<R, T>>,
     #[cfg(feature = "multi-threaded")]
     weak: std::sync::Weak<CitadelSessionInner<R, T>>,
 }
 
-impl<R: Ratchet, T: ProtocolIO> SessionAliveTracker<R, T> {
+impl<R: Ratchet, T: PlatformOps> SessionAliveTracker<R, T> {
     pub(crate) fn alive(&self) -> bool {
         if self.weak.strong_count() > 0 {
             true
@@ -187,7 +187,7 @@ impl<R: Ratchet, T: ProtocolIO> SessionAliveTracker<R, T> {
     }
 }
 
-impl<R: Ratchet, T: ProtocolIO> From<CitadelSessionInner<R, T>> for CitadelSession<R, T> {
+impl<R: Ratchet, T: PlatformOps> From<CitadelSessionInner<R, T>> for CitadelSession<R, T> {
     fn from(inner: CitadelSessionInner<R, T>) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -205,7 +205,7 @@ impl<R: Ratchet, T: ProtocolIO> From<CitadelSessionInner<R, T>> for CitadelSessi
     }
 }
 
-impl<R: Ratchet, T: ProtocolIO> Deref for CitadelSession<R, T> {
+impl<R: Ratchet, T: PlatformOps> Deref for CitadelSession<R, T> {
     type Target = CitadelSessionInner<R, T>;
 
     fn deref(&self) -> &Self::Target {
@@ -215,7 +215,7 @@ impl<R: Ratchet, T: ProtocolIO> Deref for CitadelSession<R, T> {
 
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
-pub struct CitadelSessionInner<R: Ratchet, T: ProtocolIO> {
+pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) session_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
@@ -286,7 +286,7 @@ pub enum HdpSessionInitMode {
     Register(SocketAddr, ProposedCredentials),
 }
 
-pub(crate) struct SessionInitParams<R: Ratchet, T: ProtocolIO> {
+pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub on_drop: UnboundedSender<()>,
     pub local_nat_type: NatType,
     pub citadel_remote: NodeRemote<R>,
@@ -328,7 +328,7 @@ pub struct ServerOnlySessionInitSettings {
     pub declared_pre_shared_key: Option<PreSharedKey>,
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
+impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
     pub(crate) fn new(
         session_init_params: SessionInitParams<R, T>,
     ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
@@ -888,7 +888,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
             )
         };
 
-        fn evaluate_result<R: Ratchet, T: ProtocolIO>(
+        fn evaluate_result<R: Ratchet, T: PlatformOps>(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult<R>>,
@@ -952,7 +952,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
             }
         }
 
-        fn handle_session_terminating_error<R: Ratchet, T: ProtocolIO>(
+        fn handle_session_terminating_error<R: Ratchet, T: PlatformOps>(
             session: &CitadelSession<R, T>,
             err: std::io::Error,
             is_server: bool,
@@ -1378,10 +1378,8 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
             NetworkError::InternalError("The source object does not have a path location")
         })?;
 
-        let file_metadata = misc::file_io::open_and_validate_for_transfer(
-            &source_path,
-            virtual_object_metadata.as_ref(),
-        )?;
+        let file_metadata =
+            T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?;
 
         {
             let this = self;
@@ -1456,7 +1454,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
                     )
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                    let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+                    let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
 
                     let file_metadata = VirtualObjectMetadata {
                         object_id,
@@ -1569,7 +1567,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
                     )
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                    let date_created = file_metadata.created().unwrap_or(SystemTime::now());
+                    let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
 
                     let file_metadata = VirtualObjectMetadata {
                         object_id,
@@ -1887,7 +1885,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
 
             // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
             // to forward these to.
-            fn send_ratchet_message<R: Ratchet, T: ProtocolIO>(
+            fn send_ratchet_message<R: Ratchet, T: PlatformOps>(
                 session: &CitadelSession<R, T>,
                 state_container: &StateContainerInner<R>,
                 ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
@@ -2303,7 +2301,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSession<R, T> {
     }
 }
 
-impl<R: Ratchet, T: ProtocolIO> CitadelSessionInner<R, T> {
+impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     /// Stores the proposed credentials into the register state container
     pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
         let mut state_container = inner_mut_state!(self.state_container);
@@ -2474,7 +2472,7 @@ impl<R: Ratchet, T: ProtocolIO> CitadelSessionInner<R, T> {
     }
 }
 
-impl<R: Ratchet, T: ProtocolIO> Drop for CitadelSession<R, T> {
+impl<R: Ratchet, T: PlatformOps> Drop for CitadelSession<R, T> {
     fn drop(&mut self) {
         if self.strong_count() == 1 {
             log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());

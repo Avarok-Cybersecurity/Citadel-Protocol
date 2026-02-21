@@ -38,7 +38,8 @@ use citadel_wire::hypernode_type::NodeType;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use citadel_io::{ProtocolIO, ServerMode};
+use crate::proto::misc::platform_ops::PlatformOps;
+use citadel_io::ServerMode;
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;
@@ -70,7 +71,7 @@ impl KernelExecutorSettings {
     }
 }
 
-pub struct KernelExecutorArguments<K, R: Ratchet, T: ProtocolIO> {
+pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
     pub rt: RuntimeHandle,
     pub hypernode_type: NodeType,
     pub account_manager: AccountManager<R, R>,

@@ -40,8 +40,8 @@
 
 use std::pin::Pin;
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_user::account_manager::AccountManager;
 use futures::TryStreamExt;
 
@@ -79,7 +79,7 @@ type KernelContext = (RuntimeHandle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSe
 impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new<T: ProtocolIO>(
+    pub async fn new<T: PlatformOps>(
         args: KernelExecutorArguments<K, R, T>,
     ) -> Result<Self, NetworkError> {
         let KernelExecutorArguments::<K, R, T> {

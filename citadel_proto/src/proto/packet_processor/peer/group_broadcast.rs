@@ -33,12 +33,12 @@
 use super::super::includes::*;
 use crate::error::NetworkError;
 use crate::functional::*;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_types::proto::{
     GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
 };
@@ -218,7 +218,7 @@ pub enum GroupBroadcast {
     )
 ))]
 /// Process a group broadcast message
-pub async fn process_group_broadcast<R: Ratchet, T: ProtocolIO>(
+pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
@@ -805,7 +805,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: ProtocolIO>(
 }
 
 /// Create a group channel
-fn create_group_channel<R: Ratchet, T: ProtocolIO>(
+fn create_group_channel<R: Ratchet, T: PlatformOps>(
     ticket: Ticket,
     key: MessageGroupKey,
     session: &CitadelSession<R, T>,
@@ -839,7 +839,7 @@ impl From<GroupBroadcast> for GroupBroadcastPayload {
 }
 
 /// Forward a signal to the kernel or a group channel
-fn forward_signal<R: Ratchet, T: ProtocolIO>(
+fn forward_signal<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ticket: Ticket,
     key: Option<MessageGroupKey>,

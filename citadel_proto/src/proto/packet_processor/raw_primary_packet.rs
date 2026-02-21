@@ -37,10 +37,10 @@
 //! - [`file_packet`]: File transfer packets
 //! - [`session_manager`]: Session management
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::peer::peer_cmd_packet;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 
 use super::includes::*;
 use crate::error::NetworkError;
@@ -54,7 +54,7 @@ use crate::error::NetworkError;
     err,
     fields(session_cid=this_session_cid, is_server=session.is_server, packet_len=packet.len())
 ))]
-pub async fn process_raw_packet<R: Ratchet, T: ProtocolIO>(
+pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
     this_session_cid: Option<u64>,
     session: &CitadelSession<R, T>,
     remote_peer: SocketAddr,
@@ -205,7 +205,7 @@ pub(crate) enum ReceivePortType {
 /// - `None`: If the packet should be proxied.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub(crate) fn check_proxy<R: Ratchet, T: ProtocolIO>(
+pub(crate) fn check_proxy<R: Ratchet, T: PlatformOps>(
     this_session_cid: Option<u64>,
     cmd_primary: u8,
     cmd_aux: u8,

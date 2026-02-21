@@ -29,11 +29,11 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::{
     get_orientation_safe_ratchet, get_resp_target_cid_from_header,
 };
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 
 /// This will handle an inbound group packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -45,7 +45,7 @@ use citadel_io::ProtocolIO;
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_hole_punch<R: Ratchet, T: ProtocolIO>(
+pub fn process_hole_punch<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     packet: HdpPacket,
     hr_version: u32,

@@ -64,6 +64,7 @@ use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
@@ -95,7 +96,6 @@ use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::unbounded_channel;
 use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
-use citadel_io::ProtocolIO;
 use citadel_io::{tokio, Mutex};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::crypto::{PreSharedKey, SecBuffer};
@@ -733,7 +733,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     #[allow(unused_results)]
     #[allow(clippy::too_many_arguments)]
-    pub fn create_virtual_connection<T: ProtocolIO>(
+    pub fn create_virtual_connection<T: PlatformOps>(
         &mut self,
         default_security_settings: SessionSecuritySettings,
         channel_ticket: Ticket,
@@ -909,7 +909,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
     #[allow(unused_results)]
-    pub fn init_new_c2s_virtual_connection<T: ProtocolIO>(
+    pub fn init_new_c2s_virtual_connection<T: PlatformOps>(
         &mut self,
         cnac: &ClientNetworkAccount<R, R>,
         channel_ticket: Ticket,
@@ -1948,7 +1948,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    pub(crate) fn setup_group_channel_endpoints<T: ProtocolIO>(
+    pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(
         &mut self,
         key: MessageGroupKey,
         ticket: Ticket,

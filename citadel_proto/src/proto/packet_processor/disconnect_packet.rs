@@ -29,9 +29,9 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 
 pub const SUCCESS_DISCONNECT: &str = "Successfully Disconnected";
 
@@ -46,7 +46,7 @@ pub const SUCCESS_DISCONNECT: &str = "Successfully Disconnected";
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_disconnect<R: Ratchet, T: ProtocolIO>(
+pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,

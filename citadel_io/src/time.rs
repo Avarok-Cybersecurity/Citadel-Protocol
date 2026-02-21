@@ -12,9 +12,9 @@ pub use crate::tokio::time::Instant;
 pub use wasmtimer::std::Instant;
 
 #[cfg(not(target_family = "wasm"))]
-pub use std::time::SystemTime;
+pub use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_family = "wasm")]
-pub use wasmtimer::std::SystemTime;
+pub use wasmtimer::std::{SystemTime, UNIX_EPOCH};
 
 // Async timer functions
 #[cfg(not(target_family = "wasm"))]

@@ -35,11 +35,11 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_types::proto::ConnectMode;
 use citadel_user::external_services::ServicesObject;
 
@@ -53,7 +53,7 @@ use citadel_user::external_services::ServicesObject;
     fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_connect<R: Ratchet, T: ProtocolIO>(
+pub async fn process_connect<R: Ratchet, T: PlatformOps>(
     sess_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,

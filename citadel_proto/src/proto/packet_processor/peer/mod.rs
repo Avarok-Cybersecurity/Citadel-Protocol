@@ -28,16 +28,16 @@
 
 use crate::error::NetworkError;
 use crate::prelude::{ConnectFail, NodeResult, Ticket};
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 
 pub mod group_broadcast;
 pub mod peer_cmd_packet;
 pub mod server;
 pub mod signal_handler_interface;
 
-pub(crate) fn send_dc_signal_peer<S: Into<String>, R: Ratchet, T: ProtocolIO>(
+pub(crate) fn send_dc_signal_peer<S: Into<String>, R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ticket: Ticket,
     err: S,

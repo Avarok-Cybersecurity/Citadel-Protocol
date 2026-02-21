@@ -557,6 +557,8 @@ pub mod prelude {
     #[cfg(target_family = "wasm")]
     pub use crate::proto::misc::wasm_io::*;
 
+    pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
+
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]
     pub use crate::proto::misc::safe_split_stream;

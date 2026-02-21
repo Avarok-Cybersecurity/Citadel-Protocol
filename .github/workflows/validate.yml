@@ -529,3 +529,11 @@ jobs:
       - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
         run: docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
         shell: bash
+  docker_wasm_p2p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@main
+      - run: docker compose -f ./docker/wasm_p2p.yml up --build --abort-on-container-exit --exit-code-from wasm_tests

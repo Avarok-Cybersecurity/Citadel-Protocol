@@ -32,13 +32,13 @@
 //! - `citadel_user`: User management and authentication
 //!
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet::HdpHeader;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 
 /// For the custom BytesCodec that doesn't overflow
 pub(crate) mod codec;
@@ -75,7 +75,7 @@ pub(crate) mod transfer_stats;
 pub(crate) mod validation;
 
 /// Returns the preferred primary stream for returning a response
-pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: ProtocolIO>(
+pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: PlatformOps>(
     header: &HdpHeader,
     session: &CitadelSession<R, T>,
     state_container: &StateContainerInner<R>,

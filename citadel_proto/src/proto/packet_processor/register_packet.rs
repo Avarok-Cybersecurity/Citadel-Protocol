@@ -31,13 +31,13 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
 use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
 };
 use citadel_crypt::prelude::{ConstructorOpts, Toolset};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_user::serialization::SyncIO;
 
 /// This will handle a registration packet
@@ -50,7 +50,7 @@ use citadel_user::serialization::SyncIO;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_register<R: Ratchet, T: ProtocolIO>(
+pub async fn process_register<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     remote_addr: SocketAddr,

@@ -26,9 +26,9 @@
 //! - `session.rs`: Session management
 //! - `clean_shutdown.rs`: Resource cleanup
 //! - `net.rs`: Network operations
+use citadel_io::time::Instant;
 use citadel_io::tokio;
 use std::collections::HashMap;
-use std::time::Instant;
 
 pub struct OrderedChannel<T> {
     sink: tokio::sync::mpsc::UnboundedSender<T>,

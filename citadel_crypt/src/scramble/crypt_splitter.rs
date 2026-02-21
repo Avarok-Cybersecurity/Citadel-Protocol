@@ -27,7 +27,9 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::{Range, RangeBounds};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use citadel_io::time::Instant;
 
 use bitvec::vec::BitVec;
 use bytes::{BufMut, BytesMut};
@@ -1029,14 +1031,17 @@ where
     chunks_maybe_parallel(plain_text, chunk_size, encrypt_chunk)
 }
 
-/// Chunk data and flat-map, using rayon parallelism on native and sequential on WASM.
+/// Chunk data and flat-map, using rayon parallelism when available and sequential otherwise.
+///
+/// Rayon is available on native (via the `std` feature) and on WASM when
+/// the `wasm-threads` feature is enabled (requires SharedArrayBuffer).
 fn chunks_maybe_parallel<K, V, F>(data: &[u8], chunk_size: usize, f: F) -> HashMap<K, V>
 where
     K: Eq + std::hash::Hash + Send,
     V: Send,
     F: Fn((usize, &[u8])) -> Vec<(K, V)> + Sync + Send,
 {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "rayon")]
     {
         use rayon::prelude::*;
         data.par_chunks(chunk_size)
@@ -1044,7 +1049,7 @@ where
             .flat_map(&f)
             .collect()
     }
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(feature = "rayon"))]
     {
         data.chunks(chunk_size).enumerate().flat_map(f).collect()
     }

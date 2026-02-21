@@ -1,0 +1,19 @@
+services:
+  server:
+    build:
+      context: ../
+      dockerfile: ./docker/wasm_p2p/Dockerfile.server
+    entrypoint: ["/usr/src/app/exec_server.sh"]
+    environment:
+      RUST_LOG: "citadel=info"
+
+  wasm_tests:
+    build:
+      context: ../
+      dockerfile: ./docker/wasm_p2p/Dockerfile.wasm
+    network_mode: "service:server"
+    depends_on:
+      - server
+    entrypoint: ["/usr/src/app/exec_wasm_tests.sh"]
+    environment:
+      RUST_LOG: "citadel=info"

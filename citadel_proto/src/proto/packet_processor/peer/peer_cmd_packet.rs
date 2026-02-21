@@ -35,17 +35,16 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
-use citadel_io::ProtocolIO;
 use citadel_types::proto::UdpMode;
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
-use crate::proto::misc::nat_traversal;
 use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet_processor::includes::*;
@@ -77,7 +76,7 @@ use citadel_io::tokio::sync::oneshot;
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_peer_cmd<R: Ratchet, T: ProtocolIO>(
+pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
     session_orig: &CitadelSession<R, T>,
     aux_cmd: u8,
     packet: HdpPacket,
@@ -698,7 +697,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: ProtocolIO>(
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
-                                        nat_traversal::p2p_hole_punch(
+                                        T::p2p_hole_punch(
                                             session.clone(),
                                             conn.reverse(),
                                             ticket,
@@ -870,7 +869,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: ProtocolIO>(
                                         )
                                             as u64);
                                         let sync_instant = Instant::now() + diff;
-                                        nat_traversal::p2p_hole_punch(
+                                        T::p2p_hole_punch(
                                             session.clone(),
                                             conn.reverse(),
                                             ticket,
@@ -1014,7 +1013,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: ProtocolIO>(
     to_concurrent_processor!(task)
 }
 
-async fn process_signal_command_as_server<R: Ratchet, T: ProtocolIO>(
+async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
     sess_ref: &CitadelSession<R, T>,
     signal: PeerSignal,
     ticket: Ticket,
@@ -1792,7 +1791,7 @@ fn construct_error_signal<E: ToString, R: Ratchet>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: ProtocolIO>(
+pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: PlatformOps>(
     signal: PeerSignal,
     timeout: Duration,
     session_cid: u64,
@@ -1841,7 +1840,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: Pro
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
     R: Ratchet,
-    T: ProtocolIO,
+    T: PlatformOps,
 >(
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
     signal: PeerSignal,
@@ -1905,7 +1904,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_response<R: Ratchet, T: ProtocolIO>(
+pub(crate) async fn route_signal_response<R: Ratchet, T: PlatformOps>(
     signal: PeerSignal,
     session_cid: u64,
     target_cid: u64,

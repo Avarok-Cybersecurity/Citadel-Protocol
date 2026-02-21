@@ -31,13 +31,13 @@
 
 use crate::error::NetworkError;
 use crate::prelude::{PeerConnectionType, PeerResponse, PeerSignal};
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::includes::VirtualConnectionType;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 
@@ -50,7 +50,7 @@ use citadel_types::proto::{SessionSecuritySettings, UdpMode};
     fields(is_server = session.is_server, session_cid = session_cid, target_cid = target_cid)
 ))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: ProtocolIO>(
+pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: PlatformOps>(
     peer_conn_type: PeerConnectionType,
     ticket: Ticket,
     peer_response: PeerResponse,

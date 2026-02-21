@@ -122,6 +122,21 @@ pub type DefaultServerConnectionSettingsBuilder<T> =
     ServerConnectionSettingsBuilder<StackedRatchet, T>;
 
 impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
+    fn base(addr: T) -> Self {
+        Self {
+            password: None,
+            username: None,
+            udp_mode: None,
+            session_security_settings: None,
+            name: None,
+            psk: None,
+            transient_uuid: None,
+            address: Some(addr),
+            is_connect: false,
+            _ratchet: PhantomData,
+        }
+    }
+
     /// Creates a new connection to a central server that does not persist client metadata and account information
     /// after the connection is dropped to the server. This is ideal for applications that do not require
     /// persistence.
@@ -132,16 +147,8 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
     /// See docs for `transient`. This function allows you to specify a custom UUID for the transient connection.
     pub fn transient_with_id(addr: T, id: impl Into<Uuid>) -> Self {
         Self {
-            password: None,
-            username: None,
-            udp_mode: None,
-            session_security_settings: None,
-            name: None,
-            psk: None,
             transient_uuid: Some(id.into()),
-            address: Some(addr),
-            is_connect: false,
-            _ratchet: PhantomData,
+            ..Self::base(addr)
         }
     }
 
@@ -157,13 +164,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
             password: Some(password.into()),
             username: Some(username.into()),
             name: Some(alias.into()),
-            psk: None,
-            transient_uuid: None,
-            address: Some(addr),
-            udp_mode: None,
-            session_security_settings: None,
-            is_connect: false,
-            _ratchet: PhantomData,
+            ..Self::base(addr)
         }
     }
 
@@ -176,14 +177,8 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         Self {
             password: Some(password.into()),
             username: Some(username.into()),
-            name: None,
-            psk: None,
-            transient_uuid: None,
-            address: Some(addr),
-            udp_mode: None,
-            session_security_settings: None,
             is_connect: true,
-            _ratchet: PhantomData,
+            ..Self::base(addr)
         }
     }
 

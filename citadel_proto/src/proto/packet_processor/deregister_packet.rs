@@ -29,10 +29,10 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::DeRegistration;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -44,7 +44,7 @@ use citadel_io::ProtocolIO;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_deregister<R: Ratchet, T: ProtocolIO>(
+pub async fn process_deregister<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
@@ -124,7 +124,7 @@ pub async fn process_deregister<R: Ratchet, T: ProtocolIO>(
     to_concurrent_processor!(task)
 }
 
-async fn deregister_client_from_self<R: Ratchet, T: ProtocolIO>(
+async fn deregister_client_from_self<R: Ratchet, T: PlatformOps>(
     session_cid: u64,
     session_ref: &CitadelSession<R, T>,
     ratchet: &R,
@@ -191,7 +191,7 @@ async fn deregister_client_from_self<R: Ratchet, T: ProtocolIO>(
     Ok(ret)
 }
 
-async fn deregister_from_hyperlan_server_as_client<R: Ratchet, T: ProtocolIO>(
+async fn deregister_from_hyperlan_server_as_client<R: Ratchet, T: PlatformOps>(
     session_cid: u64,
     session_ref: &CitadelSession<R, T>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

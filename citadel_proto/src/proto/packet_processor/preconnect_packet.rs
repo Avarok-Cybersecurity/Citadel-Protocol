@@ -27,14 +27,13 @@
 //! - `UdpHolePuncher`: Handles NAT traversal operations
 //! - `SessionManager`: Tracks active protocol sessions
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::ProtocolIO;
 use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
 use crate::error::NetworkError;
-use crate::proto::misc::nat_traversal;
 use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
 use crate::proto::packet::packet_flags::payload_identifiers;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
@@ -58,7 +57,7 @@ use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSen
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
+pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
     session_orig: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
@@ -231,10 +230,9 @@ pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
                             if let Some(quic_conn) =
                                 inner_mut!(session.primary_stream_quic_conn).take()
                             {
-                                if let Some(udp) = nat_traversal::quic_udp_channel(
-                                    quic_conn,
-                                    session.local_bind_addr,
-                                ) {
+                                if let Some(udp) =
+                                    T::quic_udp_channel(quic_conn, session.local_bind_addr)
+                                {
                                     log::trace!(target: "citadel", "Skipping NAT traversal since QUIC is enabled for this session");
                                     return send_success_as_initiator(
                                         Some(udp),
@@ -283,7 +281,7 @@ pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
 
                 {
                     let stun_servers = session.stun_servers.clone();
-                    let udp = nat_traversal::c2s_hole_punch(
+                    let udp = T::c2s_hole_punch(
                         stream,
                         new_ratchet.clone(),
                         SecurityLevel::Standard,
@@ -371,7 +369,7 @@ pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
 
                 {
                     let stun_servers = session.stun_servers.clone();
-                    let udp = nat_traversal::c2s_hole_punch(
+                    let udp = T::c2s_hole_punch(
                         stream,
                         ratchet.clone(),
                         SecurityLevel::Standard,
@@ -446,7 +444,7 @@ pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
                         if let Some(quic_conn) = inner_mut!(session.primary_stream_quic_conn).take()
                         {
                             if let Some(udp) =
-                                nat_traversal::quic_udp_channel(quic_conn, session.local_bind_addr)
+                                T::quic_udp_channel(quic_conn, session.local_bind_addr)
                             {
                                 log::trace!(target: "citadel", "[Server/QUIC-UDP] Loading ...");
                                 let _ = handle_success_as_receiver(
@@ -542,7 +540,7 @@ pub async fn process_preconnect<R: Ratchet, T: ProtocolIO>(
     to_concurrent_processor!(task)
 }
 
-fn begin_connect_process<R: Ratchet, T: ProtocolIO>(
+fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
     security_level: SecurityLevel,
@@ -576,7 +574,7 @@ fn begin_connect_process<R: Ratchet, T: ProtocolIO>(
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator<R: Ratchet, T: ProtocolIO>(
+fn send_success_as_initiator<R: Ratchet, T: PlatformOps>(
     udp_splittable: Option<UdpSplittableTypes>,
     ratchet: &R,
     session: &CitadelSession<R, T>,
@@ -599,7 +597,7 @@ fn send_success_as_initiator<R: Ratchet, T: ProtocolIO>(
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
-fn handle_success_as_receiver<R: Ratchet, T: ProtocolIO>(
+fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     udp_splittable: Option<UdpSplittableTypes>,
     session: &CitadelSession<R, T>,
     session_cid: u64,
@@ -624,7 +622,7 @@ fn handle_success_as_receiver<R: Ratchet, T: ProtocolIO>(
         let peer_addr = udp_splittable.peer_addr();
         // the UDP subsystem will automatically engage at this point
         if state_container.udp_mode == UdpMode::Enabled {
-            crate::proto::misc::udp_session_ops::spawn_udp_socket_loader(
+            T::spawn_udp_socket_loader(
                 session.clone(),
                 VirtualTargetType::LocalGroupServer { session_cid },
                 udp_splittable,
