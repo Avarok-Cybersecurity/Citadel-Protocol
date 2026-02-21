@@ -320,6 +320,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         }
                     };
 
+                    // Wait for any disconnecting session to clean up before proceeding
+                    if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
+                        if !self.can_proceed_with_new_incoming_connection(cid).await {
+                            return Err(NetworkError::Generic(format!(
+                                "Session for CID {cid} already exists. Disconnect first before reconnecting."
+                            )));
+                        }
+                    }
+
                     let mut this = inner_mut!(self);
                     let on_drop = this.clean_shutdown_tracker_tx.clone();
                     let remote = this.server_remote.clone().unwrap();
@@ -338,17 +347,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         } else {
                             return Err(NetworkError::Generic(format!(
                                 "Localhost is already trying to connect to {peer_addr}"
-                            )));
-                        }
-                    }
-
-                    // Check if a session already exists for this CID (client-side check)
-                    // This prevents wasteful roundtrips where the server would reject with
-                    // "Session Already Connected"
-                    if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
-                        if this.sessions.contains_key(&cid) {
-                            return Err(NetworkError::Generic(format!(
-                                "Session for CID {cid} already exists. Disconnect first before reconnecting."
                             )));
                         }
                     }

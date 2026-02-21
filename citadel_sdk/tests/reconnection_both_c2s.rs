@@ -174,9 +174,6 @@ mod tests {
                     conn.disconnect().await?;
                     log::info!("[Peer A] C2S Disconnected");
 
-                    // Brief pause for server to process C2S disconnect
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
-
                     // ===== PHASE 3: Both reconnect =====
                     state.set_phase(3);
 
@@ -350,9 +347,6 @@ mod tests {
                     // B disconnects C2S
                     conn.disconnect().await?;
                     log::info!("[Peer B] C2S Disconnected");
-
-                    // Brief pause for server to process C2S disconnect
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
 
                     // ===== PHASE 3: Both reconnect =====
                     state.set_phase(3);

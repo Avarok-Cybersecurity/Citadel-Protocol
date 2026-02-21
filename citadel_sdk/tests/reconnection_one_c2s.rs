@@ -332,9 +332,6 @@ mod tests {
                     conn.disconnect().await?;
                     log::info!("[Peer B] C2S Disconnected");
 
-                    // Brief pause for server to process C2S disconnect
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
-
                     // ===== PHASE 3: B reconnects C2S, both reconnect P2P =====
                     state.set_phase(3);
 

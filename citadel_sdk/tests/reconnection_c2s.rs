@@ -112,9 +112,6 @@ mod tests {
                 conn.disconnect().await?;
                 log::info!("[Client] Disconnected");
 
-                // Small delay to ensure server processes disconnect
-                citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
-
                 // ===== PHASE 3: Reconnect Setup =====
                 state.set_phase(3);
                 log::info!("[Client] Phase 3: Reconnect");

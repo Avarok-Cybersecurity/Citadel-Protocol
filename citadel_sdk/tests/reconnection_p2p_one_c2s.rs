@@ -324,9 +324,6 @@ mod tests {
 
                     barrier2.wait().await;
 
-                    // Brief pause for server to process C2S disconnect
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
-
                     // ===== PHASE 3: B reconnects C2S, then P2P =====
                     state.set_phase(3);
 
