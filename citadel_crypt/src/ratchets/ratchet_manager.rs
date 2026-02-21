@@ -784,7 +784,7 @@ where
             }
         };
 
-        drop(citadel_io::tokio::task::spawn(combined));
+        drop(citadel_io::spawn(combined));
     }
 
     /// Runs a single round of re-keying, listening to events and returning

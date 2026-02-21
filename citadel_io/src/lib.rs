@@ -156,3 +156,29 @@ where
 {
     Ok(f())
 }
+
+/// Spawn an async task on the runtime.
+///
+/// On native: delegates to `tokio::task::spawn`.
+/// On WASM: delegates to `tokio::task::spawn_local` (no multi-thread runtime).
+#[cfg(not(target_family = "wasm"))]
+pub fn spawn<F>(f: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::task::spawn(f)
+}
+
+/// Spawn an async task on the runtime.
+///
+/// On native: delegates to `tokio::task::spawn`.
+/// On WASM: delegates to `tokio::task::spawn_local` (no multi-thread runtime).
+#[cfg(target_family = "wasm")]
+pub fn spawn<F>(f: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + 'static,
+    F::Output: 'static,
+{
+    tokio::task::spawn_local(f)
+}
