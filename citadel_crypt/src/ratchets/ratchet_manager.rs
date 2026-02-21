@@ -406,7 +406,7 @@ where
             // Use timeout to prevent infinite blocking if notification is missed
             // (e.g., rekey completed between version check above and listener registration)
             const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
-            match tokio::time::timeout(WAIT_TIMEOUT, rx).await {
+            match citadel_io::time::timeout(WAIT_TIMEOUT, rx).await {
                 Ok(Ok(_)) => {
                     // Notification received successfully
                     log::debug!(target: "citadel", "[CBD-RKT-0e3] Client {} received rekey completion notification", self.cid);
@@ -622,7 +622,7 @@ where
                 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
                 let mut rx = rx.unwrap();
                 loop {
-                    match tokio::time::timeout(WAIT_TIMEOUT, &mut rx).await {
+                    match citadel_io::time::timeout(WAIT_TIMEOUT, &mut rx).await {
                         Ok(Ok(_)) => {
                             // Notification received successfully
                             log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
@@ -769,7 +769,7 @@ where
                     break;
                 }
 
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                citadel_io::time::sleep(Duration::from_millis(500)).await;
             }
         };
 
@@ -821,7 +821,7 @@ where
 
         loop {
             let msg = if self.role() != RekeyRole::Idle {
-                match tokio::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
+                match citadel_io::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
                     Ok(msg) => msg,
                     Err(_) => {
                         log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
