@@ -60,6 +60,7 @@ use crate::ratchets::Ratchet;
 use crate::sync_toggle::ToggleGuard;
 use atomic::Atomic;
 use bytemuck::NoUninit;
+use citadel_io::time::{Duration, UNIX_EPOCH};
 use citadel_io::tokio::sync::Mutex as TokioMutex;
 use citadel_io::tokio_stream::Stream;
 use citadel_io::{tokio, Mutex};
@@ -70,7 +71,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Semaphore;
 
