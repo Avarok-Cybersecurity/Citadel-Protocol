@@ -20,7 +20,6 @@ sql = ["sqlx", "itertools"]
 filesystem = ["citadel_crypt/filesystem", "dirs2"]
 opfs = ["dep:opfs"]
 std = ["citadel_crypt/std", "rand/std", "sha3/std", "bstr/std"]
-wasm = ["citadel_crypt/wasm", "citadel_io/wasm"]
 google-services = ["openssl", "jwt", "firebase-rtdb", "serde_millis"]
 vendored = ["openssl/vendored"]
 

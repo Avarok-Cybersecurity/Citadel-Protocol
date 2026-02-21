@@ -24,7 +24,6 @@ std = [
     "async_ip/std",
 ]
 localhost-testing = ["tracing"]
-wasm = ["citadel_io/wasm", "netbeam/wasm", "async_ip/wasm"]
 vendored = ["openssl/vendored"]
 
 [dependencies]

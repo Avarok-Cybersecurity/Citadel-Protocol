@@ -23,9 +23,8 @@ RUN rustup target add wasm32-unknown-unknown
 COPY . .
 
 # Pre-compile WASM test artifacts to warm the cargo cache
-RUN RUSTFLAGS='--cfg getrandom_backend="wasm_js"' \
-    cargo test --target wasm32-unknown-unknown \
-    -p citadel_sdk --features wasm --no-default-features \
+RUN cargo test --target wasm32-unknown-unknown \
+    -p citadel_sdk --no-default-features \
     --test wasm_p2p_connect --no-run --release || true
 
 COPY ./docker/wasm_p2p/exec_wasm_tests.sh .

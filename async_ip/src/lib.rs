@@ -83,8 +83,7 @@ const URL_V6_1: &str = "http://ident.me";
 const URL_V6_2: &str = "http://v4v6.ipv6-test.com/api/myip.php";
 //const URL_V4_2: &str = "http://v4.ipv6-test.com/api/myip.php";
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 /// All the ip addr info for this node
 pub struct IpAddressInfo {
     /// internal addr

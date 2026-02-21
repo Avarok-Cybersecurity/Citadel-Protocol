@@ -53,7 +53,7 @@ strum_macros = { version = "0.27.1", default-features = false }
 sha3 = { version = "0.10", default-features = false }
 kyber-pke = { version = "0.5.0", default-features = false }
 packed_struct = { version = "0.10.1" }
-getrandom = { version = "0.3.3", default-features = false, features = ["wasm_js"] }
+getrandom = { version = "0.3.3", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
 tracing-subscriber = { version = "0.3.16" }

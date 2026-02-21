@@ -19,7 +19,6 @@ exclude = ["./target/*"]
 default = ["filesystem", "std"]
 filesystem = []
 std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std", "rayon"]
-wasm = ["citadel_pqcrypto/wasm", "citadel_io/wasm"]
 wasm-threads = ["rayon", "wasm-bindgen-rayon"]
 skip-argon-tests = []
 

@@ -16,7 +16,6 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["std"]
 std = ["net"]
-wasm = []
 wasi = ["socket2_wasm"]
 deadlock-detection = ["parking_lot/deadlock_detection"]
 net = ["tokio/net", "tokio-util/net"]

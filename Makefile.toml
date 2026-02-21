@@ -378,11 +378,11 @@ fi
 echo "Using Node.js $NODE_VERSION"
 echo "--- citadel_crypt WASM tests ---"
 cd citadel_crypt
-RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node --release -- --features=wasm --no-default-features --test wasm_crypto
+wasm-pack test --node --release -- --no-default-features --test wasm_crypto
 cd ..
 echo "--- citadel_sdk WASM tests ---"
 cd citadel_sdk
-RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --node --release -- --features=wasm --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
 '''
 
 [tasks.test-wasm-integration]
@@ -408,7 +408,7 @@ echo "Server running (PID=$SERVER_PID)"
 
 echo "Running WASM integration tests in headless Chrome..."
 cd citadel_sdk
-RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --chrome --release -- --features=wasm --no-default-features --test wasm_c2s_connect
+wasm-pack test --headless --chrome --release -- --no-default-features --test wasm_c2s_connect
 echo "WASM integration tests passed!"
 '''
 

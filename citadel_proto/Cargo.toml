@@ -38,14 +38,6 @@ std = [
     "atomic/std",
 ]
 
-wasm = [
-    "citadel_user/wasm",
-    "citadel_crypt/wasm",
-    "citadel_pqcrypto/wasm",
-    "citadel_wire/wasm",
-    "citadel_io/wasm",
-    "netbeam/wasm",
-]
 wasm-threads = ["citadel_crypt/wasm-threads"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
