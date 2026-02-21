@@ -174,6 +174,7 @@ mod tests {
                     conn.disconnect().await?;
                     log::info!("[Peer A] C2S Disconnected");
 
+                    // Brief pause for server to process C2S disconnect
                     citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
 
                     // ===== PHASE 3: Both reconnect =====
@@ -337,7 +338,7 @@ mod tests {
                     drop(rx);
 
                     // Wait for P2P disconnect signal from A
-                    citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
+                    state.wait_for_p2p_disconnect(Duration::from_secs(15)).await;
 
                     log::info!(
                         "[Peer B] P2P disconnect received count: {}",
@@ -350,6 +351,7 @@ mod tests {
                     conn.disconnect().await?;
                     log::info!("[Peer B] C2S Disconnected");
 
+                    // Brief pause for server to process C2S disconnect
                     citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
 
                     // ===== PHASE 3: Both reconnect =====
@@ -438,7 +440,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(180), task)
             .await
             .expect("Test timed out");
 

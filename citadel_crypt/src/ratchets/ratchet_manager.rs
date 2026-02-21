@@ -832,7 +832,17 @@ where
                     }
                 }
             } else {
-                receiver.next().await
+                // Even in idle mode, use a generous timeout to prevent indefinite blocking
+                // in case the channel is not properly closed on disconnect
+                const IDLE_REKEY_TIMEOUT: Duration = Duration::from_secs(300);
+                match citadel_io::time::timeout(IDLE_REKEY_TIMEOUT, receiver.next()).await {
+                    Ok(msg) => msg,
+                    Err(_) => {
+                        log::trace!(target: "citadel", "Client {} idle rekey timeout (no messages for {}s), continuing",
+                            self.cid, IDLE_REKEY_TIMEOUT.as_secs());
+                        continue;
+                    }
+                }
             };
             self.last_received_message.store(
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),

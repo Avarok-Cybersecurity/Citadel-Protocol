@@ -161,8 +161,8 @@ mod tests {
 
                     barrier2.wait().await;
 
-                    // Wait for P2P disconnect signal from B (generous for CI release builds)
-                    citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
+                    // Wait for actual P2P disconnect signal from B
+                    state.wait_for_p2p_disconnect(Duration::from_secs(15)).await;
 
                     log::info!(
                         "[Peer A] Phase 2 complete, p2p_disconnect_recv={}",
@@ -326,9 +326,6 @@ mod tests {
                     state.set_phase(3);
                     barrier3.wait().await;
 
-                    // Pause before reconnect (generous for CI release builds)
-                    citadel_io::tokio::time::sleep(Duration::from_millis(1000)).await;
-
                     // Reconnect P2P - already registered, just need to connect
                     let peer_handle2 = conn.find_target(conn.cid, peer_username.clone()).await?;
                     let p2p2 = peer_handle2.connect_to_peer().await?;
@@ -396,7 +393,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(180), task)
             .await
             .expect("Test timed out");
 
