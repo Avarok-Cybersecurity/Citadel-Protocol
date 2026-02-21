@@ -138,53 +138,56 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
 
 impl<T: ReliableOrderedStreamToTarget> ReliableOrderedStreamToTargetExt for T {}
 
-#[async_trait]
 #[cfg(not(target_family = "wasm"))]
-impl ReliableOrderedStreamToTarget for citadel_io::tokio::net::TcpStream {
-    async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-        loop {
-            self.writable().await?;
+mod native_impls {
+    use super::*;
 
-            match self.try_write(input) {
-                Ok(_) => return Ok(()),
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    continue;
+    #[async_trait]
+    impl ReliableOrderedStreamToTarget for citadel_io::tokio::net::TcpStream {
+        async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
+            loop {
+                self.writable().await?;
+
+                match self.try_write(input) {
+                    Ok(_) => return Ok(()),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
-                Err(e) => {
-                    return Err(e);
+            }
+        }
+
+        async fn recv(&self) -> std::io::Result<Bytes> {
+            let mut buf = BytesMut::with_capacity(4096);
+            loop {
+                self.readable().await?;
+
+                match self.try_read_buf(&mut buf) {
+                    Ok(0) => return Ok(Bytes::new()),
+
+                    Ok(len) => return Ok(buf.split_to(len).freeze()),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
             }
         }
     }
 
-    async fn recv(&self) -> std::io::Result<Bytes> {
-        let mut buf = BytesMut::with_capacity(4096);
-        loop {
-            self.readable().await?;
-
-            match self.try_read_buf(&mut buf) {
-                Ok(0) => return Ok(Bytes::new()),
-
-                Ok(len) => return Ok(buf.split_to(len).freeze()),
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e);
-                }
-            }
+    impl ConnAddr for citadel_io::tokio::net::TcpStream {
+        fn local_addr(&self) -> std::io::Result<SocketAddr> {
+            citadel_io::tokio::net::TcpStream::local_addr(self)
         }
-    }
-}
 
-#[cfg(not(target_family = "wasm"))]
-impl ConnAddr for citadel_io::tokio::net::TcpStream {
-    fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        citadel_io::tokio::net::TcpStream::local_addr(self)
-    }
-
-    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        citadel_io::tokio::net::TcpStream::peer_addr(self)
+        fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+            citadel_io::tokio::net::TcpStream::peer_addr(self)
+        }
     }
 }
 

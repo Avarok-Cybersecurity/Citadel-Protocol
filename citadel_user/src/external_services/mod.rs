@@ -75,7 +75,7 @@ pub struct ServicesHandler {
 }
 
 #[derive(Clone)]
-#[cfg(not(feature = "google-services"))]
+#[cfg(any(not(feature = "google-services"), target_family = "wasm"))]
 pub struct ServicesHandler;
 
 #[cfg(all(feature = "google-services", not(target_family = "wasm")))]
@@ -88,7 +88,7 @@ pub struct ServicesConfig {
     pub google_rtdb: Option<RtdbConfig>,
 }
 
-#[cfg(not(feature = "google-services"))]
+#[cfg(any(not(feature = "google-services"), target_family = "wasm"))]
 #[derive(Default)]
 pub struct ServicesConfig;
 
