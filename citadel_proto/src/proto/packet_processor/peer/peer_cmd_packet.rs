@@ -139,14 +139,18 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                     match &signal {
                         PeerSignal::Disconnect {
                             peer_conn_type: vconn,
-                            disconnect_response: resp,
+                            disconnect_response: _resp,
                             ref disconnect_token,
                         } => {
-                            // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
-                            let target = resp
-                                .as_ref()
-                                .map(|_| vconn.get_original_session_cid())
-                                .unwrap_or_else(|| vconn.get_original_target_cid());
+                            // The target is always "the other peer" — the CID
+                            // that isn't ours. Vconns are keyed by peer CID,
+                            // so we must resolve which CID in the signal is
+                            // the remote peer relative to this client.
+                            let target = if vconn.get_original_session_cid() == session_cid {
+                                vconn.get_original_target_cid()
+                            } else {
+                                vconn.get_original_session_cid()
+                            };
 
                             // Validate disconnect token against the active vconn to
                             // reject stale signals from a previous P2P connection
@@ -417,6 +421,34 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
 
                                     let mut state_container =
                                         inner_mut_state!(session.state_container);
+
+                                    // Guard: during simultaneous P2P connect, both peers
+                                    // run Accept handlers, each storing an alice_constructor
+                                    // in peer_kem_states. When the other peer's Stage0
+                                    // arrives, overwriting the kem_state would destroy our
+                                    // alice_constructor, corrupting the in-progress exchange.
+                                    // Use CID tiebreaker: the exchange initiated by the
+                                    // lower CID wins. Both peers see the same CID pair, so
+                                    // both make the same decision regardless of timing.
+                                    if let Some(existing_kem) =
+                                        state_container.peer_kem_states.get(&peer_cid)
+                                    {
+                                        if existing_kem.constructor.is_some() {
+                                            let our_cid = conn.get_original_target_cid();
+                                            if our_cid < peer_cid {
+                                                log::info!(target: "citadel",
+                                                    "Simultaneous P2P KEX race: dropping \
+                                                     Stage0 from {peer_cid} (our exchange as \
+                                                     lower CID {our_cid} takes priority)");
+                                                drop(state_container);
+                                                return Ok(PrimaryProcessorResult::Void);
+                                            }
+                                            log::info!(target: "citadel",
+                                                "Simultaneous P2P KEX race: replacing our \
+                                                 exchange with Stage0 from {peer_cid} (peer \
+                                                 has lower CID, takes priority)");
+                                        }
+                                    }
 
                                     let session_password =
                                         state_container.get_session_password(peer_cid).cloned();

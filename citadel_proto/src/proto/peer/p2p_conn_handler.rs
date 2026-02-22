@@ -394,10 +394,24 @@ mod native_p2p {
                 res2 = stopper_future => res2
             };
 
+            // When the stopper fires, this stream was replaced or discarded
+            // by the CID tie-breaker in insert_direct_p2p_connection. The
+            // surviving stream's handler will manage cleanup when it exits.
+            // Skip cleanup here: both streams share the same p2p_connection_id
+            // (from the same KEX), so is_current_connection would incorrectly
+            // match, destroying the live connection's vconn and ratchet.
+            let was_replaced = matches!(
+                &res,
+                Err(NetworkError::InternalError("p2p stopper triggered"))
+            );
+
+            if was_replaced {
+                log::trace!(target: "citadel", "[P2P-stream] Stream replaced by tie-breaker for peer {peer_cid}, skipping cleanup");
+                return res;
+            }
+
             if let Err(err) = &res {
-                if !err.to_string().contains("p2p stopper triggered") {
-                    log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {err}");
-                }
+                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {err}");
             }
 
             let mut state_container = inner_mut_state!(sess.state_container);
@@ -421,11 +435,31 @@ mod native_p2p {
 
                 state_container.active_virtual_connections.remove(&peer_cid);
 
-                state_container
-                    .outgoing_peer_connect_attempts
-                    .remove(&peer_cid);
-
-                state_container.peer_kem_states.remove(&peer_cid);
+                // Only clean up kem_state and outgoing attempts if they
+                // belong to the old connection. A new connect_to_peer() may
+                // have already inserted a fresh outgoing attempt before the
+                // Accept handler creates a kem_state. If no kem_state exists,
+                // we can't determine ownership — leave everything alone.
+                // The next connect_to_peer() will overwrite stale entries.
+                let kem_belongs_to_old = state_container
+                    .peer_kem_states
+                    .get(&peer_cid)
+                    .map(|kem| kem.p2p_connection_id == cleanup_connection_id);
+                match kem_belongs_to_old {
+                    Some(true) => {
+                        state_container.peer_kem_states.remove(&peer_cid);
+                        state_container
+                            .outgoing_peer_connect_attempts
+                            .remove(&peer_cid);
+                    }
+                    Some(false) => {
+                        // New kem_state exists — don't touch anything
+                    }
+                    None => {
+                        // No kem_state — can't determine ownership of outgoing
+                        // attempt. Leave it; next connect_to_peer() overwrites.
+                    }
+                }
             } else {
                 log::trace!(target: "citadel", "[P2P-stream] Skipping cleanup for peer {peer_cid} — connection replaced by newer instance");
             }
