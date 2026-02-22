@@ -743,7 +743,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         sess: &CitadelSession<R, T>,
         file_transfer_compatible: bool,
         p2p_connection_id: Ticket,
-    ) -> PeerChannel<R> {
+    ) -> Option<PeerChannel<R>> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS); // Put backpressure on requests
@@ -898,13 +898,32 @@ impl<R: Ratchet> StateContainerInner<R> {
             p2p_connection_id,
         };
 
+        // Guard: when both peers call connect_to_peer() simultaneously, two independent
+        // Kex sequences complete, each calling create_virtual_connection(). The second call
+        // would overwrite the first vconn, dropping its ratchet_manager and killing any
+        // in-flight operations (e.g., rekey). Skip the insert if an active vconn already
+        // exists — the first connection is valid and should be preserved.
+        // During reconnect, the old vconn is marked inactive by disconnect processing,
+        // so the overwrite proceeds correctly.
+        if let Some(existing) = self.active_virtual_connections.get(&target_cid) {
+            if existing.is_active.load(Ordering::SeqCst) && existing.endpoint_container.is_some() {
+                log::info!(target: "citadel",
+                    "Active vconn for peer {target_cid} already exists (simultaneous connect race), \
+                     dropping duplicate Kex result");
+                // Return None so callers skip PeerChannelCreated and hole punch.
+                // The new vconn drops here. Its Drop calls ratchet_manager.shutdown(),
+                // which is safe — the new ratchet_manager was never connected to any stream.
+                return None;
+            }
+        }
+
         // Clear any stale ratchet for this peer — the new connection
         // supersedes it and provides a fresh ratchet via the new vconn.
         self.stale_p2p_ratchets.remove(&target_cid);
 
         self.active_virtual_connections.insert(target_cid, vconn);
 
-        peer_channel
+        Some(peer_channel)
     }
 
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
@@ -922,16 +941,18 @@ impl<R: Ratchet> StateContainerInner<R> {
         // Reuse the latest one. During SYN/SYN_ACK process, toolsets should be reset inside the endpoint_crypto
         let endpoint_crypto = cnac.get_session_crypto().clone();
 
-        let channel = self.create_virtual_connection(
-            security_settings,
-            channel_ticket,
-            C2S_IDENTITY_CID,
-            VirtualConnectionType::LocalGroupServer { session_cid },
-            endpoint_crypto,
-            session,
-            true,
-            Ticket(0), // C2S connections don't need P2P connection IDs
-        );
+        let channel = self
+            .create_virtual_connection(
+                security_settings,
+                channel_ticket,
+                C2S_IDENTITY_CID,
+                VirtualConnectionType::LocalGroupServer { session_cid },
+                endpoint_crypto,
+                session,
+                true,
+                Ticket(0), // C2S connections don't need P2P connection IDs
+            )
+            .expect("C2S connections never hit simultaneous connect guard");
 
         let p2p_remote = DirectP2PRemote {
             stopper: None,

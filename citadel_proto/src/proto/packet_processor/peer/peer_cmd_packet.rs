@@ -583,18 +583,25 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             .is_filesystem_backend();
 
                                         let p2p_connection_id = kem_state.p2p_connection_id;
-                                        let channel = state_container.create_virtual_connection(
-                                            //bob_predicted_socket_addr,
-                                            session_security_settings,
-                                            ticket,
-                                            peer_cid,
-                                            vconn_type,
-                                            peer_crypto,
-                                            session,
-                                            local_is_file_transfer_compat
-                                                && *peer_file_transfer_compat,
-                                            p2p_connection_id,
-                                        );
+                                        let channel = match state_container
+                                            .create_virtual_connection(
+                                                //bob_predicted_socket_addr,
+                                                session_security_settings,
+                                                ticket,
+                                                peer_cid,
+                                                vconn_type,
+                                                peer_crypto,
+                                                session,
+                                                local_is_file_transfer_compat
+                                                    && *peer_file_transfer_compat,
+                                                p2p_connection_id,
+                                            ) {
+                                            Some(ch) => ch,
+                                            None => {
+                                                log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage1, peer {peer_cid})");
+                                                return Ok(PrimaryProcessorResult::Void);
+                                            }
+                                        };
                                         // load the channel now that the keys have been exchanged
 
                                         // Create cancellation channel for hole punch operation.
@@ -789,18 +796,25 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
 
                                         let p2p_connection_id = kem.p2p_connection_id;
-                                        let channel = state_container.create_virtual_connection(
-                                            //alice_predicted_socket_addr,
-                                            session_security_settings,
-                                            ticket,
-                                            peer_cid,
-                                            vconn_type,
-                                            peer_crypto,
-                                            session,
-                                            local_is_file_transfer_compat
-                                                && *peer_file_transfer_compat,
-                                            p2p_connection_id,
-                                        );
+                                        let channel = match state_container
+                                            .create_virtual_connection(
+                                                //alice_predicted_socket_addr,
+                                                session_security_settings,
+                                                ticket,
+                                                peer_cid,
+                                                vconn_type,
+                                                peer_crypto,
+                                                session,
+                                                local_is_file_transfer_compat
+                                                    && *peer_file_transfer_compat,
+                                                p2p_connection_id,
+                                            ) {
+                                            Some(ch) => ch,
+                                            None => {
+                                                log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage2, peer {peer_cid})");
+                                                return Ok(PrimaryProcessorResult::Void);
+                                            }
+                                        };
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
                                         // We can now send the channel to the kernel, where TURN traversal is immediantly available.
