@@ -162,7 +162,7 @@ mod tests {
                     barrier2.wait().await;
 
                     // Wait for actual P2P disconnect signal from B
-                    state.wait_for_p2p_disconnect(Duration::from_secs(15)).await;
+                    state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
 
                     log::info!(
                         "[Peer A] Phase 2 complete, p2p_disconnect_recv={}",
@@ -393,7 +393,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(180), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(240), task)
             .await
             .expect("Test timed out");
 

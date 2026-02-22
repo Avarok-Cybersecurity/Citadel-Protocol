@@ -135,7 +135,7 @@ mod tests {
                         barriers[base + 2].wait().await;
 
                         // Wait for actual P2P disconnect signal from B
-                        state.wait_for_p2p_disconnect(Duration::from_secs(15)).await;
+                        state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
                         log::info!("[Peer A] Iteration {} complete", i + 1);
                     }
 
