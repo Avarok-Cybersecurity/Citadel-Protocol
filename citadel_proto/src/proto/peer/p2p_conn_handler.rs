@@ -424,6 +424,8 @@ mod native_p2p {
                 state_container
                     .outgoing_peer_connect_attempts
                     .remove(&peer_cid);
+
+                state_container.peer_kem_states.remove(&peer_cid);
             } else {
                 log::trace!(target: "citadel", "[P2P-stream] Skipping cleanup for peer {peer_cid} — connection replaced by newer instance");
             }
