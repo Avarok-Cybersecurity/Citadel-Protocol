@@ -70,7 +70,19 @@ pub(crate) mod threading;
 pub mod udp_internal_interface;
 
 #[cfg(target_family = "wasm")]
+pub mod serverless;
+#[cfg(target_family = "wasm")]
+pub mod signaling;
+#[cfg(target_family = "wasm")]
+pub mod signaling_firebase;
+#[cfg(target_family = "wasm")]
 pub mod wasm_io;
+#[cfg(target_family = "wasm")]
+pub(crate) mod wasm_p2p;
+#[cfg(target_family = "wasm")]
+pub(crate) mod wasm_rtc;
+#[cfg(target_family = "wasm")]
+pub(crate) mod wasm_stream;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop

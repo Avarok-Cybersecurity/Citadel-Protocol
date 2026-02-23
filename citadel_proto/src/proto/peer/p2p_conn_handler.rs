@@ -111,7 +111,7 @@ pub struct P2PInboundHandle<R: Ratchet> {
 }
 
 impl<R: Ratchet> P2PInboundHandle<R> {
-    fn new(
+    pub(crate) fn new(
         remote_peer: SocketAddr,
         local_bind_port: u16,
         session_cid: DualRwLock<Option<u64>>,

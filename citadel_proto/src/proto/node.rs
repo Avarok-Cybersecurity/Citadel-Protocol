@@ -99,8 +99,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         underlying_proto: ServerMode<T>,
         client_config: Option<T::ClientConfig>,
         stun_servers: Option<Vec<String>>,
+        turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
         websocket_listen_addr: Option<std::net::SocketAddr>,
+        pre_built_listener: Option<T::Listener>,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -109,10 +111,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
     )> {
         let (primary_socket, bind_addr) = match local_node_type {
             NodeType::Server(bind_addr) => {
-                let (listener, addr) =
-                    T::bind(underlying_proto.clone(), T::from_socket_addr(bind_addr)).await?;
-                let listener = T::bind_with_websocket(listener, websocket_listen_addr).await?;
-                (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                if let Some(listener) = pre_built_listener {
+                    // Serverless mode: use injected listener.
+                    let addr = T::from_socket_addr(bind_addr);
+                    (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                } else {
+                    // Normal mode: bind to address.
+                    let (listener, addr) =
+                        T::bind(underlying_proto.clone(), T::from_socket_addr(bind_addr)).await?;
+                    let listener = T::bind_with_websocket(listener, websocket_listen_addr).await?;
+                    (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                }
             }
 
             NodeType::Peer => (None, None),
@@ -138,6 +147,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             time_tracker,
             client_config.clone(),
             stun_servers.clone(),
+            turn_servers,
         );
 
         let nat_type = T::identify_nat_type(stun_servers).await?;

@@ -555,6 +555,12 @@ pub mod prelude {
 
     // WASM-only prelude exports
     #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::serverless::{establish_serverless_connection, ServerlessConfig};
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::signaling::SignalingService;
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::signaling_firebase::{FirebaseSignaling, FirebaseSignalingConfig};
+    #[cfg(target_family = "wasm")]
     pub use crate::proto::misc::wasm_io::*;
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
@@ -590,6 +596,7 @@ pub mod prelude {
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
     pub use crate::proto::session::ServerOnlySessionInitSettings;
+    pub use crate::proto::session::TurnServerConfig;
     pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
     pub use citadel_types::crypto::EncryptionAlgorithm;
     pub use citadel_types::crypto::KemAlgorithm;

@@ -153,6 +153,14 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) hole_puncher_pipes:
         HashMap<u64, citadel_io::tokio::sync::mpsc::UnboundedSender<Bytes>>,
     pub(super) pending_hole_punch_packets: HashMap<u64, Vec<Bytes>>,
+    /// Channels for delivering WebRTC signaling payloads to in-progress
+    /// P2P hole-punch tasks. Keyed by peer CID.
+    pub(super) webrtc_signaling_channels: HashMap<
+        u64,
+        citadel_io::tokio::sync::mpsc::UnboundedSender<
+            crate::proto::peer::peer_crypt::WebRtcSignalingPayload,
+        >,
+    >,
     pub(super) cnac: Option<ClientNetworkAccount<R, R>>,
     pub(super) time_tracker: TimeTracker,
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
@@ -473,6 +481,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             cnac,
             hole_puncher_pipes: HashMap::new(),
             pending_hole_punch_packets: HashMap::new(),
+            webrtc_signaling_channels: HashMap::new(),
             tcp_loaded_status: None,
             state,
             keep_alive_timeout_ns,

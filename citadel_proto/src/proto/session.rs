@@ -244,6 +244,7 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) client_config: T::ClientConfig,
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: Option<Vec<String>>,
+    pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
@@ -303,6 +304,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     // this is set only when a local client is attempting to start an outbound session
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
     pub stun_servers: Option<Vec<String>>,
+    pub turn_servers: Option<Vec<TurnServerConfig>>,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
@@ -326,6 +328,21 @@ pub struct ServerOnlySessionInitSettings {
     // Only useful for the header obfuscator settings
     pub declared_header_obfuscation_setting: HeaderObfuscatorSettings,
     pub declared_pre_shared_key: Option<PreSharedKey>,
+}
+
+/// TURN server configuration for NAT traversal relay.
+///
+/// TURN servers act as relay points when direct peer-to-peer connections
+/// fail due to restrictive NAT configurations. Unlike STUN (which only
+/// helps discover the public address), TURN actively relays traffic.
+#[derive(Clone, Debug)]
+pub struct TurnServerConfig {
+    /// TURN server URL, e.g. `"turn:turn.example.com:3478"` or `"turns:turn.example.com:443"`.
+    pub url: String,
+    /// Username for TURN authentication.
+    pub username: String,
+    /// Credential (password) for TURN authentication.
+    pub credential: String,
 }
 
 impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
@@ -412,6 +429,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .map(|r| r.keep_alive_timeout_ns)
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
+        let turn_servers = session_init_params.turn_servers;
         let init_time = session_init_params.init_time;
         let session_password = session_init_params.session_password;
         // Use disconnect_tracker passed in through params to avoid needing to lock
@@ -458,6 +476,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             queue_handle: DualLateInit::default(),
             client_config,
             stun_servers,
+            turn_servers,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),
@@ -2340,6 +2359,31 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     #[allow(clippy::result_large_err)]
     pub fn send_to_kernel(&self, msg: NodeResult<R>) -> Result<(), SendError<NodeResult<R>>> {
         self.kernel_tx.unbounded_send(msg)
+    }
+
+    /// Returns ICE server configurations derived from the session's STUN and TURN servers.
+    #[cfg(target_family = "wasm")]
+    pub fn p2p_ice_servers(&self) -> Vec<crate::proto::misc::wasm_io::IceServerConfig> {
+        let mut servers = Vec::new();
+        if let Some(stun) = &self.stun_servers {
+            for url in stun {
+                servers.push(crate::proto::misc::wasm_io::IceServerConfig {
+                    urls: vec![url.clone()],
+                    username: None,
+                    credential: None,
+                });
+            }
+        }
+        if let Some(turn) = &self.turn_servers {
+            for cfg in turn {
+                servers.push(crate::proto::misc::wasm_io::IceServerConfig {
+                    urls: vec![cfg.url.clone()],
+                    username: Some(cfg.username.clone()),
+                    credential: Some(cfg.credential.clone()),
+                });
+            }
+        }
+        servers
     }
 
     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full

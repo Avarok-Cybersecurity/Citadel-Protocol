@@ -1020,6 +1020,22 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             // Not simultaneous connect - fall through to forward to kernel
                         }
 
+                        PeerSignal::WebRtcSignaling {
+                            peer_conn_type: ref conn,
+                            ref payload,
+                        } => {
+                            let peer_cid = conn.get_original_session_cid();
+                            let state_container = inner_state!(session.state_container);
+                            if let Some(tx) =
+                                state_container.webrtc_signaling_channels.get(&peer_cid)
+                            {
+                                let _ = tx.send(payload.clone());
+                            } else {
+                                log::warn!(target: "citadel", "No WebRTC signaling channel registered for peer {peer_cid}");
+                            }
+                            return Ok(PrimaryProcessorResult::Void);
+                        }
+
                         _ => {}
                     }
 
@@ -1761,6 +1777,41 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             inner_mut_state!(session.state_container)
                 .remove_udp_channel(peer_conn_type.get_original_target_cid());
             Ok(PrimaryProcessorResult::Void)
+        }
+
+        PeerSignal::WebRtcSignaling {
+            peer_conn_type: conn,
+            payload,
+        } => {
+            // Pure relay to target peer — no NAT enrichment needed since ICE handles it.
+            let peer_cid = conn.get_original_target_cid();
+            let signal_to = PeerSignal::WebRtcSignaling {
+                peer_conn_type: conn,
+                payload,
+            };
+            let sess_mgr = inner!(session.session_manager);
+            let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_ratchet| {
+                packet_crafter::peer_cmd::craft_peer_signal(
+                    peer_ratchet,
+                    signal_to,
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
+            });
+
+            if let Err(err) = res {
+                reply_to_sender_err(
+                    err,
+                    &sess_ratchet,
+                    ticket,
+                    timestamp,
+                    security_level,
+                    peer_cid,
+                )
+            } else {
+                Ok(PrimaryProcessorResult::Void)
+            }
         }
     }
 }

@@ -91,8 +91,10 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             client_config,
             kernel_executor_settings,
             stun_servers,
+            turn_servers,
             server_only_session_init_settings,
             websocket_listen_addr,
+            pre_built_listener,
         } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
@@ -106,8 +108,10 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             underlying_proto,
             client_config,
             stun_servers,
+            turn_servers,
             server_only_session_init_settings,
             websocket_listen_addr,
+            pre_built_listener,
         )
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;

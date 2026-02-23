@@ -106,6 +106,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: T::ClientConfig,
     stun_servers: Option<Vec<String>>,
+    turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
 }
@@ -119,6 +120,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         time_tracker: TimeTracker,
         client_config: T::ClientConfig,
         stun_servers: Option<Vec<String>>,
+        turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     ) -> Self {
         let incoming_cxn_count = 0;
         let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
@@ -138,6 +140,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             time_tracker,
             client_config,
             stun_servers,
+            turn_servers,
             disconnect_tracker: DisconnectSignalTracker::new(),
         };
 
@@ -268,6 +271,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 proposed_credentials,
                 peer_layer,
                 stun_servers,
+                turn_servers,
             ) = {
                 let (
                     remote,
@@ -280,6 +284,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     proposed_credentials,
                     peer_layer,
                     stun_servers,
+                    turn_servers,
                 ) = {
                     let (peer_addr, cnac, proposed_credentials) = {
                         match &init_mode {
@@ -337,6 +342,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let tt = this.time_tracker;
                     let peer_layer = this.hypernode_peer_layer.clone();
                     let stun_servers = this.stun_servers.clone();
+                    let turn_servers = this.turn_servers.clone();
 
                     if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
                         // Localhost is already trying to connect. However, it's possible that the entry has expired,
@@ -362,6 +368,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         proposed_credentials,
                         peer_layer,
                         stun_servers,
+                        turn_servers,
                     )
                 };
 
@@ -391,6 +398,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     proposed_credentials,
                     peer_layer,
                     stun_servers,
+                    turn_servers,
                 )
             };
 
@@ -424,6 +432,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 hypernode_peer_layer: peer_layer,
                 client_only_settings: Some(client_only_settings),
                 stun_servers,
+                turn_servers,
                 init_time,
                 session_password,
                 server_only_session_init_settings: None,
@@ -637,6 +646,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let client_config = this.client_config.clone();
         let peer_layer = this.hypernode_peer_layer.clone();
         let stun_servers = this.stun_servers.clone();
+        let turn_servers = this.turn_servers.clone();
 
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
         // However, two concurrent provisional connections from the same IP cannot be connecting at once
@@ -662,6 +672,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             hypernode_peer_layer: peer_layer,
             client_only_settings: None,
             stun_servers,
+            turn_servers,
             init_time,
             session_password: server_only_session_init_settings
                 .declared_pre_shared_key

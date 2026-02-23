@@ -17,6 +17,8 @@ use citadel_io::ProtocolIO;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode, VirtualObjectMetadata};
 use citadel_wire::exports::Connection;
+#[cfg(target_family = "wasm")]
+use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use netbeam::sync::RelativeNodeType;
@@ -164,6 +166,20 @@ pub trait PlatformOps: ProtocolIO {
     ) {
         let _ = (session, v_target, udp_conn, addr, ticket, tcp_conn_awaiter);
     }
+
+    // ── Serverless transport (WASM only) ──
+
+    /// Create the listener/client-config/node-type tuple for serverless mode.
+    ///
+    /// Moves the pre-established stream into either a listener (server role)
+    /// or a client config with a pre-built stream (client role), returning
+    /// the correct associated types for the generic `build()` pipeline.
+    #[cfg(target_family = "wasm")]
+    fn setup_serverless_transport(
+        stream: super::wasm_stream::WasmStream,
+        is_server_role: bool,
+        existing_client_config: Option<Self::ClientConfig>,
+    ) -> (Option<Self::Listener>, Option<Self::ClientConfig>, NodeType);
 }
 
 /// Platform-appropriate default transport.

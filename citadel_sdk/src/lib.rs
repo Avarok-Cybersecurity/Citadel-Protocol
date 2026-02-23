@@ -269,6 +269,10 @@ pub mod responses;
 #[doc(hidden)]
 pub mod test_common;
 
+/// Browser-to-browser serverless connections (WASM only).
+#[cfg(target_family = "wasm")]
+pub mod net;
+
 #[macro_use]
 pub(crate) mod macros;
 

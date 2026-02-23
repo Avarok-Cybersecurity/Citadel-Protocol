@@ -103,8 +103,20 @@ web-sys = { workspace = true, features = [
     "RtcPeerConnectionIceEvent",
     "RtcSignalingState",
     "RtcIceConnectionState",
+    "RtcIceGatheringState",
+    "RtcDataChannelType",
+    # Fetch API (signaling service)
+    "Window",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Headers",
+    # Crypto (random nonce generation)
+    "Crypto",
 ] }
 js-sys = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

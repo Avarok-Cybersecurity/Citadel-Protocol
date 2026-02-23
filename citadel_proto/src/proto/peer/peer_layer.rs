@@ -665,6 +665,12 @@ pub enum PeerSignal {
         peer_conn_type: PeerConnectionType,
         kex_payload: KeyExchangeProcess,
     },
+    /// WebRTC signaling relay (SDP offer/answer + ICE candidates).
+    /// Used by WASM peers to establish DataChannel P2P connections.
+    WebRtcSignaling {
+        peer_conn_type: PeerConnectionType,
+        payload: super::peer_crypt::WebRtcSignalingPayload,
+    },
 }
 
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints

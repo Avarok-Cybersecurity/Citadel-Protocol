@@ -52,6 +52,9 @@ use uuid::Uuid;
 pub mod broadcast;
 /// A kernel that assists in allowing multiple possible peer-to-peer connections
 pub mod peer_connection;
+/// Internal kernel for serverless browser-to-browser connections
+#[cfg(target_family = "wasm")]
+pub(crate) mod serverless;
 /// A kernel that only makes a single client-to-server connection
 pub mod single_connection;
 

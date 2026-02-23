@@ -59,8 +59,11 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     client_tls_config: Option<T::ClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
+    turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     websocket_listen_addr: Option<std::net::SocketAddr>,
+    #[cfg(target_family = "wasm")]
+    serverless_config: Option<ServerlessConfig>,
     _ratchet: PhantomData<R>,
     _transport: PhantomData<T>,
 }
@@ -83,8 +86,11 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             client_tls_config: None,
             kernel_executor_settings: None,
             stun_servers: None,
+            turn_servers: None,
             local_only_server_settings: None,
             websocket_listen_addr: None,
+            #[cfg(target_family = "wasm")]
+            serverless_config: None,
             _ratchet: Default::default(),
             _transport: Default::default(),
         }
@@ -151,9 +157,12 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let client_config = self.client_tls_config.take();
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
         let stun_servers = self.stun_servers.take();
+        let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = self.local_only_server_settings.take();
         let websocket_listen_addr = self.websocket_listen_addr.take();
+        #[cfg(target_family = "wasm")]
+        let serverless_config = self.serverless_config.take();
 
         Ok(NodeFuture {
             _pd: Default::default(),
@@ -168,6 +177,30 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 };
 
                 T::config_warnings(&underlying_proto);
+
+                // Serverless mode: perform signaling and override node
+                // type, listener, and client config based on assigned role.
+                #[cfg(target_family = "wasm")]
+                let (pre_built_listener, client_config, hypernode_type) = if let Some(sl_config) =
+                    serverless_config
+                {
+                    let conn = establish_serverless_connection(
+                        sl_config.signaling.as_ref(),
+                        &sl_config.room_token,
+                        &sl_config.ice_servers,
+                        sl_config.poll_interval_ms,
+                        sl_config.timeout_ms,
+                    )
+                    .await
+                    .map_err(|e: std::io::Error| NetworkError::Generic(e.to_string()))?;
+
+                    T::setup_serverless_transport(conn.stream, conn.is_server_role, client_config)
+                } else {
+                    (None, client_config, hypernode_type)
+                };
+
+                #[cfg(not(target_family = "wasm"))]
+                let pre_built_listener = None;
 
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
                 let rt = citadel_io::try_current_runtime().map_err(NetworkError::Generic)?;
@@ -189,8 +222,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     client_config,
                     kernel_executor_settings,
                     stun_servers,
+                    turn_servers,
                     server_only_session_init_settings,
                     websocket_listen_addr,
+                    pre_built_listener,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -299,6 +334,16 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         self
     }
 
+    /// Specifies TURN servers for relay-based NAT traversal.
+    ///
+    /// TURN servers relay traffic when direct peer-to-peer connections fail
+    /// due to restrictive NAT configurations. On WASM targets, these are
+    /// passed as ICE servers to the WebRTC peer connection.
+    pub fn with_turn_servers<S: Into<Vec<TurnServerConfig>>>(&mut self, servers: S) -> &mut Self {
+        self.turn_servers = Some(servers.into());
+        self
+    }
+
     /// Adds an optional WebSocket listener to a server node.
     ///
     /// When set, the server will accept both its primary transport (TCP/TLS/QUIC)
@@ -308,6 +353,18 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     /// Has no effect on client/peer nodes.
     pub fn with_websocket_listener(&mut self, addr: std::net::SocketAddr) -> &mut Self {
         self.websocket_listen_addr = Some(addr);
+        self
+    }
+
+    /// Enables serverless browser-to-browser mode. Both peers run identical code;
+    /// one is automatically assigned the server role and the other the client role
+    /// via deterministic signaling through the provided [`ServerlessConfig`].
+    ///
+    /// When set, `hypernode_type`, `underlying_protocol`, and `client_config` are
+    /// determined automatically after signaling completes.
+    #[cfg(target_family = "wasm")]
+    pub fn with_no_central_server(&mut self, config: ServerlessConfig) -> &mut Self {
+        self.serverless_config = Some(config);
         self
     }
 
